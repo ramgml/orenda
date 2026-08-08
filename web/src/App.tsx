@@ -12,6 +12,7 @@ import { TimerWidget } from '@/features/tasks/TimerWidget'
 import { WikiPage } from '@/features/wiki/WikiPage'
 import { SearchPage } from '@/features/search/SearchPage'
 import { NotificationsBell } from '@/features/notifications/NotificationsBell'
+import { BackupsSettingsPage } from '@/features/settings/Backups'
 import { api, type InfoResponse } from '@/shared/api/client'
 import { HealthBadge } from '@/shared/ui/HealthBadge'
 import { useEffect, useState } from 'react'
@@ -92,6 +93,7 @@ function Shell(): JSX.Element {
           <Route path="/wiki/:slug?" element={<RequireAuth><WikiPage /></RequireAuth>} />
           <Route path="/search" element={<RequireAuth><SearchPage /></RequireAuth>} />
           <Route path="/settings" element={<RequireAuth><Placeholder title="Settings" /></RequireAuth>} />
+          <Route path="/settings/backups" element={<RequireAuth><BackupsSettingsPage /></RequireAuth>} />
           <Route path="*" element={<Placeholder title="Not found" />} />
         </Routes>
       </main>
