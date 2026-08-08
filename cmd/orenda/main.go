@@ -67,6 +67,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newMigrateCmd())
 	root.AddCommand(newBackupCmd())
+	root.AddCommand(newUserCmd())
 
 	return root
 }
@@ -272,16 +273,11 @@ func runMigrate(cmd *cobra.Command, action migrateAction) error {
 	}
 	defer func() { _ = logger.Sync() }()
 
-	dbPath := cfg.ResolveDBPath(cwdOr(cfgPath, "."))
-	db, err := sqlite.Open(cmd.Context(), dbPath, sqlite.OpenConfig{
-		WALMode:       cfg.Storage.WALMode,
-		EnableForeign: cfg.Storage.EnableForeign,
-		BusyTimeoutMs: cfg.Storage.BusyTimeoutMs,
-	})
+	db, cleanup, err := openCLIDB(cmd.Context(), cfg)
 	if err != nil {
-		return fmt.Errorf("db: %w", err)
+		return err
 	}
-	defer func() { _ = db.Close() }()
+	defer cleanup()
 
 	switch action {
 	case migrateUp:
