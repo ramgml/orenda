@@ -32,6 +32,7 @@ import (
 	"github.com/ramgml/orenda/internal/api"
 	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/config"
+	taskservice "github.com/ramgml/orenda/internal/service/task"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 )
 
@@ -129,8 +130,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Build repositories.
 	users := sqlite.NewUserRepository(db)
 	projects := sqlite.NewProjectRepository(db)
-	tasks := sqlite.NewTaskRepository(db)
+	tasksRepo := sqlite.NewTaskRepository(db)
 	tokens := sqlite.NewAPITokenRepository(db)
+
+	// Build service layer (Phase 2: task_service.Move; grows in later phases).
+	taskSvc := taskservice.New(tasksRepo, nil, taskservice.NullHub())
 
 	// Build the JWT signer. JWT secret is mandatory for Phase 1+ — refuse
 	// to start without it so the operator doesn't discover the missing
@@ -143,13 +147,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Build the router.
 	api.Version = version
 	router := api.NewRouter(api.Dependencies{
-		Logger:     logger,
-		Signer:     signer,
-		Users:      users,
-		Projects:   projects,
-		Tasks:      tasks,
-		Tokens:     tokens,
-		CookieName: cfg.Auth.CookieName,
+		Logger:      logger,
+		Signer:      signer,
+		Users:       users,
+		Projects:    projects,
+		Tasks:       tasksRepo,
+		Tokens:      tokens,
+		TaskService: taskSvc,
+		CookieName:  cfg.Auth.CookieName,
 	})
 
 	// HTTP server with graceful shutdown.
