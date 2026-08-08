@@ -392,6 +392,32 @@ class ApiClient {
       .get<{ hits: SearchHit[]; total: number }>('/api/v1/search', { params })
       .then((r) => r.data)
   }
+
+  // ---- Notifications (Phase 6) ----
+
+  listNotifications(params?: { limit?: number }): Promise<{ notifications: Notification[]; unread: number }> {
+    return this.http
+      .get<{ notifications: Notification[]; unread: number }>('/api/v1/notifications', { params })
+      .then((r) => r.data)
+  }
+
+  markNotificationRead(id: string): Promise<void> {
+    return this.http
+      .post<void>(`/api/v1/notifications/${id}/read`)
+      .then(() => undefined)
+  }
+}
+
+export interface Notification {
+  id: string
+  user_id: string
+  type: string
+  target_type?: string
+  target_id?: string
+  payload: string // JSON: { title, body, link, meta }
+  read_at?: string
+  dedup_key: string
+  created_at: string
 }
 
 export interface WikiPage {
