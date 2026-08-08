@@ -69,20 +69,11 @@ func (r *fakeUserRepo) Delete(_ context.Context, id string) error {
 
 // fakeTokenRepo satisfies api.APITokenLookup for tests.
 type fakeTokenRepo struct {
-	hashes map[string]*api.TokenRow
+	hashes map[string]*auth.TokenRow
 }
 
-func (r *fakeTokenRepo) GetByID(_ context.Context, id string) (*api.TokenRow, error) {
-	for _, t := range r.hashes {
-		if t.ID == id {
-			return t, nil
-		}
-	}
-	return nil, assertAnError()
-}
-
-func (r *fakeTokenRepo) ListAllHashes(_ context.Context) (map[string]api.TokenRow, error) {
-	out := make(map[string]api.TokenRow, len(r.hashes))
+func (r *fakeTokenRepo) ListAllHashes(_ context.Context) (map[string]auth.TokenRow, error) {
+	out := make(map[string]auth.TokenRow, len(r.hashes))
 	for k, v := range r.hashes {
 		out[k] = *v
 	}
@@ -107,6 +98,9 @@ var errTokenNotFound = fakeErr("token not found")
 type fakeErr string
 
 func (e fakeErr) Error() string { return string(e) }
+
+// (kept to keep the linter happy about unused functions in some configs)
+var _ = assertAnError
 
 // helper: build a router with auth wired and a tiny handler that echoes
 // the identity.

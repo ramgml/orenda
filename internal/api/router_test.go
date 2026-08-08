@@ -13,8 +13,16 @@ import (
 	"github.com/ramgml/orenda/internal/api"
 )
 
+// testDeps returns a Dependencies wired with no-op repos for endpoints that
+// don't need storage (healthz, info).
+func testDeps() api.Dependencies {
+	return api.Dependencies{
+		Logger: zap.NewNop(),
+	}
+}
+
 func TestHealthz(t *testing.T) {
-	router := api.NewRouter(api.Options{Logger: zap.NewNop()})
+	router := api.NewRouter(testDeps())
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
@@ -30,7 +38,7 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestInfo(t *testing.T) {
-	router := api.NewRouter(api.Options{
+	router := api.NewRouter(api.Dependencies{
 		Logger: zap.NewNop(),
 		Capabilities: api.Capabilities{
 			Auth: true, Backup: true,
@@ -57,7 +65,7 @@ func TestInfo(t *testing.T) {
 }
 
 func TestInfo_DefaultsAllFalse(t *testing.T) {
-	router := api.NewRouter(api.Options{Logger: zap.NewNop()})
+	router := api.NewRouter(testDeps())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/info", nil)
 	rr := httptest.NewRecorder()
@@ -72,7 +80,7 @@ func TestInfo_DefaultsAllFalse(t *testing.T) {
 }
 
 func TestSPA_NotFoundForUnknownAPI(t *testing.T) {
-	router := api.NewRouter(api.Options{Logger: zap.NewNop()})
+	router := api.NewRouter(testDeps())
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/nonexistent", nil)
 	rr := httptest.NewRecorder()
@@ -86,7 +94,7 @@ func TestSPA_NotFoundForUnknownAPI(t *testing.T) {
 }
 
 func TestCORS_LoopbackAllowed(t *testing.T) {
-	router := api.NewRouter(api.Options{Logger: zap.NewNop()})
+	router := api.NewRouter(testDeps())
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	req.Header.Set("Origin", "http://localhost:5173")
@@ -98,7 +106,7 @@ func TestCORS_LoopbackAllowed(t *testing.T) {
 }
 
 func TestCORS_ExternalOriginIgnored(t *testing.T) {
-	router := api.NewRouter(api.Options{Logger: zap.NewNop()})
+	router := api.NewRouter(testDeps())
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	req.Header.Set("Origin", "https://evil.example.com")
@@ -110,7 +118,7 @@ func TestCORS_ExternalOriginIgnored(t *testing.T) {
 }
 
 func TestCORS_PreflightLoopback(t *testing.T) {
-	router := api.NewRouter(api.Options{Logger: zap.NewNop()})
+	router := api.NewRouter(testDeps())
 
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/tasks", nil)
 	req.Header.Set("Origin", "http://127.0.0.1:2137")
