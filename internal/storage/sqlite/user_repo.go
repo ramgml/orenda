@@ -16,8 +16,12 @@ type userRepo struct {
 	db *sql.DB
 }
 
+// UserRepo is the exported alias so callers that need the concrete type
+// (e.g. for FirstID) can name it.
+type UserRepo = userRepo
+
 // NewUserRepository returns a user.Repository backed by db.
-func NewUserRepository(db *sql.DB) user.Repository {
+func NewUserRepository(db *sql.DB) *userRepo {
 	return &userRepo{db: db}
 }
 
@@ -115,6 +119,21 @@ func (r *userRepo) Delete(ctx context.Context, id string) error {
 		return user.ErrNotFound
 	}
 	return nil
+}
+
+// FirstID returns the id of the first user row (single-owner model).
+// Used by the bot callback resolver which needs the owner's id.
+func (r *userRepo) FirstID(ctx context.Context) (string, error) {
+	var id string
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM users ORDER BY created_at ASC LIMIT 1`).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", user.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("user.FirstID: %w", err)
+	}
+	return id, nil
 }
 
 // scanUser reads one row into a User; ErrNoRows becomes user.ErrNotFound.

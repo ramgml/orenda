@@ -428,6 +428,39 @@ class ApiClient {
   listBackupLog(params?: { limit?: number }): Promise<{ log: BackupLogEntry[] }> {
     return this.http.get<{ log: BackupLogEntry[] }>('/api/v1/backups/log', { params }).then((r) => r.data)
   }
+
+  // ---- Bot subscriptions (Phase 10) ----
+
+  listSubscriptions(): Promise<{ subscriptions: BotSubscription[] }> {
+    return this.http
+      .get<{ subscriptions: BotSubscription[] }>('/api/v1/notifications/subscriptions')
+      .then((r) => r.data)
+  }
+
+  createSubscription(input: {
+    bot_type: string
+    target_address: string
+    events: string[]
+    enabled: boolean
+  }): Promise<BotSubscription> {
+    return this.http
+      .post<BotSubscription>('/api/v1/notifications/subscriptions', input)
+      .then((r) => r.data)
+  }
+
+  deleteSubscription(id: string): Promise<void> {
+    return this.http.delete<void>(`/api/v1/notifications/subscriptions/${id}`).then(() => undefined)
+  }
+}
+
+export interface BotSubscription {
+  id: string
+  user_id: string
+  bot_type: string
+  target_address: string
+  events: string[]
+  enabled: boolean
+  created_at: string
 }
 
 export interface BackupSettings {

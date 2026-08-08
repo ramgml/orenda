@@ -38,6 +38,7 @@ import (
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/backup"
+	"github.com/ramgml/orenda/internal/bot"
 	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
@@ -102,6 +103,9 @@ type Dependencies struct {
 	BackupRemoteURL     string
 	BackupRemoteAuthSet bool
 	SyncOps             SyncOpsStore
+	BotCallback         *bot.CallbackHandler
+	VKSecret            string
+	VKConfirmation      string
 	WSHub               ws.Hub
 	CookieName          string
 	Capabilities        Capabilities
@@ -179,6 +183,9 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Post("/login", loginHandler(deps))
 			r.Post("/logout", logoutHandler(deps))
 		})
+
+		// Phase 10: bot webhooks (no auth — verified via shared secret).
+		r.Post("/webhooks/vk", vkWebhookHandler(deps))
 
 		// Authenticated routes.
 		r.Group(func(r chi.Router) {
@@ -273,6 +280,11 @@ func NewRouter(deps Dependencies) http.Handler {
 			// Phase 6: notifications inbox.
 			r.Get("/notifications", listNotificationsHandler(deps))
 			r.Post("/notifications/{id}/read", markNotificationReadHandler(deps))
+
+			// Phase 10: bot subscriptions.
+			r.Get("/notifications/subscriptions", listSubscriptionsHandler(deps))
+			r.Post("/notifications/subscriptions", createSubscriptionHandler(deps))
+			r.Delete("/notifications/subscriptions/{id}", deleteSubscriptionHandler(deps))
 
 			// Phase 8: offline sync.
 			r.Post("/sync", syncHandler(deps))
