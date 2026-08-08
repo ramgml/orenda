@@ -1,11 +1,28 @@
-// Package api wires the HTTP layer: chi router, middleware, and the Phase 0
-// endpoints (health, info, embedded SPA).
+// Package api wires the HTTP layer: chi router, middleware, and the Phase 1
+// endpoints (auth, projects, tasks, plus the static SPA from Phase 0).
 //
-// Phase 0 surface area is intentionally tiny:
+// Phase 1 surface area:
 //
-//	GET /healthz         → liveness probe (200 OK)
-//	GET /api/v1/info     → version and capability advertisement
-//	GET /*               → embedded React SPA (or 404 placeholder)
+//	GET    /healthz
+//	GET    /api/v1/info
+//	POST   /api/v1/auth/login
+//	POST   /api/v1/auth/logout
+//	GET    /api/v1/me
+//	GET    /api/v1/projects
+//	POST   /api/v1/projects
+//	GET    /api/v1/projects/{id}
+//	PATCH  /api/v1/projects/{id}
+//	DELETE /api/v1/projects/{id}
+//	GET    /api/v1/projects/{id}/board
+//	GET    /api/v1/projects/{id}/tasks
+//	POST   /api/v1/projects/{id}/tasks
+//	GET    /api/v1/tasks/{id}
+//	PATCH  /api/v1/tasks/{id}
+//	PUT    /api/v1/tasks/{id}            (alias for PATCH)
+//	DELETE /api/v1/tasks/{id}
+//	GET    /api/v1/tasks/{id}/subtasks
+//	POST   /api/v1/tasks/{id}/subtasks
+//	GET    /*
 //
 // Authentication, REST resources, and WebSocket land in later phases.
 package api
@@ -16,6 +33,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
+
+	"github.com/ramgml/orenda/internal/auth"
+	"github.com/ramgml/orenda/internal/domain/project"
+	"github.com/ramgml/orenda/internal/domain/task"
+	"github.com/ramgml/orenda/internal/domain/user"
 )
 
 // Version is the build-time version string.
@@ -42,25 +64,32 @@ type infoResponse struct {
 	Capabilities Capabilities `json:"capabilities"`
 }
 
-// Options customises the router construction.
-type Options struct {
-	// Logger is the structured logger used by the request-logging middleware.
-	// If nil, zap.NewNop() is used.
-	Logger *zap.Logger
-
-	// Capabilities controls the `capabilities` field of /api/v1/info.
-	// All flags default to false in Phase 0.
+// Dependencies wires every repository and the JWT signer into the router.
+//
+// Constructing this struct lives in cmd/orenda so the api package stays
+// independent of the storage layer.
+type Dependencies struct {
+	Logger       *zap.Logger
+	Signer       *auth.Signer
+	Users        user.Repository
+	Projects     project.Repository
+	Tasks        task.Repository
+	Tokens       APITokenLookup
+	CookieName   string
 	Capabilities Capabilities
 }
 
-// NewRouter constructs a chi router with Phase 0 endpoints wired.
+// NewRouter constructs a chi router with the Phase 1 endpoints wired.
 //
 // The returned router is ready to be wrapped by http.Server; it does not
 // start listening on its own.
-func NewRouter(opts Options) http.Handler {
-	logger := opts.Logger
+func NewRouter(deps Dependencies) http.Handler {
+	logger := deps.Logger
 	if logger == nil {
 		logger = zap.NewNop()
+	}
+	if deps.CookieName == "" {
+		deps.CookieName = "orenda_session"
 	}
 
 	r := chi.NewRouter()
@@ -75,9 +104,59 @@ func NewRouter(opts Options) http.Handler {
 	// Phase 1+ will add a /readyz that pings the database.
 	r.Get("/healthz", healthzHandler)
 
-	// API surface (v1). All real resources land here in later phases.
+	// API surface (v1).
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/info", infoHandler(Version, opts.Capabilities))
+		caps := deps.Capabilities
+		if !caps.Auth && deps.Signer != nil {
+			// Phase 1 default: advertise auth + REST tasks whenever the
+			// server actually has a signer wired in.
+			caps.Auth = true
+			caps.RESTTasks = true
+		}
+		r.Get("/info", infoHandler(Version, caps))
+
+		// Auth: public endpoints.
+		r.Route("/auth", func(r chi.Router) {
+			r.Post("/login", loginHandler(deps))
+			r.Post("/logout", logoutHandler(deps))
+		})
+
+		// Authenticated routes.
+		r.Group(func(r chi.Router) {
+			cfg := AuthConfig{
+				Signer:     deps.Signer,
+				Users:      deps.Users,
+				Tokens:     deps.Tokens,
+				CookieName: deps.CookieName,
+			}
+			r.Use(RequireUser(cfg))
+
+			r.Get("/me", meHandler())
+
+			r.Route("/projects", func(r chi.Router) {
+				r.Get("/", listProjectsHandler(deps))
+				r.Post("/", createProjectHandler(deps))
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", getProjectHandler(deps))
+					r.Patch("/", patchProjectHandler(deps))
+					r.Delete("/", deleteProjectHandler(deps))
+					r.Get("/board", getProjectBoardHandler(deps))
+					r.Get("/tasks", listProjectTasksHandler(deps))
+					r.Post("/tasks", createTaskHandler(deps))
+				})
+			})
+
+			r.Route("/tasks", func(r chi.Router) {
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", getTaskHandler(deps))
+					r.Patch("/", patchTaskHandler(deps))
+					r.Put("/", patchTaskHandler(deps)) // alias
+					r.Delete("/", deleteTaskHandler(deps))
+					r.Get("/subtasks", listSubtasksHandler(deps))
+					r.Post("/subtasks", addSubtaskHandler(deps))
+				})
+			})
+		})
 	})
 
 	// Static SPA: serve embedded web/dist, with client-side fallback to

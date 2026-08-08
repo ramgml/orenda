@@ -72,21 +72,8 @@ type AuthConfig struct {
 // api_tokens storage. Defining it as an interface here avoids an import cycle
 // with internal/storage/sqlite.
 type APITokenLookup interface {
-	GetByID(ctx context.Context, id string) (*TokenRow, error)
-	ListAllHashes(ctx context.Context) (map[string]TokenRow, error)
+	ListAllHashes(ctx context.Context) (map[string]auth.TokenRow, error)
 	TouchLastUsed(ctx context.Context, id string) error
-}
-
-// TokenRow is the minimal projection of api_tokens used by middleware.
-//
-// Defined here (rather than imported from sqlite) so internal/api stays
-// independent of the storage layer.
-type TokenRow struct {
-	ID         string
-	UserID     string
-	Name       string
-	Hash       string
-	ScopesJSON string
 }
 
 // parseScopesJSON decodes the JSON array stored in api_tokens.scopes.
@@ -194,7 +181,7 @@ func RequireAgent(cfg AuthConfig) func(http.Handler) http.Handler {
 
 // verifyAPIToken is a small wrapper around the repo lookup that retries on
 // transient errors.
-func verifyAPIToken(ctx context.Context, repo APITokenLookup, plain string) (*TokenRow, error) {
+func verifyAPIToken(ctx context.Context, repo APITokenLookup, plain string) (*auth.TokenRow, error) {
 	hashes, err := repo.ListAllHashes(ctx)
 	if err != nil {
 		return nil, err

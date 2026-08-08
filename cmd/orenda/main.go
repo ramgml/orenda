@@ -30,6 +30,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/ramgml/orenda/internal/api"
+	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/config"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 )
@@ -124,13 +125,30 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	logger.Info("migrations applied")
 
+	// Build repositories.
+	users := sqlite.NewUserRepository(db)
+	projects := sqlite.NewProjectRepository(db)
+	tasks := sqlite.NewTaskRepository(db)
+	tokens := sqlite.NewAPITokenRepository(db)
+
+	// Build the JWT signer. JWT secret is mandatory for Phase 1+ — refuse
+	// to start without it so the operator doesn't discover the missing
+	// config at first login.
+	if cfg.Auth.JWTSecret == "" {
+		return fmt.Errorf("auth: ORENDA_AUTH__JWT_SECRET (or auth.jwt_secret in config) is required for `serve`")
+	}
+	signer := auth.NewSigner(cfg.Auth.JWTSecret, cfg.Auth.JWTTTL, "orenda")
+
 	// Build the router.
 	api.Version = version
-	router := api.NewRouter(api.Options{
-		Logger:       logger,
-		Capabilities: api.Capabilities{
-			// Phase 0: only the static surface area is wired.
-		},
+	router := api.NewRouter(api.Dependencies{
+		Logger:     logger,
+		Signer:     signer,
+		Users:      users,
+		Projects:   projects,
+		Tasks:      tasks,
+		Tokens:     tokens,
+		CookieName: cfg.Auth.CookieName,
 	})
 
 	// HTTP server with graceful shutdown.

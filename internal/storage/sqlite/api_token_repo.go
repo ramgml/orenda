@@ -11,13 +11,12 @@ import (
 	"github.com/ramgml/orenda/internal/auth"
 )
 
-// TokenRow is one row in the api_tokens table, decoded into a struct.
-type TokenRow struct {
-	ID         string
-	UserID     string
-	Name       string
-	Hash       string
-	ScopesJSON string
+// StoredToken is one row in the api_tokens table, decoded into a struct.
+//
+// It extends auth.TokenRow with storage-only fields (LastUsedAt, ExpiresAt,
+// CreatedAt). The auth layer only needs the public subset.
+type StoredToken struct {
+	auth.TokenRow
 	LastUsedAt *time.Time
 	ExpiresAt  *time.Time
 	CreatedAt  time.Time
@@ -34,8 +33,8 @@ func NewAPITokenRepository(db *sql.DB) *apiTokenRepo {
 }
 
 // Create inserts a fresh token. The hash must already be bcrypt'd by the
-// caller (see auth.HashAPIToken). The returned TokenRow has timestamps set.
-func (r *apiTokenRepo) Create(ctx context.Context, userID, name, hash, scopesJSON string, expiresAt *time.Time) (*TokenRow, error) {
+// caller (see auth.HashAPIToken). The returned StoredToken has timestamps set.
+func (r *apiTokenRepo) Create(ctx context.Context, userID, name, hash, scopesJSON string, expiresAt *time.Time) (*StoredToken, error) {
 	if userID == "" || hash == "" {
 		return nil, errors.New("apiTokenRepo.Create: userID and hash required")
 	}
@@ -55,14 +54,14 @@ func (r *apiTokenRepo) Create(ctx context.Context, userID, name, hash, scopesJSO
 }
 
 // GetByID returns the token by primary key.
-func (r *apiTokenRepo) GetByID(ctx context.Context, id string) (*TokenRow, error) {
+func (r *apiTokenRepo) GetByID(ctx context.Context, id string) (*StoredToken, error) {
 	const q = `
 		SELECT id, user_id, name, hash, scopes, last_used_at, expires_at, created_at
 		FROM api_tokens WHERE id = ?
 	`
 	row := r.db.QueryRowContext(ctx, q, id)
 	var (
-		t       TokenRow
+		t       StoredToken
 		lastUse sql.NullString
 		exp     sql.NullString
 		cAt     string
@@ -86,20 +85,19 @@ func (r *apiTokenRepo) GetByID(ctx context.Context, id string) (*TokenRow, error
 	return &t, nil
 }
 
-// LookupByHash iterates rows whose hash matches (no UNIQUE constraint on
-// hash — the index is a regular one). In Phase 1 we just compare
-// plaintext against the stored hash via auth.VerifyAPIToken.
-func (r *apiTokenRepo) ListAllHashes(ctx context.Context) (map[string]TokenRow, error) {
+// ListAllHashes returns every token keyed by hash; used by auth middleware to
+// find the row matching an incoming Authorization: Bearer header.
+func (r *apiTokenRepo) ListAllHashes(ctx context.Context) (map[string]auth.TokenRow, error) {
 	const q = `SELECT id, user_id, name, hash, scopes, last_used_at, expires_at, created_at FROM api_tokens`
 	rows, err := r.db.QueryContext(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("apiToken.ListAllHashes: %w", err)
 	}
 	defer rows.Close()
-	out := make(map[string]TokenRow) // map by hash for fast lookup
+	out := make(map[string]auth.TokenRow)
 	for rows.Next() {
 		var (
-			t       TokenRow
+			t       StoredToken
 			lastUse sql.NullString
 			exp     sql.NullString
 			cAt     string
@@ -116,7 +114,7 @@ func (r *apiTokenRepo) ListAllHashes(ctx context.Context) (map[string]TokenRow, 
 			t.ExpiresAt = &tt
 		}
 		t.CreatedAt = parseTime(cAt)
-		out[t.Hash] = t
+		out[t.Hash] = t.TokenRow
 	}
 	return out, rows.Err()
 }
@@ -135,21 +133,3 @@ func (r *apiTokenRepo) TouchLastUsed(ctx context.Context, id string) error {
 
 // ErrTokenNotFound is returned by GetByID when no row matches.
 var ErrTokenNotFound = errors.New("apiToken: not found")
-
-// VerifyAPIToken looks up a token by verifying plaintext against every hash.
-//
-// In Phase 1 this is O(N) over tokens — fine for the single-owner use case.
-// A future migration can replace hash with a truncated prefix or HMAC index
-// to make this O(1).
-func VerifyAPIToken(ctx context.Context, r *apiTokenRepo, plain string) (*TokenRow, error) {
-	hashes, err := r.ListAllHashes(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for hash, t := range hashes {
-		if err := auth.VerifyAPIToken(hash, plain); err == nil {
-			return &t, nil
-		}
-	}
-	return nil, ErrTokenNotFound
-}
