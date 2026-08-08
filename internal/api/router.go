@@ -34,6 +34,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 
+	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
@@ -77,6 +78,7 @@ type Dependencies struct {
 	Tasks        task.Repository
 	Tokens       APITokenLookup
 	TaskService  *taskservice.Service
+	WSHub        ws.Hub
 	CookieName   string
 	Capabilities Capabilities
 }
@@ -116,6 +118,11 @@ func NewRouter(deps Dependencies) http.Handler {
 			caps.RESTTasks = true
 		}
 		r.Get("/info", infoHandler(Version, caps))
+		// WebSocket: authenticates via ?token=<jwt> in query because the
+		// browser WS API can't set headers. See internal/api/ws.Handler.
+		if deps.Signer != nil && deps.WSHub != nil {
+			r.Handle("/ws", ws.Handler(deps.WSHub, deps.Signer))
+		}
 
 		// Auth: public endpoints.
 		r.Route("/auth", func(r chi.Router) {
