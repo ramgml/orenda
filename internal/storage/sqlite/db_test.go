@@ -77,6 +77,32 @@ func TestMigrate_AppliesOnce(t *testing.T) {
 	assert.Equal(t, versions, versions2)
 }
 
+func TestMigrate_002AuthAddsIndexesAndTrigger(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "orenda.db")
+
+	db, err := Open(context.Background(), dbPath, OpenConfig{
+		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx := context.Background()
+	require.NoError(t, Migrate(ctx, db, MigrationsFS, "migrations"))
+
+	// 002_auth was applied.
+	versions, err := AppliedVersions(ctx, db)
+	require.NoError(t, err)
+	assert.Contains(t, versions, "002_auth")
+
+	// New indexes exist.
+	assertIndexExists(t, db, "idx_api_tokens_hash")
+	assertIndexExists(t, db, "idx_users_email")
+
+	// updated_at trigger exists.
+	assertTriggerExists(t, db, "trg_users_touch")
+}
+
 func TestBuildDSN(t *testing.T) {
 	dsn := buildDSN("/tmp/foo.db", OpenConfig{WALMode: true, BusyTimeoutMs: 5000})
 	assert.Contains(t, dsn, "_pragma=busy_timeout(5000)")
@@ -113,4 +139,26 @@ func assertTableExists(t *testing.T, db *sql.DB, name string) {
 		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, name).Scan(&n)
 	require.NoError(t, err)
 	assert.Equal(t, 1, n, "table %s should exist", name)
+}
+
+func assertIndexExists(t *testing.T, db *sql.DB, name string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var n int
+	err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?`, name).Scan(&n)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "index %s should exist", name)
+}
+
+func assertTriggerExists(t *testing.T, db *sql.DB, name string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var n int
+	err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name=?`, name).Scan(&n)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n, "trigger %s should exist", name)
 }
