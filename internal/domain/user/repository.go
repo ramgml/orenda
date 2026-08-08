@@ -1,0 +1,26 @@
+package user
+
+import "context"
+
+// Repository persists and retrieves Users.
+//
+// Implementations must be safe for concurrent use; the SQLite store uses a
+// single connection per process and serialises writes through the database
+// driver's own lock.
+type Repository interface {
+	// Create inserts u. Returns ErrEmailTaken if the email already exists.
+	Create(ctx context.Context, u *User) error
+
+	// GetByID returns the user with the given id or ErrNotFound.
+	GetByID(ctx context.Context, id string) (*User, error)
+
+	// GetByEmail returns the user with the given email or ErrNotFound.
+	GetByEmail(ctx context.Context, email string) (*User, error)
+
+	// Update saves changes to an existing user. Returns ErrNotFound if the
+	// id doesn't exist.
+	Update(ctx context.Context, u *User) error
+
+	// Delete removes the user by id. Returns ErrNotFound if no row matched.
+	Delete(ctx context.Context, id string) error
+}
