@@ -27,6 +27,10 @@ type apiTokenRepo struct {
 	db *sql.DB
 }
 
+// APITokenRepo is the exported alias of apiTokenRepo so cmd/orenda (and
+// tests) can name the type when adapting it to other interfaces.
+type APITokenRepo = apiTokenRepo
+
 // NewAPITokenRepository returns a usable repo for Phase 1 auth middleware.
 func NewAPITokenRepository(db *sql.DB) *apiTokenRepo {
 	return &apiTokenRepo{db: db}

@@ -36,6 +36,7 @@ import (
 
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
+	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
@@ -78,6 +79,7 @@ type Dependencies struct {
 	Tasks        task.Repository
 	Tokens       APITokenLookup
 	TaskService  *taskservice.Service
+	Agents       agent.Repository
 	WSHub        ws.Hub
 	CookieName   string
 	Capabilities Capabilities

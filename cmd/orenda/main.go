@@ -33,9 +33,29 @@ import (
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/config"
+	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 )
+
+// tokenMinterFor adapts the concrete sqlite.APITokenRepo to the agent
+// service's TokenMinter interface by projecting the StoredToken row
+// to (id, name, err).
+func tokenMinterFor(repo *sqlite.APITokenRepo) agentservice.TokenMinter {
+	return sqliteTokenMinterAdapter{repo: repo}
+}
+
+type sqliteTokenMinterAdapter struct {
+	repo *sqlite.APITokenRepo
+}
+
+func (a sqliteTokenMinterAdapter) MintToken(ctx context.Context, userID, name, hash, scopesJSON string, expiresAt *time.Time) (string, string, error) {
+	row, err := a.repo.Create(ctx, userID, name, hash, scopesJSON, expiresAt)
+	if err != nil {
+		return "", "", err
+	}
+	return row.ID, row.Name, nil
+}
 
 // version is set by -ldflags at build time.
 var version = "0.1.0-dev"
@@ -138,6 +158,17 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	hub := ws.NewHub()
 	taskSvc := taskservice.New(tasksRepo, nil, hub)
 
+	// Agent service (Phase 3.5) — Register, Heartbeat, SweepOffline.
+	// Wired but not yet exposed via handlers (3.11).
+	agentSvc := agentservice.New(
+		sqlite.NewAgentRepository(db),
+		users,
+		tokenMinterFor(tokens),
+		hub,
+		nil, // Recorder lands with 3.9
+	)
+	_ = agentSvc
+
 	// Build the JWT signer. JWT secret is mandatory for Phase 1+ — refuse
 	// to start without it so the operator doesn't discover the missing
 	// config at first login.
@@ -156,6 +187,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		Tasks:       tasksRepo,
 		Tokens:      tokens,
 		TaskService: taskSvc,
+		Agents:      sqlite.NewAgentRepository(db),
 		WSHub:       hub,
 		CookieName:  cfg.Auth.CookieName,
 	})
