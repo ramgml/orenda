@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ramgml/orenda/internal/api/ws"
+	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
@@ -39,7 +40,15 @@ type recordingRecorder struct {
 	calls []string
 }
 
-func (r *recordingRecorder) Record(_ context.Context, taskID, action, payload string) error {
+func (r *recordingRecorder) Record(_ context.Context, taskID string, _ activity.ActorType, _ string, action activity.Action, payload string) error {
+	r.calls = append(r.calls, taskID+":"+string(action)+":"+payload)
+	return nil
+}
+
+// keep the older signature accessible via embedded calls
+func (r *recordingRecorder) RecordOld(_ context.Context, taskID, action, payload string) error {
+	r.calls = append(r.calls, taskID+":"+action+":"+payload)
+	return nil
 	r.calls = append(r.calls, taskID+":"+action+":"+payload)
 	return nil
 }
@@ -102,7 +111,7 @@ func TestService_Move_BetweenColumns(t *testing.T) {
 	db := setupMoveDB(t)
 	p, cols := setupMoveProject(t, db)
 	repo := sqlite.NewTaskRepository(db)
-	svc := taskservice.New(repo, &recordingRecorder{}, &recordingHub{})
+	svc := taskservice.New(repo, nil, &recordingRecorder{}, nil, &recordingHub{})
 
 	require.GreaterOrEqual(t, len(cols), 2)
 	backlog := cols[0]
@@ -122,7 +131,7 @@ func TestService_Move_BetweenNeighborsDerivesFractionalPosition(t *testing.T) {
 	db := setupMoveDB(t)
 	p, cols := setupMoveProject(t, db)
 	repo := sqlite.NewTaskRepository(db)
-	svc := taskservice.New(repo, &recordingRecorder{}, &recordingHub{})
+	svc := taskservice.New(repo, nil, &recordingRecorder{}, nil, &recordingHub{})
 	col := cols[0]
 
 	a := &task.Task{ProjectID: p.ID, ColumnID: col.ID, Title: "a", Position: 1024}
@@ -146,7 +155,7 @@ func TestService_Move_NotFound(t *testing.T) {
 	db := setupMoveDB(t)
 	_, cols := setupMoveProject(t, db)
 	repo := sqlite.NewTaskRepository(db)
-	svc := taskservice.New(repo, &recordingRecorder{}, &recordingHub{})
+	svc := taskservice.New(repo, nil, &recordingRecorder{}, nil, &recordingHub{})
 
 	_, err := svc.Move(context.Background(), "no-such", taskservice.MoveOptions{
 		TargetColumnID: cols[0].ID,
@@ -159,7 +168,7 @@ func TestService_Move_InvalidInput(t *testing.T) {
 	db := setupMoveDB(t)
 	p, cols := setupMoveProject(t, db)
 	repo := sqlite.NewTaskRepository(db)
-	svc := taskservice.New(repo, &recordingRecorder{}, &recordingHub{})
+	svc := taskservice.New(repo, nil, &recordingRecorder{}, nil, &recordingHub{})
 
 	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "x"}
 	require.NoError(t, repo.Create(context.Background(), tr))
@@ -176,7 +185,7 @@ func TestService_Move_PublishesHubEvent(t *testing.T) {
 	p, cols := setupMoveProject(t, db)
 	repo := sqlite.NewTaskRepository(db)
 	hub := &recordingHub{}
-	svc := taskservice.New(repo, &recordingRecorder{}, hub)
+	svc := taskservice.New(repo, nil, &recordingRecorder{}, nil, hub)
 
 	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "x"}
 	require.NoError(t, repo.Create(context.Background(), tr))

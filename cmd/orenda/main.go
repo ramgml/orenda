@@ -154,9 +154,12 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	tasksRepo := sqlite.NewTaskRepository(db)
 	tokens := sqlite.NewAPITokenRepository(db)
 
-	// Build service layer (Phase 2: task_service.Move; grows in later phases).
+	// Build service layer (Phase 2: task_service.Move; Phase 3.6 adds
+	// Claim/Release/Submit/Review — wired with locks repo, Recorder/Comments
+	// land in 3.7/3.9).
 	hub := ws.NewHub()
-	taskSvc := taskservice.New(tasksRepo, nil, hub)
+	taskLocks := sqlite.NewTaskLockRepository(db)
+	taskSvc := taskservice.New(tasksRepo, taskLocks, nil, nil, hub)
 
 	// Agent service (Phase 3.5) — Register, Heartbeat, SweepOffline.
 	// Wired but not yet exposed via handlers (3.11).
