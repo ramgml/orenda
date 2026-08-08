@@ -38,6 +38,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
+	taskservice "github.com/ramgml/orenda/internal/service/task"
 )
 
 // Version is the build-time version string.
@@ -75,6 +76,7 @@ type Dependencies struct {
 	Projects     project.Repository
 	Tasks        task.Repository
 	Tokens       APITokenLookup
+	TaskService  *taskservice.Service
 	CookieName   string
 	Capabilities Capabilities
 }
@@ -152,8 +154,15 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Patch("/", patchTaskHandler(deps))
 					r.Put("/", patchTaskHandler(deps)) // alias
 					r.Delete("/", deleteTaskHandler(deps))
+					r.Post("/move", moveTaskHandler(deps))
 					r.Get("/subtasks", listSubtasksHandler(deps))
 					r.Post("/subtasks", addSubtaskHandler(deps))
+				})
+			})
+
+			r.Route("/columns", func(r chi.Router) {
+				r.Route("/{id}", func(r chi.Router) {
+					r.Patch("/", patchColumnHandler(deps))
 				})
 			})
 		})
