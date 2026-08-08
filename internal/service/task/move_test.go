@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
@@ -25,8 +26,13 @@ type recordedEvent struct {
 	body  any
 }
 
-func (h *recordingHub) Publish(_ context.Context, topic string, body any) {
-	h.events = append(h.events, recordedEvent{topic: topic, body: body})
+func (h *recordingHub) Publish(_ context.Context, ev ws.Event) {
+	h.events = append(h.events, recordedEvent{topic: ev.Topic, body: ev.Body})
+}
+
+func (h *recordingHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
+	ch := make(chan ws.Event, 4)
+	return ch, func() { close(ch) }
 }
 
 type recordingRecorder struct {
@@ -185,5 +191,8 @@ func TestService_Move_PublishesHubEvent(t *testing.T) {
 
 func TestNullHub(t *testing.T) {
 	hub := taskservice.NullHub()
-	hub.Publish(context.Background(), "x", 1) // must not panic
+	hub.Publish(context.Background(), ws.Event{Topic: "x", Body: 1}) // must not panic
+	ch, unsub := hub.Subscribe("u", "x")
+	_ = ch
+	unsub()
 }

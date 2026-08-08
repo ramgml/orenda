@@ -30,6 +30,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/ramgml/orenda/internal/api"
+	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/config"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
@@ -134,7 +135,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	tokens := sqlite.NewAPITokenRepository(db)
 
 	// Build service layer (Phase 2: task_service.Move; grows in later phases).
-	taskSvc := taskservice.New(tasksRepo, nil, taskservice.NullHub())
+	hub := ws.NewHub()
+	taskSvc := taskservice.New(tasksRepo, nil, hub)
 
 	// Build the JWT signer. JWT secret is mandatory for Phase 1+ — refuse
 	// to start without it so the operator doesn't discover the missing
@@ -154,6 +156,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		Tasks:       tasksRepo,
 		Tokens:      tokens,
 		TaskService: taskSvc,
+		WSHub:       hub,
 		CookieName:  cfg.Auth.CookieName,
 	})
 

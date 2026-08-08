@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/task"
 )
 
@@ -52,11 +53,12 @@ type Recorder interface {
 	Record(ctx context.Context, taskID, action, payload string) error
 }
 
-// Hub is the in-process notification seam. Phase 2 ships a no-op stub;
-// Phase 2.5 wires the WebSocket hub; Phase 3 wires the agent inbox.
-type Hub interface {
-	Publish(ctx context.Context, topic string, event any)
-}
+// Hub is the in-process notification seam. Phase 2.5 wires the WebSocket
+// hub; Phase 3 wires the agent inbox.
+//
+// We re-export ws.Hub to keep a single source of truth for the interface
+// (avoids drift between api/ws.Hub and service/task.Hub).
+type Hub = ws.Hub
 
 // Service holds the dependencies Move() and future business logic need.
 type Service struct {
@@ -120,10 +122,13 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 			fmt.Sprintf(`{"column_id":%q,"position":%v}`, opts.TargetColumnID, tr.Position))
 	}
 	if s.Hub != nil {
-		s.Hub.Publish(ctx, "tasks", map[string]any{
-			"type":   "task.moved",
-			"task":   tr,
-			"column": opts.TargetColumnID,
+		s.Hub.Publish(ctx, ws.Event{
+			Topic: "tasks",
+			Body: map[string]any{
+				"type":   "task.moved",
+				"task":   tr,
+				"column": opts.TargetColumnID,
+			},
 		})
 	}
 	return tr, nil
@@ -163,7 +168,12 @@ func derivePosition(opts MoveOptions, current float64) float64 {
 // nullHub is the no-op Hub used when none is configured.
 type nullHub struct{}
 
-func (nullHub) Publish(context.Context, string, any) {}
+func (nullHub) Publish(context.Context, ws.Event) {}
+func (nullHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
+	ch := make(chan ws.Event)
+	close(ch)
+	return ch, func() {}
+}
 
 // NullHub returns a Hub that drops every event. Useful in tests and
 // during `migrate status` where the WS hub isn't running.
