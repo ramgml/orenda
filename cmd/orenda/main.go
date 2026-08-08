@@ -105,6 +105,56 @@ func commentAdderFor(svc *commentservice.Service) taskservice.CommentAdder {
 	return commentAdderAdapter{svc: svc}
 }
 
+// ----------------------------------------------------------------------------
+// Bot callback adapters (Phase 10)
+// ----------------------------------------------------------------------------
+
+// reviewDeciderAdapter bridges tasksvc.Service.Review to bot.ReviewDecider.
+type reviewDeciderAdapter struct{ svc *taskservice.Service }
+
+func (a reviewDeciderAdapter) Review(ctx context.Context, taskID, userID, decision, comment string) error {
+	_, err := a.svc.Review(ctx, taskID, userID, taskservice.ReviewDecision(decision), comment)
+	return err
+}
+
+// ownerResolverAdapter returns the single owner user (Phase 10 is
+// single-owner; multi-user resolution lands with Phase 11).
+type ownerResolverAdapter struct {
+	users firstIDer
+}
+
+type firstIDer interface {
+	FirstID(ctx context.Context) (string, error)
+}
+
+// ResolveOwner implements bot.UserResolver.
+func (a ownerResolverAdapter) ResolveOwner(ctx context.Context, _ string) (string, error) {
+	return a.users.FirstID(ctx)
+}
+
+// int64ToString is a tiny helper (no strconv needed elsewhere).
+func int64ToString(v int64) string {
+	if v == 0 {
+		return "0"
+	}
+	neg := v < 0
+	if neg {
+		v = -v
+	}
+	var buf [20]byte
+	i := len(buf)
+	for v > 0 {
+		i--
+		buf[i] = byte('0' + v%10)
+		v /= 10
+	}
+	if neg {
+		i--
+		buf[i] = '-'
+	}
+	return string(buf[i:])
+}
+
 // taskRecorderAdapter bridges activity.Recorder.RecordTask to
 // taskSvc.Recorder.Record (different method names).
 type taskRecorderAdapter struct{ inner *activityservice.Recorder }
@@ -248,6 +298,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	projects := sqlite.NewProjectRepository(db)
 	tasksRepo := sqlite.NewTaskRepository(db)
 	tokens := sqlite.NewAPITokenRepository(db)
+	usersRaw := users // *userRepo for FirstID; api takes the domain interface
 
 	// Backup service + scheduler (Phase 7) — constructed before the other
 	// services so task/wiki services can hold a reference to the mirror.
@@ -312,6 +363,54 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// hub publish. External transports land in Phase 10.
 	botRegistry := bot.NewRegistry()
 	botRegistry.Register(bot.Console{Out: os.Stderr})
+
+	// Phase 10: config-driven bots.
+	botSpecs := make([]bot.ConfigSpec, 0, len(cfg.Bots))
+	for _, b := range cfg.Bots {
+		botSpecs = append(botSpecs, bot.ConfigSpec{
+			Type:    b.Type,
+			Enabled: b.Enabled,
+			Config:  b.Config,
+		})
+	}
+	if err := bot.BuildFromConfig(botSpecs, botRegistry); err != nil {
+		return fmt.Errorf("bots: %w", err)
+	}
+	// Start any bots that have long-running loops (telegram long-poll).
+	for _, b := range botRegistry.List() {
+		if err := b.Start(cmd.Context()); err != nil {
+			logger.Warn("bot start failed", zap.String("name", b.Name()), zap.Error(err))
+		}
+	}
+
+	// Phase 10: bot callback handler — converts approve/reject button presses
+	// into task review decisions.
+	var botCallback *bot.CallbackHandler
+	{
+		reviewDecider := reviewDeciderAdapter{svc: taskSvc}
+		ownerResolver := ownerResolverAdapter{users: usersRaw}
+		botCallback = bot.NewCallbackHandler(reviewDecider, ownerResolver)
+		// Telegram: route callbacks through the bot's OnCallback hook.
+		if tg, ok := botRegistry.Get("telegram").(*bot.Telegram); ok && tg != nil {
+			tg.OnCallback = func(ctx context.Context, q bot.CallbackQuery) error {
+				action, target, err := bot.ParseCallbackData(q.Data)
+				if err != nil {
+					return err
+				}
+				herr := botCallback.Handle(ctx, bot.CallbackAction{
+					Action:    action,
+					TaskID:    target,
+					Nonce:     q.ID,
+					BotUserID: int64ToString(q.ChatID),
+				})
+				if herr != nil {
+					return herr
+				}
+				return tg.AnswerCallback(ctx, q.ID, "ok")
+			}
+		}
+	}
+
 	notifierSvc := notifierservice.New(
 		sqlite.NewNotificationRepository(db),
 		sqlite.NewBotSubscriptionRepository(db),
@@ -356,6 +455,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		BackupRemoteURL:     cfg.Backup.RemoteURL,
 		BackupRemoteAuthSet: cfg.Backup.RemoteAuth != "",
 		SyncOps:             sqlite.NewSyncOpsRepository(db),
+		BotCallback:         botCallback,
 		WSHub:               hub,
 		CookieName:          cfg.Auth.CookieName,
 	})

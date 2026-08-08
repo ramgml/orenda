@@ -176,3 +176,44 @@ func (r *botSubRepo) ListForUser(ctx context.Context, userID string) ([]*notifie
 	}
 	return out, rows.Err()
 }
+
+// SubscriptionWriter adds write methods the handlers need.
+type SubscriptionWriter interface {
+	Create(ctx context.Context, s *notifier.Subscription) error
+	Delete(ctx context.Context, id string) error
+}
+
+// Compile-time check.
+var _ SubscriptionWriter = (*botSubRepo)(nil)
+
+// Create inserts a subscription.
+func (r *botSubRepo) Create(ctx context.Context, s *notifier.Subscription) error {
+	if s.ID == "" {
+		s.ID = newUUID()
+	}
+	events, _ := json.Marshal(s.Events)
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO bot_subscriptions (id, user_id, bot_type, target_address, events, enabled, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+	`, s.ID, s.UserID, s.BotType, s.TargetAddress, string(events), boolToInt(s.Enabled))
+	if err != nil {
+		return fmt.Errorf("subs.Create: %w", err)
+	}
+	return nil
+}
+
+// Delete removes a subscription by id (owner check happens in the handler).
+func (r *botSubRepo) Delete(ctx context.Context, id string) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM bot_subscriptions WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("subs.Delete: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return errors.New("subscription: not found")
+	}
+	return nil
+}
