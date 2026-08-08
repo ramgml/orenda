@@ -134,6 +134,17 @@ func NewRouter(deps Dependencies) http.Handler {
 	r.Use(requestLogger(logger))
 	r.Use(recoverer())
 	r.Use(corsLoopback())
+	r.Use(securityHeaders())
+	r.Use(rateLimit(rateLimitOptions{
+		AnonBurst:  60,
+		AnonPerSec: 20,
+		AuthBurst:  300,
+		AuthPerSec: 100,
+		SkipPaths: map[string]bool{
+			"/healthz":   true,
+			"/api/v1/ws": true,
+		},
+	}))
 
 	cfg := AuthConfig{
 		Signer:     deps.Signer,
