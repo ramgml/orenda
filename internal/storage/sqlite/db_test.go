@@ -195,6 +195,32 @@ func TestMigrate_006CalendarTimeAddsIndexes(t *testing.T) {
 	assertIndexExists(t, db, "idx_time_entries_open")
 }
 
+func TestMigrate_008WikiAddsFTS5AndIndexes(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "orenda.db")
+
+	db, err := Open(context.Background(), dbPath, OpenConfig{
+		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx := context.Background()
+	require.NoError(t, Migrate(ctx, db, MigrationsFS, "migrations"))
+
+	versions, err := AppliedVersions(ctx, db)
+	require.NoError(t, err)
+	assert.Contains(t, versions, "008_wiki")
+
+	// FTS5 virtual tables are stored as regular tables with type='table'.
+	assertTableExists(t, db, "pages_fts")
+	assertTableExists(t, db, "tasks_fts")
+	assertTableExists(t, db, "comments_fts")
+
+	assertIndexExists(t, db, "idx_wiki_links_to")
+	assertIndexExists(t, db, "idx_wiki_links_from")
+}
+
 func TestBuildDSN(t *testing.T) {
 	dsn := buildDSN("/tmp/foo.db", OpenConfig{WALMode: true, BusyTimeoutMs: 5000})
 	assert.Contains(t, dsn, "_pragma=busy_timeout(5000)")
