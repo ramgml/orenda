@@ -11,6 +11,7 @@ import { CalendarPage } from '@/features/calendar/CalendarPage'
 import { TimerWidget } from '@/features/tasks/TimerWidget'
 import { WikiPage } from '@/features/wiki/WikiPage'
 import { SearchPage } from '@/features/search/SearchPage'
+import { NotificationsBell } from '@/features/notifications/NotificationsBell'
 import { api, type InfoResponse } from '@/shared/api/client'
 import { HealthBadge } from '@/shared/ui/HealthBadge'
 import { useEffect, useState } from 'react'
@@ -64,6 +65,7 @@ function Shell(): JSX.Element {
               <Link to="/wiki" className="hover:text-orenda-600">Wiki</Link>
               <Link to="/search" className="hover:text-orenda-600">Search</Link>
               <Link to="/settings" className="hover:text-orenda-600">Settings</Link>
+              <NotificationsBell />
               <HealthBadge />
               <span className="text-xs text-slate-400">{user?.email}</span>
               <button
