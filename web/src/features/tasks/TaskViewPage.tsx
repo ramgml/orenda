@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom'
 import { useAuth } from '@/features/auth/AuthContext'
 import { api, type Comment, type Task } from '@/shared/api/client'
 import { useWebSocketTopic } from '@/shared/ws'
+import { StartTimer } from '@/features/tasks/TimerWidget'
 
 import { CommentsList } from './CommentsList'
 
@@ -203,6 +204,17 @@ export function TaskViewPage(): JSX.Element {
             <p className="font-mono">{task.due_at}</p>
           </div>
         )}
+        <div className="rounded border border-slate-200 dark:border-slate-800 p-3">
+          <p className="text-xs text-slate-500 mb-1">Time tracking</p>
+          <p className="font-mono mb-2">{(task.time_spent_s / 60).toFixed(1)} min</p>
+          <button
+            type="button"
+            onClick={() => StartTimer(task)}
+            className="w-full px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-xs"
+          >
+            Start timer
+          </button>
+        </div>
       </aside>
     </section>
   )
