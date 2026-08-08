@@ -65,14 +65,14 @@ type Service struct {
 	Tasks    task.Repository
 	Locks    Locks
 	Recorder Recorder
-	Comments CommentRepo
+	Comments CommentAdder
 	Hub      Hub
 }
 
 // New returns a Service. Tasks is mandatory; other fields can be nil and
 // the corresponding operations will return an explicit "no backend" error
 // or skip the side effect.
-func New(tasks task.Repository, locks Locks, recorder Recorder, comments CommentRepo, hub Hub) *Service {
+func New(tasks task.Repository, locks Locks, recorder Recorder, comments CommentAdder, hub Hub) *Service {
 	return &Service{
 		Tasks:    tasks,
 		Locks:    locks,
@@ -342,7 +342,7 @@ func (s *Service) Review(ctx context.Context, taskID, userID string, decision Re
 		tr.Awaiting = task.AwaitingAgent
 	}
 	if comment != "" && s.Comments != nil {
-		if _, cerr := s.Comments.Create(ctx, &CommentInput{
+		if _, cerr := s.Comments.Add(ctx, &CommentInput{
 			TargetType: commentTargetTask,
 			TargetID:   taskID,
 			AuthorType: commentAuthorUser,
@@ -396,9 +396,10 @@ const (
 	commentAuthorUser = "user"
 )
 
-// CommentRepo is the small surface Review needs to add comments.
-type CommentRepo interface {
-	Create(ctx context.Context, in *CommentInput) (string, error)
+// CommentAdder is the tiny surface Review needs to attach a rejection
+// comment. *comment.Service satisfies it.
+type CommentAdder interface {
+	Add(ctx context.Context, in *CommentInput) (string, error)
 }
 
 // Sentinel errors returned by Claim/Release/Submit/Review.

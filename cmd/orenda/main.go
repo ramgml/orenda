@@ -34,8 +34,11 @@ import (
 	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/config"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
+	commentservice "github.com/ramgml/orenda/internal/service/comment"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
+
+	commentdomain "github.com/ramgml/orenda/internal/domain/comment"
 )
 
 // tokenMinterFor adapts the concrete sqlite.APITokenRepo to the agent
@@ -55,6 +58,32 @@ func (a sqliteTokenMinterAdapter) MintToken(ctx context.Context, userID, name, h
 		return "", "", err
 	}
 	return row.ID, row.Name, nil
+}
+
+// commentAdderAdapter bridges comment.Service.Add (which returns
+// *comment.Comment) to the task service's CommentAdder.Add (which
+// returns string, error).
+type commentAdderAdapter struct {
+	svc *commentservice.Service
+}
+
+func (a commentAdderAdapter) Add(ctx context.Context, in *taskservice.CommentInput) (string, error) {
+	c := &commentdomain.Comment{
+		TargetType: commentdomain.TargetType(in.TargetType),
+		TargetID:   in.TargetID,
+		AuthorType: commentdomain.AuthorType(in.AuthorType),
+		AuthorID:   in.AuthorID,
+		BodyMD:     in.BodyMD,
+	}
+	got, err := a.svc.Add(ctx, c)
+	if err != nil {
+		return "", err
+	}
+	return got.ID, nil
+}
+
+func commentAdderFor(svc *commentservice.Service) taskservice.CommentAdder {
+	return commentAdderAdapter{svc: svc}
 }
 
 // version is set by -ldflags at build time.
@@ -159,7 +188,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// land in 3.7/3.9).
 	hub := ws.NewHub()
 	taskLocks := sqlite.NewTaskLockRepository(db)
-	taskSvc := taskservice.New(tasksRepo, taskLocks, nil, nil, hub)
+	commentSvc := commentservice.New(sqlite.NewCommentRepository(db), hub, nil)
+	taskSvc := taskservice.New(tasksRepo, taskLocks, nil, commentAdderFor(commentSvc), hub)
 
 	// Agent service (Phase 3.5) — Register, Heartbeat, SweepOffline.
 	// Wired but not yet exposed via handlers (3.11).
