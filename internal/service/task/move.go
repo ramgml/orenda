@@ -11,6 +11,7 @@ import (
 
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/activity"
+	commentdomain "github.com/ramgml/orenda/internal/domain/comment"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 )
@@ -67,6 +68,14 @@ type Service struct {
 	Recorder Recorder
 	Comments CommentAdder
 	Hub      Hub
+	Mirror   MirrorWriter
+}
+
+// MirrorWriter is the seam for the Phase 7 markdown mirror. The concrete
+// implementation is internal/mirror.Service; nil means "no mirror".
+type MirrorWriter interface {
+	WriteTask(t *task.Task, subtasks []*task.Subtask, comments []*commentdomain.Comment) (string, error)
+	DeleteTask(id string) error
 }
 
 // New returns a Service. Tasks is mandatory; other fields can be nil and
@@ -125,6 +134,7 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return nil, fmt.Errorf("task service: update: %w", err)
 	}
+	s.mirrorSave(ctx, tr)
 
 	if s.Recorder != nil {
 		_ = s.Recorder.Record(ctx, taskID, activity.ActorUser, "", activity.ActionMoved,
@@ -251,6 +261,7 @@ func (s *Service) Claim(ctx context.Context, taskID, agentID string) (*task.Task
 		_ = s.Locks.Release(ctx, taskID, agentID)
 		return nil, err
 	}
+	s.mirrorSave(ctx, tr)
 
 	s.publishTask(ctx, "task.claimed", tr, agentID, map[string]any{"agent_id": agentID})
 	return tr, nil
@@ -279,6 +290,7 @@ func (s *Service) Release(ctx context.Context, taskID, agentID string) (*task.Ta
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return nil, err
 	}
+	s.mirrorSave(ctx, tr)
 
 	s.publishTask(ctx, "task.released", tr, agentID, map[string]any{"agent_id": agentID})
 	return tr, nil
@@ -307,6 +319,7 @@ func (s *Service) Submit(ctx context.Context, taskID, agentID string, note strin
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return nil, err
 	}
+	s.mirrorSave(ctx, tr)
 
 	s.publishTask(ctx, "task.submitted", tr, agentID, map[string]any{
 		"agent_id": agentID,
@@ -366,6 +379,7 @@ func (s *Service) Review(ctx context.Context, taskID, userID string, decision Re
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return nil, err
 	}
+	s.mirrorSave(ctx, tr)
 	s.publishTask(ctx, "task.reviewed", tr, userID, map[string]any{
 		"decision": string(decision),
 		"comment":  comment,
@@ -387,6 +401,32 @@ func (s *Service) publishTask(ctx context.Context, eventType string, tr *task.Ta
 		body[k] = v
 	}
 	s.Hub.Publish(ctx, ws.Event{Topic: "tasks", Body: body})
+}
+
+// MirrorSave writes the task to the markdown mirror (Phase 7.2 wiring).
+// Best-effort: failures are ignored — the next push will catch up.
+// Exported so handlers that bypass the service (PATCH /tasks/:id) can
+// still trigger the mirror.
+func (s *Service) MirrorSave(ctx context.Context, tr *task.Task) {
+	if s.Mirror == nil || tr == nil {
+		return
+	}
+	subs, _ := s.Tasks.ListSubtasks(ctx, tr.ID)
+	_, _ = s.Mirror.WriteTask(tr, subs, nil)
+}
+
+// mirrorSave is the internal alias kept for service-internal callers.
+func (s *Service) mirrorSave(ctx context.Context, tr *task.Task) {
+	s.MirrorSave(ctx, tr)
+}
+
+// MirrorDelete removes the mirror file. Called from the Delete handler
+// (which currently lives in handlers_tasks.go — Phase 9 may move it here).
+func (s *Service) MirrorDelete(id string) {
+	if s.Mirror == nil {
+		return
+	}
+	_ = s.Mirror.DeleteTask(id)
 }
 
 // ----------------------------------------------------------------------------
