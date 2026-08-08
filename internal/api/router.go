@@ -42,8 +42,10 @@ import (
 	"github.com/ramgml/orenda/internal/domain/user"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
+	searchservice "github.com/ramgml/orenda/internal/service/search"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
+	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
 )
 
 // Version is the build-time version string.
@@ -75,23 +77,25 @@ type infoResponse struct {
 // Constructing this struct lives in cmd/orenda so the api package stays
 // independent of the storage layer.
 type Dependencies struct {
-	Logger       *zap.Logger
-	Signer       *auth.Signer
-	Users        user.Repository
-	Projects     project.Repository
-	Tasks        task.Repository
-	Tokens       APITokenLookup
-	TaskService  *taskservice.Service
-	Agents       agent.Repository
-	AgentService *agentservice.Service
-	Comments     CommentService
-	Attachments  AttachmentService
-	Activities   ActivityService
-	EventService *eventservice.Service
-	TimeService  *timeentryservice.Service
-	WSHub        ws.Hub
-	CookieName   string
-	Capabilities Capabilities
+	Logger        *zap.Logger
+	Signer        *auth.Signer
+	Users         user.Repository
+	Projects      project.Repository
+	Tasks         task.Repository
+	Tokens        APITokenLookup
+	TaskService   *taskservice.Service
+	Agents        agent.Repository
+	AgentService  *agentservice.Service
+	Comments      CommentService
+	Attachments   AttachmentService
+	Activities    ActivityService
+	EventService  *eventservice.Service
+	TimeService   *timeentryservice.Service
+	WikiService   *wikiservice.Service
+	SearchService *searchservice.Service
+	WSHub         ws.Hub
+	CookieName    string
+	Capabilities  Capabilities
 }
 
 // NewRouter constructs a chi router with the Phase 1 endpoints wired.
@@ -225,6 +229,19 @@ func NewRouter(deps Dependencies) http.Handler {
 			})
 
 			r.Get("/reports/time", reportTimeHandler(deps))
+
+			// Phase 5: wiki + FTS5 search.
+			r.Route("/pages", func(r chi.Router) {
+				r.Get("/", listPagesHandler(deps))
+				r.Post("/", savePageHandler(deps))
+				r.Route("/{slug}", func(r chi.Router) {
+					r.Get("/", getPageHandler(deps))
+					r.Put("/", savePageHandler(deps))
+					r.Get("/backlinks", getPageBacklinksHandler(deps))
+				})
+			})
+
+			r.Get("/search", searchHandler(deps))
 		})
 
 		// Agent-authenticated routes: agents authenticate via
