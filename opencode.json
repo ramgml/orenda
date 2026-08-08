@@ -3,8 +3,30 @@
   "model": "minimax/MiniMax-M3",
   "provider": {
     "minimax": {
+      "name": "MiniMax (Alibaba token-plan)",
+      "npm": "@ai-sdk/openai-compatible",
       "options": {
         "baseURL": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+      },
+      "models": {
+        "MiniMax-M3": {
+          "name": "MiniMax M3",
+          "reasoning": true,
+          "attachment": true,
+          "limit": {
+            "context": 1000000,
+            "output": 32768
+          },
+          "modalities": {
+            "input": [
+              "text",
+              "image"
+            ],
+            "output": [
+              "text"
+            ]
+          }
+        }
       }
     }
   },
