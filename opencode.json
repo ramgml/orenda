@@ -1,6 +1,5 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "theme": "system",
   "model": "minimax/MiniMax-M3",
   "provider": {
     "minimax": {
@@ -20,22 +19,9 @@
     }
   },
   "tools": {
-    "bash": {
-      "enabled": true
-    },
-    "edit": {
-      "enabled": true
-    },
-    "write": {
-      "enabled": true
-    }
+    "bash": true,
+    "edit": true,
+    "write": true
   },
-  "formatter": {
-    "gofmt": true,
-    "prettier": true
-  },
-  "linter": {
-    "golangci-lint": true,
-    "eslint": true
-  }
+  "formatter": true
 }

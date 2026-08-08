@@ -41,3 +41,7 @@ Thumbs.db
 # --- Logs ---
 *.log
 logs/
+
+# --- opencode runtime ---
+opencode.json.tui-migration.bak
+tui.json
