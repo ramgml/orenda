@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ramgml/orenda/internal/auth"
+	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/user"
 )
 
@@ -64,7 +65,8 @@ func withIdentity(ctx context.Context, id *Identity) context.Context {
 type AuthConfig struct {
 	Signer     *auth.Signer
 	Users      user.Repository
-	Tokens     APITokenLookup // interface satisfied by *sqlite.apiTokenRepo
+	Tokens     APITokenLookup
+	Agents     agent.Repository
 	CookieName string
 }
 

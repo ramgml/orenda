@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -35,13 +36,20 @@ import (
 	"github.com/ramgml/orenda/internal/config"
 	activityservice "github.com/ramgml/orenda/internal/service/activity"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
+	attachmentsvc "github.com/ramgml/orenda/internal/service/attachment"
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 
 	activitydomain "github.com/ramgml/orenda/internal/domain/activity"
+	attachmentdomain "github.com/ramgml/orenda/internal/domain/attachment"
 	commentdomain "github.com/ramgml/orenda/internal/domain/comment"
 )
+
+// apiAttachmentResult aliases api.AttachmentResult so the adapter below
+// doesn't need to import the api package twice.
+type apiAttachmentResult = api.AttachmentResult
+type apiAttachment = api.AttachmentService
 
 // tokenMinterFor adapts the concrete sqlite.APITokenRepo to the agent
 // service's TokenMinter interface by projecting the StoredToken row
@@ -98,6 +106,41 @@ func (a taskRecorderAdapter) Record(ctx context.Context, taskID string, actorTyp
 
 func taskRecorderFor(r *activityservice.Recorder) taskservice.Recorder {
 	return taskRecorderAdapter{inner: r}
+}
+
+// attachmentAdapter bridges attachment.Service (returns *attachment.StoreResult)
+// to api.AttachmentService (returns *api.AttachmentResult).
+type attachmentAdapter struct{ inner *attachmentsvc.Service }
+
+func (a attachmentAdapter) StoreFromBytes(
+	ctx context.Context,
+	t attachmentdomain.TargetType,
+	targetID, filename, mime string,
+	uploaderType attachmentdomain.UploaderType,
+	uploaderID string,
+	body io.Reader,
+) (*apiAttachmentResult, error) {
+	res, err := a.inner.StoreFromBytes(ctx, t, targetID, filename, mime, uploaderType, uploaderID, body)
+	if err != nil {
+		return nil, err
+	}
+	return &apiAttachmentResult{Attachment: res.Attachment, Duplicate: res.Duplicate}, nil
+}
+
+func (a attachmentAdapter) Get(ctx context.Context, id string) (*attachmentdomain.Attachment, error) {
+	return a.inner.Get(ctx, id)
+}
+
+func (a attachmentAdapter) ListByTarget(ctx context.Context, t attachmentdomain.TargetType, targetID string) ([]*attachmentdomain.Attachment, error) {
+	return a.inner.ListByTarget(ctx, t, targetID)
+}
+
+func (a attachmentAdapter) Delete(ctx context.Context, id string) error {
+	return a.inner.Delete(ctx, id)
+}
+
+func attachmentServiceFor(s *attachmentsvc.Service) apiAttachment {
+	return attachmentAdapter{inner: s}
 }
 
 // version is set by -ldflags at build time.
@@ -203,7 +246,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	hub := ws.NewHub()
 	taskLocks := sqlite.NewTaskLockRepository(db)
 	commentSvc := commentservice.New(sqlite.NewCommentRepository(db), hub, nil)
-	activityRecorder := activityservice.New(sqlite.NewActivityRepository(db))
+	activityRepo := sqlite.NewActivityRepository(db)
+	activityRecorder := activityservice.New(activityRepo)
 	taskSvc := taskservice.New(tasksRepo, taskLocks, taskRecorderFor(activityRecorder), commentAdderFor(commentSvc), hub)
 
 	// Agent service (Phase 3.5) — Register, Heartbeat, SweepOffline.
@@ -228,16 +272,24 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Build the router.
 	api.Version = version
 	router := api.NewRouter(api.Dependencies{
-		Logger:      logger,
-		Signer:      signer,
-		Users:       users,
-		Projects:    projects,
-		Tasks:       tasksRepo,
-		Tokens:      tokens,
-		TaskService: taskSvc,
-		Agents:      sqlite.NewAgentRepository(db),
-		WSHub:       hub,
-		CookieName:  cfg.Auth.CookieName,
+		Logger:       logger,
+		Signer:       signer,
+		Users:        users,
+		Projects:     projects,
+		Tasks:        tasksRepo,
+		Tokens:       tokens,
+		TaskService:  taskSvc,
+		AgentService: agentSvc,
+		Agents:       sqlite.NewAgentRepository(db),
+		Comments:     commentSvc,
+		Attachments: attachmentServiceFor(attachmentsvc.New(sqlite.NewAttachmentRepository(db), attachmentsvc.Config{
+			UploadDir:    cfg.Uploads.Dir,
+			MaxSizeBytes: int64(cfg.Uploads.MaxSizeMB) * 1024 * 1024,
+			AllowedMimes: cfg.Uploads.AllowedMimes,
+		}, hub)),
+		Activities: activityRepo,
+		WSHub:      hub,
+		CookieName: cfg.Auth.CookieName,
 	})
 
 	// HTTP server with graceful shutdown.

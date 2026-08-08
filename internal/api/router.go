@@ -40,6 +40,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
+	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 )
 
@@ -80,6 +81,10 @@ type Dependencies struct {
 	Tokens       APITokenLookup
 	TaskService  *taskservice.Service
 	Agents       agent.Repository
+	AgentService *agentservice.Service
+	Comments     CommentService
+	Attachments  AttachmentService
+	Activities   ActivityService
 	WSHub        ws.Hub
 	CookieName   string
 	Capabilities Capabilities
@@ -138,6 +143,7 @@ func NewRouter(deps Dependencies) http.Handler {
 				Signer:     deps.Signer,
 				Users:      deps.Users,
 				Tokens:     deps.Tokens,
+				Agents:     deps.Agents,
 				CookieName: deps.CookieName,
 			}
 			r.Use(RequireUser(cfg))
@@ -164,8 +170,17 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Put("/", patchTaskHandler(deps)) // alias
 					r.Delete("/", deleteTaskHandler(deps))
 					r.Post("/move", moveTaskHandler(deps))
+					r.Post("/claim", claimTaskHandler(deps))
+					r.Post("/release", releaseTaskHandler(deps))
+					r.Post("/submit", submitTaskHandler(deps))
+					r.Post("/review", reviewTaskHandler(deps))
 					r.Get("/subtasks", listSubtasksHandler(deps))
 					r.Post("/subtasks", addSubtaskHandler(deps))
+					r.Get("/comments", listTaskCommentsHandler(deps))
+					r.Post("/comments", createTaskCommentHandler(deps))
+					r.Post("/attachments", addTaskAttachmentHandler(deps))
+					r.Get("/activity", listTaskActivityHandler(deps))
+					r.Get("/context", getTaskContextHandler(deps))
 				})
 			})
 
@@ -178,6 +193,16 @@ func NewRouter(deps Dependencies) http.Handler {
 			// Long-poll for agents without WebSocket support. Subscribe
 			// to one topic and return the first matching event.
 			r.Post("/events/await", awaitHandler(deps))
+
+			r.Route("/agents", func(r chi.Router) {
+				r.Get("/", listAgentsHandler(deps))
+				r.Post("/", createAgentHandler(deps))
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", getAgentHandler(deps))
+					r.Delete("/", deleteAgentHandler(deps))
+					r.Post("/heartbeat", heartbeatHandler(deps))
+				})
+			})
 		})
 	})
 
