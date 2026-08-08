@@ -56,6 +56,14 @@ func (s *Service) Create(ctx context.Context, e *event.Event) (*event.Event, err
 	return got, nil
 }
 
+// Get returns a single event by id.
+func (s *Service) Get(ctx context.Context, id string) (*event.Event, error) {
+	if id == "" {
+		return nil, ErrInvalidInput
+	}
+	return s.Repo.GetByID(ctx, id)
+}
+
 // Update mutates an existing event. WS event: event.updated.
 func (s *Service) Update(ctx context.Context, e *event.Event) error {
 	if err := e.Validate(); err != nil {
