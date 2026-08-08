@@ -1,0 +1,261 @@
+// Package sqlite — Project/Board/Column repository implementation.
+package sqlite
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+
+	"github.com/ramgml/orenda/internal/domain/project"
+)
+
+// projectRepo persists projects, boards and columns.
+type projectRepo struct {
+	db *sql.DB
+}
+
+// NewProjectRepository returns a project.Repository backed by db.
+func NewProjectRepository(db *sql.DB) project.Repository {
+	return &projectRepo{db: db}
+}
+
+func (r *projectRepo) CreateProject(ctx context.Context, p *project.Project) (*project.Project, []*project.Board, []*project.Column, error) {
+	if err := p.Validate(); err != nil {
+		return nil, nil, nil, err
+	}
+	if p.ID == "" {
+		p.ID = newUUID()
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("project.CreateProject: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	const insProject = `
+		INSERT INTO projects (id, name, color, description, owner_id, archived,
+		                     created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
+	`
+	if _, err := tx.ExecContext(ctx, insProject,
+		p.ID, p.Name, p.Color, p.Description, p.OwnerID,
+	); err != nil {
+		return nil, nil, nil, fmt.Errorf("project.CreateProject: insert project: %w", err)
+	}
+
+	// Default board.
+	boardID := newUUID()
+	const insBoard = `
+		INSERT INTO boards (id, project_id, name, position, created_at)
+		VALUES (?, ?, 'Main', 0, datetime('now'))
+	`
+	if _, err := tx.ExecContext(ctx, insBoard, boardID, p.ID); err != nil {
+		return nil, nil, nil, fmt.Errorf("project.CreateProject: insert board: %w", err)
+	}
+
+	// Default columns with evenly spaced positions so future inserts can
+	// average between them without renumbering.
+	columns := make([]*project.Column, 0, len(project.DefaultColumns))
+	const insColumn = `
+		INSERT INTO columns (id, board_id, name, position)
+		VALUES (?, ?, ?, ?)
+	`
+	for i, name := range project.DefaultColumns {
+		colID := newUUID()
+		position := float64(i) * 1024
+		if _, err := tx.ExecContext(ctx, insColumn, colID, boardID, name, position); err != nil {
+			return nil, nil, nil, fmt.Errorf("project.CreateProject: insert column %q: %w", name, err)
+		}
+		columns = append(columns, &project.Column{
+			ID:       colID,
+			BoardID:  boardID,
+			Name:     name,
+			Position: position,
+		})
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, nil, nil, fmt.Errorf("project.CreateProject: commit: %w", err)
+	}
+
+	// Reload to populate timestamps.
+	created, err := r.GetProject(ctx, p.ID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	boards := []*project.Board{{
+		ID: boardID, ProjectID: p.ID, Name: "Main", Position: 0,
+	}}
+	return created, boards, columns, nil
+}
+
+func (r *projectRepo) GetProject(ctx context.Context, id string) (*project.Project, error) {
+	const q = `
+		SELECT id, name, color, description, owner_id, archived, created_at, updated_at
+		FROM projects WHERE id = ?
+	`
+	row := r.db.QueryRowContext(ctx, q, id)
+	var (
+		p    project.Project
+		desc sql.NullString
+		arch int
+		cAt  string
+		uAt  string
+	)
+	err := row.Scan(&p.ID, &p.Name, &p.Color, &desc, &p.OwnerID, &arch, &cAt, &uAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, project.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("project.GetProject: %w", err)
+	}
+	p.Description = desc.String
+	p.Archived = arch != 0
+	p.CreatedAt = parseTime(cAt)
+	p.UpdatedAt = parseTime(uAt)
+	return &p, nil
+}
+
+func (r *projectRepo) ListProjects(ctx context.Context, ownerID string) ([]*project.Project, error) {
+	const q = `
+		SELECT id, name, color, description, owner_id, archived, created_at, updated_at
+		FROM projects WHERE owner_id = ?
+		ORDER BY created_at DESC
+	`
+	rows, err := r.db.QueryContext(ctx, q, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("project.ListProjects: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*project.Project
+	for rows.Next() {
+		var (
+			p    project.Project
+			desc sql.NullString
+			arch int
+			cAt  string
+			uAt  string
+		)
+		if err := rows.Scan(&p.ID, &p.Name, &p.Color, &desc, &p.OwnerID, &arch, &cAt, &uAt); err != nil {
+			return nil, fmt.Errorf("project.ListProjects: scan: %w", err)
+		}
+		p.Description = desc.String
+		p.Archived = arch != 0
+		p.CreatedAt = parseTime(cAt)
+		p.UpdatedAt = parseTime(uAt)
+		out = append(out, &p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *projectRepo) UpdateProject(ctx context.Context, p *project.Project) error {
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	const q = `
+		UPDATE projects
+		SET name = ?, color = ?, description = ?, archived = ?
+		WHERE id = ?
+	`
+	res, err := r.db.ExecContext(ctx, q, p.Name, p.Color, p.Description, boolToInt(p.Archived), p.ID)
+	if err != nil {
+		return fmt.Errorf("project.UpdateProject: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("project.UpdateProject: rows: %w", err)
+	}
+	if n == 0 {
+		return project.ErrNotFound
+	}
+	got, err := r.GetProject(ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	*p = *got
+	return nil
+}
+
+func (r *projectRepo) DeleteProject(ctx context.Context, id string) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM projects WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("project.DeleteProject: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return project.ErrNotFound
+	}
+	return nil
+}
+
+func (r *projectRepo) GetBoard(ctx context.Context, projectID string) (*project.Board, []*project.Column, error) {
+	// Phase 1: single board per project; pick the lowest-position board.
+	const qBoard = `
+		SELECT id, project_id, name, position, created_at
+		FROM boards WHERE project_id = ?
+		ORDER BY position ASC LIMIT 1
+	`
+	var (
+		b   project.Board
+		cAt string
+	)
+	err := r.db.QueryRowContext(ctx, qBoard, projectID).
+		Scan(&b.ID, &b.ProjectID, &b.Name, &b.Position, &cAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, project.ErrNotFound
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("project.GetBoard: %w", err)
+	}
+	b.CreatedAt = parseTime(cAt)
+
+	const qCols = `
+		SELECT id, board_id, name, position, wip_limit, color
+		FROM columns WHERE board_id = ?
+		ORDER BY position ASC
+	`
+	rows, err := r.db.QueryContext(ctx, qCols, b.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("project.GetBoard: list columns: %w", err)
+	}
+	defer rows.Close()
+
+	cols := []*project.Column{}
+	for rows.Next() {
+		var (
+			col   project.Column
+			wip   sql.NullInt64
+			color sql.NullString
+		)
+		if err := rows.Scan(&col.ID, &col.BoardID, &col.Name, &col.Position, &wip, &color); err != nil {
+			return nil, nil, fmt.Errorf("project.GetBoard: scan column: %w", err)
+		}
+		if wip.Valid {
+			v := int(wip.Int64)
+			col.WIPLimit = &v
+		}
+		col.Color = color.String
+		cols = append(cols, &col)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return &b, cols, nil
+}
+
+// boolToInt converts a bool to 0/1 for SQLite storage.
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
