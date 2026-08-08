@@ -147,8 +147,9 @@ func extractUserToken(r *http.Request, cookieName string) (string, bool) {
 // RequireAgent middleware accepts Authorization: Bearer <api-token> and
 // resolves it through the api_tokens repository.
 //
-// On success the identity's AgentID is set and Scopes come from the token's
-// stored scopes_json. On failure 401 is returned.
+// On success the identity's AgentID is set to the agent row that owns
+// the token (looked up via token_id). Scopes come from the token's stored
+// scopes_json. On failure 401 is returned.
 func RequireAgent(cfg AuthConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -167,15 +168,30 @@ func RequireAgent(cfg AuthConfig) func(http.Handler) http.Handler {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
-			// Fire-and-forget last_used_at update; failure here doesn't
-			// break the request.
-			go func(id string) {
-				_ = cfg.Tokens.TouchLastUsed(context.Background(), id)
-			}(tok.ID)
+			// Look up the agent row to populate AgentID (the token's UserID
+			// is the synthetic "agent-owner" user; the real agent id lives
+			// in agents.token_id).
 			id := &Identity{
-				AgentID: tok.UserID, // Phase 1: UserID doubles as AgentID
+				AgentID: "",
 				Scopes:  parseScopesJSON(tok.ScopesJSON),
 			}
+			if cfg.Agents != nil {
+				if a, err := cfg.Agents.GetByTokenID(r.Context(), tok.ID); err == nil && a != nil {
+					id.AgentID = a.ID
+				} else {
+					_ = err
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+			} else {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			// Fire-and-forget last_used_at update; failure here doesn't
+			// break the request.
+			go func(tid string) {
+				_ = cfg.Tokens.TouchLastUsed(context.Background(), tid)
+			}(tok.ID)
 			next.ServeHTTP(w, r.WithContext(withIdentity(r.Context(), id)))
 		})
 	}
