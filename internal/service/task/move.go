@@ -312,6 +312,9 @@ func (s *Service) Submit(ctx context.Context, taskID, agentID string, note strin
 		"agent_id": agentID,
 		"note":     note,
 	})
+	if s.Recorder != nil {
+		_ = s.Recorder.Record(ctx, taskID, activity.ActorAgent, agentID, activity.ActionSubmitted, note)
+	}
 	return tr, nil
 }
 

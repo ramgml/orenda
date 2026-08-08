@@ -42,6 +42,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/user"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
+	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
@@ -93,6 +94,7 @@ type Dependencies struct {
 	TimeService   *timeentryservice.Service
 	WikiService   *wikiservice.Service
 	SearchService *searchservice.Service
+	Notifier      *notifierservice.Service
 	WSHub         ws.Hub
 	CookieName    string
 	Capabilities  Capabilities
@@ -242,6 +244,10 @@ func NewRouter(deps Dependencies) http.Handler {
 			})
 
 			r.Get("/search", searchHandler(deps))
+
+			// Phase 6: notifications inbox.
+			r.Get("/notifications", listNotificationsHandler(deps))
+			r.Post("/notifications/{id}/read", markNotificationReadHandler(deps))
 		})
 
 		// Agent-authenticated routes: agents authenticate via
