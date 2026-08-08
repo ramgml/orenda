@@ -3,18 +3,24 @@ import { useDroppable } from '@dnd-kit/core'
 
 import { TaskCard } from './TaskCard'
 import type { Task } from '@/shared/api/client'
+import { queueCreateTask } from '@/shared/offline/outbox'
 
 /**
  * One kanban column with its droppable zone and inline task creation.
+ *
+ * Offline-aware: when the browser is offline, the create call is queued
+ * into the IndexedDB outbox and flushed by syncNow() on reconnect.
  */
 export function ColumnView({
   columnId,
   name,
+  projectId,
   tasks,
   onCreate,
 }: {
   columnId: string
   name: string
+  projectId: string
   tasks: Task[]
   onCreate: (title: string) => Promise<void>
 }): JSX.Element {
@@ -27,7 +33,11 @@ export function ColumnView({
     e.preventDefault()
     if (!title.trim()) return
     try {
-      await onCreate(title.trim())
+      if (navigator.onLine) {
+        await onCreate(title.trim())
+      } else {
+        await queueCreateTask(projectId, { title: title.trim(), column_id: columnId })
+      }
       setTitle('')
       setCreating(false)
       setError(null)

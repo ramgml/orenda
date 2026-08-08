@@ -28,6 +28,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -100,9 +101,17 @@ type Dependencies struct {
 	BackupEnabled       bool
 	BackupRemoteURL     string
 	BackupRemoteAuthSet bool
+	SyncOps             SyncOpsStore
 	WSHub               ws.Hub
 	CookieName          string
 	Capabilities        Capabilities
+}
+
+// SyncOpsStore is the small surface the sync endpoint needs for
+// idempotency. The SQLite implementation records applied client_ids.
+type SyncOpsStore interface {
+	Seen(ctx context.Context, clientID string) (bool, string, error)
+	Record(ctx context.Context, clientID, serverID string) error
 }
 
 // NewRouter constructs a chi router with the Phase 1 endpoints wired.
@@ -253,6 +262,9 @@ func NewRouter(deps Dependencies) http.Handler {
 			// Phase 6: notifications inbox.
 			r.Get("/notifications", listNotificationsHandler(deps))
 			r.Post("/notifications/{id}/read", markNotificationReadHandler(deps))
+
+			// Phase 8: offline sync.
+			r.Post("/sync", syncHandler(deps))
 
 			// Phase 7: backups.
 			r.Route("/backups", func(r chi.Router) {

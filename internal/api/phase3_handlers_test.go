@@ -133,6 +133,7 @@ func buildP3Router(t *testing.T) (http.Handler, *sqlLite) {
 		Comments:    commentSvc,
 		Attachments: nil,
 		Activities:  sqlite.NewActivityRepository(db),
+		SyncOps:     sqlite.NewSyncOpsRepository(db),
 		WSHub:       hub,
 		CookieName:  "orenda_session",
 	}

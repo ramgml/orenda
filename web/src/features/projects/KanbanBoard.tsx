@@ -107,6 +107,7 @@ export function KanbanBoard({
             <ColumnView
               key={col.id}
               columnId={col.id}
+              projectId={projectId}
               name={col.name}
               tasks={tasksByCol.get(col.id) ?? []}
               onCreate={async (title) => {

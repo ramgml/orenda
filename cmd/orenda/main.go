@@ -354,6 +354,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		BackupEnabled:       cfg.Backup.Enabled,
 		BackupRemoteURL:     cfg.Backup.RemoteURL,
 		BackupRemoteAuthSet: cfg.Backup.RemoteAuth != "",
+		SyncOps:             sqlite.NewSyncOpsRepository(db),
 		WSHub:               hub,
 		CookieName:          cfg.Auth.CookieName,
 	})
