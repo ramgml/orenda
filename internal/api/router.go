@@ -41,7 +41,9 @@ import (
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
+	eventservice "github.com/ramgml/orenda/internal/service/event"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
+	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
 )
 
 // Version is the build-time version string.
@@ -85,6 +87,8 @@ type Dependencies struct {
 	Comments     CommentService
 	Attachments  AttachmentService
 	Activities   ActivityService
+	EventService *eventservice.Service
+	TimeService  *timeentryservice.Service
 	WSHub        ws.Hub
 	CookieName   string
 	Capabilities Capabilities
@@ -182,6 +186,10 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Post("/attachments", addTaskAttachmentHandler(deps))
 					r.Get("/activity", listTaskActivityHandler(deps))
 					r.Get("/context", getTaskContextHandler(deps))
+					// Phase 4: timer endpoints
+					r.Post("/timer/start", startTimerHandler(deps))
+					r.Post("/timer/stop", stopTimerHandler(deps))
+					r.Post("/time", addManualTimeHandler(deps))
 				})
 			})
 
@@ -204,6 +212,19 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Post("/heartbeat", heartbeatHandler(deps))
 				})
 			})
+
+			// Phase 4: calendar + time tracking.
+			r.Route("/events", func(r chi.Router) {
+				r.Get("/", listEventsHandler(deps))
+				r.Post("/", createEventHandler(deps))
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", getEventHandler(deps))
+					r.Patch("/", updateEventHandler(deps))
+					r.Delete("/", deleteEventHandler(deps))
+				})
+			})
+
+			r.Get("/reports/time", reportTimeHandler(deps))
 		})
 
 		// Agent-authenticated routes: agents authenticate via

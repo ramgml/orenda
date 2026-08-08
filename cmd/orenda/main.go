@@ -38,7 +38,9 @@ import (
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	attachmentsvc "github.com/ramgml/orenda/internal/service/attachment"
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
+	eventservice "github.com/ramgml/orenda/internal/service/event"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
+	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 
 	activitydomain "github.com/ramgml/orenda/internal/domain/activity"
@@ -261,6 +263,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	)
 	_ = agentSvc
 
+	// Event + Time services (Phase 4).
+	eventSvc := eventservice.New(sqlite.NewEventRepository(db), hub, nil)
+	timeSvc := timeentryservice.New(sqlite.NewTimeEntryRepository(db), hub, nil)
+
 	// Build the JWT signer. JWT secret is mandatory for Phase 1+ — refuse
 	// to start without it so the operator doesn't discover the missing
 	// config at first login.
@@ -287,9 +293,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			MaxSizeBytes: int64(cfg.Uploads.MaxSizeMB) * 1024 * 1024,
 			AllowedMimes: cfg.Uploads.AllowedMimes,
 		}, hub)),
-		Activities: activityRepo,
-		WSHub:      hub,
-		CookieName: cfg.Auth.CookieName,
+		Activities:   activityRepo,
+		EventService: eventSvc,
+		TimeService:  timeSvc,
+		WSHub:        hub,
+		CookieName:   cfg.Auth.CookieName,
 	})
 
 	// HTTP server with graceful shutdown.
