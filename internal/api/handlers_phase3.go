@@ -14,6 +14,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/attachment"
 	"github.com/ramgml/orenda/internal/domain/comment"
+	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 )
 
@@ -88,6 +89,19 @@ func submitTaskHandler(deps Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		// Phase 6.4: notify the project owner that a task is awaiting review.
+		if p, perr := deps.Projects.GetProject(r.Context(), tr.ProjectID); perr == nil && p != nil {
+			notifyEvent(r.Context(), deps, notifierservice.Event{
+				Type:       "task.review_needed",
+				UserID:     p.OwnerID,
+				TargetType: "task",
+				TargetID:   tr.ID,
+				Title:      "Task ready for review",
+				Body:       tr.Title,
+				Link:       "/tasks/" + tr.ID,
+				DedupKey:   "task.review_needed:" + tr.ID,
+			})
+		}
 		writeJSON(w, http.StatusOK, tr)
 	}
 }
@@ -158,8 +172,9 @@ func createTaskCommentHandler(deps Dependencies) http.HandlerFunc {
 		if id, ok := IdentityFrom(r.Context()); ok {
 			userID = id.UserID
 		}
+		taskID := chi.URLParam(r, "id")
 		c := &comment.Comment{
-			TargetID:   chi.URLParam(r, "id"),
+			TargetID:   taskID,
 			AuthorType: comment.AuthorUser,
 			AuthorID:   userID,
 			BodyMD:     in.BodyMD,
@@ -168,6 +183,29 @@ func createTaskCommentHandler(deps Dependencies) http.HandlerFunc {
 		if err != nil {
 			writeError(w, err)
 			return
+		}
+		// Phase 6.4: notify mentioned users.
+		if deps.Notifier != nil {
+			if mentions, merr := deps.Comments.MentionsForComment(r.Context(), got.ID); merr == nil {
+				for _, m := range mentions {
+					if string(m.TargetType) != "user" {
+						continue
+					}
+					if m.TargetID == userID {
+						continue // don't notify the author
+					}
+					notifyEvent(r.Context(), deps, notifierservice.Event{
+						Type:       "mention.created",
+						UserID:     m.TargetID,
+						TargetType: "task",
+						TargetID:   taskID,
+						Title:      "You were mentioned",
+						Body:       in.BodyMD,
+						Link:       "/tasks/" + taskID,
+						DedupKey:   "mention.created:" + got.ID + ":" + m.TargetID,
+					})
+				}
+			}
 		}
 		writeJSON(w, http.StatusCreated, got)
 	}

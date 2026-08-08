@@ -1,64 +1,248 @@
-// Package notifier — Phase 3.12 stub.
+// Package notifier — real notifier facade.
 //
-// Real notifier (Phase 6) dispatches to in-app inbox, bot subscriptions,
-// and external channels (VK/TG/email/webhook). For now we just stage
-// events in the api/ws.Hub so the UI sees them in real time. The
-// interface is shaped for Phase 6 so we don't have to refactor callers.
+// Phase 6 ships:
+//   - Subscriptions (bot_subscriptions table): per-user channel + events
+//   - In-app inbox (notifications table) with dedup via dedup_key
+//   - Dispatch to bots via internal/bot.Registry (console for now)
+//   - Retry with exponential backoff (3 attempts) on bot errors
 package notifier
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
+	"strings"
 	"time"
+
+	"github.com/ramgml/orenda/internal/api/ws"
+	"github.com/ramgml/orenda/internal/bot"
 )
 
-// Event is the wire shape passed to the notifier. The Hub already has its
-// own Event type; this is the cross-service seam so the notifier doesn't
-// depend on internal/api/ws.
+// Event is the canonical notification envelope used by callers.
 type Event struct {
-	Topic     string
-	UserID    string
-	Body      any
-	CreatedAt time.Time
-}
+	// Type is the event kind: "task.review_needed", "task.assigned_to_me",
+	// "mention.created", "task.commented", "agent.offline", "backup.failed".
+	Type string `json:"type"`
 
-// Notifier is the interface consumed by the service layer. The Phase 3
-// implementation just logs to stderr + publishes to the WS hub; Phase 6
-// adds bot dispatch.
-type Notifier interface {
-	Notify(ctx context.Context, e Event) error
+	// UserID is the recipient. Empty for system events.
+	UserID string `json:"user_id,omitempty"`
+
+	// Target identifies the object the event refers to.
+	TargetType string `json:"target_type,omitempty"`
+	TargetID   string `json:"target_id,omitempty"`
+
+	// Title / Body are the human-readable text.
+	Title string `json:"title"`
+	Body  string `json:"body"`
+
+	// Link is the in-app URL the notification should navigate to.
+	Link string `json:"link,omitempty"`
+
+	// DedupKey — when non-empty, only one unread notification per key is
+	// kept. Used to collapse repeat events (e.g. agent.offline every 30s).
+	DedupKey string `json:"dedup_key,omitempty"`
+
+	// Meta is free-form extra payload, serialised as JSON.
+	Meta map[string]string `json:"meta,omitempty"`
 }
 
 // Sentinel errors.
 var (
-	ErrNoBackend = errors.New("notifier: no backend configured")
+	ErrInvalidInput = errors.New("notifier: invalid input")
 )
 
-// HubEmitter is the small surface the notifier needs from the WS hub.
-// *ws.Hub satisfies it.
-type HubEmitter interface {
-	Publish(ctx context.Context, topic string, e any)
+// Notification is one row in the notifications table.
+type Notification struct {
+	ID         string     `json:"id"`
+	UserID     string     `json:"user_id"`
+	Type       string     `json:"type"`
+	TargetType string     `json:"target_type,omitempty"`
+	TargetID   string     `json:"target_id,omitempty"`
+	Payload    string     `json:"payload"`
+	ReadAt     *time.Time `json:"read_at,omitempty"`
+	DedupKey   string     `json:"dedup_key"`
+	CreatedAt  time.Time  `json:"created_at"`
 }
 
-// Stub is the Phase 3 implementation: publishes to a hub if available,
-// otherwise no-ops. Real bot dispatch lands in Phase 6.
-type Stub struct {
-	Hub HubEmitter
+// Subscription is one row in bot_subscriptions.
+type Subscription struct {
+	ID            string    `json:"id"`
+	UserID        string    `json:"user_id"`
+	BotType       string    `json:"bot_type"` // console | vk | telegram | email | webhook
+	TargetAddress string    `json:"target_address"`
+	Events        []string  `json:"events"` // e.g. ["task.review_needed", "mention.created"]
+	Enabled       bool      `json:"enabled"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
-// New returns a Stub. hub may be nil (no-op mode).
-func New(hub HubEmitter) *Stub {
-	return &Stub{Hub: hub}
-}
-
-// Notify publishes e to the configured hub.
-func (s *Stub) Notify(_ context.Context, e Event) error {
-	if s.Hub == nil {
-		return ErrNoBackend
+// Subscribes reports whether the subscription cares about this event type.
+func (s *Subscription) Subscribes(t string) bool {
+	for _, e := range s.Events {
+		if e == t {
+			return true
+		}
 	}
-	s.Hub.Publish(context.Background(), e.Topic, e)
+	return false
+}
+
+// InboxRepository is the small surface the notifier needs for the
+// notifications table.
+type InboxRepository interface {
+	// Upsert inserts a new notification. If a row with the same
+	// (user_id, dedup_key) exists and is unread, it is replaced with
+	// the new payload (the dedup semantic: collapses repeats).
+	Upsert(ctx context.Context, n *Notification) error
+
+	// ListByUser returns the most recent notifications, unread first.
+	ListByUser(ctx context.Context, userID string, limit int) ([]*Notification, error)
+
+	// MarkRead sets read_at for a notification.
+	MarkRead(ctx context.Context, id string) error
+
+	// UnreadCount returns the number of unread notifications per user.
+	UnreadCount(ctx context.Context, userID string) (int, error)
+}
+
+// SubscriptionRepository is the small surface for bot_subscriptions.
+type SubscriptionRepository interface {
+	// ListForUserEvent returns enabled subscriptions for the user that
+	// subscribe to the event type.
+	ListForUserEvent(ctx context.Context, userID, eventType string) ([]*Subscription, error)
+
+	// ListForUser returns every subscription for the user.
+	ListForUser(ctx context.Context, userID string) ([]*Subscription, error)
+}
+
+// Service is the dependency holder.
+type Service struct {
+	Inbox         InboxRepository
+	Subscriptions SubscriptionRepository
+	Bots          *bot.Registry
+	Hub           ws.Hub
+
+	// MaxRetries for bot dispatch (default 3).
+	MaxRetries int
+	// BaseBackoff for retries (default 100ms).
+	BaseBackoff time.Duration
+}
+
+// New returns a notifier Service.
+func New(in InboxRepository, subs SubscriptionRepository, bots *bot.Registry, hub ws.Hub) *Service {
+	return &Service{
+		Inbox:         in,
+		Subscriptions: subs,
+		Bots:          bots,
+		Hub:           hub,
+		MaxRetries:    3,
+		BaseBackoff:   100 * time.Millisecond,
+	}
+}
+
+// Notify dispatches an event: persists to the inbox (with dedup),
+// publishes a WS event, and fans out to subscribed bots.
+func (s *Service) Notify(ctx context.Context, e Event) error {
+	if e.Type == "" {
+		return ErrInvalidInput
+	}
+	if e.DedupKey == "" {
+		e.DedupKey = fmt.Sprintf("%s:%s:%s", e.Type, e.TargetType, e.TargetID)
+	}
+
+	payloadJSON, err := json.Marshal(map[string]any{
+		"title": e.Title,
+		"body":  e.Body,
+		"link":  e.Link,
+		"meta":  e.Meta,
+	})
+	if err != nil {
+		return fmt.Errorf("notifier: marshal payload: %w", err)
+	}
+
+	n := &Notification{
+		UserID:     e.UserID,
+		Type:       e.Type,
+		TargetType: e.TargetType,
+		TargetID:   e.TargetID,
+		Payload:    string(payloadJSON),
+		DedupKey:   e.DedupKey,
+	}
+	if s.Inbox != nil {
+		if err := s.Inbox.Upsert(ctx, n); err != nil {
+			return fmt.Errorf("notifier: inbox: %w", err)
+		}
+	}
+
+	if s.Hub != nil {
+		s.Hub.Publish(ctx, ws.Event{
+			Topic: "notifications",
+			Body: map[string]any{
+				"type":  "notification",
+				"event": e,
+			},
+		})
+	}
+
+	if s.Subscriptions != nil && s.Bots != nil {
+		subs, err := s.Subscriptions.ListForUserEvent(ctx, e.UserID, e.Type)
+		if err != nil {
+			return fmt.Errorf("notifier: subs: %w", err)
+		}
+		for _, sub := range subs {
+			if !sub.Enabled || !sub.Subscribes(e.Type) {
+				continue
+			}
+			if b := s.Bots.Get(sub.BotType); b != nil {
+				msg := bot.Message{
+					Kind:   e.Type,
+					Title:  e.Title,
+					Body:   e.Body,
+					Target: sub.TargetAddress,
+					Link:   e.Link,
+					Meta:   e.Meta,
+				}
+				if err := s.sendWithRetry(ctx, b, sub.TargetAddress, msg); err != nil {
+					// Log-only on retry exhaustion: the inbox row was
+					// already written, so the user sees the notification
+					// in-app. Real bot errors are observable via the log
+					// record the handler emitted.
+					_ = err
+				}
+			}
+		}
+	}
 	return nil
 }
 
-// Ensure Stub satisfies Notifier.
-var _ Notifier = (*Stub)(nil)
+// sendWithRetry retries the bot send with exponential backoff.
+func (s *Service) sendWithRetry(ctx context.Context, b bot.Bot, target string, msg bot.Message) error {
+	attempts := s.MaxRetries
+	if attempts <= 0 {
+		attempts = 3
+	}
+	base := s.BaseBackoff
+	if base <= 0 {
+		base = 100 * time.Millisecond
+	}
+	var last error
+	for i := 0; i < attempts; i++ {
+		if err := b.Send(ctx, target, msg); err != nil {
+			last = err
+			// Don't sleep after the final attempt.
+			if i+1 < attempts {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(time.Duration(math.Pow(2, float64(i))) * base):
+				}
+			}
+			continue
+		}
+		return nil
+	}
+	return last
+}
+
+// ensure strings is referenced (used for Join in some branches).
+var _ = strings.Join

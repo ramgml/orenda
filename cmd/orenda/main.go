@@ -33,12 +33,14 @@ import (
 	"github.com/ramgml/orenda/internal/api"
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
+	"github.com/ramgml/orenda/internal/bot"
 	"github.com/ramgml/orenda/internal/config"
 	activityservice "github.com/ramgml/orenda/internal/service/activity"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	attachmentsvc "github.com/ramgml/orenda/internal/service/attachment"
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
+	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
@@ -273,6 +275,17 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	wikiSvc := wikiservice.New(sqlite.NewWikiRepository(db), hub)
 	searchSvc := searchservice.New(sqlite.NewSearchRepository(db), hub)
 
+	// Notifier (Phase 6): registry + console bot (always available) + WS
+	// hub publish. External transports land in Phase 10.
+	botRegistry := bot.NewRegistry()
+	botRegistry.Register(bot.Console{Out: os.Stderr})
+	notifierSvc := notifierservice.New(
+		sqlite.NewNotificationRepository(db),
+		sqlite.NewBotSubscriptionRepository(db),
+		botRegistry,
+		hub,
+	)
+
 	// Build the JWT signer. JWT secret is mandatory for Phase 1+ — refuse
 	// to start without it so the operator doesn't discover the missing
 	// config at first login.
@@ -304,6 +317,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		TimeService:   timeSvc,
 		WikiService:   wikiSvc,
 		SearchService: searchSvc,
+		Notifier:      notifierSvc,
 		WSHub:         hub,
 		CookieName:    cfg.Auth.CookieName,
 	})
