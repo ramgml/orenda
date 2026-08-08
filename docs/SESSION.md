@@ -117,10 +117,13 @@ cat AGENTS.md            # ← затем правила
 
 ## Параметры opencode (для справки)
 
-- Модель: `minimax/MiniMax-M3`
-- Агенты: `build`, `plan`
-- Tools: bash, edit, write
-- Formatter: встроенный
+- **Провайдер**: прямой MiniMax (`https://api.minimax.io/anthropic/v1`)
+- **SDK**: `@ai-sdk/anthropic`
+- **Модель**: `minimax/MiniMax-M3` (1M context, 32K output, reasoning + attachment)
+- **Также доступны**: `MiniMax-M2.7`, `MiniMax-M2.5`
+- **Агенты**: `build`, `plan`
+- **Tools**: bash, edit, write
+- **Formatter**: встроенный
 
 ## Известные ограничения opencode config
 
