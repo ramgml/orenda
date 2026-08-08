@@ -174,6 +174,10 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Patch("/", patchColumnHandler(deps))
 				})
 			})
+
+			// Long-poll for agents without WebSocket support. Subscribe
+			// to one topic and return the first matching event.
+			r.Post("/events/await", awaitHandler(deps))
 		})
 	})
 
