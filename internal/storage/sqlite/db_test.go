@@ -148,6 +148,30 @@ func TestMigrate_004AgentsAddsIndexes(t *testing.T) {
 	assertIndexExists(t, db, "idx_task_locks_agent")
 }
 
+func TestMigrate_005CommentsAttachmentsAddsIndexesAndTriggers(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "orenda.db")
+
+	db, err := Open(context.Background(), dbPath, OpenConfig{
+		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx := context.Background()
+	require.NoError(t, Migrate(ctx, db, MigrationsFS, "migrations"))
+
+	versions, err := AppliedVersions(ctx, db)
+	require.NoError(t, err)
+	assert.Contains(t, versions, "005_comments_attachments")
+
+	assertIndexExists(t, db, "idx_comments_author")
+	assertIndexExists(t, db, "idx_attachments_sha256")
+	assertIndexExists(t, db, "idx_activity_actor")
+	assertTriggerExists(t, db, "trg_wiki_pages_touch")
+	assertTriggerExists(t, db, "trg_events_touch")
+}
+
 func TestBuildDSN(t *testing.T) {
 	dsn := buildDSN("/tmp/foo.db", OpenConfig{WALMode: true, BusyTimeoutMs: 5000})
 	assert.Contains(t, dsn, "_pragma=busy_timeout(5000)")
