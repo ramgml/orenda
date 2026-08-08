@@ -111,6 +111,14 @@ func NewRouter(deps Dependencies) http.Handler {
 	r.Use(recoverer())
 	r.Use(corsLoopback())
 
+	cfg := AuthConfig{
+		Signer:     deps.Signer,
+		Users:      deps.Users,
+		Tokens:     deps.Tokens,
+		Agents:     deps.Agents,
+		CookieName: deps.CookieName,
+	}
+
 	// Liveness probe — no DB ping in Phase 0 to keep dependencies minimal.
 	// Phase 1+ will add a /readyz that pings the database.
 	r.Get("/healthz", healthzHandler)
@@ -139,13 +147,6 @@ func NewRouter(deps Dependencies) http.Handler {
 
 		// Authenticated routes.
 		r.Group(func(r chi.Router) {
-			cfg := AuthConfig{
-				Signer:     deps.Signer,
-				Users:      deps.Users,
-				Tokens:     deps.Tokens,
-				Agents:     deps.Agents,
-				CookieName: deps.CookieName,
-			}
 			r.Use(RequireUser(cfg))
 
 			r.Get("/me", meHandler())
@@ -204,6 +205,27 @@ func NewRouter(deps Dependencies) http.Handler {
 				})
 			})
 		})
+
+		// Agent-authenticated routes: agents authenticate via
+		// Authorization: Bearer <api-token>. Mounted under /api/v1/agent/*
+		// to keep the auth model distinct from user-cookie routes.
+		// This group is intentionally OUTSIDE the user RequireUser group
+		// so the agent middleware isn't shadowed.
+		if deps.Agents != nil {
+			r.Group(func(r chi.Router) {
+				r.Use(RequireAgent(cfg))
+				r.Get("/agent/me", agentMeHandler(deps))
+				r.Post("/agent/heartbeat", agentHeartbeatHandler(deps))
+				r.Route("/agent/tasks", func(r chi.Router) {
+					r.Route("/{id}", func(r chi.Router) {
+						r.Post("/claim", agentClaimTaskHandler(deps))
+						r.Post("/release", agentReleaseTaskHandler(deps))
+						r.Post("/submit", agentSubmitTaskHandler(deps))
+						r.Get("/context", agentTaskContextHandler(deps))
+					})
+				})
+			})
+		}
 	})
 
 	// Static SPA: serve embedded web/dist, with client-side fallback to

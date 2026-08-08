@@ -24,6 +24,11 @@ var ErrLockTaken = errors.New("sqlite: task lock already taken")
 // it doesn't hold.
 var ErrLockNotHeld = errors.New("sqlite: task lock not held by this agent")
 
+// ErrLockNotFound is returned by Acquire when the target task (or agent)
+// doesn't exist. Distinct from ErrLockNotHeld (release) and
+// ErrLockTaken (already held).
+var ErrLockNotFound = errors.New("sqlite: task lock target not found")
+
 // taskLockRepo is the small layer for the task_locks table.
 type taskLockRepo struct {
 	db *sql.DB
@@ -36,9 +41,11 @@ func NewTaskLockRepository(db *sql.DB) *taskLockRepo {
 
 // Acquire atomically inserts a task_locks row.
 //
-// Translates the UNIQUE constraint violation on task_id into ErrLockTaken
-// so callers can use a single error path. The caller is responsible for
-// updating the task's assignee + status fields.
+// Translates:
+//
+//   - UNIQUE violation on task_id → ErrLockTaken
+//   - FOREIGN KEY violation (task missing) → ErrLockNotFound
+//   - FOREIGN KEY violation (agent missing) → returned as-is (programmer error)
 func (r *taskLockRepo) Acquire(ctx context.Context, taskID, agentID string) error {
 	const q = `
 		INSERT INTO task_locks (task_id, agent_id, acquired_at)
@@ -46,8 +53,16 @@ func (r *taskLockRepo) Acquire(ctx context.Context, taskID, agentID string) erro
 	`
 	_, err := r.db.ExecContext(ctx, q, taskID, agentID)
 	if err != nil {
-		if isUniqueViolation(err) {
+		switch {
+		case isUniqueViolation(err):
 			return ErrLockTaken
+		case isFKViolation(err):
+			// The Acquire FK can fail for either task_id (very common
+			// in tests) or agent_id. We can't distinguish from the error
+			// message alone, so we treat all FK failures as "lock target
+			// not found" and let the caller re-check the task to surface
+			// agent_id issues separately.
+			return ErrLockNotFound
 		}
 		return fmt.Errorf("taskLock.Acquire: %w", err)
 	}

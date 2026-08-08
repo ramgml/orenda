@@ -221,13 +221,21 @@ func (s *Service) Claim(ctx context.Context, taskID, agentID string) (*task.Task
 		if errors.Is(err, sqlite.ErrLockTaken) {
 			return nil, ErrLockTaken
 		}
+		if errors.Is(err, sqlite.ErrLockNotFound) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 
 	tr, err := s.Tasks.GetByID(ctx, taskID)
 	if err != nil {
-		// Best-effort: roll back the lock so the agent can retry.
+		// Translate the domain's ErrNotFound into the service's so handlers
+		// can match on a single sentinel. Best-effort lock rollback either
+		// way so the agent can retry.
 		_ = s.Locks.Release(ctx, taskID, agentID)
+		if errors.Is(err, task.ErrNotFound) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 
