@@ -3,10 +3,10 @@
   "model": "minimax/MiniMax-M3",
   "provider": {
     "minimax": {
-      "name": "MiniMax (Alibaba token-plan)",
-      "npm": "@ai-sdk/openai-compatible",
+      "name": "MiniMax",
+      "npm": "@ai-sdk/anthropic",
       "options": {
-        "baseURL": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+        "baseURL": "https://api.minimax.io/anthropic/v1"
       },
       "models": {
         "MiniMax-M3": {
@@ -18,13 +18,34 @@
             "output": 32768
           },
           "modalities": {
-            "input": [
-              "text",
-              "image"
-            ],
-            "output": [
-              "text"
-            ]
+            "input": ["text", "image", "video"],
+            "output": ["text"]
+          }
+        },
+        "MiniMax-M2.7": {
+          "name": "MiniMax M2.7",
+          "reasoning": true,
+          "attachment": true,
+          "limit": {
+            "context": 205000,
+            "output": 32768
+          },
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
+        },
+        "MiniMax-M2.5": {
+          "name": "MiniMax M2.5",
+          "reasoning": true,
+          "attachment": true,
+          "limit": {
+            "context": 205000,
+            "output": 32768
+          },
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
           }
         }
       }
