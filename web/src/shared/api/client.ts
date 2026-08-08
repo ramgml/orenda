@@ -291,6 +291,104 @@ class ApiClient {
       .post<Task>(`/api/v1/tasks/${taskId}/review`, { decision, comment: comment ?? '' })
       .then((r) => r.data)
   }
+
+  // ---- Events (Phase 4) ----
+
+  listEvents(params: { from: string; to: string; project_id?: string }): Promise<CalendarEvent[]> {
+    return this.http
+      .get<{ events: CalendarEvent[] }>('/api/v1/events', { params })
+      .then((r) => r.data.events)
+  }
+
+  createEvent(input: {
+    title: string
+    description?: string
+    start_at: string
+    end_at: string
+    all_day?: boolean
+    color?: string
+    project_id?: string
+    recurrence?: string
+  }): Promise<CalendarEvent> {
+    return this.http
+      .post<CalendarEvent>('/api/v1/events', input)
+      .then((r) => r.data)
+  }
+
+  patchEvent(id: string, input: Partial<{
+    title: string
+    description: string
+    start_at: string
+    end_at: string
+    all_day: boolean
+    color: string
+    project_id: string
+    recurrence: string
+  }>): Promise<CalendarEvent> {
+    return this.http.patch<CalendarEvent>(`/api/v1/events/${id}`, input).then((r) => r.data)
+  }
+
+  deleteEvent(id: string): Promise<void> {
+    return this.http.delete<void>(`/api/v1/events/${id}`).then(() => undefined)
+  }
+
+  // ---- Time tracking (Phase 4) ----
+
+  startTimer(taskId: string): Promise<TimeEntry> {
+    return this.http
+      .post<TimeEntry>(`/api/v1/tasks/${taskId}/timer/start`, {})
+      .then((r) => r.data)
+  }
+
+  stopTimer(taskId: string): Promise<TimeEntry> {
+    return this.http
+      .post<TimeEntry>(`/api/v1/tasks/${taskId}/timer/stop`, {})
+      .then((r) => r.data)
+  }
+
+  addManualTime(taskId: string, input: { start_at: string; end_at: string }): Promise<TimeEntry> {
+    return this.http
+      .post<TimeEntry>(`/api/v1/tasks/${taskId}/time`, input)
+      .then((r) => r.data)
+  }
+
+  getTimeReport(params: { agent_id?: string; from?: string; to?: string }): Promise<TimeReport> {
+    return this.http
+      .get<TimeReport>('/api/v1/reports/time', { params })
+      .then((r) => r.data)
+  }
+}
+
+export interface CalendarEvent {
+  id: string
+  title: string
+  description?: string
+  start_at: string
+  end_at: string
+  all_day: boolean
+  color?: string
+  project_id?: string
+  recurrence?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface TimeEntry {
+  id: string
+  task_id: string
+  agent_id: string
+  started_at: string
+  ended_at?: string
+  duration_s?: number
+  source: 'timer' | 'manual'
+}
+
+export interface TimeReport {
+  agent_id: string
+  from: string
+  to: string
+  tasks: { task_id: string; total_sec: number; title?: string }[]
+  total_sec: number
 }
 
 export const api = new ApiClient()

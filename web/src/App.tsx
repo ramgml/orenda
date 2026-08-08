@@ -7,6 +7,8 @@ import { ProjectsPage } from '@/features/projects/ProjectsPage'
 import { ProjectDetailPage } from '@/features/projects/ProjectDetailPage'
 import { AgentsPage } from '@/features/agents/AgentsPage'
 import { TaskViewPage } from '@/features/tasks/TaskViewPage'
+import { CalendarPage } from '@/features/calendar/CalendarPage'
+import { TimerWidget } from '@/features/tasks/TimerWidget'
 import { api, type InfoResponse } from '@/shared/api/client'
 import { HealthBadge } from '@/shared/ui/HealthBadge'
 import { useEffect, useState } from 'react'
@@ -56,6 +58,7 @@ function Shell(): JSX.Element {
               <Link to="/" className="hover:text-orenda-600">Dashboard</Link>
               <Link to="/projects" className="hover:text-orenda-600">Projects</Link>
               <Link to="/agents" className="hover:text-orenda-600">Agents</Link>
+              <Link to="/calendar" className="hover:text-orenda-600">Calendar</Link>
               <Link to="/settings" className="hover:text-orenda-600">Settings</Link>
               <HealthBadge />
               <span className="text-xs text-slate-400">{user?.email}</span>
@@ -79,6 +82,7 @@ function Shell(): JSX.Element {
           <Route path="/projects/:id" element={<RequireAuth><ProjectDetailPage /></RequireAuth>} />
           <Route path="/agents" element={<RequireAuth><AgentsPage /></RequireAuth>} />
           <Route path="/tasks/:id" element={<RequireAuth><TaskViewPage /></RequireAuth>} />
+          <Route path="/calendar" element={<RequireAuth><CalendarPage /></RequireAuth>} />
           <Route path="/settings" element={<RequireAuth><Placeholder title="Settings" /></RequireAuth>} />
           <Route path="*" element={<Placeholder title="Not found" />} />
         </Routes>
@@ -87,6 +91,9 @@ function Shell(): JSX.Element {
       <footer className="border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 text-center py-4">
         Orenda {info?.version ?? '…'} · local-first productivity
       </footer>
+
+      {/* Floating timer widget — renders bottom-right when authenticated. */}
+      <TimerWidget />
     </div>
   )
 }
