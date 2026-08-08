@@ -221,6 +221,28 @@ func TestMigrate_008WikiAddsFTS5AndIndexes(t *testing.T) {
 	assertIndexExists(t, db, "idx_wiki_links_from")
 }
 
+func TestMigrate_009NotificationsAddsIndexes(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "orenda.db")
+
+	db, err := Open(context.Background(), dbPath, OpenConfig{
+		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx := context.Background()
+	require.NoError(t, Migrate(ctx, db, MigrationsFS, "migrations"))
+
+	versions, err := AppliedVersions(ctx, db)
+	require.NoError(t, err)
+	assert.Contains(t, versions, "009_notifications")
+
+	assertIndexExists(t, db, "idx_notifications_user_unread")
+	assertIndexExists(t, db, "idx_notifications_target")
+	assertIndexExists(t, db, "idx_bot_subs_user")
+}
+
 func TestBuildDSN(t *testing.T) {
 	dsn := buildDSN("/tmp/foo.db", OpenConfig{WALMode: true, BusyTimeoutMs: 5000})
 	assert.Contains(t, dsn, "_pragma=busy_timeout(5000)")
