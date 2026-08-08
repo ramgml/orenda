@@ -33,6 +33,7 @@ import (
 	"github.com/ramgml/orenda/internal/api"
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
+	"github.com/ramgml/orenda/internal/backup"
 	"github.com/ramgml/orenda/internal/bot"
 	"github.com/ramgml/orenda/internal/config"
 	activityservice "github.com/ramgml/orenda/internal/service/activity"
@@ -286,6 +287,30 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		hub,
 	)
 
+	// Backup service + scheduler (Phase 7).
+	if cfg.Backup.Enabled {
+		if err := os.MkdirAll(cfg.Backup.MirrorDir, 0o755); err != nil {
+			return fmt.Errorf("backup mirror dir: %w", err)
+		}
+		if err := os.MkdirAll(cfg.Backup.SnapshotDir, 0o755); err != nil {
+			return fmt.Errorf("backup snapshot dir: %w", err)
+		}
+		backupSvc := backup.New(backup.Config{
+			MirrorDir:            cfg.Backup.MirrorDir,
+			SnapshotDir:          cfg.Backup.SnapshotDir,
+			DBPath:               cfg.ResolveDBPath("."),
+			RemoteURL:            cfg.Backup.RemoteURL,
+			RemoteAuth:           cfg.Backup.RemoteAuth,
+			SnapshotRotationDays: cfg.Backup.SnapshotRotationDays,
+		}, db)
+		scheduler := backup.NewScheduler(backupSvc)
+		go scheduler.Run(cmd.Context())
+		logger.Info("backup scheduler started",
+			zap.String("mirror_dir", cfg.Backup.MirrorDir),
+			zap.String("snapshot_dir", cfg.Backup.SnapshotDir),
+		)
+	}
+
 	// Build the JWT signer. JWT secret is mandatory for Phase 1+ — refuse
 	// to start without it so the operator doesn't discover the missing
 	// config at first login.
@@ -487,31 +512,7 @@ func runMigrate(cmd *cobra.Command, action migrateAction) error {
 // backup
 // ----------------------------------------------------------------------------
 
-func newBackupCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "backup",
-		Short: "Backup operations (Phase 7; Phase 0 is a no-op stub)",
-	}
-
-	for _, sub := range []struct {
-		use, short, help string
-	}{
-		{"push", "Commit and push mirror to git remote", "Not implemented in Phase 0; will land in Phase 7."},
-		{"snapshot", "Create SQLite snapshot", "Not implemented in Phase 0; will land in Phase 7."},
-		{"status", "Show backup status", "Not implemented in Phase 0; will land in Phase 7."},
-	} {
-		s := sub // capture
-		cmd.AddCommand(&cobra.Command{
-			Use:   s.use,
-			Short: s.short,
-			Long:  s.help,
-			Run: func(_ *cobra.Command, _ []string) {
-				fmt.Printf("orenda backup %s: not implemented (Phase 7)\n", s.use)
-			},
-		})
-	}
-	return cmd
-}
+// newBackupCmd is defined in cmd/orenda/backup.go.
 
 // ----------------------------------------------------------------------------
 // helpers
