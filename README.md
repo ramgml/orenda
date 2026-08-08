@@ -24,10 +24,18 @@ make web-install
 
 # Build and run
 make build
-make migrate-up
-./bin/orenda user create --email you@example.com --password yourpass
-./bin/orenda serve
+./bin/orenda migrate up
+echo "hunter2!" | ./bin/orenda user create \
+    --email you@example.com --display-name You --password-stdin \
+    --config data/config.yaml
+ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 # → http://127.0.0.1:2137
+```
+
+Or one-shot install:
+
+```bash
+scripts/install.sh --systemd   # builds, installs to ~/.local/bin, enables user service
 ```
 
 For development with hot reload:
@@ -55,22 +63,24 @@ make dev
 
 - [PRD](docs/PRD.md) — Product Requirements Document
 - [PLAN](docs/PLAN.md) — Development phases and tasks
+- [API](docs/API.md) — REST API reference
+- [DB](docs/DB.md) — Database schema
 - [AGENTS.md](AGENTS.md) — Guidelines for AI agents working on this codebase
 
 ## Roadmap
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| 0 — Init | 🚧 | Project skeleton, healthcheck |
-| 1 — Core | ⏳ | Users, auth, projects, tasks CRUD |
-| 2 — Kanban | ⏳ | Boards, drag-and-drop, WS |
-| 3 — Agents + Collaboration | ⏳ | Agent API, comments, mentions, long-poll |
-| 4 — Calendar + Time | ⏳ | Events, recurrence, timer |
-| 5 — Wiki + Search | ⏳ | Pages, wiki-links, FTS5 |
-| 6 — Notifications (facade) | ⏳ | In-app + bot abstraction |
-| 7 — Backups | ⏳ | Git mirror + sqlite snapshots |
-| 8 — PWA | ⏳ | Offline support, IndexedDB outbox |
-| 9 — Polish | ⏳ | Tests, docs, installer |
+| 0 — Init | ✅ | Project skeleton, healthcheck |
+| 1 — Core | ✅ | Users, auth, projects, tasks CRUD |
+| 2 — Kanban | ✅ | Boards, drag-and-drop, WS |
+| 3 — Agents + Collaboration | ✅ | Agent API, comments, mentions, long-poll |
+| 4 — Calendar + Time | ✅ | Events, recurrence, timer |
+| 5 — Wiki + Search | ✅ | Pages, wiki-links, FTS5 |
+| 6 — Notifications (facade) | ✅ | In-app + bot abstraction |
+| 7 — Backups | ✅ | Git mirror + sqlite snapshots |
+| 8 — PWA | ✅ | Offline support, IndexedDB outbox |
+| 9 — Polish | 🚧 | Tests, docs, installer |
 | 10 — Bot platform | ⏳ | VK, Telegram, Email, Webhook |
 
 ## License
