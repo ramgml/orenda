@@ -1,14 +1,28 @@
-import { useEffect, useState } from 'react'
-import { Link, Route, Routes } from 'react-router-dom'
+import { ReactNode } from 'react'
+import { Link, Navigate, Route, Routes } from 'react-router-dom'
 
+import { AuthProvider, useAuth } from '@/features/auth/AuthContext'
+import { LoginPage } from '@/features/auth/LoginPage'
+import { ProjectsPage } from '@/features/projects/ProjectsPage'
+import { ProjectDetailPage } from '@/features/projects/ProjectDetailPage'
 import { api, type InfoResponse } from '@/shared/api/client'
 import { HealthBadge } from '@/shared/ui/HealthBadge'
+import { useEffect, useState } from 'react'
 
 /**
- * Top-level shell. Phase 0 ships the dashboard stub; feature modules (kanban,
- * calendar, wiki, agents, settings) wire in over Phases 1-7.
+ * Top-level shell. Phase 1 ships the auth-aware shell with Dashboard,
+ * Projects list, Project detail, Agents/Settings placeholders.
  */
 export function App(): JSX.Element {
+  return (
+    <AuthProvider>
+      <Shell />
+    </AuthProvider>
+  )
+}
+
+function Shell(): JSX.Element {
+  const { status, user, logout } = useAuth()
   const [info, setInfo] = useState<InfoResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -19,30 +33,50 @@ export function App(): JSX.Element {
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
   }, [])
 
+  if (status === 'loading') {
+    return (
+      <div className="min-h-full flex items-center justify-center text-slate-500">
+        Loading session…
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-full flex flex-col">
-      <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 font-semibold text-lg">
-            <span className="inline-block h-6 w-6 rounded bg-orenda-500" aria-hidden />
-            Orenda
-          </Link>
-          <nav className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-300">
-            <Link to="/" className="hover:text-orenda-600">Dashboard</Link>
-            <Link to="/projects" className="hover:text-orenda-600">Projects</Link>
-            <Link to="/agents" className="hover:text-orenda-600">Agents</Link>
-            <Link to="/settings" className="hover:text-orenda-600">Settings</Link>
-            <HealthBadge />
-          </nav>
-        </div>
-      </header>
+      {status === 'authenticated' && (
+        <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
+          <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+            <Link to="/" className="flex items-center gap-2 font-semibold text-lg">
+              <span className="inline-block h-6 w-6 rounded bg-orenda-500" aria-hidden />
+              Orenda
+            </Link>
+            <nav className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-300">
+              <Link to="/" className="hover:text-orenda-600">Dashboard</Link>
+              <Link to="/projects" className="hover:text-orenda-600">Projects</Link>
+              <Link to="/agents" className="hover:text-orenda-600">Agents</Link>
+              <Link to="/settings" className="hover:text-orenda-600">Settings</Link>
+              <HealthBadge />
+              <span className="text-xs text-slate-400">{user?.email}</span>
+              <button
+                type="button"
+                onClick={() => logout()}
+                className="px-2 py-1 rounded text-xs border border-slate-300 dark:border-slate-700"
+              >
+                Sign out
+              </button>
+            </nav>
+          </div>
+        </header>
+      )}
 
       <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-8">
         <Routes>
-          <Route path="/" element={<Dashboard info={info} error={error} />} />
-          <Route path="/projects" element={<Placeholder title="Projects" />} />
-          <Route path="/agents" element={<Placeholder title="Agents" />} />
-          <Route path="/settings" element={<Placeholder title="Settings" />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/" element={<RequireAuth><Dashboard info={info} error={error} /></RequireAuth>} />
+          <Route path="/projects" element={<RequireAuth><ProjectsPage /></RequireAuth>} />
+          <Route path="/projects/:id" element={<RequireAuth><ProjectDetailPage /></RequireAuth>} />
+          <Route path="/agents" element={<RequireAuth><Placeholder title="Agents" /></RequireAuth>} />
+          <Route path="/settings" element={<RequireAuth><Placeholder title="Settings" /></RequireAuth>} />
           <Route path="*" element={<Placeholder title="Not found" />} />
         </Routes>
       </main>
@@ -52,6 +86,19 @@ export function App(): JSX.Element {
       </footer>
     </div>
   )
+}
+
+/**
+ * Gate a route on authenticated status. Redirects to /login on miss,
+ * preserving the requested path so the user lands back where they started.
+ */
+function RequireAuth({ children }: { children: ReactNode }): JSX.Element {
+  const { status } = useAuth()
+  const location = window.location
+  if (status !== 'authenticated') {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  }
+  return <>{children}</>
 }
 
 function Dashboard({ info, error }: { info: InfoResponse | null; error: string | null }): JSX.Element {
@@ -89,8 +136,8 @@ function Dashboard({ info, error }: { info: InfoResponse | null; error: string |
       )}
 
       <p className="mt-6 text-slate-600 dark:text-slate-300">
-        Phase 0 ships the shell. Tasks, kanban, calendar, wiki, agents and
-        backups arrive in Phases 1–7.
+        Phase 1 ships auth + projects + tasks. The kanban board lands in
+        Phase 2; agents and bot subscriptions arrive in Phases 3 & 6.
       </p>
     </section>
   )
