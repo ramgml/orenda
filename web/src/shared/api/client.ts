@@ -188,6 +188,15 @@ class ApiClient {
   deleteTask(taskId: string): Promise<void> {
     return this.http.delete<void>(`/api/v1/tasks/${taskId}`).then(() => undefined)
   }
+
+  /** Phase 2: relocate a task into a column (kanban move). */
+  moveTask(taskId: string, columnId: string, position?: number): Promise<Task> {
+    const body: Record<string, unknown> = { column_id: columnId }
+    if (typeof position === 'number') body.position = position
+    return this.http
+      .post<Task>(`/api/v1/tasks/${taskId}/move`, body)
+      .then((r) => r.data)
+  }
 }
 
 export const api = new ApiClient()

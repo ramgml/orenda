@@ -11,6 +11,8 @@ import { api, type UserProfile } from '@/shared/api/client'
 interface AuthContextValue {
   user: UserProfile | null
   status: 'loading' | 'authenticated' | 'anonymous'
+  /** JWT from the most recent /auth/login; used by the WS client. */
+  token: string | null
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
   refresh: () => Promise<void>
@@ -20,6 +22,7 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
   const [user, setUser] = useState<UserProfile | null>(null)
+  const [token, setToken] = useState<string | null>(null)
   const [status, setStatus] = useState<'loading' | 'authenticated' | 'anonymous'>('loading')
 
   const refresh = useCallback(async () => {
@@ -27,8 +30,12 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       const profile = await api.me()
       setUser(profile)
       setStatus('authenticated')
+      // Cookie-only sessions have no JWT in memory; WS uses cookie via
+      // the /auth/ws-token endpoint in Phase 3, so leaving token=null is
+      // fine.
     } catch {
       setUser(null)
+      setToken(null)
       setStatus('anonymous')
     }
   }, [])
@@ -42,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       role: resp.role,
       scopes: resp.scopes,
     })
+    setToken(resp.token)
     setStatus('authenticated')
   }, [])
 
@@ -50,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       await api.logout()
     } finally {
       setUser(null)
+      setToken(null)
       setStatus('anonymous')
     }
   }, [])
@@ -62,13 +71,14 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   useEffect(() => {
     api.onAuthFailure(() => {
       setUser(null)
+      setToken(null)
       setStatus('anonymous')
     })
   }, [])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ user, status, login, logout, refresh }),
-    [user, status, login, logout, refresh],
+    () => ({ user, status, token, login, logout, refresh }),
+    [user, status, token, login, logout, refresh],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
