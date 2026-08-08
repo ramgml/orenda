@@ -23,5 +23,11 @@
     "edit": true,
     "write": true
   },
-  "formatter": true
+  "formatter": true,
+  "instructions": [
+    "docs/SESSION.md",
+    "docs/PRD.md",
+    "docs/PLAN.md",
+    "AGENTS.md"
+  ]
 }

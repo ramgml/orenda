@@ -107,11 +107,12 @@ make lint
 
 ## Key files to read first
 
+- `docs/SESSION.md` — **session snapshot** (current state, decisions, next steps; read first when resuming work)
 - `docs/PRD.md` — what we're building and why
 - `docs/PLAN.md` — phases, tasks, criteria
-- `internal/storage/sqlite/migrations/001_init.sql` — DB schema
-- `internal/config/config.go` — config structure
-- `cmd/orenda/main.go` — entry point and CLI
+- `internal/storage/sqlite/migrations/001_init.sql` — DB schema *(Phase 1)*
+- `internal/config/config.go` — config structure *(Phase 0)*
+- `cmd/orenda/main.go` — entry point and CLI *(Phase 0)*
 
 ## Communication
 
