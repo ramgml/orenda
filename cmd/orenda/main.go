@@ -288,6 +288,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	)
 
 	// Backup service + scheduler (Phase 7).
+	var backupSvc *backup.Service
 	if cfg.Backup.Enabled {
 		if err := os.MkdirAll(cfg.Backup.MirrorDir, 0o755); err != nil {
 			return fmt.Errorf("backup mirror dir: %w", err)
@@ -295,7 +296,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		if err := os.MkdirAll(cfg.Backup.SnapshotDir, 0o755); err != nil {
 			return fmt.Errorf("backup snapshot dir: %w", err)
 		}
-		backupSvc := backup.New(backup.Config{
+		backupSvc = backup.New(backup.Config{
 			MirrorDir:            cfg.Backup.MirrorDir,
 			SnapshotDir:          cfg.Backup.SnapshotDir,
 			DBPath:               cfg.ResolveDBPath("."),
@@ -337,14 +338,18 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			MaxSizeBytes: int64(cfg.Uploads.MaxSizeMB) * 1024 * 1024,
 			AllowedMimes: cfg.Uploads.AllowedMimes,
 		}, hub)),
-		Activities:    activityRepo,
-		EventService:  eventSvc,
-		TimeService:   timeSvc,
-		WikiService:   wikiSvc,
-		SearchService: searchSvc,
-		Notifier:      notifierSvc,
-		WSHub:         hub,
-		CookieName:    cfg.Auth.CookieName,
+		Activities:          activityRepo,
+		EventService:        eventSvc,
+		TimeService:         timeSvc,
+		WikiService:         wikiSvc,
+		SearchService:       searchSvc,
+		Notifier:            notifierSvc,
+		Backup:              backupSvc,
+		BackupEnabled:       cfg.Backup.Enabled,
+		BackupRemoteURL:     cfg.Backup.RemoteURL,
+		BackupRemoteAuthSet: cfg.Backup.RemoteAuth != "",
+		WSHub:               hub,
+		CookieName:          cfg.Auth.CookieName,
 	})
 
 	// HTTP server with graceful shutdown.
