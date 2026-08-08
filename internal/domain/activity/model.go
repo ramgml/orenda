@@ -1,0 +1,66 @@
+// Package activity holds the TaskActivity domain entity — an append-only
+// audit log of every action performed on a task.
+//
+// Phase 3.9 (Activity service) writes here for Claim, Release, Submit,
+// Review, status changes, comment additions, attachment uploads, and Move
+// (already wired in Phase 2.4).
+package activity
+
+import (
+	"errors"
+	"time"
+)
+
+// ActorType identifies who performed the action.
+type ActorType string
+
+const (
+	ActorUser   ActorType = "user"
+	ActorAgent  ActorType = "agent"
+	ActorSystem ActorType = "system"
+)
+
+// Action enumerates known activity kinds. Stored as a string so a future
+// action lands without a schema change.
+type Action string
+
+const (
+	ActionCreated       Action = "created"
+	ActionClaimed       Action = "claimed"
+	ActionReleased      Action = "released"
+	ActionSubmitted     Action = "submitted"
+	ActionReviewed      Action = "reviewed"
+	ActionMoved         Action = "moved"
+	ActionCommented     Action = "commented"
+	ActionAttachmentAdd Action = "attachment_added"
+	ActionStatusChanged Action = "status_changed"
+	ActionAssigned      Action = "assigned"
+)
+
+// Sentinel errors.
+var (
+	ErrNotFound     = errors.New("activity: not found")
+	ErrInvalidInput = errors.New("activity: invalid input")
+)
+
+// Activity is one row in task_activity.
+type Activity struct {
+	ID        string    `json:"id"`
+	TaskID    string    `json:"task_id"`
+	ActorType ActorType `json:"actor_type"`
+	ActorID   string    `json:"actor_id"`
+	Action    Action    `json:"action"`
+	Payload   string    `json:"payload,omitempty"` // free-form JSON
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Validate returns an error if the Activity fields are inconsistent.
+func (a *Activity) Validate() error {
+	if a.TaskID == "" || a.ActorID == "" || a.Action == "" {
+		return ErrInvalidInput
+	}
+	if a.ActorType == "" {
+		a.ActorType = ActorUser
+	}
+	return nil
+}
