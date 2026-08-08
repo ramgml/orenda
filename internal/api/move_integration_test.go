@@ -49,7 +49,7 @@ func moveDeps(t *testing.T) (api.Dependencies, string) {
 		}
 	})
 	repo := sqlite.NewTaskRepository(db)
-	taskSvc := taskservice.New(repo, nil, hub)
+	taskSvc := taskservice.New(repo, sqlite.NewTaskLockRepository(db), nil, nil, hub)
 
 	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
 	return api.Dependencies{
