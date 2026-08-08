@@ -18,6 +18,8 @@ import (
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/domain/agent"
+	"github.com/ramgml/orenda/internal/domain/project"
+	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
@@ -27,10 +29,10 @@ import (
 
 // agentFixture bundles a router + a fresh agent + its plain token.
 type agentFixture struct {
-	router    http.Handler
-	agentID   string
-	token     string
-	cookieVal string // unused but kept for future tests
+	router  http.Handler
+	agentID string
+	token   string
+	db      *sqlLite
 }
 
 func newAgentFixture(t *testing.T) *agentFixture {
@@ -92,6 +94,7 @@ func newAgentFixture(t *testing.T) *agentFixture {
 		router:  api.NewRouter(deps),
 		agentID: got.Agent.ID,
 		token:   got.PlainToken,
+		db:      db,
 	}
 }
 
@@ -175,4 +178,62 @@ func TestAgent_ClaimRejectsNoTask(t *testing.T) {
 	rr := httptest.NewRecorder()
 	fx.router.ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusNotFound, rr.Code, "body=%s", rr.Body.String())
+}
+
+func TestAgent_ClaimReleaseSubmitRoundTrip(t *testing.T) {
+	fx := newAgentFixture(t)
+
+	// Seed a real task owned by the fixture's user.
+	row := fx.db.QueryRow("SELECT id FROM users LIMIT 1")
+	var ownerID string
+	require.NoError(t, row.Scan(&ownerID))
+	_ = user.User{} // keep import for type refs
+	projects := sqlite.NewProjectRepository(fx.db)
+	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
+		Name: "AgentTest", OwnerID: ownerID,
+	})
+	require.NoError(t, err)
+	tasks := sqlite.NewTaskRepository(fx.db)
+	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "test"}
+	require.NoError(t, tasks.Create(context.Background(), tr))
+
+	// Claim.
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/agent/tasks/"+tr.ID+"/claim", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Authorization", "Bearer "+fx.token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code, "claim body=%s", rr.Body.String())
+
+	// Heartbeat.
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/agent/heartbeat", nil)
+	req.Header.Set("Authorization", "Bearer "+fx.token)
+	rr = httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	// Submit.
+	req = httptest.NewRequest(http.MethodPost,
+		"/api/v1/agent/tasks/"+tr.ID+"/submit",
+		bytes.NewReader([]byte(`{"note":"e2e"}`)))
+	req.Header.Set("Authorization", "Bearer "+fx.token)
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
+	var sub struct {
+		Status string `json:"status"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &sub))
+	assert.Equal(t, "review", sub.Status)
+
+	// Release.
+	req = httptest.NewRequest(http.MethodPost,
+		"/api/v1/agent/tasks/"+tr.ID+"/release", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Authorization", "Bearer "+fx.token)
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
 }

@@ -55,7 +55,17 @@ export function ColumnView({
       <ul className="space-y-2 flex-1">
         {tasks.map((t) => (
           <li key={t.id}>
-            <TaskCard task={t} />
+            <a
+              href={`/tasks/${t.id}`}
+              onClick={(e) => {
+                // Drag-and-drop handles its own click suppression via the
+                // activation constraint; regular clicks navigate.
+                if (e.defaultPrevented) return
+              }}
+              className="block"
+            >
+              <TaskCard task={t} />
+            </a>
           </li>
         ))}
       </ul>

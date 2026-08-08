@@ -5,6 +5,8 @@ import { AuthProvider, useAuth } from '@/features/auth/AuthContext'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { ProjectsPage } from '@/features/projects/ProjectsPage'
 import { ProjectDetailPage } from '@/features/projects/ProjectDetailPage'
+import { AgentsPage } from '@/features/agents/AgentsPage'
+import { TaskViewPage } from '@/features/tasks/TaskViewPage'
 import { api, type InfoResponse } from '@/shared/api/client'
 import { HealthBadge } from '@/shared/ui/HealthBadge'
 import { useEffect, useState } from 'react'
@@ -75,7 +77,8 @@ function Shell(): JSX.Element {
           <Route path="/" element={<RequireAuth><Dashboard info={info} error={error} /></RequireAuth>} />
           <Route path="/projects" element={<RequireAuth><ProjectsPage /></RequireAuth>} />
           <Route path="/projects/:id" element={<RequireAuth><ProjectDetailPage /></RequireAuth>} />
-          <Route path="/agents" element={<RequireAuth><Placeholder title="Agents" /></RequireAuth>} />
+          <Route path="/agents" element={<RequireAuth><AgentsPage /></RequireAuth>} />
+          <Route path="/tasks/:id" element={<RequireAuth><TaskViewPage /></RequireAuth>} />
           <Route path="/settings" element={<RequireAuth><Placeholder title="Settings" /></RequireAuth>} />
           <Route path="*" element={<Placeholder title="Not found" />} />
         </Routes>

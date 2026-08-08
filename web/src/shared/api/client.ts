@@ -97,6 +97,28 @@ export interface Task {
   updated_at: string
 }
 
+export interface Agent {
+  id: string
+  name: string
+  type: string
+  description?: string
+  token_id: string
+  last_seen_at?: string
+  status: 'online' | 'offline' | 'disabled'
+  max_concurrent: number
+  created_at: string
+}
+
+export interface Comment {
+  id: string
+  target_type: string
+  target_id: string
+  author_type: 'user' | 'agent'
+  author_id: string
+  body_md: string
+  created_at: string
+}
+
 /**
  * Typed wrapper around axios for the Orenda REST API.
  *
@@ -175,6 +197,24 @@ class ApiClient {
       .then((r) => r.data.tasks)
   }
 
+  // ---- Task detail / Phase 3 ----
+
+  getTask(taskId: string): Promise<Task> {
+    return this.http.get<Task>(`/api/v1/tasks/${taskId}`).then((r) => r.data)
+  }
+
+  listTaskComments(taskId: string): Promise<{ comments: Comment[] }> {
+    return this.http
+      .get<{ comments: Comment[] }>(`/api/v1/tasks/${taskId}/comments`)
+      .then((r) => r.data)
+  }
+
+  createTaskComment(taskId: string, body_md: string): Promise<Comment> {
+    return this.http
+      .post<Comment>(`/api/v1/tasks/${taskId}/comments`, { body_md })
+      .then((r) => r.data)
+  }
+
   createTask(projectId: string, input: { title: string; column_id?: string; description?: string }): Promise<Task> {
     return this.http
       .post<Task>(`/api/v1/projects/${projectId}/tasks`, input)
@@ -195,6 +235,60 @@ class ApiClient {
     if (typeof position === 'number') body.position = position
     return this.http
       .post<Task>(`/api/v1/tasks/${taskId}/move`, body)
+      .then((r) => r.data)
+  }
+
+  // ---- Agents (Phase 3) ----
+
+  listAgents(): Promise<Agent[]> {
+    return this.http
+      .get<{ agents: Agent[] }>('/api/v1/agents')
+      .then((r) => r.data.agents)
+  }
+
+  createAgent(input: { name: string; type?: string; description?: string }): Promise<{ agent: Agent; plain_token: string }> {
+    return this.http
+      .post<{ agent: Agent; plain_token: string }>('/api/v1/agents', input)
+      .then((r) => r.data)
+  }
+
+  deleteAgent(id: string): Promise<void> {
+    return this.http.delete<void>(`/api/v1/agents/${id}`).then(() => undefined)
+  }
+
+  // ---- Agent-token namespace (/api/v1/agent/*) ----
+
+  agentMe(): Promise<Agent> {
+    return this.http.get<Agent>('/api/v1/agent/me').then((r) => r.data)
+  }
+
+  agentHeartbeat(): Promise<Agent> {
+    return this.http.post<Agent>('/api/v1/agent/heartbeat', {}).then((r) => r.data)
+  }
+
+  agentClaimTask(taskId: string): Promise<Task> {
+    return this.http
+      .post<Task>(`/api/v1/agent/tasks/${taskId}/claim`, {})
+      .then((r) => r.data)
+  }
+
+  agentSubmitTask(taskId: string, note: string): Promise<Task> {
+    return this.http
+      .post<Task>(`/api/v1/agent/tasks/${taskId}/submit`, { note })
+      .then((r) => r.data)
+  }
+
+  agentReleaseTask(taskId: string): Promise<Task> {
+    return this.http
+      .post<Task>(`/api/v1/agent/tasks/${taskId}/release`, {})
+      .then((r) => r.data)
+  }
+
+  // ---- Review (cookie-authenticated user side) ----
+
+  reviewTask(taskId: string, decision: 'approve' | 'reject', comment?: string): Promise<Task> {
+    return this.http
+      .post<Task>(`/api/v1/tasks/${taskId}/review`, { decision, comment: comment ?? '' })
       .then((r) => r.data)
   }
 }
