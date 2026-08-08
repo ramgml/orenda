@@ -13,6 +13,7 @@ import { WikiPage } from '@/features/wiki/WikiPage'
 import { SearchPage } from '@/features/search/SearchPage'
 import { NotificationsBell } from '@/features/notifications/NotificationsBell'
 import { BackupsSettingsPage } from '@/features/settings/Backups'
+import { ThemeToggle } from '@/shared/ui/ThemeToggle'
 import { api, type InfoResponse } from '@/shared/api/client'
 import { HealthBadge } from '@/shared/ui/HealthBadge'
 import { useEffect, useState } from 'react'
@@ -68,6 +69,7 @@ function Shell(): JSX.Element {
               <Link to="/settings" className="hover:text-orenda-600">Settings</Link>
               <NotificationsBell />
               <HealthBadge />
+              <ThemeToggle />
               <span className="text-xs text-slate-400">{user?.email}</span>
               <button
                 type="button"
