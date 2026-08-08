@@ -9,6 +9,8 @@ import { AgentsPage } from '@/features/agents/AgentsPage'
 import { TaskViewPage } from '@/features/tasks/TaskViewPage'
 import { CalendarPage } from '@/features/calendar/CalendarPage'
 import { TimerWidget } from '@/features/tasks/TimerWidget'
+import { WikiPage } from '@/features/wiki/WikiPage'
+import { SearchPage } from '@/features/search/SearchPage'
 import { api, type InfoResponse } from '@/shared/api/client'
 import { HealthBadge } from '@/shared/ui/HealthBadge'
 import { useEffect, useState } from 'react'
@@ -59,6 +61,8 @@ function Shell(): JSX.Element {
               <Link to="/projects" className="hover:text-orenda-600">Projects</Link>
               <Link to="/agents" className="hover:text-orenda-600">Agents</Link>
               <Link to="/calendar" className="hover:text-orenda-600">Calendar</Link>
+              <Link to="/wiki" className="hover:text-orenda-600">Wiki</Link>
+              <Link to="/search" className="hover:text-orenda-600">Search</Link>
               <Link to="/settings" className="hover:text-orenda-600">Settings</Link>
               <HealthBadge />
               <span className="text-xs text-slate-400">{user?.email}</span>
@@ -83,6 +87,8 @@ function Shell(): JSX.Element {
           <Route path="/agents" element={<RequireAuth><AgentsPage /></RequireAuth>} />
           <Route path="/tasks/:id" element={<RequireAuth><TaskViewPage /></RequireAuth>} />
           <Route path="/calendar" element={<RequireAuth><CalendarPage /></RequireAuth>} />
+          <Route path="/wiki/:slug?" element={<RequireAuth><WikiPage /></RequireAuth>} />
+          <Route path="/search" element={<RequireAuth><SearchPage /></RequireAuth>} />
           <Route path="/settings" element={<RequireAuth><Placeholder title="Settings" /></RequireAuth>} />
           <Route path="*" element={<Placeholder title="Not found" />} />
         </Routes>

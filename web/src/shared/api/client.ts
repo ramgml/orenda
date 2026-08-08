@@ -357,6 +357,65 @@ class ApiClient {
       .get<TimeReport>('/api/v1/reports/time', { params })
       .then((r) => r.data)
   }
+
+  // ---- Wiki (Phase 5) ----
+
+  listPages(): Promise<{ tree: WikiTreeNode[] }> {
+    return this.http.get<{ tree: WikiTreeNode[] }>('/api/v1/pages').then((r) => r.data)
+  }
+
+  getPageBySlug(slug: string): Promise<WikiPage> {
+    return this.http.get<WikiPage>(`/api/v1/pages/${slug}`).then((r) => r.data)
+  }
+
+  savePage(input: { slug: string; title: string; content_md?: string; parent_id?: string }): Promise<WikiPage> {
+    // POST creates; PUT on /pages/{slug} updates the same record.
+    return this.http
+      .post<WikiPage>('/api/v1/pages', input)
+      .then((r) => r.data)
+  }
+
+  updatePage(slug: string, input: Partial<{ slug: string; title: string; content_md: string; parent_id: string; position: number }>): Promise<WikiPage> {
+    return this.http.put<WikiPage>(`/api/v1/pages/${slug}`, input).then((r) => r.data)
+  }
+
+  getPageBacklinks(slug: string): Promise<{ backlinks: WikiPage[] }> {
+    return this.http
+      .get<{ backlinks: WikiPage[] }>(`/api/v1/pages/${slug}/backlinks`)
+      .then((r) => r.data)
+  }
+
+  // ---- Search (Phase 5) ----
+
+  search(params: { q: string; type?: string; limit?: number }): Promise<{ hits: SearchHit[]; total: number }> {
+    return this.http
+      .get<{ hits: SearchHit[]; total: number }>('/api/v1/search', { params })
+      .then((r) => r.data)
+  }
+}
+
+export interface WikiPage {
+  id: string
+  parent_id?: string
+  slug: string
+  title: string
+  content_md?: string
+  position: number
+  created_at: string
+  updated_at: string
+}
+
+export interface WikiTreeNode {
+  page: WikiPage
+  children?: WikiTreeNode[]
+}
+
+export interface SearchHit {
+  type: 'page' | 'task' | 'comment'
+  id: string
+  title?: string
+  snippet: string
+  score: number
 }
 
 export interface CalendarEvent {
