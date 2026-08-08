@@ -36,6 +36,7 @@ import (
 	"github.com/ramgml/orenda/internal/backup"
 	"github.com/ramgml/orenda/internal/bot"
 	"github.com/ramgml/orenda/internal/config"
+	"github.com/ramgml/orenda/internal/mirror"
 	activityservice "github.com/ramgml/orenda/internal/service/activity"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	attachmentsvc "github.com/ramgml/orenda/internal/service/attachment"
@@ -247,6 +248,34 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	tasksRepo := sqlite.NewTaskRepository(db)
 	tokens := sqlite.NewAPITokenRepository(db)
 
+	// Backup service + scheduler (Phase 7) — constructed before the other
+	// services so task/wiki services can hold a reference to the mirror.
+	var backupSvc *backup.Service
+	var mirrorSvc *mirror.Service
+	if cfg.Backup.Enabled {
+		if err := os.MkdirAll(cfg.Backup.MirrorDir, 0o755); err != nil {
+			return fmt.Errorf("backup mirror dir: %w", err)
+		}
+		if err := os.MkdirAll(cfg.Backup.SnapshotDir, 0o755); err != nil {
+			return fmt.Errorf("backup snapshot dir: %w", err)
+		}
+		mirrorSvc = mirror.New(cfg.Backup.MirrorDir)
+		backupSvc = backup.New(backup.Config{
+			MirrorDir:            cfg.Backup.MirrorDir,
+			SnapshotDir:          cfg.Backup.SnapshotDir,
+			DBPath:               cfg.ResolveDBPath("."),
+			RemoteURL:            cfg.Backup.RemoteURL,
+			RemoteAuth:           cfg.Backup.RemoteAuth,
+			SnapshotRotationDays: cfg.Backup.SnapshotRotationDays,
+		}, db)
+		scheduler := backup.NewScheduler(backupSvc)
+		go scheduler.Run(cmd.Context())
+		logger.Info("backup scheduler started",
+			zap.String("mirror_dir", cfg.Backup.MirrorDir),
+			zap.String("snapshot_dir", cfg.Backup.SnapshotDir),
+		)
+	}
+
 	// Build service layer (Phase 2: task_service.Move; Phase 3.6 adds
 	// Claim/Release/Submit/Review — wired with locks repo, Recorder/Comments
 	// land in 3.7/3.9).
@@ -256,6 +285,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	activityRepo := sqlite.NewActivityRepository(db)
 	activityRecorder := activityservice.New(activityRepo)
 	taskSvc := taskservice.New(tasksRepo, taskLocks, taskRecorderFor(activityRecorder), commentAdderFor(commentSvc), hub)
+	taskSvc.Mirror = mirrorSvc
 
 	// Agent service (Phase 3.5) — Register, Heartbeat, SweepOffline.
 	// Wired but not yet exposed via handlers (3.11).
@@ -274,6 +304,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	// Wiki + Search services (Phase 5).
 	wikiSvc := wikiservice.New(sqlite.NewWikiRepository(db), hub)
+	wikiSvc.Mirror = mirrorSvc
 	searchSvc := searchservice.New(sqlite.NewSearchRepository(db), hub)
 
 	// Notifier (Phase 6): registry + console bot (always available) + WS
@@ -286,31 +317,6 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		botRegistry,
 		hub,
 	)
-
-	// Backup service + scheduler (Phase 7).
-	var backupSvc *backup.Service
-	if cfg.Backup.Enabled {
-		if err := os.MkdirAll(cfg.Backup.MirrorDir, 0o755); err != nil {
-			return fmt.Errorf("backup mirror dir: %w", err)
-		}
-		if err := os.MkdirAll(cfg.Backup.SnapshotDir, 0o755); err != nil {
-			return fmt.Errorf("backup snapshot dir: %w", err)
-		}
-		backupSvc = backup.New(backup.Config{
-			MirrorDir:            cfg.Backup.MirrorDir,
-			SnapshotDir:          cfg.Backup.SnapshotDir,
-			DBPath:               cfg.ResolveDBPath("."),
-			RemoteURL:            cfg.Backup.RemoteURL,
-			RemoteAuth:           cfg.Backup.RemoteAuth,
-			SnapshotRotationDays: cfg.Backup.SnapshotRotationDays,
-		}, db)
-		scheduler := backup.NewScheduler(backupSvc)
-		go scheduler.Run(cmd.Context())
-		logger.Info("backup scheduler started",
-			zap.String("mirror_dir", cfg.Backup.MirrorDir),
-			zap.String("snapshot_dir", cfg.Backup.SnapshotDir),
-		)
-	}
 
 	// Build the JWT signer. JWT secret is mandatory for Phase 1+ — refuse
 	// to start without it so the operator doesn't discover the missing

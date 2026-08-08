@@ -99,6 +99,9 @@ func createTaskHandler(deps Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		if deps.TaskService != nil {
+			deps.TaskService.MirrorSave(r.Context(), tr)
+		}
 		writeJSON(w, http.StatusCreated, tr)
 	}
 }
@@ -132,6 +135,9 @@ func patchTaskHandler(deps Dependencies) http.HandlerFunc {
 		if err := deps.Tasks.Update(r.Context(), tr); err != nil {
 			writeError(w, err)
 			return
+		}
+		if deps.TaskService != nil {
+			deps.TaskService.MirrorSave(r.Context(), tr)
 		}
 		writeJSON(w, http.StatusOK, tr)
 	}
@@ -203,6 +209,9 @@ func deleteTaskHandler(deps Dependencies) http.HandlerFunc {
 		if err := deps.Tasks.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
 			writeError(w, err)
 			return
+		}
+		if deps.TaskService != nil {
+			deps.TaskService.MirrorDelete(chi.URLParam(r, "id"))
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}

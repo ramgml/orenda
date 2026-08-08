@@ -22,10 +22,18 @@ var (
 // Repository mirrors the wiki.Repository interface for convenience.
 type Repository = wiki.Repository
 
+// PageMirror is the seam for the markdown mirror. The concrete impl is
+// internal/mirror.Service.
+type PageMirror interface {
+	WritePage(p *wiki.Page) (string, error)
+	DeletePage(slug string) error
+}
+
 // Service is the dependency holder.
 type Service struct {
-	Repo Repository
-	Hub  ws.Hub
+	Repo   Repository
+	Hub    ws.Hub
+	Mirror PageMirror
 }
 
 // New returns a Wiki service.
@@ -91,6 +99,9 @@ func (s *Service) Save(ctx context.Context, p *wiki.Page) (*wiki.Page, error) {
 				"page": got,
 			},
 		})
+	}
+	if s.Mirror != nil {
+		_, _ = s.Mirror.WritePage(got)
 	}
 	return got, nil
 }
