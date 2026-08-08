@@ -33,11 +33,13 @@ import (
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/config"
+	activityservice "github.com/ramgml/orenda/internal/service/activity"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 
+	activitydomain "github.com/ramgml/orenda/internal/domain/activity"
 	commentdomain "github.com/ramgml/orenda/internal/domain/comment"
 )
 
@@ -84,6 +86,18 @@ func (a commentAdderAdapter) Add(ctx context.Context, in *taskservice.CommentInp
 
 func commentAdderFor(svc *commentservice.Service) taskservice.CommentAdder {
 	return commentAdderAdapter{svc: svc}
+}
+
+// taskRecorderAdapter bridges activity.Recorder.RecordTask to
+// taskSvc.Recorder.Record (different method names).
+type taskRecorderAdapter struct{ inner *activityservice.Recorder }
+
+func (a taskRecorderAdapter) Record(ctx context.Context, taskID string, actorType activitydomain.ActorType, actorID string, action activitydomain.Action, payload string) error {
+	return a.inner.RecordTask(ctx, taskID, actorType, actorID, action, payload)
+}
+
+func taskRecorderFor(r *activityservice.Recorder) taskservice.Recorder {
+	return taskRecorderAdapter{inner: r}
 }
 
 // version is set by -ldflags at build time.
@@ -189,7 +203,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	hub := ws.NewHub()
 	taskLocks := sqlite.NewTaskLockRepository(db)
 	commentSvc := commentservice.New(sqlite.NewCommentRepository(db), hub, nil)
-	taskSvc := taskservice.New(tasksRepo, taskLocks, nil, commentAdderFor(commentSvc), hub)
+	activityRecorder := activityservice.New(sqlite.NewActivityRepository(db))
+	taskSvc := taskservice.New(tasksRepo, taskLocks, taskRecorderFor(activityRecorder), commentAdderFor(commentSvc), hub)
 
 	// Agent service (Phase 3.5) — Register, Heartbeat, SweepOffline.
 	// Wired but not yet exposed via handlers (3.11).

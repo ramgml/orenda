@@ -14,6 +14,9 @@ type activityRepo struct {
 	db *sql.DB
 }
 
+// ActivityRepo is the exported alias so callers can name the type.
+type ActivityRepo = activityRepo
+
 // NewActivityRepository returns the Phase 3 activity repo.
 func NewActivityRepository(db *sql.DB) activity.Repository {
 	return &activityRepo{db: db}
