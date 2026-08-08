@@ -103,6 +103,29 @@ func TestMigrate_002AuthAddsIndexesAndTrigger(t *testing.T) {
 	assertTriggerExists(t, db, "trg_users_touch")
 }
 
+func TestMigrate_003ProjectsTasksAddsIndexesAndTriggers(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "orenda.db")
+
+	db, err := Open(context.Background(), dbPath, OpenConfig{
+		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx := context.Background()
+	require.NoError(t, Migrate(ctx, db, MigrationsFS, "migrations"))
+
+	versions, err := AppliedVersions(ctx, db)
+	require.NoError(t, err)
+	assert.Contains(t, versions, "003_projects_tasks")
+
+	assertIndexExists(t, db, "idx_tasks_project_column_position")
+	assertIndexExists(t, db, "idx_tasks_assignee_status")
+	assertTriggerExists(t, db, "trg_projects_touch")
+	assertTriggerExists(t, db, "trg_tasks_touch")
+}
+
 func TestBuildDSN(t *testing.T) {
 	dsn := buildDSN("/tmp/foo.db", OpenConfig{WALMode: true, BusyTimeoutMs: 5000})
 	assert.Contains(t, dsn, "_pragma=busy_timeout(5000)")
