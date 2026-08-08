@@ -36,6 +36,7 @@ import (
 
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
+	"github.com/ramgml/orenda/internal/backup"
 	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
@@ -78,26 +79,30 @@ type infoResponse struct {
 // Constructing this struct lives in cmd/orenda so the api package stays
 // independent of the storage layer.
 type Dependencies struct {
-	Logger        *zap.Logger
-	Signer        *auth.Signer
-	Users         user.Repository
-	Projects      project.Repository
-	Tasks         task.Repository
-	Tokens        APITokenLookup
-	TaskService   *taskservice.Service
-	Agents        agent.Repository
-	AgentService  *agentservice.Service
-	Comments      CommentService
-	Attachments   AttachmentService
-	Activities    ActivityService
-	EventService  *eventservice.Service
-	TimeService   *timeentryservice.Service
-	WikiService   *wikiservice.Service
-	SearchService *searchservice.Service
-	Notifier      *notifierservice.Service
-	WSHub         ws.Hub
-	CookieName    string
-	Capabilities  Capabilities
+	Logger              *zap.Logger
+	Signer              *auth.Signer
+	Users               user.Repository
+	Projects            project.Repository
+	Tasks               task.Repository
+	Tokens              APITokenLookup
+	TaskService         *taskservice.Service
+	Agents              agent.Repository
+	AgentService        *agentservice.Service
+	Comments            CommentService
+	Attachments         AttachmentService
+	Activities          ActivityService
+	EventService        *eventservice.Service
+	TimeService         *timeentryservice.Service
+	WikiService         *wikiservice.Service
+	SearchService       *searchservice.Service
+	Notifier            *notifierservice.Service
+	Backup              *backup.Service
+	BackupEnabled       bool
+	BackupRemoteURL     string
+	BackupRemoteAuthSet bool
+	WSHub               ws.Hub
+	CookieName          string
+	Capabilities        Capabilities
 }
 
 // NewRouter constructs a chi router with the Phase 1 endpoints wired.
@@ -248,6 +253,16 @@ func NewRouter(deps Dependencies) http.Handler {
 			// Phase 6: notifications inbox.
 			r.Get("/notifications", listNotificationsHandler(deps))
 			r.Post("/notifications/{id}/read", markNotificationReadHandler(deps))
+
+			// Phase 7: backups.
+			r.Route("/backups", func(r chi.Router) {
+				r.Get("/settings", listBackupSettingsHandler(deps))
+				r.Put("/settings", putBackupSettingsHandler(deps))
+				r.Post("/test", testBackupPushHandler(deps))
+				r.Post("/snapshot", backupSnapshotHandler(deps))
+				r.Get("/snapshots", listBackupSnapshotsHandler(deps))
+				r.Get("/log", listBackupLogHandler(deps))
+			})
 		})
 
 		// Agent-authenticated routes: agents authenticate via
