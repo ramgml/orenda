@@ -406,6 +406,49 @@ class ApiClient {
       .post<void>(`/api/v1/notifications/${id}/read`)
       .then(() => undefined)
   }
+
+  // ---- Backups (Phase 7) ----
+
+  getBackupSettings(): Promise<BackupSettings> {
+    return this.http.get<BackupSettings>('/api/v1/backups/settings').then((r) => r.data)
+  }
+
+  testBackupPush(): Promise<{ status: string }> {
+    return this.http.post<{ status: string }>('/api/v1/backups/test', {}).then((r) => r.data)
+  }
+
+  createSnapshot(): Promise<{ path: string }> {
+    return this.http.post<{ path: string }>('/api/v1/backups/snapshot', {}).then((r) => r.data)
+  }
+
+  listBackupSnapshots(): Promise<{ snapshots: BackupSnapshot[] }> {
+    return this.http.get<{ snapshots: BackupSnapshot[] }>('/api/v1/backups/snapshots').then((r) => r.data)
+  }
+
+  listBackupLog(params?: { limit?: number }): Promise<{ log: BackupLogEntry[] }> {
+    return this.http.get<{ log: BackupLogEntry[] }>('/api/v1/backups/log', { params }).then((r) => r.data)
+  }
+}
+
+export interface BackupSettings {
+  enabled: boolean
+  remote_url: string
+  has_auth: boolean
+}
+
+export interface BackupSnapshot {
+  path: string
+  size: number
+  mod_time: string
+}
+
+export interface BackupLogEntry {
+  id: string
+  type: string
+  status: 'success' | 'failed'
+  message: string
+  snapshot_path: string
+  created_at: string
 }
 
 export interface Notification {
