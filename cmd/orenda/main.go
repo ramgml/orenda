@@ -29,6 +29,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/ramgml/orenda/internal/api"
 	"github.com/ramgml/orenda/internal/api/ws"
@@ -532,8 +533,9 @@ func runMigrate(cmd *cobra.Command, action migrateAction) error {
 
 // buildLogger constructs a zap.Logger from the config section.
 //
-// Phase 0 logs only to stderr — file rotation (cfg.Logging.Path) lands with
-// the structured-logging refactor in Phase 9.
+// Phase 9.4: writes JSON to stderr AND to cfg.Logging.Path with rotation
+// (lumberjack). The stderr copy keeps `make dev` usable without a file;
+// the file copy persists logs across restarts.
 func buildLogger(cfg *config.Config) (*zap.Logger, error) {
 	var level zapcore.Level
 	if err := level.UnmarshalText([]byte(cfg.Logging.Level)); err != nil {
@@ -551,8 +553,26 @@ func buildLogger(cfg *config.Config) (*zap.Logger, error) {
 		encoder = zapcore.NewJSONEncoder(encCfg)
 	}
 
-	core := zapcore.NewCore(encoder, zapcore.AddSync(os.Stderr), level)
-	return zap.New(core, zap.AddCaller()), nil
+	cores := []zapcore.Core{
+		zapcore.NewCore(encoder, zapcore.AddSync(os.Stderr), level),
+	}
+
+	if cfg.Logging.Path != "" {
+		if err := os.MkdirAll(filepath.Dir(cfg.Logging.Path), 0o755); err != nil {
+			return nil, fmt.Errorf("logger: mkdir logs: %w", err)
+		}
+		rotator := &lumberjack.Logger{
+			Filename:   cfg.Logging.Path,
+			MaxSize:    32, // MiB per file
+			MaxBackups: 5,
+			MaxAge:     30, // days
+			Compress:   true,
+		}
+		cores = append(cores,
+			zapcore.NewCore(encoder, zapcore.AddSync(rotator), level))
+	}
+
+	return zap.New(zapcore.NewTee(cores...), zap.AddCaller()), nil
 }
 
 // suppress unused-import warning on systems without time package usage.
