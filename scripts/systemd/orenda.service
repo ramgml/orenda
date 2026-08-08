@@ -1,0 +1,15 @@
+[Unit]
+Description=Orenda — local-first productivity suite
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=@BINDIR@/orenda serve --config @DATADIR@/config.yaml
+WorkingDirectory=@DATADIR@
+Restart=on-failure
+RestartSec=5
+Environment=ORENDA_AUTH__JWT_SECRET=change-me-via-EnvironmentFile
+EnvironmentFile=-@DATADIR@/env
+
+[Install]
+WantedBy=default.target
