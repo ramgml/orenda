@@ -1,0 +1,43 @@
+# --- Runtime data (NEVER commit) ---
+data/
+!data/.gitkeep
+!data/config.example.yaml
+
+# --- Build artifacts ---
+bin/
+dist/
+*.test
+*.out
+coverage.*
+
+# --- Frontend ---
+web/node_modules/
+web/dist/
+web/.vite/
+
+# --- Go ---
+*.test
+*.out
+*.prof
+vendor/
+
+# --- Editors ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Secrets ---
+*.pem
+*.key
+.env
+.env.local
+
+# --- Logs ---
+*.log
+logs/
