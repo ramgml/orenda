@@ -42,6 +42,10 @@ type channelHub struct {
 	closed bool
 }
 
+// HubImpl is the exported alias so callers outside the package can name
+// the concrete hub type (for tests, type assertions, etc.).
+type HubImpl = channelHub
+
 type chanEntry struct {
 	ch     chan Event
 	cancel context.CancelFunc
