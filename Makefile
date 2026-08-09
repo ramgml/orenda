@@ -2,6 +2,9 @@ SHELL := /bin/bash
 GO    := go
 NPM   := npm
 
+# air (live-reload) — may live in GOPATH/bin which is not always in PATH
+AIR   := $(shell command -v air 2>/dev/null || echo "$(shell go env GOPATH)/bin/air")
+
 BIN_DIR    := bin
 BINARY     := $(BIN_DIR)/orenda
 DATA_DIR   := data
@@ -28,11 +31,11 @@ help:
 
 ## dev: Run Go (with air) + Vite dev-server (recommended for development)
 dev:
-	@command -v air >/dev/null 2>&1 || $(GO) install github.com/air-verse/air@latest
+	@command -v $(AIR) >/dev/null 2>&1 || $(GO) install github.com/air-verse/air@latest
 	@if [ ! -d "$(WEB_DIR)/node_modules" ]; then $(MAKE) web-install; fi
 	@trap 'kill 0' EXIT; \
 	  (cd $(WEB_DIR) && $(NPM) run dev) & \
-	  air
+	  $(AIR)
 
 ## build: Build production binary with embedded web/dist
 build: web-build

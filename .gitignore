@@ -9,6 +9,7 @@ dist/
 *.test
 *.out
 coverage.*
+tmp/
 
 # --- Frontend ---
 web/node_modules/

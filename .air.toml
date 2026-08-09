@@ -1,0 +1,13 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "CGO_ENABLED=0 go build -o ./tmp/orenda ./cmd/orenda"
+  bin = "./tmp/orenda"
+  full_bin = "./tmp/orenda serve --config ./data/config.yaml"
+  include_ext = ["go", "yaml", "sql"]
+  exclude_dir = ["tmp", "bin", "data", "web", "docs", "scripts", ".git"]
+  delay = 500
+
+[misc]
+  clean_on_exit = true
