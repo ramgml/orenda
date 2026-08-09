@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 import { Link, Navigate, Route, Routes } from 'react-router-dom'
 
 import { AuthProvider, useAuth } from '@/features/auth/AuthContext'
@@ -16,13 +16,13 @@ import { BackupsSettingsPage } from '@/features/settings/Backups'
 import { BotsSettingsPage } from '@/features/settings/Bots'
 import { ReportsPage } from '@/features/reports/ReportsPage'
 import { ThemeToggle } from '@/shared/ui/ThemeToggle'
-import { api, type InfoResponse } from '@/shared/api/client'
+import { api, type InfoResponse, type Task } from '@/shared/api/client'
 import { HealthBadge } from '@/shared/ui/HealthBadge'
-import { useEffect, useState } from 'react'
 
 /**
- * Top-level shell. Phase 1 ships the auth-aware shell with Dashboard,
- * Projects list, Project detail, Agents/Settings placeholders.
+ * Top-level shell. Auth-aware layout with a Dashboard that surfaces
+ * live counts (projects, open tasks, agents, upcoming events) and a
+ * top nav linking to every major section.
  */
 export function App(): JSX.Element {
   return (
@@ -130,14 +130,16 @@ function RequireAuth({ children }: { children: ReactNode }): JSX.Element {
 
 function Dashboard({ info, error }: { info: InfoResponse | null; error: string | null }): JSX.Element {
   return (
-    <section>
-      <h1 className="text-2xl font-semibold mb-4">Dashboard</h1>
+    <section className="space-y-4">
+      <h1 className="text-2xl font-semibold">Dashboard</h1>
 
       {error && (
         <div className="rounded border border-red-300 bg-red-50 text-red-800 p-3 text-sm">
           Failed to reach backend: {error}
         </div>
       )}
+
+      <Stats />
 
       {info && (
         <div className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950">
@@ -161,12 +163,119 @@ function Dashboard({ info, error }: { info: InfoResponse | null; error: string |
           </div>
         </div>
       )}
-
-      <p className="mt-6 text-slate-600 dark:text-slate-300">
-        Phase 1 ships auth + projects + tasks. The kanban board lands in
-        Phase 2; agents and bot subscriptions arrive in Phases 3 & 6.
-      </p>
     </section>
+  )
+}
+
+// Stats — four live cards with project/task/agent/event counts. Each
+// card links to its section so the dashboard is a navigation hub as
+// much as a status screen.
+function Stats(): JSX.Element {
+  const [projects, setProjects] = useState<number | null>(null)
+  const [openTasks, setOpenTasks] = useState<number | null>(null)
+  const [agents, setAgents] = useState<number | null>(null)
+  const [events, setEvents] = useState<number | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load(): Promise<void> {
+      try {
+        const [proj, ag] = await Promise.all([api.listProjects(), api.listAgents()])
+        if (cancelled) return
+        setProjects(proj.length)
+        setAgents(ag.length)
+        // Open tasks: sum of tasks where status !== 'done' across projects.
+        // We piggyback on listProjectTasks; small projects make this fine.
+        const allTasks = await Promise.all(
+          proj.map((p) => api.listProjectTasks(p.id).catch(() => [] as Task[])),
+        )
+        if (cancelled) return
+        const open = allTasks
+          .flat()
+          .filter((t) => t.status !== 'done')
+          .length
+        setOpenTasks(open)
+        // Upcoming events in the next 7 days.
+        const now = new Date()
+        const week = new Date(now)
+        week.setDate(week.getDate() + 7)
+        const evs = await api
+          .listEvents({
+            from: now.toISOString(),
+            to: week.toISOString(),
+          })
+          .catch(() => [])
+        if (cancelled) return
+        setEvents(evs.length)
+      } catch (e) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : String(e))
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return (
+    <div className="space-y-2">
+      {err && (
+        <div className="rounded border border-amber-300 bg-amber-50 text-amber-800 p-2 text-xs">
+          Could not load stats: {err}
+        </div>
+      )}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatCard
+          to="/projects"
+          label="Projects"
+          value={projects}
+          accent="bg-orenda-100 dark:bg-orenda-900/30 text-orenda-700 dark:text-orenda-300"
+        />
+        <StatCard
+          to="/"
+          label="Open tasks"
+          value={openTasks}
+          accent="bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+        />
+        <StatCard
+          to="/agents"
+          label="Agents"
+          value={agents}
+          accent="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+        />
+        <StatCard
+          to="/calendar"
+          label="Events (7d)"
+          value={events}
+          accent="bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300"
+        />
+      </div>
+    </div>
+  )
+}
+
+function StatCard({
+  to,
+  label,
+  value,
+  accent,
+}: {
+  to: string
+  label: string
+  value: number | null
+  accent: string
+}): JSX.Element {
+  return (
+    <Link
+      to={to}
+      className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 hover:border-orenda-500 transition"
+    >
+      <div className="text-xs text-slate-500 uppercase tracking-wide">{label}</div>
+      <div className={`mt-2 inline-block px-3 py-1 rounded font-mono text-2xl ${accent}`}>
+        {value === null ? '…' : value}
+      </div>
+    </Link>
   )
 }
 
