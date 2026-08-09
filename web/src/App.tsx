@@ -14,6 +14,7 @@ import { SearchPage } from '@/features/search/SearchPage'
 import { NotificationsBell } from '@/features/notifications/NotificationsBell'
 import { BackupsSettingsPage } from '@/features/settings/Backups'
 import { BotsSettingsPage } from '@/features/settings/Bots'
+import { ReportsPage } from '@/features/reports/ReportsPage'
 import { ThemeToggle } from '@/shared/ui/ThemeToggle'
 import { api, type InfoResponse } from '@/shared/api/client'
 import { HealthBadge } from '@/shared/ui/HealthBadge'
@@ -67,6 +68,7 @@ function Shell(): JSX.Element {
               <Link to="/calendar" className="hover:text-orenda-600">Calendar</Link>
               <Link to="/wiki" className="hover:text-orenda-600">Wiki</Link>
               <Link to="/search" className="hover:text-orenda-600">Search</Link>
+              <Link to="/reports" className="hover:text-orenda-600">Reports</Link>
               <Link to="/settings" className="hover:text-orenda-600">Settings</Link>
               <NotificationsBell />
               <HealthBadge />
@@ -98,6 +100,7 @@ function Shell(): JSX.Element {
           <Route path="/settings" element={<RequireAuth><Placeholder title="Settings" /></RequireAuth>} />
           <Route path="/settings/backups" element={<RequireAuth><BackupsSettingsPage /></RequireAuth>} />
           <Route path="/settings/bots" element={<RequireAuth><BotsSettingsPage /></RequireAuth>} />
+          <Route path="/reports" element={<RequireAuth><ReportsPage /></RequireAuth>} />
           <Route path="*" element={<Placeholder title="Not found" />} />
         </Routes>
       </main>
