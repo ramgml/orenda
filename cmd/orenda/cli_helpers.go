@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/ramgml/orenda/internal/config"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
@@ -72,6 +73,11 @@ func openCLIDBWithRaw(ctx context.Context, cfg *config.Config) (*sql.DB, func(),
 // the Inbox during events-folded migration; this function is the
 // idempotent safety net for fresh installs where no events existed
 // at migration time.
+//
+// We also seed a board and the default columns so the Inbox is a
+// fully navigable project — without that, GET /projects/{id}/board
+// returns 404 and the frontend can't render the kanban for the
+// default landing project.
 func ensureInboxProject(ctx context.Context, db *sql.DB) error {
 	// Probe first to avoid a noisy log on the happy path.
 	var n int
@@ -80,7 +86,11 @@ func ensureInboxProject(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("probe inbox: %w", err)
 	}
 	if n > 0 {
-		return nil
+		// Project row already exists (created by migration 012 or a
+		// previous bootstrap). Still verify the board + default
+		// columns are present, since older bootstrap calls did not
+		// seed them.
+		return ensureInboxBoardAndColumns(ctx, db)
 	}
 	// Bootstrap a system user to own the project. We never log in as
 	// this user (its password_hash is the literal "!" string and we
@@ -107,6 +117,58 @@ func ensureInboxProject(ctx context.Context, db *sql.DB) error {
 	); err != nil {
 		return fmt.Errorf("seed inbox project: %w", err)
 	}
+	if err := ensureInboxBoardAndColumns(ctx, db); err != nil {
+		return err
+	}
 	slog.Info("created default Inbox project for calendar events")
 	return nil
+}
+
+// ensureInboxBoardAndColumns makes sure the Inbox project has a board
+// and the default five columns (backlog/todo/in_progress/review/done).
+// Older seeds only inserted the project row; the frontend then
+// returned 404 when the user navigated to the Inbox project page.
+func ensureInboxBoardAndColumns(ctx context.Context, db *sql.DB) error {
+	var hasBoard int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM boards WHERE project_id = ?`, inboxProjectID).Scan(&hasBoard); err != nil {
+		return fmt.Errorf("probe inbox board: %w", err)
+	}
+	if hasBoard > 0 {
+		return nil
+	}
+	boardID := newInboxID()
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO boards (id, project_id, name, position, created_at)
+		VALUES (?, ?, 'Main', 0, datetime('now'))`,
+		boardID, inboxProjectID); err != nil {
+		return fmt.Errorf("seed inbox board: %w", err)
+	}
+	defaultCols := []string{"backlog", "todo", "in_progress", "review", "done"}
+	for i, name := range defaultCols {
+		colID := newInboxID()
+		position := float64(i) * 1024
+		if _, err := db.ExecContext(ctx, `
+			INSERT INTO columns (id, board_id, name, position) VALUES (?, ?, ?, ?)`,
+			colID, boardID, name, position); err != nil {
+			return fmt.Errorf("seed inbox column %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// newInboxID returns a unique id for board/column rows seeded by the
+// Inbox bootstrap. Combines unix-nanos with a process counter so
+// successive calls during the same bootstrap produce distinct ids.
+func newInboxID() string {
+	var ctr uint64
+	ctr++
+	now := time.Now().UnixNano()
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		now&0xffffffff,
+		(now>>32)&0xffff,
+		((now>>48)&0x0fff)|0x4000, // RFC 4122 version 4 marker
+		((now>>52)&0x3fff)|0x8000, // RFC 4122 variant marker
+		ctr,
+	)
 }
