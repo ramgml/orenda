@@ -299,7 +299,7 @@ function PageEditor({
   onSave: () => void
   onDelete: () => void
 }): JSX.Element {
-  const [tab, setTab] = useState<'edit' | 'preview' | 'source'>('edit')
+  const [tab, setTab] = useState<'edit' | 'preview' | 'source'>('preview')
 
   return (
     <>
