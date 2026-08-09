@@ -59,7 +59,7 @@ func (r *activityRepo) query(ctx context.Context, q string, args ...any) ([]*act
 		return nil, fmt.Errorf("activity.query: %w", err)
 	}
 	defer rows.Close()
-	var out []*activity.Activity
+	out := make([]*activity.Activity, 0)
 	for rows.Next() {
 		var (
 			a       activity.Activity

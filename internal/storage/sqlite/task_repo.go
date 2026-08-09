@@ -110,7 +110,7 @@ func (r *taskRepo) ListByProject(ctx context.Context, f task.Filter) ([]*task.Ta
 	}
 	defer rows.Close()
 
-	var out []*task.Task
+	out := make([]*task.Task, 0)
 	for rows.Next() {
 		tr, err := scanTaskRow(rows)
 		if err != nil {
@@ -204,7 +204,7 @@ func (r *taskRepo) ListSubtasks(ctx context.Context, taskID string) ([]*task.Sub
 	}
 	defer rows.Close()
 
-	var out []*task.Subtask
+	out := make([]*task.Subtask, 0)
 	for rows.Next() {
 		var (
 			s task.Subtask

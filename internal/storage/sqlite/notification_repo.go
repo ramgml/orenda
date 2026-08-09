@@ -63,7 +63,7 @@ func (r *notificationRepo) ListByUser(ctx context.Context, userID string, limit 
 		return nil, fmt.Errorf("notif.List: %w", err)
 	}
 	defer rows.Close()
-	var out []*notifier.Notification
+	out := make([]*notifier.Notification, 0)
 	for rows.Next() {
 		n, err := scanNotification(rows)
 		if err != nil {
@@ -135,7 +135,7 @@ func (r *botSubRepo) ListForUserEvent(ctx context.Context, userID, eventType str
 	if err != nil {
 		return nil, err
 	}
-	var out []*notifier.Subscription
+	out := make([]*notifier.Subscription, 0)
 	for _, s := range subs {
 		if s.Enabled && s.Subscribes(eventType) {
 			out = append(out, s)
@@ -156,7 +156,7 @@ func (r *botSubRepo) ListForUser(ctx context.Context, userID string) ([]*notifie
 		return nil, fmt.Errorf("subs.ListForUser: %w", err)
 	}
 	defer rows.Close()
-	var out []*notifier.Subscription
+	out := make([]*notifier.Subscription, 0)
 	for rows.Next() {
 		var (
 			s       notifier.Subscription

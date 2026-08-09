@@ -60,7 +60,7 @@ func (r *wikiRepo) List(ctx context.Context) ([]*wiki.Page, error) {
 		return nil, fmt.Errorf("wiki.List: %w", err)
 	}
 	defer rows.Close()
-	var out []*wiki.Page
+	out := make([]*wiki.Page, 0)
 	for rows.Next() {
 		p, err := scanWikiPageRows(rows)
 		if err != nil {
@@ -154,7 +154,7 @@ func (r *wikiRepo) Backlinks(ctx context.Context, pageID string) ([]*wiki.Page, 
 		return nil, fmt.Errorf("wiki.Backlinks: %w", err)
 	}
 	defer rows.Close()
-	var out []*wiki.Page
+	out := make([]*wiki.Page, 0)
 	for rows.Next() {
 		p, err := scanWikiPageRows(rows)
 		if err != nil {

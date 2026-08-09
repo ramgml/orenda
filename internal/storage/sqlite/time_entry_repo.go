@@ -179,7 +179,7 @@ func scanTimeEntry(row *sql.Row) (*timeentry.TimeEntry, error) {
 
 func scanTimeEntryList(rows *sql.Rows) ([]*timeentry.TimeEntry, error) {
 	defer rows.Close()
-	var out []*timeentry.TimeEntry
+	out := make([]*timeentry.TimeEntry, 0)
 	for rows.Next() {
 		var (
 			e        timeentry.TimeEntry

@@ -73,7 +73,7 @@ func (r *searchRepo) runQuery(ctx context.Context, sqlQuery, q string, limit int
 	}
 	defer rows.Close()
 
-	var out []search.Hit
+	out := make([]search.Hit, 0)
 	for rows.Next() {
 		var h search.Hit
 		if err := rows.Scan(&h.ID, &h.Title, &h.Snippet, &h.Score); err != nil {

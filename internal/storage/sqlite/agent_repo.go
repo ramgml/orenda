@@ -70,7 +70,7 @@ func (r *agentRepo) List(ctx context.Context) ([]*agent.Agent, error) {
 	}
 	defer rows.Close()
 
-	var out []*agent.Agent
+	out := make([]*agent.Agent, 0)
 	for rows.Next() {
 		a, err := scanAgentRow(rows)
 		if err != nil {

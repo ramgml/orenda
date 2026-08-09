@@ -296,8 +296,8 @@ class ApiClient {
 
   listEvents(params: { from: string; to: string; project_id?: string }): Promise<CalendarEvent[]> {
     return this.http
-      .get<{ events: CalendarEvent[] }>('/api/v1/events', { params })
-      .then((r) => r.data.events)
+      .get<{ events: CalendarEvent[] | null }>('/api/v1/events', { params })
+      .then((r) => r.data.events ?? [])
   }
 
   createEvent(input: {

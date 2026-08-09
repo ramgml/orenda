@@ -55,7 +55,7 @@ func (r *attachmentRepo) ListByTarget(ctx context.Context, targetType attachment
 		return nil, fmt.Errorf("attachment.ListByTarget: %w", err)
 	}
 	defer rows.Close()
-	var out []*attachment.Attachment
+	out := make([]*attachment.Attachment, 0)
 	for rows.Next() {
 		a, err := scanAttachmentRows(rows)
 		if err != nil {

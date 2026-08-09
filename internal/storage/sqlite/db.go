@@ -249,7 +249,7 @@ func AppliedVersions(ctx context.Context, db *sql.DB) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var out []string
+	out := make([]string, 0)
 	for rows.Next() {
 		var v string
 		if err := rows.Scan(&v); err != nil {

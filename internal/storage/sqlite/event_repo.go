@@ -106,7 +106,7 @@ func (r *eventRepo) ListInRange(ctx context.Context, from, to time.Time, project
 		return nil, fmt.Errorf("event.ListInRange: %w", err)
 	}
 	defer rows.Close()
-	var out []*event.Event
+	out := make([]*event.Event, 0)
 	for rows.Next() {
 		e, err := scanEventRows(rows)
 		if err != nil {

@@ -130,7 +130,7 @@ func (r *projectRepo) ListProjects(ctx context.Context, ownerID string) ([]*proj
 	}
 	defer rows.Close()
 
-	var out []*project.Project
+	out := make([]*project.Project, 0)
 	for rows.Next() {
 		var (
 			p    project.Project

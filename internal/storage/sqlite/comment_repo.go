@@ -69,7 +69,7 @@ func (r *commentRepo) Create(ctx context.Context, c *comment.Comment) (*comment.
 // contain other @ signs (emails, etc.), but only the typed prefix counts.
 func extractMentions(body string) []comment.Mention {
 	matches := mentionRE.FindAllStringSubmatch(body, -1)
-	var out []comment.Mention
+	out := make([]comment.Mention, 0)
 	for _, m := range matches {
 		// Persisted as a free-form "user" or "agent" string in the mentions table.
 		out = append(out, comment.Mention{
@@ -94,7 +94,7 @@ func (r *commentRepo) ListByTarget(ctx context.Context, targetType comment.Targe
 	}
 	defer rows.Close()
 
-	var out []*comment.Comment
+	out := make([]*comment.Comment, 0)
 	for rows.Next() {
 		c, err := scanCommentRows(rows)
 		if err != nil {
@@ -114,7 +114,7 @@ func (r *commentRepo) MentionsForComment(ctx context.Context, commentID string) 
 		return nil, fmt.Errorf("comment.MentionsForComment: %w", err)
 	}
 	defer rows.Close()
-	var out []*comment.Mention
+	out := make([]*comment.Mention, 0)
 	for rows.Next() {
 		var m comment.Mention
 		var t string
