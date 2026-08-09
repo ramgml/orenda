@@ -17,7 +17,9 @@ import (
 	"time"
 
 	"github.com/ramgml/orenda/internal/domain/comment"
+	"github.com/ramgml/orenda/internal/domain/event"
 	"github.com/ramgml/orenda/internal/domain/task"
+	"github.com/ramgml/orenda/internal/domain/wiki"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 )
 
@@ -210,6 +212,71 @@ func applySyncOp(r *http.Request, deps Dependencies, id *Identity, op syncOp) sy
 			BodyMD:     in.BodyMD,
 		}
 		got, err := deps.Comments.Add(ctx, c)
+		if err != nil {
+			res.Error = err.Error()
+			return res
+		}
+		_ = syncOpsRecord(ctx, deps, op.ClientID, got.ID)
+		res.OK = true
+		res.ID = got.ID
+		return res
+
+	case "create_event":
+		var in struct {
+			Title     string    `json:"title"`
+			StartAt   time.Time `json:"start_at"`
+			EndAt     time.Time `json:"end_at"`
+			AllDay    bool      `json:"all_day"`
+			Color     string    `json:"color"`
+			ProjectID string    `json:"project_id"`
+		}
+		if err := json.Unmarshal(op.Payload, &in); err != nil || in.Title == "" {
+			res.Error = "invalid_payload"
+			return res
+		}
+		if deps.EventService == nil {
+			res.Error = "service_not_wired"
+			return res
+		}
+		ev := &event.Event{
+			Title:   in.Title,
+			StartAt: in.StartAt,
+			EndAt:   in.EndAt,
+			AllDay:  in.AllDay,
+			Color:   in.Color,
+		}
+		if in.ProjectID != "" {
+			ev.ProjectID = in.ProjectID
+		}
+		got, err := deps.EventService.Create(ctx, ev)
+		if err != nil {
+			res.Error = err.Error()
+			return res
+		}
+		_ = syncOpsRecord(ctx, deps, op.ClientID, got.ID)
+		res.OK = true
+		res.ID = got.ID
+		return res
+
+	case "create_page":
+		var in struct {
+			Slug      string `json:"slug"`
+			Title     string `json:"title"`
+			ContentMD string `json:"content_md"`
+		}
+		if err := json.Unmarshal(op.Payload, &in); err != nil || in.Slug == "" {
+			res.Error = "invalid_payload"
+			return res
+		}
+		if deps.WikiService == nil {
+			res.Error = "service_not_wired"
+			return res
+		}
+		got, err := deps.WikiService.Save(ctx, &wiki.Page{
+			Slug:      in.Slug,
+			Title:     in.Title,
+			ContentMD: in.ContentMD,
+		})
 		if err != nil {
 			res.Error = err.Error()
 			return res
