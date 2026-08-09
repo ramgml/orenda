@@ -293,6 +293,12 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	logger.Info("migrations applied")
 
+	// Calendar events default to the Inbox project — make sure it
+	// exists so the first /api/v1/events POST doesn't FK-fail.
+	if err := ensureInboxProject(cmd.Context(), db); err != nil {
+		return fmt.Errorf("ensure inbox: %w", err)
+	}
+
 	// Build repositories.
 	users := sqlite.NewUserRepository(db)
 	projects := sqlite.NewProjectRepository(db)
