@@ -5,6 +5,8 @@ import {
   type Event as RBCEvent,
   type SlotInfo,
 } from 'react-big-calendar'
+import withDragAndDrop from 'react-big-calendar/lib/addons/dragAndDrop'
+import 'react-big-calendar/lib/addons/dragAndDrop/styles.css'
 import {
   format,
   parse,
@@ -33,6 +35,12 @@ const localizer = dateFnsLocalizer({
   getDay,
   locales: { 'en-US': enUS },
 })
+
+// DragAndDropCalendar is the regular Calendar wrapped with the
+// react-big-calendar drag-and-drop addon. It's the only piece that
+// needs the addon (it pulls in react-dnd); the rest of the page is
+// unchanged.
+const DnDCalendar = withDragAndDrop(Calendar)
 
 type View = 'month' | 'week' | 'day' | 'agenda'
 
@@ -169,7 +177,29 @@ export function CalendarPage(): JSX.Element {
     setMode({ kind: 'edit', event: rbEvent.resource as CalendarEvent })
   }
 
-function closeModal(): void {
+  // onEventDrop fires when the user drags an event to a different
+  // time/day. We PATCH the task's start_at/end_at and reload so the
+  // server-side change becomes visible immediately. The move keeps
+  // the project's column and color intact.
+  async function onEventDrop(args: {
+    event: RBCEvent
+    start: Date | string
+    end: Date | string
+  }): Promise<void> {
+    const e = args.event.resource as CalendarEvent
+    if (!e.id) return
+    const startStr = typeof args.start === 'string' ? args.start : args.start.toISOString()
+    const endStr = typeof args.end === 'string' ? args.end : args.end.toISOString()
+    try {
+      await api.patchEvent(e.id, { start_at: startStr, end_at: endStr })
+      await load()
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  function closeModal(): void {
     setMode(null)
   }
 
@@ -212,7 +242,7 @@ function closeModal(): void {
         )}
 
         <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2 h-[75vh] calendar-shell">
-          <Calendar
+          <DnDCalendar
             localizer={localizer}
             events={rbEvents}
             date={cursor}
@@ -221,11 +251,12 @@ function closeModal(): void {
             onView={(v) => setView(v as View)}
             onNavigate={(d) => setCursor(d)}
             selectable
-            startAccessor="start"
-            endAccessor="end"
+            startAccessor={(e) => new Date((e as { start: Date | string }).start)}
+            endAccessor={(e) => new Date((e as { end: Date | string }).end)}
             eventPropGetter={eventStyleGetter}
             onSelectSlot={onSelectSlot}
             onSelectEvent={onSelectEvent}
+            onEventDrop={onEventDrop}
             popup
             style={{ height: '100%' }}
           />
