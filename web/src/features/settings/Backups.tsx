@@ -15,6 +15,9 @@ export function BackupsSettingsPage(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<'push' | 'snapshot' | null>(null)
   const [info, setInfo] = useState<string | null>(null)
+  const [restoreTarget, setRestoreTarget] = useState<BackupSnapshot | null>(null)
+  const [restoreHint, setRestoreHint] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   async function load(): Promise<void> {
     try {
@@ -63,6 +66,45 @@ export function BackupsSettingsPage(): JSX.Element {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(null)
+    }
+  }
+
+  async function onRestore(s: BackupSnapshot): Promise<void> {
+    setError(null)
+    setInfo(null)
+    setRestoreTarget(s)
+    setRestoreHint(null)
+    try {
+      // Server is running — this is expected to 409; we use the structured
+      // hint to surface the exact CLI command the operator must run.
+      const r = await api.restoreBackup(s.path)
+      setRestoreHint(r.hint)
+    } catch (e) {
+      // axios throws for non-2xx. Read the server's structured body.
+      const msg = e instanceof Error ? e.message : String(e)
+      const hintMatch = /hint[":\s]+([^\n}]+)/i.exec(msg)
+      setRestoreHint(
+        hintMatch
+          ? hintMatch[1].replace(/^[":\s]+/, '').replace(/[",]+$/, '')
+          : `Run on the server host: orenda backup restore --from ${s.path} --yes`,
+      )
+    }
+  }
+
+  function closeRestore(): void {
+    setRestoreTarget(null)
+    setRestoreHint(null)
+    setCopied(false)
+  }
+
+  async function copyHint(): Promise<void> {
+    if (!restoreHint) return
+    try {
+      await navigator.clipboard.writeText(restoreHint)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopied(false)
     }
   }
 
@@ -132,12 +174,19 @@ export function BackupsSettingsPage(): JSX.Element {
         ) : (
           <ul className="text-sm space-y-1 font-mono">
             {snapshots.map((s) => (
-              <li key={s.path}>
-                <span className="text-slate-500">{new Date(s.mod_time).toLocaleString()}</span>{' '}
-                <span className="text-slate-400">·</span>{' '}
-                <span>{(s.size / 1024).toFixed(1)} KiB</span>{' '}
-                <span className="text-slate-400">·</span>{' '}
-                <span className="break-all">{s.path}</span>
+              <li key={s.path} className="flex items-center gap-2">
+                <span className="text-slate-500">{new Date(s.mod_time).toLocaleString()}</span>
+                <span className="text-slate-400">·</span>
+                <span>{(s.size / 1024).toFixed(1)} KiB</span>
+                <span className="text-slate-400">·</span>
+                <span className="break-all flex-1">{s.path}</span>
+                <button
+                  type="button"
+                  onClick={() => onRestore(s)}
+                  className="ml-2 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 text-xs hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  Restore…
+                </button>
               </li>
             ))}
           </ul>
@@ -163,6 +212,45 @@ export function BackupsSettingsPage(): JSX.Element {
           </ul>
         )}
       </div>
+
+      {restoreTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-lg w-full p-5 space-y-3">
+            <h3 className="font-semibold text-lg">Restore from snapshot</h3>
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Snapshot: <code className="px-1 bg-slate-100 dark:bg-slate-800 rounded text-xs break-all">{restoreTarget.path}</code>
+            </p>
+            <p className="text-sm">
+              The server holds the live database open, so the restore must run via the CLI
+              <em> after </em>
+              the server is stopped. Copy the command below and run it on the host where
+              <code className="px-1 bg-slate-100 dark:bg-slate-800 rounded text-xs">orenda</code>
+              is installed.
+            </p>
+            <div className="relative">
+              <pre className="bg-slate-100 dark:bg-slate-800 rounded p-3 text-xs overflow-x-auto whitespace-pre-wrap break-all">
+{restoreHint ?? '…'}
+              </pre>
+              <button
+                type="button"
+                onClick={copyHint}
+                className="absolute top-2 right-2 px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-xs"
+              >
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={closeRestore}
+                className="px-3 py-2 rounded border border-slate-300 dark:border-slate-700 text-sm"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

@@ -429,6 +429,14 @@ class ApiClient {
     return this.http.get<{ log: BackupLogEntry[] }>('/api/v1/backups/log', { params }).then((r) => r.data)
   }
 
+  /** Trigger a restore from a snapshot. The server refuses while running
+   * (409) and returns a structured hint with the CLI command. */
+  restoreBackup(path: string): Promise<{ snapshot: string; hint: string }> {
+    return this.http
+      .post<{ snapshot: string; hint: string }>('/api/v1/backups/restore', { path })
+      .then((r) => r.data)
+  }
+
   // ---- Bot subscriptions (Phase 10) ----
 
   listSubscriptions(): Promise<{ subscriptions: BotSubscription[] }> {

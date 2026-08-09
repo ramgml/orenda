@@ -31,12 +31,36 @@ func newBackupCmd() *cobra.Command {
 		Short: "Show recent backup log entries and snapshot list",
 		RunE:  runBackupStatus,
 	})
-	cmd.AddCommand(&cobra.Command{
-		Use:   "restore",
-		Short: "Restore the database from a snapshot (Phase 9 wires the actual restore flow)",
-		RunE:  runBackupRestore,
-	})
+	cmd.AddCommand(newBackupRestoreCmd())
 	return cmd
+}
+
+func newBackupRestoreCmd() *cobra.Command {
+	var (
+		from string
+		to   string
+		yes  bool
+	)
+	cmd := &cobra.Command{
+		Use:   "restore",
+		Short: "Restore the database from a snapshot file",
+		Long: "Replace the live database with a snapshot produced by `orenda backup snapshot`.\n" +
+			"The server MUST be stopped first (it holds the live file open). Use --to to\n" +
+			"restore into a separate path for verification.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runBackupRestore(cmd, restoreInput{From: from, To: to, Yes: yes})
+		},
+	}
+	cmd.Flags().StringVar(&from, "from", "", "path to the snapshot .db file (required)")
+	cmd.Flags().StringVar(&to, "to", "", "destination path (defaults to the live db_path)")
+	cmd.Flags().BoolVar(&yes, "yes", false, "skip the confirmation prompt")
+	return cmd
+}
+
+type restoreInput struct {
+	From string
+	To   string
+	Yes  bool
 }
 
 // backupService wires a Service from the config + open DB. Reused by the
@@ -119,9 +143,48 @@ func runBackupStatus(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func runBackupRestore(_ *cobra.Command, _ []string) error {
-	// Phase 9 wires the real restore (stop server, swap DB, restart).
-	// For now we just print the hint so operators don't lose data.
-	fmt.Println("orenda backup restore: not yet implemented (Phase 9)")
+func runBackupRestore(cmd *cobra.Command, in restoreInput) error {
+	if in.From == "" {
+		return fmt.Errorf("backup restore: --from <snapshot.db> is required")
+	}
+
+	cfgPath, _ := cmd.Flags().GetString("config")
+	cfg, err := loadConfigForCLI(cfgPath)
+	if err != nil {
+		return err
+	}
+
+	if in.To == "" {
+		in.To = cfg.ResolveDBPath(".")
+	}
+
+	// Refuse if the server is listening on the configured port: replacing
+	// the sqlite file while another process has it open corrupts WAL/SHM.
+	// When --to is something other than the live DB path the user is
+	// restoring to a copy, so the live server is irrelevant.
+	isInPlace := in.To == cfg.ResolveDBPath(".")
+	if isInPlace && backup.IsServerRunning(cmd.Context(), cfg.Server.Host, cfg.Server.Port) {
+		return fmt.Errorf("backup restore: server is running on %s:%d — stop the server first (e.g. `Ctrl+C` or `systemctl --user stop orenda`)",
+			cfg.Server.Host, cfg.Server.Port)
+	}
+
+	if !in.Yes {
+		fmt.Printf("About to restore:\n  from: %s\n  to:   %s\n", in.From, in.To)
+		if isInPlace {
+			fmt.Println("This OVERWRITES the live database. Pass --yes to confirm.")
+		} else {
+			fmt.Println("Pass --yes to proceed.")
+		}
+		return nil // dry-run when --yes is missing
+	}
+
+	// Restore is filesystem-only; no need to open the DB.
+	if err := backup.New(backup.Config{
+		SnapshotDir: cfg.Backup.SnapshotDir,
+		DBPath:      cfg.ResolveDBPath("."),
+	}, nil).Restore(cmd.Context(), in.From, in.To); err != nil {
+		return err
+	}
+	fmt.Printf("restored: %s <- %s\n", in.To, in.From)
 	return nil
 }

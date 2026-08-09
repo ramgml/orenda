@@ -296,6 +296,7 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Post("/test", testBackupPushHandler(deps))
 				r.Post("/snapshot", backupSnapshotHandler(deps))
 				r.Get("/snapshots", listBackupSnapshotsHandler(deps))
+				r.Post("/restore", restoreBackupHandler(deps))
 				r.Get("/log", listBackupLogHandler(deps))
 			})
 		})

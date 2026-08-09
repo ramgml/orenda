@@ -7,24 +7,30 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // Sentinel errors.
 var (
-	ErrNoRemote     = errors.New("backup: no git remote configured")
-	ErrPushFailed   = errors.New("backup: git push failed")
-	ErrNotFound     = errors.New("backup: snapshot not found")
-	ErrInvalidInput = errors.New("backup: invalid input")
+	ErrNoRemote      = errors.New("backup: no git remote configured")
+	ErrPushFailed    = errors.New("backup: git push failed")
+	ErrNotFound      = errors.New("backup: snapshot not found")
+	ErrInvalidInput  = errors.New("backup: invalid input")
+	ErrServerRunning = errors.New("backup: server is running — stop it before restoring in place")
+	ErrNotSQLite     = errors.New("backup: source is not a valid sqlite database")
 )
 
 // Config drives the backup behaviour.
@@ -285,6 +291,129 @@ func (s *Service) ListLog(ctx context.Context, limit int) ([]*LogEntry, error) {
 		out = append(out, &e)
 	}
 	return out, rows.Err()
+}
+
+// ----------------------------------------------------------------------------
+// Restore (Phase 7 follow-up)
+// ----------------------------------------------------------------------------
+
+// sqliteMagic is the 16-byte header every sqlite database starts with.
+var sqliteMagic = []byte("SQLite format 3\x00")
+
+// Restore replaces destPath with a copy of snapshotPath.
+//
+// The operation is intentionally filesystem-only: it does NOT touch s.db.
+// Callers (the CLI) MUST guarantee the live database is closed — replacing
+// a sqlite file while another process holds it open can corrupt WAL/SHM
+// sidecars. The CLI does a TCP probe of cfg.ServerAddr before invoking
+// this; the HTTP handler refuses outright with ErrServerRunning.
+//
+//   - snapshotPath must exist and start with the SQLite magic header.
+//   - destPath must be non-empty; the parent directory is created if missing.
+//   - The copy goes via destPath+".restore.tmp" then atomically renames in.
+//   - If destPath has stale -wal / -shm sidecars (left over from a prior
+//     crashed server), they are removed so sqlite starts clean.
+//
+// Returns ErrInvalidInput, ErrNotFound, ErrNotSQLite, or filesystem errors.
+func (s *Service) Restore(_ context.Context, snapshotPath, destPath string) error {
+	if snapshotPath == "" || destPath == "" {
+		return ErrInvalidInput
+	}
+
+	src, err := os.Open(snapshotPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("backup restore: open snapshot: %w", err)
+	}
+	defer src.Close()
+
+	srcInfo, err := src.Stat()
+	if err != nil {
+		return fmt.Errorf("backup restore: stat snapshot: %w", err)
+	}
+	if srcInfo.IsDir() {
+		return ErrNotSQLite
+	}
+
+	// Verify the magic header — refuses to copy a non-sqlite file.
+	var head [16]byte
+	if _, err := io.ReadFull(src, head[:]); err != nil {
+		return fmt.Errorf("backup restore: read snapshot header: %w", err)
+	}
+	if _, err := src.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("backup restore: rewind: %w", err)
+	}
+	if !bytes.Equal(head[:], sqliteMagic) {
+		return ErrNotSQLite
+	}
+
+	// Ensure the parent directory exists.
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		return fmt.Errorf("backup restore: mkdir: %w", err)
+	}
+
+	tmp := destPath + ".restore.tmp"
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return fmt.Errorf("backup restore: open tmp: %w", err)
+	}
+
+	if _, err := io.Copy(out, src); err != nil {
+		_ = out.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("backup restore: copy: %w", err)
+	}
+	// fsync the data to disk before the rename so the new file is durable.
+	if err := out.Sync(); err != nil {
+		_ = out.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("backup restore: sync tmp: %w", err)
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("backup restore: close tmp: %w", err)
+	}
+
+	// Atomic swap. On POSIX rename(2) within the same filesystem is atomic.
+	if err := os.Rename(tmp, destPath); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("backup restore: rename: %w", err)
+	}
+
+	// Drop any stale WAL/SHM sidecars so sqlite starts a clean journal.
+	for _, side := range []string{destPath + "-wal", destPath + "-shm"} {
+		if rmErr := os.Remove(side); rmErr != nil && !os.IsNotExist(rmErr) {
+			// Non-fatal: sqlite will detect and rebuild, but report it.
+			return fmt.Errorf("backup restore: remove sidecar %s: %w", side, rmErr)
+		}
+	}
+
+	return nil
+}
+
+// IsServerRunning returns true when the orenda server is listening on
+// host:port. Used by the CLI to refuse in-place restore while the live
+// database is open.
+//
+// Cheap probe: a single dial attempt with a short timeout. Returns false
+// on any error (refused, timeout, no route) — the only positive signal is
+// a successful connect.
+func IsServerRunning(ctx context.Context, host string, port int) bool {
+	if port <= 0 {
+		return false
+	}
+	dctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	d := net.Dialer{}
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	conn, err := d.DialContext(dctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 // ----------------------------------------------------------------------------
