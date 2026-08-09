@@ -111,6 +111,25 @@ func (s *Service) GetBySlug(ctx context.Context, slug string) (*wiki.Page, error
 	return s.Repo.GetBySlug(ctx, slug)
 }
 
+// Delete removes a page by slug. Cascades through wiki_links via FK and
+// cleans up the markdown mirror (best-effort; mirror errors are logged
+// via the Mirror seam but never block the DB delete).
+//
+// Returns ErrNotFound when no row matches the slug.
+func (s *Service) Delete(ctx context.Context, slug string) error {
+	p, err := s.Repo.GetBySlug(ctx, slug)
+	if err != nil {
+		return err
+	}
+	if err := s.Repo.Delete(ctx, p.ID); err != nil {
+		return err
+	}
+	if s.Mirror != nil {
+		_ = s.Mirror.DeletePage(slug)
+	}
+	return nil
+}
+
 // Backlinks returns every page that links to the given id.
 func (s *Service) Backlinks(ctx context.Context, pageID string) ([]*wiki.Page, error) {
 	return s.Repo.Backlinks(ctx, pageID)

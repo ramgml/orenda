@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { api, type WikiPage, type WikiTreeNode } from '@/shared/api/client'
 import { useWebSocketTopic } from '@/shared/ws'
@@ -15,11 +15,13 @@ import { useWebSocketTopic } from '@/shared/ws'
  */
 export function WikiPage(): JSX.Element {
   const { slug } = useParams<{ slug: string }>()
+  const navigate = useNavigate()
   const [tree, setTree] = useState<WikiTreeNode[]>([])
   const [page, setPage] = useState<WikiPage | null>(null)
   const [backlinks, setBacklinks] = useState<WikiPage[]>([])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [dirty, setDirty] = useState(false)
 
   async function loadTree(): Promise<void> {
@@ -95,6 +97,23 @@ export function WikiPage(): JSX.Element {
     }
   }
 
+  async function onDelete(): Promise<void> {
+    if (!page || !page.id) return
+    if (!window.confirm(`Delete "${page.title}"? This cannot be undone.`)) return
+    setDeleting(true)
+    setError(null)
+    try {
+      await api.deletePage(page.slug)
+      setPage(null)
+      await loadTree()
+      navigate('/wiki')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <section className="grid md:grid-cols-[240px,1fr] gap-4 h-full">
       <aside className="rounded border border-slate-200 dark:border-slate-800 p-3 overflow-auto max-h-[80vh]">
@@ -133,6 +152,17 @@ export function WikiPage(): JSX.Element {
                 >
                   {saving ? 'Saving…' : 'Save'}
                 </button>
+                {page.id && (
+                  <button
+                    type="button"
+                    onClick={onDelete}
+                    disabled={deleting}
+                    title="Delete this page"
+                    className="px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20 disabled:opacity-50"
+                  >
+                    {deleting ? 'Deleting…' : 'Delete'}
+                  </button>
+                )}
               </div>
             </div>
 

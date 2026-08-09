@@ -397,6 +397,10 @@ class ApiClient {
       .then((r) => r.data)
   }
 
+  deletePage(slug: string): Promise<void> {
+    return this.http.delete<void>(`/api/v1/pages/${slug}`).then(() => undefined)
+  }
+
   // ---- Search (Phase 5) ----
 
   search(params: { q: string; type?: string; limit?: number }): Promise<{ hits: SearchHit[]; total: number }> {

@@ -10,6 +10,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
+	"github.com/ramgml/orenda/internal/domain/wiki"
 )
 
 // apiLogger is the package-level logger used by writeError for unexpected
@@ -30,7 +31,8 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, user.ErrNotFound),
 		errors.Is(err, project.ErrNotFound),
-		errors.Is(err, task.ErrNotFound):
+		errors.Is(err, task.ErrNotFound),
+		errors.Is(err, wiki.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 	case errors.Is(err, user.ErrEmailTaken):
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "email_taken"})

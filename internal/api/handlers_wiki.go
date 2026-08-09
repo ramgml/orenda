@@ -118,6 +118,29 @@ func getPageBacklinksHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
+// deletePageHandler removes a page by slug.
+//
+// Cascades to wiki_links via FK; the markdown mirror file is also removed
+// (best-effort). 404 when the slug doesn't exist.
+func deletePageHandler(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.WikiService == nil {
+			http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		slug := chi.URLParam(r, "slug")
+		if slug == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_slug"})
+			return
+		}
+		if err := deps.WikiService.Delete(r.Context(), slug); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 // ----------------------------------------------------------------------------
 // Search
 // ----------------------------------------------------------------------------
