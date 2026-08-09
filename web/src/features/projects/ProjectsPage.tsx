@@ -7,8 +7,7 @@ import { api, type Project } from '@/shared/api/client'
 /**
  * /projects — list of projects owned by the authenticated user.
  *
- * Phase 1 ships list + create. Phase 2 will replace this with a kanban
- * board view once drag-and-drop lands.
+ * Phase 1 ships list + create. Phase 6+ adds the show-archived toggle.
  */
 export function ProjectsPage(): JSX.Element {
   const { user } = useAuth()
@@ -16,6 +15,7 @@ export function ProjectsPage(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
 
   async function load(): Promise<void> {
     try {
@@ -96,29 +96,55 @@ export function ProjectsPage(): JSX.Element {
           No projects yet. Create your first one above.
         </p>
       ) : (
-        <ul className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {projects.map((p) => (
-            <li key={p.id}>
-              <Link
-                to={`/projects/${p.id}`}
-                className="block rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 hover:border-orenda-500 transition"
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <span
-                    aria-hidden
-                    className="inline-block h-3 w-3 rounded"
-                    style={{ backgroundColor: p.color }}
-                  />
-                  <span className="font-medium">{p.name}</span>
-                </div>
-                {p.description && (
-                  <p className="text-sm text-slate-600 dark:text-slate-300">{p.description}</p>
-                )}
-                <p className="text-xs text-slate-400 mt-2 font-mono">{p.id.slice(0, 8)}</p>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <>
+          <div className="mb-3 text-xs text-slate-500 flex items-center gap-2">
+            <label className="flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={(e) => setShowArchived(e.target.checked)}
+              />
+              Show archived
+            </label>
+            <span className="ml-auto">
+              {projects.filter((p) => showArchived || !p.archived).length} shown · {projects.length} total
+            </span>
+          </div>
+          <ul className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {projects
+              .filter((p) => showArchived || !p.archived)
+              .map((p) => (
+                <li key={p.id}>
+                  <Link
+                    to={`/projects/${p.id}`}
+                    className={`block rounded-lg border p-4 transition ${
+                      p.archived
+                        ? 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 opacity-70 hover:opacity-100'
+                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:border-orenda-500'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span
+                        aria-hidden
+                        className="inline-block h-3 w-3 rounded"
+                        style={{ backgroundColor: p.color }}
+                      />
+                      <span className="font-medium">{p.name}</span>
+                      {p.archived && (
+                        <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-500 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5">
+                          archived
+                        </span>
+                      )}
+                    </div>
+                    {p.description && (
+                      <p className="text-sm text-slate-600 dark:text-slate-300">{p.description}</p>
+                    )}
+                    <p className="text-xs text-slate-400 mt-2 font-mono">{p.id.slice(0, 8)}</p>
+                  </Link>
+                </li>
+              ))}
+          </ul>
+        </>
       )}
     </section>
   )

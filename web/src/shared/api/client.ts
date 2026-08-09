@@ -188,6 +188,13 @@ class ApiClient {
     return this.http.post<Project>('/api/v1/projects', input).then((r) => r.data)
   }
 
+  updateProject(
+    projectId: string,
+    input: Partial<{ name: string; color: string; description: string; archived: boolean }>,
+  ): Promise<Project> {
+    return this.http.patch<Project>(`/api/v1/projects/${projectId}`, input).then((r) => r.data)
+  }
+
   getBoard(projectId: string): Promise<ProjectBoard> {
     return this.http
       .get<ProjectBoard>(`/api/v1/projects/${projectId}/board`)
