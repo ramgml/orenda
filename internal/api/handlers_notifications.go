@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/ramgml/orenda/internal/domain/task"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 )
 
@@ -77,4 +78,67 @@ func notifierInbox(deps Dependencies) notifierservice.InboxRepository {
 		return nil
 	}
 	return deps.Notifier.Inbox
+}
+
+// notifyTaskAssignee sends a notifier event to the project owner about a
+// task lifecycle change (claimed/released/submitted). Resolves the agent
+// name (if any) and the project owner from deps. Best-effort — never
+// blocks the HTTP response, never returns an error.
+//
+// Returns silently if any lookup fails: notifications must not break the
+// underlying claim/release/submit flow.
+func notifyTaskAssignee(
+	ctx context.Context,
+	deps Dependencies,
+	eventType, dedupKey string,
+	tr *task.Task,
+	agentID string,
+) {
+	if deps.Notifier == nil || tr == nil {
+		return
+	}
+	p, err := deps.Projects.GetProject(ctx, tr.ProjectID)
+	if err != nil || p == nil {
+		return
+	}
+	notifyEvent(ctx, deps, notifierservice.Event{
+		Type:       eventType,
+		UserID:     p.OwnerID,
+		TargetType: "task",
+		TargetID:   tr.ID,
+		Title:      tr.Title,
+		Body:       eventBodyFor(eventType, agentNameOf(ctx, deps, agentID), tr.Title),
+		Link:       "/tasks/" + tr.ID,
+		DedupKey:   dedupKey,
+	})
+}
+
+// agentNameOf best-effort lookup; returns "" if the agent isn't found.
+func agentNameOf(ctx context.Context, deps Dependencies, agentID string) string {
+	if agentID == "" || deps.Agents == nil {
+		return ""
+	}
+	a, err := deps.Agents.GetByID(ctx, agentID)
+	if err != nil || a == nil {
+		return ""
+	}
+	return a.Name
+}
+
+// eventBodyFor returns a short human description for the given event.
+func eventBodyFor(eventType, agentName, taskTitle string) string {
+	switch eventType {
+	case "task.assigned_to_me":
+		if agentName != "" {
+			return agentName + " picked up: " + taskTitle
+		}
+		return "Picked up: " + taskTitle
+	case "task.released":
+		if agentName != "" {
+			return agentName + " released: " + taskTitle
+		}
+		return "Released: " + taskTitle
+	default:
+		return taskTitle
+	}
 }

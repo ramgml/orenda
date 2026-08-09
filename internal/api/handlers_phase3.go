@@ -43,6 +43,9 @@ func claimTaskHandler(deps Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		// Phase 3 follow-up: tell the project owner an agent picked it up.
+		notifyTaskAssignee(r.Context(), deps, "task.assigned_to_me",
+			"task.assigned_to_me:"+tr.ID, tr, req.AgentID)
 		writeJSON(w, http.StatusOK, tr)
 	}
 }
@@ -63,6 +66,9 @@ func releaseTaskHandler(deps Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		// Notify owner when an agent releases a task it was working on.
+		notifyTaskAssignee(r.Context(), deps, "task.released",
+			"task.released:"+tr.ID, tr, req.AgentID)
 		writeJSON(w, http.StatusOK, tr)
 	}
 }

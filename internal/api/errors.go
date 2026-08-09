@@ -5,10 +5,22 @@ import (
 	"errors"
 	"net/http"
 
+	"go.uber.org/zap"
+
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
 )
+
+// apiLogger is the package-level logger used by writeError for unexpected
+// (500) errors. It is set once during router construction. nil is fine —
+// writeError just skips the log entry. Tests can override it via
+// SetAPILogger to surface internal errors.
+var apiLogger *zap.Logger
+
+// SetAPILogger installs the logger used by writeError for 500-class
+// errors. Pass nil to disable logging.
+func SetAPILogger(l *zap.Logger) { apiLogger = l }
 
 // writeError translates a domain error into the appropriate HTTP status code
 // and writes a small JSON body. Unknown errors become 500.
@@ -27,6 +39,9 @@ func writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, task.ErrInvalidInput):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
 	default:
+		if apiLogger != nil {
+			apiLogger.Error("api internal error", zap.Error(err))
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 	}
 }

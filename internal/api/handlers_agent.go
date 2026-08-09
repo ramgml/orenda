@@ -93,6 +93,9 @@ func agentClaimTaskHandler(deps Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		// Notify owner: agent picked this up.
+		notifyTaskAssignee(r.Context(), deps, "task.assigned_to_me",
+			"task.assigned_to_me:"+tr.ID, tr, id.AgentID)
 		writeJSON(w, http.StatusOK, tr)
 	}
 }
@@ -114,6 +117,9 @@ func agentReleaseTaskHandler(deps Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		// Notify owner: agent released the task.
+		notifyTaskAssignee(r.Context(), deps, "task.released",
+			"task.released:"+tr.ID, tr, id.AgentID)
 		writeJSON(w, http.StatusOK, tr)
 	}
 }

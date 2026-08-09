@@ -127,6 +127,9 @@ func NewRouter(deps Dependencies) http.Handler {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
+	// Expose to writeError for unexpected (500) errors. Tests can
+	// override via SetAPILogger before calling NewRouter.
+	apiLogger = logger
 	if deps.CookieName == "" {
 		deps.CookieName = "orenda_session"
 	}
