@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Component, type ErrorInfo, type ReactNode, useEffect, useMemo, useState } from 'react'
 import {
   Calendar,
   dateFnsLocalizer,
@@ -47,6 +47,10 @@ const DnDCalendar = withDragAndDrop(Calendar)
 // time-slot appear. The library's default would show only the
 // title; the explicit one also surfaces the start time so the cell
 // matches the pre-DnD behaviour.
+//
+// rbc passes `slotStart` only in week/day view. In month view
+// the prop is undefined, so we hide the time strip there and just
+// show the title — keeps the cell uncluttered.
 function DefaultEventComponent({
   event,
   title,
@@ -56,15 +60,18 @@ function DefaultEventComponent({
   event: { id?: string; title?: string; allDay?: boolean }
   title: string
   isAllDay?: boolean
-  slotStart: Date
+  slotStart?: Date
 }): JSX.Element {
-  const time = isAllDay
-    ? 'All day'
-    : slotStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const display = title || event?.title || ''
   return (
     <div className="rbc-event-label">
-      <div className="rbc-event-time text-[10px] opacity-90">{time}</div>
-      <div className="rbc-event-title truncate">{title || event.title}</div>
+      {slotStart && !isAllDay && (
+        <div className="rbc-event-time text-[10px] opacity-90">
+          {slotStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </div>
+      )}
+      {isAllDay && <div className="rbc-event-time text-[10px] opacity-90">All day</div>}
+      <div className="rbc-event-title truncate">{display}</div>
     </div>
   )
 }
@@ -269,25 +276,27 @@ export function CalendarPage(): JSX.Element {
         )}
 
         <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2 h-[75vh] calendar-shell">
-          <DnDCalendar
-            localizer={localizer}
-            events={rbEvents}
-            date={cursor}
-            view={view}
-            views={['month', 'week', 'day', 'agenda']}
-            onView={(v) => setView(v as View)}
-            onNavigate={(d) => setCursor(d)}
-            selectable
-            startAccessor={(e) => new Date((e as { start: Date | string }).start)}
-            endAccessor={(e) => new Date((e as { end: Date | string }).end)}
-            eventPropGetter={eventStyleGetter}
-            onSelectSlot={onSelectSlot}
-            onSelectEvent={onSelectEvent}
-            onEventDrop={onEventDrop}
-            components={{ event: DefaultEventComponent }}
-            popup
-            style={{ height: '100%' }}
-          />
+          <CalendarErrorBoundary>
+            <DnDCalendar
+              localizer={localizer}
+              events={rbEvents}
+              date={cursor}
+              view={view}
+              views={['month', 'week', 'day', 'agenda']}
+              onView={(v) => setView(v as View)}
+              onNavigate={(d) => setCursor(d)}
+              selectable
+              startAccessor={(e) => new Date((e as { start: Date | string }).start)}
+              endAccessor={(e) => new Date((e as { end: Date | string }).end)}
+              eventPropGetter={eventStyleGetter}
+              onSelectSlot={onSelectSlot}
+              onSelectEvent={onSelectEvent}
+              onEventDrop={onEventDrop}
+              components={{ event: DefaultEventComponent }}
+              popup
+              style={{ height: '100%' }}
+            />
+          </CalendarErrorBoundary>
         </div>
       </div>
 
@@ -353,6 +362,32 @@ interface EventDraft {
 }
 
 const INBOX_PROJECT_ID = '00000000-0000-0000-0000-00000000cafe'
+
+// Tiny ErrorBoundary around the calendar so a future rbc throw (e.g.
+// wrong prop type) doesn't blank the whole page. The error is
+// surfaced in place instead of escaping to the React root.
+class CalendarErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null }
+  static getDerivedStateFromError(error: Error): { error: Error } {
+    return { error }
+  }
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error('Calendar crashed:', error, info)
+  }
+  render(): ReactNode {
+    if (this.state.error) {
+      return (
+        <div className="rounded border border-red-300 bg-red-50 text-red-800 px-3 py-2 text-sm">
+          Calendar failed to render: {this.state.error.message}
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 function blankDraft(): EventDraft {
   const now = new Date()
