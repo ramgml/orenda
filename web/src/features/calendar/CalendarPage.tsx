@@ -68,6 +68,7 @@ const PRESET_COLORS = [
  */
 export function CalendarPage(): JSX.Element {
   const [events, setEvents] = useState<CalendarEvent[]>([])
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([])
   const [view, setView] = useState<View>('week')
   const [cursor, setCursor] = useState<Date>(new Date())
   const [error, setError] = useState<string | null>(null)
@@ -91,11 +92,15 @@ export function CalendarPage(): JSX.Element {
 
   async function load(): Promise<void> {
     try {
-      const list = await api.listEvents({
-        from: range.from.toISOString(),
-        to: range.to.toISOString(),
-      })
+      const [list, ps] = await Promise.all([
+        api.listEvents({
+          from: range.from.toISOString(),
+          to: range.to.toISOString(),
+        }),
+        api.listProjects(),
+      ])
       setEvents(list)
+      setProjects(ps.map((p) => ({ id: p.id, name: p.name })))
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -155,6 +160,7 @@ export function CalendarPage(): JSX.Element {
         end_at: end.toISOString(),
         all_day: view === 'month',
         color: PRESET_COLORS[0],
+        project_id: INBOX_PROJECT_ID,
       },
     })
   }
@@ -230,6 +236,7 @@ function closeModal(): void {
         <EventModal
           title="Create event"
           draft={mode.draft}
+          projects={projects}
           onCancel={closeModal}
           onSubmit={async (d) => {
             await api.createEvent({
@@ -239,6 +246,7 @@ function closeModal(): void {
               end_at: d.end_at,
               all_day: d.all_day,
               color: d.color,
+              project_id: d.project_id || undefined,
             })
             closeModal()
             await load()
@@ -249,6 +257,7 @@ function closeModal(): void {
         <EventModal
           title="Edit event"
           draft={modeDraftFromEvent(mode.event)}
+          projects={projects}
           onCancel={closeModal}
           onDelete={mode.event.id ? async () => {
             await api.deleteEvent(mode.event.id)
@@ -263,6 +272,7 @@ function closeModal(): void {
               end_at: d.end_at,
               all_day: d.all_day,
               color: d.color,
+              project_id: d.project_id || undefined,
             })
             closeModal()
             await load()
@@ -280,7 +290,10 @@ interface EventDraft {
   end_at: string
   all_day: boolean
   color: string
+  project_id: string
 }
+
+const INBOX_PROJECT_ID = '00000000-0000-0000-0000-00000000cafe'
 
 function blankDraft(): EventDraft {
   const now = new Date()
@@ -294,6 +307,7 @@ function blankDraft(): EventDraft {
     end_at: end.toISOString(),
     all_day: false,
     color: PRESET_COLORS[0],
+    project_id: INBOX_PROJECT_ID,
   }
 }
 
@@ -305,6 +319,7 @@ function modeDraftFromEvent(e: CalendarEvent): EventDraft {
     end_at: e.end_at,
     all_day: e.all_day,
     color: e.color ?? PRESET_COLORS[0],
+    project_id: e.project_id ?? INBOX_PROJECT_ID,
   }
 }
 
@@ -533,12 +548,14 @@ function MiniCalendar({
 function EventModal({
   title,
   draft,
+  projects,
   onSubmit,
   onCancel,
   onDelete,
 }: {
   title: string
   draft: EventDraft
+  projects: { id: string; name: string }[]
   onSubmit: (d: EventDraft) => Promise<void>
   onCancel: () => void
   onDelete?: () => Promise<void>
@@ -624,6 +641,22 @@ function EventModal({
             onChange={(e) => setForm({ ...form, all_day: e.target.checked })}
           />
           All day
+        </label>
+
+        <label className="block text-sm">
+          <span className="text-xs text-slate-500">Project</span>
+          <select
+            value={form.project_id}
+            onChange={(e) => setForm({ ...form, project_id: e.target.value })}
+            className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+          >
+            {projects.length === 0 && <option value={form.project_id}>(no projects yet)</option>}
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.id === INBOX_PROJECT_ID ? `${p.name} (default)` : p.name}
+              </option>
+            ))}
+          </select>
         </label>
 
         <div>
