@@ -119,12 +119,19 @@ func (r *projectRepo) GetProject(ctx context.Context, id string) (*project.Proje
 }
 
 func (r *projectRepo) ListProjects(ctx context.Context, ownerID string) ([]*project.Project, error) {
+	// Phase 11 is single-owner, so every project (including the
+	// system-owned Inbox) is visible to the caller. The ownerID arg
+	// is kept for API compatibility with handlers that still pass it,
+	// but the query no longer filters by it — without this, the
+	// Inbox project (owned by the system placeholder user) was
+	// invisible to the frontend's project list.
+	_ = ownerID
 	const q = `
 		SELECT id, name, color, description, owner_id, archived, created_at, updated_at
-		FROM projects WHERE owner_id = ?
+		FROM projects
 		ORDER BY created_at DESC
 	`
-	rows, err := r.db.QueryContext(ctx, q, ownerID)
+	rows, err := r.db.QueryContext(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("project.ListProjects: %w", err)
 	}

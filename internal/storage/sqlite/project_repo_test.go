@@ -67,9 +67,18 @@ func TestProjectRepo_GetBoard_ReturnsOrderedColumns(t *testing.T) {
 
 	pList, err := projects.ListProjects(context.Background(), owner.ID)
 	require.NoError(t, err)
-	require.Len(t, pList, 1)
+	// After Phase 11 the system-created Inbox project also appears in
+	// the list, so we just check that our project is there.
+	var found *project.Project
+	for _, p := range pList {
+		if p.Name == "Orenda" {
+			found = p
+			break
+		}
+	}
+	require.NotNil(t, found, "created project not in list")
 
-	board, cols, err := projects.GetBoard(context.Background(), pList[0].ID)
+	board, cols, err := projects.GetBoard(context.Background(), found.ID)
 	require.NoError(t, err)
 	assert.NotEmpty(t, board.ID)
 	require.NotEmpty(t, cols)

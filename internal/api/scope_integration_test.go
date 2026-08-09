@@ -198,7 +198,8 @@ func TestIntegration_ProjectCRUD(t *testing.T) {
 	assert.Equal(t, "X", p.Name)
 	assert.Equal(t, "#ff0000", p.Color)
 
-	// List.
+	// List. The system-created Inbox project also lives in the table
+	// since Phase 11, so we just check our project is there.
 	rr = authed(http.MethodGet, "/api/v1/projects", nil)
 	require.Equal(t, http.StatusOK, rr.Code)
 	var list struct {
@@ -207,7 +208,14 @@ func TestIntegration_ProjectCRUD(t *testing.T) {
 		} `json:"projects"`
 	}
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &list))
-	assert.Len(t, list.Projects, 1)
+	var seen bool
+	for _, pr := range list.Projects {
+		if pr.ID == p.ID {
+			seen = true
+			break
+		}
+	}
+	assert.True(t, seen, "created project not in list")
 
 	// Patch.
 	rr = authed(http.MethodPatch, "/api/v1/projects/"+p.ID, map[string]any{
