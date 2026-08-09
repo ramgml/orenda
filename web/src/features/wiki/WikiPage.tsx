@@ -338,11 +338,11 @@ function PageEditor({
       <div className="text-xs text-slate-500 font-mono">/wiki/{page.slug}</div>
 
       <div className="border-b border-slate-200 dark:border-slate-800 flex">
-        <TabBtn active={tab === 'edit'} onClick={() => setTab('edit')}>
-          Edit
-        </TabBtn>
         <TabBtn active={tab === 'preview'} onClick={() => setTab('preview')}>
           Preview
+        </TabBtn>
+        <TabBtn active={tab === 'edit'} onClick={() => setTab('edit')}>
+          Edit
         </TabBtn>
         <TabBtn active={tab === 'source'} onClick={() => setTab('source')}>
           Source
