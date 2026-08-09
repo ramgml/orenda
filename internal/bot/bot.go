@@ -22,6 +22,39 @@ type Message struct {
 	Target string            `json:"target,omitempty"`
 	Link   string            `json:"link,omitempty"`
 	Meta   map[string]string `json:"meta,omitempty"`
+
+	// CallbackID is the stable id used by inline-button actions when
+	// the user taps them. Bots concatenate CallbackID with the Action
+	// verb to form the wire payload (e.g. "approve:<callbackID>"). For
+	// a task event this is the task id; for a project-wide event it's
+	// empty and the recipient address (Target) is used instead.
+	//
+	// Distinct from Target so that the chat id / peer id / email
+	// address used as transport routing does NOT collide with the id
+	// that the callback handler will look up.
+	CallbackID string `json:"callback_id,omitempty"`
+
+	// Actions are inline buttons attached to the message. VK and
+	// Telegram render them as keyboards; webhook/email render as links
+	// in the body. The Callback key (a/t/n in the wire payload) is
+	// derived from the first character of Data + the first 16 chars of
+	// the target id so it's stable for replay protection.
+	//
+	// Empty Actions means "no buttons" — the bot renders text only.
+	Actions []Action `json:"actions,omitempty"`
+}
+
+// Action is one inline button on a Message.
+type Action struct {
+	// Label is what the user sees ("Approve", "Open task").
+	Label string `json:"label"`
+	// Callback is a short verb the bot will echo back when the user
+	// taps the button: "approve", "reject", "open". Together with the
+	// message CallbackID it forms the dedup nonce.
+	Callback string `json:"callback"`
+	// URL is optional. When set, the button is rendered as a link
+	// rather than a callback. The Callback field is ignored.
+	URL string `json:"url,omitempty"`
 }
 
 // Bot is the interface every transport implements.

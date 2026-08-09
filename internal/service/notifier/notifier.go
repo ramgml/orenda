@@ -189,19 +189,24 @@ func (s *Service) Notify(ctx context.Context, e Event) error {
 		if err != nil {
 			return fmt.Errorf("notifier: subs: %w", err)
 		}
+		// Render the canonical Message once per event; transports branch
+		// on msg.Actions / msg.Kind instead of re-deriving the UI.
+		tmpl := Render(e)
 		for _, sub := range subs {
 			if !sub.Enabled || !sub.Subscribes(e.Type) {
 				continue
 			}
 			if b := s.Bots.Get(sub.BotType); b != nil {
-				msg := bot.Message{
-					Kind:   e.Type,
-					Title:  e.Title,
-					Body:   e.Body,
-					Target: sub.TargetAddress,
-					Link:   e.Link,
-					Meta:   e.Meta,
-				}
+				// Target = the recipient address for this subscription
+				// (chat id, peer id, email…). CallbackID stays whatever
+				// the template set (typically the task id), so callback
+				// handlers can correlate a button press back to the
+				// underlying task via the Action payload. We deliberately
+				// copy the rendered msg here so per-bot overrides (if
+				// any) don't leak between subscriptions.
+				msg := tmpl
+				msg.Target = sub.TargetAddress
+				msg.Meta = e.Meta
 				if err := s.sendWithRetry(ctx, b, sub.TargetAddress, msg); err != nil {
 					// Log-only on retry exhaustion: the inbox row was
 					// already written, so the user sees the notification

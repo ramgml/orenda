@@ -176,7 +176,8 @@ func TestVKSend_BuildsForm(t *testing.T) {
 
 	vk := bot.NewVK("tok", 1).WithBaseURL(srv.URL)
 	require.NoError(t, vk.Send(context.Background(), "42", bot.Message{
-		Kind: "task.review_needed", Title: "T", Body: "B", Target: "task-1",
+		Kind: "task.review_needed", Title: "T", Body: "B",
+		Target: "42", CallbackID: "task-1",
 	}))
 	assert.Contains(t, string(body), "peer_id=42")
 	assert.Contains(t, string(body), "callback")

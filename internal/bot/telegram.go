@@ -88,6 +88,11 @@ func (t *Telegram) Stop(ctx context.Context) error {
 }
 
 // Send delivers the message to a chat. target is the chat id (string).
+//
+// Renders msg.Actions as an inline keyboard (one row, all buttons).
+// Falls back to the legacy hard-coded review-needed buttons when
+// Actions is empty AND the event is task.review_needed — keeps the
+// old behaviour for callers that haven't been migrated to Actions.
 func (t *Telegram) Send(ctx context.Context, target string, msg Message) error {
 	if t.api == nil {
 		return ErrBotUnavailable
@@ -107,12 +112,16 @@ func (t *Telegram) Send(ctx context.Context, target string, msg Message) error {
 	mc := tgbotapi.NewMessage(chatID, text)
 	mc.ParseMode = tgbotapi.ModeMarkdown
 
-	// Interactive buttons for review events (Phase 10.5).
-	if msg.Kind == "task.review_needed" && msg.Target != "" {
-		approve := tgbotapi.NewInlineKeyboardButtonData("✅ Approve", "approve:"+msg.Target)
-		reject := tgbotapi.NewInlineKeyboardButtonData("↩️ Reject", "reject:"+msg.Target)
+	if buttons := actionsToTelegram(msg); len(buttons) > 0 {
+		mc.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(tgbotapi.NewInlineKeyboardRow(buttons...))
+	} else if msg.Kind == "task.review_needed" && msg.CallbackID != "" {
+		// Legacy fallback so old notifier callers without Actions still
+		// ship a usable message.
 		mc.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(approve, reject),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("✅ Approve", "approve:"+msg.CallbackID),
+				tgbotapi.NewInlineKeyboardButtonData("↩️ Reject", "reject:"+msg.CallbackID),
+			),
 		)
 	}
 
@@ -121,6 +130,34 @@ func (t *Telegram) Send(ctx context.Context, target string, msg Message) error {
 		return fmt.Errorf("telegram: send: %w", err)
 	}
 	return nil
+}
+
+// actionsToTelegram maps Message.Actions onto a single Telegram row.
+// URL actions render as URL buttons; everything else as callback_data
+// keyed on the action verb + the message's CallbackID.
+func actionsToTelegram(msg Message) []tgbotapi.InlineKeyboardButton {
+	if len(msg.Actions) == 0 {
+		return nil
+	}
+	row := make([]tgbotapi.InlineKeyboardButton, 0, len(msg.Actions))
+	for _, a := range msg.Actions {
+		if a.URL != "" {
+			row = append(row, tgbotapi.NewInlineKeyboardButtonURL(a.Label, a.URL))
+			continue
+		}
+		// CallbackID is the task id (or empty); the wire payload is
+		// "<verb>:<callbackID>". Empty CallbackID falls back to Target
+		// so old callers without Actions still produce a stable nonce.
+		id := msg.CallbackID
+		if id == "" {
+			id = msg.Target
+		}
+		row = append(row, tgbotapi.NewInlineKeyboardButtonData(a.Label, a.Callback+":"+id))
+	}
+	if len(row) == 0 {
+		return nil
+	}
+	return row
 }
 
 // poll runs the long-polling loop.
