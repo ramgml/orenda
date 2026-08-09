@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 
 import { api, type WikiPage, type WikiTreeNode } from '@/shared/api/client'
 import { useWebSocketTopic } from '@/shared/ws'
 import { slugify } from '@/shared/util/slug'
+
+import { MarkdownEditor } from './MarkdownEditor'
 
 /**
  * /wiki — sidebar tree + markdown editor + preview.
@@ -273,7 +273,9 @@ function EmptyState(): JSX.Element {
 }
 
 // ---------------------------------------------------------------------------
-// Page editor — title + markdown toolbar + Write/Preview tabs
+// Page editor — Notion-style Tiptap WYSIWYG with a Source tab for raw
+// markdown. The editor is the live preview, so we don't need a
+// separate Preview tab; the Source tab is for power users / pasting.
 // ---------------------------------------------------------------------------
 
 function PageEditor({
@@ -295,8 +297,7 @@ function PageEditor({
   onSave: () => void
   onDelete: () => void
 }): JSX.Element {
-  const [tab, setTab] = useState<'write' | 'preview'>('write')
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [tab, setTab] = useState<'edit' | 'source'>('edit')
 
   return (
     <>
@@ -306,7 +307,7 @@ function PageEditor({
           value={page.title}
           onChange={(e) => onChange({ ...page, title: e.target.value })}
           className="text-2xl font-semibold bg-transparent border-b border-transparent focus:border-orenda-500 focus:outline-none flex-1 min-w-0"
-          placeholder="Page title"
+          placeholder="Untitled"
         />
         <div className="flex items-center gap-2 text-xs shrink-0">
           {dirty && <span className="text-amber-600">unsaved</span>}
@@ -334,53 +335,30 @@ function PageEditor({
 
       <div className="text-xs text-slate-500 font-mono">/wiki/{page.slug}</div>
 
-      <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden">
-        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
-          <div className="flex">
-            <TabBtn active={tab === 'write'} onClick={() => setTab('write')}>
-              Write
-            </TabBtn>
-            <TabBtn active={tab === 'preview'} onClick={() => setTab('preview')}>
-              Preview
-            </TabBtn>
-          </div>
-          {tab === 'write' && (
-            <MarkdownToolbar
-              textareaRef={textareaRef}
-              value={page.content_md ?? ''}
-              onChange={(v) => onChange({ ...page, content_md: v })}
-            />
-          )}
-        </div>
-
-        {tab === 'write' ? (
-          <textarea
-            ref={textareaRef}
-            value={page.content_md ?? ''}
-            onChange={(e) => onChange({ ...page, content_md: e.target.value })}
-            rows={22}
-            placeholder="# Heading
-
-Use **bold**, *italic*, [[other-page]] to link.
-
-- Lists
-- Code blocks (```)
-- Tables (| col | col |)
-"
-            className="w-full px-4 py-3 bg-transparent font-mono text-sm leading-relaxed outline-none resize-y"
-          />
-        ) : (
-          <div className="px-4 py-4 prose dark:prose-invert max-w-none min-h-[300px] text-sm">
-            {page.content_md ? (
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {page.content_md}
-              </ReactMarkdown>
-            ) : (
-              <p className="text-slate-400 italic">Nothing to preview yet.</p>
-            )}
-          </div>
-        )}
+      <div className="border-b border-slate-200 dark:border-slate-800 flex">
+        <TabBtn active={tab === 'edit'} onClick={() => setTab('edit')}>
+          Edit
+        </TabBtn>
+        <TabBtn active={tab === 'source'} onClick={() => setTab('source')}>
+          Markdown
+        </TabBtn>
       </div>
+
+      {tab === 'edit' ? (
+        <MarkdownEditor
+          value={page.content_md ?? ''}
+          onChange={(md) => onChange({ ...page, content_md: md })}
+          placeholder="Type / for commands…"
+        />
+      ) : (
+        <textarea
+          value={page.content_md ?? ''}
+          onChange={(e) => onChange({ ...page, content_md: e.target.value })}
+          rows={22}
+          spellCheck={false}
+          className="w-full px-4 py-3 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 font-mono text-sm leading-relaxed outline-none focus:border-orenda-500 resize-y"
+        />
+      )}
 
       {backlinks.length > 0 && (
         <section className="rounded border border-slate-200 dark:border-slate-800 p-3">
@@ -418,93 +396,12 @@ function TabBtn({
       onClick={onClick}
       className={`px-3 py-1.5 text-xs font-medium ${
         active
-          ? 'border-b-2 border-orenda-500 text-orenda-700 dark:text-orenda-300 bg-white dark:bg-slate-950'
+          ? 'border-b-2 border-orenda-500 text-orenda-700 dark:text-orenda-300'
           : 'text-slate-500 hover:text-slate-700'
       }`}
     >
       {children}
     </button>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Markdown toolbar — wraps/prefixes selection with markdown syntax
-// ---------------------------------------------------------------------------
-
-type WrapKind = 'bold' | 'italic' | 'code' | 'quote' | 'link' | 'h1' | 'h2' | 'h3' | 'ul' | 'ol' | 'codeblock'
-
-const WRAP: Record<WrapKind, { before: string; after: string; placeholder: string }> = {
-  bold:       { before: '**',   after: '**',   placeholder: 'bold' },
-  italic:     { before: '*',    after: '*',    placeholder: 'italic' },
-  code:       { before: '`',    after: '`',    placeholder: 'code' },
-  quote:      { before: '> ',   after: '',     placeholder: 'quote' },
-  link:       { before: '[',    after: '](https://)', placeholder: 'text' },
-  h1:         { before: '# ',   after: '',     placeholder: 'Heading 1' },
-  h2:         { before: '## ',  after: '',     placeholder: 'Heading 2' },
-  h3:         { before: '### ', after: '',     placeholder: 'Heading 3' },
-  ul:         { before: '- ',   after: '',     placeholder: 'item' },
-  ol:         { before: '1. ',  after: '',     placeholder: 'item' },
-  codeblock:  { before: '```\n', after: '\n```', placeholder: 'code block' },
-}
-
-function MarkdownToolbar({
-  textareaRef,
-  value,
-  onChange,
-}: {
-  textareaRef: React.RefObject<HTMLTextAreaElement>
-  value: string
-  onChange: (v: string) => void
-}): JSX.Element {
-  function apply(kind: WrapKind): void {
-    const ta = textareaRef.current
-    if (!ta) return
-    const { before, after, placeholder } = WRAP[kind]
-    const start = ta.selectionStart
-    const end = ta.selectionEnd
-    const selected = value.slice(start, end) || placeholder
-    const next =
-      value.slice(0, start) + before + selected + after + value.slice(end)
-    onChange(next)
-    // Restore selection inside the inserted segment after React
-    // commits the new value to the DOM. requestAnimationFrame gives
-    // the controlled textarea time to reflect the change.
-    requestAnimationFrame(() => {
-      ta.focus()
-      const cursorStart = start + before.length
-      const cursorEnd = cursorStart + selected.length
-      ta.setSelectionRange(cursorStart, cursorEnd)
-    })
-  }
-
-  const buttons: { kind: WrapKind; label: string; title: string }[] = [
-    { kind: 'h1', label: 'H1', title: 'Heading 1' },
-    { kind: 'h2', label: 'H2', title: 'Heading 2' },
-    { kind: 'h3', label: 'H3', title: 'Heading 3' },
-    { kind: 'bold', label: 'B', title: 'Bold' },
-    { kind: 'italic', label: 'I', title: 'Italic' },
-    { kind: 'code', label: '<>', title: 'Inline code' },
-    { kind: 'codeblock', label: '{ }', title: 'Code block' },
-    { kind: 'quote', label: '“ ”', title: 'Blockquote' },
-    { kind: 'ul', label: '•', title: 'Bullet list' },
-    { kind: 'ol', label: '1.', title: 'Numbered list' },
-    { kind: 'link', label: '🔗', title: 'Link' },
-  ]
-
-  return (
-    <div className="flex flex-wrap items-center gap-1 px-2 py-1">
-      {buttons.map((b) => (
-        <button
-          key={b.kind}
-          type="button"
-          onClick={() => apply(b.kind)}
-          title={b.title}
-          className="px-2 py-1 text-xs font-mono rounded hover:bg-slate-200 dark:hover:bg-slate-700"
-        >
-          {b.label}
-        </button>
-      ))}
-    </div>
   )
 }
 
@@ -558,7 +455,3 @@ function WikiTree({ tree, current }: { tree: WikiTreeNode[]; current?: string })
     </ul>
   )
 }
-
-// touch unused vars to keep eslint happy in older configs
-const _unused = null
-void _unused
