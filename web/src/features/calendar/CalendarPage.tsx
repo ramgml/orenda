@@ -42,6 +42,33 @@ const localizer = dateFnsLocalizer({
 // unchanged.
 const DnDCalendar = withDragAndDrop(Calendar)
 
+// DefaultEventComponent is the rbc default "Event" render. We supply
+// it explicitly via components.event so we control how the title and
+// time-slot appear. The library's default would show only the
+// title; the explicit one also surfaces the start time so the cell
+// matches the pre-DnD behaviour.
+function DefaultEventComponent({
+  event,
+  title,
+  isAllDay,
+  slotStart,
+}: {
+  event: { id?: string; title?: string; allDay?: boolean }
+  title: string
+  isAllDay?: boolean
+  slotStart: Date
+}): JSX.Element {
+  const time = isAllDay
+    ? 'All day'
+    : slotStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return (
+    <div className="rbc-event-label">
+      <div className="rbc-event-time text-[10px] opacity-90">{time}</div>
+      <div className="rbc-event-title truncate">{title || event.title}</div>
+    </div>
+  )
+}
+
 type View = 'month' | 'week' | 'day' | 'agenda'
 
 const PRESET_COLORS = [
@@ -257,6 +284,7 @@ export function CalendarPage(): JSX.Element {
             onSelectSlot={onSelectSlot}
             onSelectEvent={onSelectEvent}
             onEventDrop={onEventDrop}
+            components={{ event: DefaultEventComponent }}
             popup
             style={{ height: '100%' }}
           />
