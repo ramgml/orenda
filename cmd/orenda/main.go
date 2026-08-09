@@ -351,7 +351,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	_ = agentSvc
 
 	// Event + Time services (Phase 4).
-	eventSvc := eventservice.New(sqlite.NewEventRepository(db), hub, nil)
+	eventRepo := sqlite.NewEventRepository(db)
+	eventSvc := eventservice.New(eventRepo, hub, nil)
 	timeSvc := timeentryservice.New(sqlite.NewTimeEntryRepository(db), hub, nil)
 
 	// Wiki + Search services (Phase 5).
@@ -418,6 +419,28 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		hub,
 	)
 
+	// Phase 8 follow-up: recurring-event reminder scheduler.
+	// Scans the [now+Lead, now+Lead+Window] band every Tick and fires
+	// event.upcoming_1h notifications for the project owner. PRD F-C-4.
+	reminder := &eventservice.Reminder{
+		Repo:   eventRepo,
+		Notify: notifierSvc.Notify,
+		NotifyProjectOwner: func(ctx context.Context, eventID string) (ownerID, title, link string, err error) {
+			ev, err := eventSvc.Get(ctx, eventID)
+			if err != nil || ev == nil {
+				return "", "", "", err
+			}
+			if ev.ProjectID == "" {
+				return "", "", "", nil
+			}
+			p, err := projects.GetProject(ctx, ev.ProjectID)
+			if err != nil || p == nil {
+				return "", "", "", err
+			}
+			return p.OwnerID, ev.Title, "/calendar", nil
+		},
+	}
+
 	// Build the JWT signer. JWT secret is mandatory for Phase 1+ — refuse
 	// to start without it so the operator doesn't discover the missing
 	// config at first login.
@@ -470,6 +493,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	// Kick off the recurring-event reminder scheduler. It loops on
+	// ctx.Done() and exits with the server.
+	go reminder.Run(ctx)
 
 	serverErr := make(chan error, 1)
 	go func() {
