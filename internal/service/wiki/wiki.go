@@ -111,6 +111,32 @@ func (s *Service) GetBySlug(ctx context.Context, slug string) (*wiki.Page, error
 	return s.Repo.GetBySlug(ctx, slug)
 }
 
+// Move re-parents a page under a new parent (or the root when
+// newParentID is empty). Returns ErrInvalidInput when the move would
+// create a cycle (parent is the page itself or one of its descendants).
+func (s *Service) Move(ctx context.Context, pageID, newParentID string) error {
+	if pageID == "" {
+		return ErrInvalidInput
+	}
+	if newParentID == pageID {
+		return ErrInvalidInput
+	}
+	// Walk descendants — if newParentID is reachable from pageID, we'd
+	// create a cycle.
+	if newParentID != "" {
+		desc, err := s.Repo.DescendantIDs(ctx, pageID)
+		if err != nil {
+			return err
+		}
+		for _, d := range desc {
+			if d == newParentID {
+				return ErrInvalidInput
+			}
+		}
+	}
+	return s.Repo.UpdateParent(ctx, pageID, newParentID)
+}
+
 // Delete removes a page by slug. Cascades through wiki_links via FK and
 // cleans up the markdown mirror (best-effort; mirror errors are logged
 // via the Mirror seam but never block the DB delete).

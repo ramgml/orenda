@@ -275,6 +275,7 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Get("/", getPageHandler(deps))
 					r.Put("/", savePageHandler(deps))
 					r.Delete("/", deletePageHandler(deps))
+					r.Patch("/move", movePageHandler(deps))
 					r.Get("/backlinks", getPageBacklinksHandler(deps))
 				})
 			})

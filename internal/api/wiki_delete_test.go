@@ -106,6 +106,177 @@ func TestWiki_PutUpdatesWithoutSlugInBody(t *testing.T) {
 	assert.Equal(t, "updated body", updated["content_md"])
 }
 
+// PATCH /pages/{slug}/move with parent_id moves the page under that
+// parent. The next Tree fetch must show it as a child.
+func TestWiki_Move_ToParent(t *testing.T) {
+	router, cookie := wikiRouter(t)
+
+	// Create parent + child at root.
+	createPage(t, router, cookie, mustJSON(t, map[string]string{"slug": "docs", "title": "Docs"}))
+	createPage(t, router, cookie, mustJSON(t, map[string]string{"slug": "draft", "title": "Draft"}))
+
+	// Look up the parent's id via the tree.
+	treeReq := httptest.NewRequest(http.MethodGet, "/api/v1/pages", nil)
+	treeReq.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	treeRR := httptest.NewRecorder()
+	router.ServeHTTP(treeRR, treeReq)
+	require.Equal(t, http.StatusOK, treeRR.Code)
+	var treeResp struct {
+		Tree []struct {
+			Page struct {
+				ID   string `json:"id"`
+				Slug string `json:"slug"`
+			} `json:"page"`
+			Children []struct {
+				Page struct {
+					ID string `json:"id"`
+				} `json:"page"`
+			} `json:"children"`
+		} `json:"tree"`
+	}
+	require.NoError(t, json.Unmarshal(treeRR.Body.Bytes(), &treeResp))
+
+	var parentID string
+	for _, n := range treeResp.Tree {
+		if n.Page.Slug == "docs" {
+			parentID = n.Page.ID
+		}
+	}
+	require.NotEmpty(t, parentID, "docs page must exist in tree")
+
+	// Move "draft" under "docs".
+	moveBody, _ := json.Marshal(map[string]string{"parent_id": parentID})
+	moveReq := httptest.NewRequest(http.MethodPatch, "/api/v1/pages/draft/move", bytes.NewReader(moveBody))
+	moveReq.Header.Set("Content-Type", "application/json")
+	moveReq.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	moveRR := httptest.NewRecorder()
+	router.ServeHTTP(moveRR, moveReq)
+	require.Equal(t, http.StatusNoContent, moveRR.Code, "move: %s", moveRR.Body.String())
+
+	// Tree now nests draft under docs.
+	treeReq2 := httptest.NewRequest(http.MethodGet, "/api/v1/pages", nil)
+	treeReq2.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	treeRR2 := httptest.NewRecorder()
+	router.ServeHTTP(treeRR2, treeReq2)
+	require.Equal(t, http.StatusOK, treeRR2.Code)
+	require.NoError(t, json.Unmarshal(treeRR2.Body.Bytes(), &treeResp))
+	for _, n := range treeResp.Tree {
+		if n.Page.Slug == "docs" {
+			require.Len(t, n.Children, 1, "docs should have one child")
+			// We don't have slug on TreeNode.Page — just verify the id
+			// matches the child's id by fetching the page list.
+		}
+	}
+	// Confirm via direct page lookup: get draft and check parent_id.
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/pages/draft", nil)
+	getReq.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	getRR := httptest.NewRecorder()
+	router.ServeHTTP(getRR, getReq)
+	var draft map[string]any
+	require.NoError(t, json.Unmarshal(getRR.Body.Bytes(), &draft))
+	assert.NotEmpty(t, draft["parent_id"], "draft should have parent_id set")
+}
+
+// Moving a page under itself is a 400 (cycle).
+func TestWiki_Move_RejectsSelf(t *testing.T) {
+	router, cookie := wikiRouter(t)
+	createPage(t, router, cookie, mustJSON(t, map[string]string{"slug": "a", "title": "A"}))
+
+	// Get A's id via GET.
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/pages/a", nil)
+	getReq.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	getRR := httptest.NewRecorder()
+	router.ServeHTTP(getRR, getReq)
+	require.Equal(t, http.StatusOK, getRR.Code)
+	var page map[string]any
+	require.NoError(t, json.Unmarshal(getRR.Body.Bytes(), &page))
+	id := page["id"].(string)
+
+	// Try to move A under itself.
+	moveBody, _ := json.Marshal(map[string]string{"parent_id": id})
+	moveReq := httptest.NewRequest(http.MethodPatch, "/api/v1/pages/a/move", bytes.NewReader(moveBody))
+	moveReq.Header.Set("Content-Type", "application/json")
+	moveReq.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	moveRR := httptest.NewRecorder()
+	router.ServeHTTP(moveRR, moveReq)
+	assert.Equal(t, http.StatusBadRequest, moveRR.Code, "self-move should 400")
+}
+
+// Moving a parent under its own child would create a cycle → 400.
+func TestWiki_Move_RejectsCycle(t *testing.T) {
+	router, cookie := wikiRouter(t)
+	createPage(t, router, cookie, mustJSON(t, map[string]string{"slug": "parent", "title": "Parent"}))
+	createPage(t, router, cookie, mustJSON(t, map[string]string{"slug": "child", "title": "Child"}))
+
+	// Make child a child of parent.
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/pages/parent", nil)
+	getReq.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	getRR := httptest.NewRecorder()
+	router.ServeHTTP(getRR, getReq)
+	var parent map[string]any
+	require.NoError(t, json.Unmarshal(getRR.Body.Bytes(), &parent))
+	parentID := parent["id"].(string)
+
+	moveBody, _ := json.Marshal(map[string]string{"parent_id": parentID})
+	mReq := httptest.NewRequest(http.MethodPatch, "/api/v1/pages/child/move", bytes.NewReader(moveBody))
+	mReq.Header.Set("Content-Type", "application/json")
+	mReq.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	mRR := httptest.NewRecorder()
+	router.ServeHTTP(mRR, mReq)
+	require.Equal(t, http.StatusNoContent, mRR.Code)
+
+	// Now try to move parent under child — should reject.
+	// Get child id.
+	getReq2 := httptest.NewRequest(http.MethodGet, "/api/v1/pages/child", nil)
+	getReq2.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	getRR2 := httptest.NewRecorder()
+	router.ServeHTTP(getRR2, getReq2)
+	var child map[string]any
+	require.NoError(t, json.Unmarshal(getRR2.Body.Bytes(), &child))
+	childID := child["id"].(string)
+
+	moveBody3, _ := json.Marshal(map[string]string{"parent_id": childID})
+	mReq2 := httptest.NewRequest(http.MethodPatch, "/api/v1/pages/parent/move", bytes.NewReader(moveBody3))
+	mReq2.Header.Set("Content-Type", "application/json")
+	mReq2.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	mRR2 := httptest.NewRecorder()
+	router.ServeHTTP(mRR2, mReq2)
+	assert.Equal(t, http.StatusBadRequest, mRR2.Code, "cycle move should 400")
+}
+
+// Move to root by sending empty parent_id.
+func TestWiki_Move_ToRoot(t *testing.T) {
+	router, cookie := wikiRouter(t)
+	createPage(t, router, cookie, mustJSON(t, map[string]string{"slug": "p", "title": "P"}))
+	createPage(t, router, cookie, mustJSON(t, map[string]string{"slug": "c", "title": "C"}))
+
+	// Get IDs.
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/pages/p", nil)
+	getReq.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	getRR := httptest.NewRecorder()
+	router.ServeHTTP(getRR, getReq)
+	var p map[string]any
+	require.NoError(t, json.Unmarshal(getRR.Body.Bytes(), &p))
+
+	// Move c under p.
+	body1, _ := json.Marshal(map[string]string{"parent_id": p["id"].(string)})
+	r1 := httptest.NewRequest(http.MethodPatch, "/api/v1/pages/c/move", bytes.NewReader(body1))
+	r1.Header.Set("Content-Type", "application/json")
+	r1.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	rr1 := httptest.NewRecorder()
+	router.ServeHTTP(rr1, r1)
+	require.Equal(t, http.StatusNoContent, rr1.Code)
+
+	// Move c back to root (empty parent_id).
+	body2, _ := json.Marshal(map[string]string{"parent_id": ""})
+	r2 := httptest.NewRequest(http.MethodPatch, "/api/v1/pages/c/move", bytes.NewReader(body2))
+	r2.Header.Set("Content-Type", "application/json")
+	r2.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	rr2 := httptest.NewRecorder()
+	router.ServeHTTP(rr2, r2)
+	assert.Equal(t, http.StatusNoContent, rr2.Code, "body: %s", rr2.Body.String())
+}
+
 // Russian (Cyrillic) title + auto-Latin slug is a valid save too.
 func TestWiki_PutAcceptsNonASCIITitle(t *testing.T) {
 	router, cookie := wikiRouter(t)

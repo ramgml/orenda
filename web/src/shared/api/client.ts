@@ -408,6 +408,13 @@ class ApiClient {
     return this.http.delete<void>(`/api/v1/pages/${slug}`).then(() => undefined)
   }
 
+  /** Move a page under a new parent. Empty parent_id → root. */
+  movePage(slug: string, parent_id: string): Promise<void> {
+    return this.http
+      .patch<void>(`/api/v1/pages/${slug}/move`, { parent_id })
+      .then(() => undefined)
+  }
+
   // ---- Search (Phase 5) ----
 
   search(params: { q: string; type?: string; limit?: number }): Promise<{ hits: SearchHit[]; total: number }> {

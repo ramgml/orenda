@@ -22,6 +22,16 @@ type Repository interface {
 	// Delete removes the page by id (cascades to wiki_links via FK).
 	Delete(ctx context.Context, id string) error
 
+	// UpdateParent re-parents a page under newParentID (or the root
+	// when newParentID is empty). Returns ErrNotFound when id is
+	// missing, ErrInvalidInput on bad input.
+	UpdateParent(ctx context.Context, id, newParentID string) error
+
+	// DescendantIDs returns every id in the subtree under id (not
+	// including id itself), depth-first. Used to reject moves that
+	// would create cycles.
+	DescendantIDs(ctx context.Context, id string) ([]string, error)
+
 	// SetLinks replaces the outgoing links for a page. Used by Save to
 	// keep wiki_links in sync with the parsed [[slug]] tokens.
 	SetLinks(ctx context.Context, fromPageID string, toPageIDs []string) error

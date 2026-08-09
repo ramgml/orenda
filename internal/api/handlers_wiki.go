@@ -156,6 +156,44 @@ func deletePageHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
+// movePageRequest is the body of PATCH /pages/{slug}/move.
+type movePageRequest struct {
+	ParentID string `json:"parent_id"`
+}
+
+// movePageHandler moves a page under a new parent (or the root when
+// parent_id is empty/null). 404 when the slug doesn't exist, 400
+// when the move would create a cycle (parent is the page itself or
+// one of its descendants).
+func movePageHandler(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.WikiService == nil {
+			http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		slug := chi.URLParam(r, "slug")
+		if slug == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_slug"})
+			return
+		}
+		var in movePageRequest
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		page, err := deps.WikiService.GetBySlug(r.Context(), slug)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if err := deps.WikiService.Move(r.Context(), page.ID, in.ParentID); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 // ----------------------------------------------------------------------------
 // Search
 // ----------------------------------------------------------------------------

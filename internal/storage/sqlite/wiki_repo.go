@@ -115,6 +115,57 @@ func (r *wikiRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// UpdateParent moves a page under a new parent (or the root when
+// newParentID is empty). Used by the "Move to…" UI action.
+func (r *wikiRepo) UpdateParent(ctx context.Context, id, newParentID string) error {
+	if id == "" {
+		return wiki.ErrInvalidInput
+	}
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE wiki_pages SET parent_id = ?, updated_at = datetime('now') WHERE id = ?`,
+		nullString(newParentID), id,
+	)
+	if err != nil {
+		return fmt.Errorf("wiki.UpdateParent: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return wiki.ErrNotFound
+	}
+	return nil
+}
+
+// DescendantIDs walks the tree under id and returns every descendant's
+// id (not including id itself). Used to reject moves that would
+// create a cycle.
+func (r *wikiRepo) DescendantIDs(ctx context.Context, id string) ([]string, error) {
+	out := make([]string, 0)
+	stack := []string{id}
+	for len(stack) > 0 {
+		top := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		rows, err := r.db.QueryContext(ctx,
+			`SELECT id FROM wiki_pages WHERE parent_id = ?`, top)
+		if err != nil {
+			return nil, fmt.Errorf("wiki.DescendantIDs: %w", err)
+		}
+		for rows.Next() {
+			var child string
+			if err := rows.Scan(&child); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out = append(out, child)
+			stack = append(stack, child)
+		}
+		rows.Close()
+	}
+	return out, nil
+}
+
 func (r *wikiRepo) SetLinks(ctx context.Context, fromPageID string, toPageIDs []string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

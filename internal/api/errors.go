@@ -11,6 +11,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
 	"github.com/ramgml/orenda/internal/domain/wiki"
+	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
 )
 
 // apiLogger is the package-level logger used by writeError for unexpected
@@ -35,12 +36,14 @@ func writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, wiki.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 	case errors.Is(err, user.ErrEmailTaken),
-		errors.Is(err, wiki.ErrSlugTaken):
+		errors.Is(err, wiki.ErrSlugTaken),
+		errors.Is(err, wikiservice.ErrSlugTaken):
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "slug_taken"})
 	case errors.Is(err, user.ErrInvalidInput),
 		errors.Is(err, project.ErrInvalidInput),
 		errors.Is(err, task.ErrInvalidInput),
-		errors.Is(err, wiki.ErrInvalidInput):
+		errors.Is(err, wiki.ErrInvalidInput),
+		errors.Is(err, wikiservice.ErrInvalidInput):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
 	default:
 		if apiLogger != nil {
