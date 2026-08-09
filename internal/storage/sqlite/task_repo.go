@@ -36,12 +36,14 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 			status, priority, assignee_type, assignee_id, awaiting,
 			context_md, agent_notes, due_at, started_at, claimed_at, completed_at,
 			time_estimate_s, time_spent_s, position,
+			start_at, end_at, all_day, color,
 			created_at, updated_at
 		) VALUES (
 			?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?, ?,
 			?, ?, ?,
+			?, ?, ?, ?,
 			datetime('now'), datetime('now')
 		)
 	`
@@ -54,6 +56,8 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 		nullString(formatTimePtr(t.DueAt)), nullString(formatTimePtr(t.StartedAt)),
 		nullString(formatTimePtr(t.ClaimedAt)), nullString(formatTimePtr(t.CompletedAt)),
 		nullIntPtr(t.TimeEstimateS), t.TimeSpentS, t.Position,
+		nullString(formatTimePtr(t.StartAt)), nullString(formatTimePtr(t.EndAt)),
+		boolToInt(t.AllDay), nullString(t.Color),
 	)
 	if err != nil {
 		return fmt.Errorf("task.Create: %w", err)
@@ -131,7 +135,8 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) error {
 			status = ?, priority = ?, assignee_type = ?, assignee_id = ?,
 			awaiting = ?, context_md = ?, agent_notes = ?,
 			due_at = ?, started_at = ?, claimed_at = ?, completed_at = ?,
-			time_estimate_s = ?, time_spent_s = ?, position = ?
+			time_estimate_s = ?, time_spent_s = ?, position = ?,
+			start_at = ?, end_at = ?, all_day = ?, color = ?
 		WHERE id = ?
 	`
 	res, err := r.db.ExecContext(ctx, q,
@@ -143,6 +148,8 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) error {
 		nullString(formatTimePtr(t.DueAt)), nullString(formatTimePtr(t.StartedAt)),
 		nullString(formatTimePtr(t.ClaimedAt)), nullString(formatTimePtr(t.CompletedAt)),
 		nullIntPtr(t.TimeEstimateS), t.TimeSpentS, t.Position,
+		nullString(formatTimePtr(t.StartAt)), nullString(formatTimePtr(t.EndAt)),
+		boolToInt(t.AllDay), nullString(t.Color),
 		t.ID,
 	)
 	if err != nil {
@@ -278,7 +285,8 @@ const selectTaskColumns = `
 SELECT id, project_id, parent_task_id, column_id, title, description,
        status, priority, assignee_type, assignee_id, awaiting,
        context_md, agent_notes, due_at, started_at, claimed_at, completed_at,
-       time_estimate_s, time_spent_s, position, created_at, updated_at
+       time_estimate_s, time_spent_s, position,
+       start_at, end_at, all_day, color, created_at, updated_at
 FROM tasks
 `
 
@@ -290,6 +298,8 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 		desc, assigneeType, assigneeID sql.NullString
 		contextMD, agentNotes          sql.NullString
 		due, started, claimed, compl   sql.NullString
+		calStart, calEnd, color        sql.NullString
+		allDay                         int
 		estS                           sql.NullInt64
 		status, priority, awaiting     string
 		created, updated               string
@@ -300,7 +310,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 		&contextMD, &agentNotes,
 		&due, &started, &claimed, &compl,
 		&estS, &t.TimeSpentS, &t.Position,
-		&created, &updated,
+		&calStart, &calEnd, &allDay, &color, &created, &updated,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, task.ErrNotFound
@@ -322,6 +332,10 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	t.StartedAt = parseTimePtr(started)
 	t.ClaimedAt = parseTimePtr(claimed)
 	t.CompletedAt = parseTimePtr(compl)
+	t.StartAt = parseTimePtr(calStart)
+	t.EndAt = parseTimePtr(calEnd)
+	t.AllDay = allDay != 0
+	t.Color = color.String
 	if estS.Valid {
 		v := int(estS.Int64)
 		t.TimeEstimateS = &v
@@ -331,7 +345,49 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	return &t, nil
 }
 
-// scanTaskRow reads one row (sql.Rows — has Scan but is not *sql.Row).
+// ListInRange returns every timed task (start_at NOT NULL) whose
+// interval [start_at, end_at] overlaps the [from, to] window. Used by
+// the calendar view; the partial idx_tasks_time index keeps it cheap.
+//
+// projectID="" means "all projects the owner has access to" (which in
+// Phase 11 single-owner mode means everything).
+func (r *taskRepo) ListInRange(ctx context.Context, from, to time.Time, projectID string) ([]*task.Task, error) {
+	const base = `
+		SELECT id, project_id, parent_task_id, column_id, title, description,
+		       status, priority, assignee_type, assignee_id, awaiting,
+		       context_md, agent_notes, due_at, started_at, claimed_at, completed_at,
+		       time_estimate_s, time_spent_s, position,
+		       start_at, end_at, all_day, color, created_at, updated_at
+		FROM tasks
+		WHERE start_at IS NOT NULL AND end_at IS NOT NULL
+		  AND start_at < ? AND end_at > ?`
+	// Bind args as UTC strings. formatTime writes UTC strings like
+	// "2026-08-09 09:30:00", and modernc.org/sqlite serialises a bound
+	// time.Time in its own way (e.g. "2026-08-09 12:30:00 +0400 +04")
+	// which is lexicographically larger than our format. Forcing both
+	// sides to UTC strings makes the comparison deterministic.
+	args := []any{to.UTC().Format("2006-01-02 15:04:05"), from.UTC().Format("2006-01-02 15:04:05")}
+	q := base
+	if projectID != "" {
+		q += " AND project_id = ?"
+		args = append(args, projectID)
+	}
+	q += " ORDER BY start_at ASC"
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("task.ListInRange: %w", err)
+	}
+	defer rows.Close()
+	out := make([]*task.Task, 0)
+	for rows.Next() {
+		tr, err := scanTaskRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, tr)
+	}
+	return out, rows.Err()
+}
 func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 	var t task.Task
 	var (
@@ -339,6 +395,8 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 		desc, assigneeType, assigneeID sql.NullString
 		contextMD, agentNotes          sql.NullString
 		due, started, claimed, compl   sql.NullString
+		calStart, calEnd, color        sql.NullString
+		allDay                         int
 		estS                           sql.NullInt64
 		status, priority, awaiting     string
 		created, updated               string
@@ -349,7 +407,7 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 		&contextMD, &agentNotes,
 		&due, &started, &claimed, &compl,
 		&estS, &t.TimeSpentS, &t.Position,
-		&created, &updated,
+		&calStart, &calEnd, &allDay, &color, &created, &updated,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("task.ScanRow: %w", err)
@@ -368,6 +426,10 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 	t.StartedAt = parseTimePtr(started)
 	t.ClaimedAt = parseTimePtr(claimed)
 	t.CompletedAt = parseTimePtr(compl)
+	t.StartAt = parseTimePtr(calStart)
+	t.EndAt = parseTimePtr(calEnd)
+	t.AllDay = allDay != 0
+	t.Color = color.String
 	if estS.Valid {
 		v := int(estS.Int64)
 		t.TimeEstimateS = &v

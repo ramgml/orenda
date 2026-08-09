@@ -151,6 +151,8 @@ func syncWithEWRouter(t *testing.T) (http.Handler, string) {
 	})
 
 	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
+	eventSvc := eventservice.New(sqlite.NewTaskRepository(db), hub, nil)
+	eventSvc.DefaultProjectID = "00000000-0000-0000-0000-00000000cafe"
 	deps := api.Dependencies{
 		Logger:       zap.NewNop(),
 		Signer:       signer,
@@ -163,7 +165,7 @@ func syncWithEWRouter(t *testing.T) (http.Handler, string) {
 		SyncOps:      sqlite.NewSyncOpsRepository(db),
 		WSHub:        hub,
 		CookieName:   "orenda_session",
-		EventService: eventservice.New(sqlite.NewEventRepository(db), hub, nil),
+		EventService: eventSvc,
 		WikiService:  wikiservice.New(sqlite.NewWikiRepository(db), hub),
 	}
 	router := api.NewRouter(deps)

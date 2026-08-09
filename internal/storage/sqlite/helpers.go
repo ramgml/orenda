@@ -8,30 +8,46 @@ import (
 	"github.com/google/uuid"
 )
 
-// sqliteTimeLayout is the format produced by SQLite's datetime('now') function
-// and the only format we write back. All timestamps in the DB are UTC.
+// sqliteTimeLayout is the format produced by SQLite's datetime('now')
+// function. We keep parsing it for backwards-compat with rows written
+// before the modernc driver took over (Phase 11+). New writes use
+// the same space-separated layout so time.Time values bound by the
+// modernc.org/sqlite driver compare correctly in WHERE clauses
+// (both produce "YYYY-MM-DD HH:MM:SS[.fffff][±HH:MM]").
+//
+// All timestamps in the DB are UTC.
 const sqliteTimeLayout = "2006-01-02 15:04:05"
 
 // parseTime converts a SQLite timestamp string to time.Time.
 //
-// Returns the zero time for empty input — callers must use sql.NullString or
-// a pointer when NULL is a valid value.
+// Returns the zero time for empty input — callers must use sql.NullString
+// or a pointer when NULL is a valid value.
 func parseTime(s string) time.Time {
 	if s == "" {
 		return time.Time{}
 	}
-	// SQLite format "YYYY-MM-DD HH:MM:SS" — interpreted as UTC.
-	t, err := time.ParseInLocation(sqliteTimeLayout, s, time.UTC)
-	if err != nil {
-		return time.Time{}
+	// Try the space-separated layout (what we write) first, then any
+	// legacy variant. Both are interpreted as UTC.
+	if t, err := time.ParseInLocation(sqliteTimeLayout, s, time.UTC); err == nil {
+		return t
 	}
-	return t
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.UTC()
+	}
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t.UTC()
+	}
+	return time.Time{}
 }
 
-// formatTime converts time.Time to the SQLite string format.
+// formatTime converts time.Time to a SQLite string format that's
+// lexicographically comparable with what the modernc.org/sqlite driver
+// produces when binding a time.Time argument. Both produce the form
+// "YYYY-MM-DD HH:MM:SS[.fffff][±HH:MM]", so WHERE start_at < ? works
+// with the same data the Go layer wrote.
 //
-// Returns empty string for zero time so the column stays NULL via the SQL
-// COALESCE pattern in the repository code.
+// Returns empty string for zero time so the column stays NULL via
+// the SQL COALESCE pattern in the repository code.
 func formatTime(t time.Time) string {
 	if t.IsZero() {
 		return ""

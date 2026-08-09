@@ -1,15 +1,14 @@
-// Package service — event reminder scheduler.
+// Package service — calendar reminder scheduler.
 //
-// Scans upcoming events in the [now+Lead, now+Lead+Window] window
-// every Tick and emits a notification per event for the project
+// Scans timed tasks (start_at + end_at set) in the [now+Lead, now+Lead+Window]
+// window every Tick and emits a notification per task for the project
 // owner. The dedup_key on each notification is
-// "event.upcoming_1h:<event_id>" so re-runs within the window collapse
+// "event.upcoming_1h:<task_id>" so re-runs within the window collapse
 // to a single inbox row.
 //
-// PRD F-C-4 promised "Уведомление за N минут до события". This is the
-// implementation — kept deliberately simple: one lead time, one
-// window, one shot per event. Recurrence is the caller's problem
-// (the calendar's ListInRange already expands master events).
+// PRD F-C-4 promised "Уведомление за N минут до события". With Phase 11
+// folding events into tasks, this scheduler reads the tasks table
+// directly — it doesn't go through the event.Service facade.
 package event
 
 import (
@@ -17,27 +16,27 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ramgml/orenda/internal/domain/event"
+	"github.com/ramgml/orenda/internal/domain/task"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 )
 
-// Reminder scans for events starting soon and notifies the owner.
+// Reminder scans for timed tasks starting soon and notifies the owner.
 //
-//   - Lead: how soon an event must start before we notify (default 30m)
+//   - Lead: how soon a task must start before we notify (default 30m)
 //   - Window: how wide the lookahead band is (default 30m)
 //   - Tick: how often we scan (default 60s)
 //   - Now: clock seam for tests (defaults to time.Now)
 type Reminder struct {
-	Repo   event.Repository
+	Repo   task.Repository
 	Notify func(context.Context, notifierservice.Event) error
 
 	Lead   time.Duration
 	Window time.Duration
 	Tick   time.Duration
 
-	// NotifyProjectOwner resolves the project's owner user id for an
-	// event. Without it we can't route the notification.
-	NotifyProjectOwner func(ctx context.Context, eventID string) (ownerID, title, link string, err error)
+	// NotifyProjectOwner resolves the task's project owner user id.
+	// Without it we can't route the notification.
+	NotifyProjectOwner func(ctx context.Context, taskID string) (ownerID, title, link string, err error)
 
 	Now func() time.Time
 	Log *slog.Logger
@@ -54,7 +53,7 @@ func (r *Reminder) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			if err := r.scan(ctx); err != nil && r.Log != nil {
-				r.Log.Warn("event reminder scan failed", "err", err)
+				r.Log.Warn("reminder scan failed", "err", err)
 			}
 		}
 	}
@@ -87,8 +86,8 @@ func (r *Reminder) applyDefaults() {
 	}
 }
 
-// scan is one pass: list events in [now+Lead, now+Lead+Window] and
-// emit a single notification per event.
+// scan is one pass: list timed tasks in [now+Lead, now+Lead+Window] and
+// emit a single notification per task.
 func (r *Reminder) scan(ctx context.Context) error {
 	if r.Notify == nil || r.NotifyProjectOwner == nil {
 		return nil
@@ -96,32 +95,33 @@ func (r *Reminder) scan(ctx context.Context) error {
 	now := r.Now().UTC()
 	from := now.Add(r.Lead)
 	to := now.Add(r.Lead + r.Window)
-	events, err := r.Repo.ListInRange(ctx, from, to, "")
+	tasks, err := r.Repo.ListInRange(ctx, from, to, "")
 	if err != nil {
 		return err
 	}
-	for _, ev := range events {
-		ownerID, title, link, err := r.NotifyProjectOwner(ctx, ev.ID)
+	for _, t := range tasks {
+		if t.StartAt == nil {
+			continue
+		}
+		ownerID, title, link, err := r.NotifyProjectOwner(ctx, t.ID)
 		if err != nil {
-			r.Log.Warn("reminder: owner lookup failed", "event_id", ev.ID, "err", err)
+			r.Log.Warn("reminder: owner lookup failed", "task_id", t.ID, "err", err)
 			continue
 		}
 		if ownerID == "" {
 			continue
 		}
-		// Send the notification. Dedup via the standard
-		// event.upcoming_1h:<event_id> key the templates use.
 		if err := r.Notify(ctx, notifierservice.Event{
 			Type:       "event.upcoming_1h",
 			UserID:     ownerID,
-			TargetType: "event",
-			TargetID:   ev.ID,
+			TargetType: "task",
+			TargetID:   t.ID,
 			Title:      "Upcoming: " + title,
-			Body:       "Starts at " + ev.StartAt.Format("15:04"),
+			Body:       "Starts at " + t.StartAt.Format("15:04"),
 			Link:       link,
-			DedupKey:   "event.upcoming_1h:" + ev.ID,
+			DedupKey:   "event.upcoming_1h:" + t.ID,
 		}); err != nil {
-			r.Log.Warn("reminder: notify failed", "event_id", ev.ID, "err", err)
+			r.Log.Warn("reminder: notify failed", "task_id", t.ID, "err", err)
 		}
 	}
 	return nil

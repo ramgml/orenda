@@ -169,7 +169,8 @@ func TestMigrate_005CommentsAttachmentsAddsIndexesAndTriggers(t *testing.T) {
 	assertIndexExists(t, db, "idx_attachments_sha256")
 	assertIndexExists(t, db, "idx_activity_actor")
 	assertTriggerExists(t, db, "trg_wiki_pages_touch")
-	assertTriggerExists(t, db, "trg_events_touch")
+	// trg_events_touch was removed in 012_events_to_tasks along with
+	// the legacy events table.
 }
 
 func TestMigrate_006CalendarTimeAddsIndexes(t *testing.T) {
@@ -189,8 +190,7 @@ func TestMigrate_006CalendarTimeAddsIndexes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, versions, "006_calendar_time")
 
-	assertIndexExists(t, db, "idx_events_range")
-	assertIndexExists(t, db, "idx_events_project")
+	assertIndexExists(t, db, "idx_tasks_time")
 	assertIndexExists(t, db, "idx_time_entries_agent")
 	assertIndexExists(t, db, "idx_time_entries_open")
 }

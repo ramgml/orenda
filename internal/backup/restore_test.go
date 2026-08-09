@@ -45,6 +45,12 @@ func countUsers(t *testing.T, dbPath string) int {
 
 // TestRestore_OverwritesDestFromSnapshot: snapshot has 1 user row,
 // destination starts empty, after Restore destination has 1 user row.
+//
+// Migration 012 creates a "system-inbox" placeholder user so the
+// Inbox project's FK is always valid. That means a freshly-migrated
+// destination already has 1 user before any restore. We count
+// Alice-only (id='u-1') so the assertion is about real data, not
+// migration scaffolding.
 func TestRestore_OverwritesDestFromSnapshot(t *testing.T) {
 	db, dbPath := setupDB(t)
 	dir := t.TempDir()
@@ -57,7 +63,7 @@ func TestRestore_OverwritesDestFromSnapshot(t *testing.T) {
 	snapPath, err := svc.Snapshot(context.Background())
 	require.NoError(t, err)
 
-	// Build a fresh destination DB that is empty (no user row).
+	// Build a fresh destination DB (migration scaffold only).
 	dst := filepath.Join(dir, "restored.db")
 	dstDB, err := sqlite.Open(context.Background(), dst, sqlite.OpenConfig{
 		WALMode: false, EnableForeign: true, BusyTimeoutMs: 1000,
@@ -65,10 +71,26 @@ func TestRestore_OverwritesDestFromSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlite.Migrate(context.Background(), dstDB, sqlite.MigrationsFS, "migrations"))
 	require.NoError(t, dstDB.Close())
-	assert.Equal(t, 0, countUsers(t, dst))
+	assert.Equal(t, 0, countAlice(t, dst))
 
 	require.NoError(t, svc.Restore(context.Background(), snapPath, dst))
-	assert.Equal(t, 1, countUsers(t, dst))
+	assert.Equal(t, 1, countAlice(t, dst))
+}
+
+// countAlice returns the number of users with id='u-1' (= the seed
+// row from writeUser). Skips the migration 012 system-inbox user
+// so the test stays focused on real user data.
+func countAlice(t *testing.T, dbPath string) int {
+	t.Helper()
+	db, err := sqlite.Open(context.Background(), dbPath, sqlite.OpenConfig{
+		WALMode: false, EnableForeign: true, BusyTimeoutMs: 1000,
+	})
+	require.NoError(t, err)
+	defer db.Close()
+	var n int
+	require.NoError(t, db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM users WHERE id = ?`, "u-1").Scan(&n))
+	return n
 }
 
 // TestRestore_RemovesStaleSidecars: a pre-existing -wal/-shm next to the

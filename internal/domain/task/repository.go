@@ -1,6 +1,9 @@
 package task
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Filter narrows ListByProject results.
 //
@@ -16,9 +19,10 @@ type Filter struct {
 // Repository persists and retrieves Tasks, Subtasks, Checklists and Tags.
 //
 // Phase 1 implements the minimum CRUD; Phase 2 adds Move() with fractional
-// positioning; Phase 3 adds atomic Claim/Release/Submit/Review.
+// positioning; Phase 3 adds atomic Claim/Release/Submit/Review; Phase 11
+// folds the legacy events table into tasks (calendar fields below).
 type Repository interface {
-	// Create inserts t and returns it with CreatedAt/UpdatedAt populated.
+	// Create inserts t. Returns it with CreatedAt/UpdatedAt populated.
 	Create(ctx context.Context, t *Task) error
 
 	// GetByID returns the task with the given id or ErrNotFound.
@@ -26,6 +30,11 @@ type Repository interface {
 
 	// ListByProject returns tasks matching f, ordered by column position.
 	ListByProject(ctx context.Context, f Filter) ([]*Task, error)
+
+	// ListInRange returns every timed task (StartAt/EndAt set) whose
+	// interval overlaps [from, to]. Used by the calendar view. An empty
+	// projectID means "every project the caller has access to".
+	ListInRange(ctx context.Context, from, to time.Time, projectID string) ([]*Task, error)
 
 	// Update saves changes to an existing task.
 	Update(ctx context.Context, t *Task) error

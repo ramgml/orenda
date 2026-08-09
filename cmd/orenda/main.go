@@ -351,8 +351,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	_ = agentSvc
 
 	// Event + Time services (Phase 4).
-	eventRepo := sqlite.NewEventRepository(db)
-	eventSvc := eventservice.New(eventRepo, hub, nil)
+	// Phase 11: events are stored as tasks with start_at/end_at. The
+	// eventService facade still exists for API compatibility, but it
+	// reads and writes the tasks table now.
+	eventSvc := eventservice.New(sqlite.NewTaskRepository(db), hub, nil)
+	eventSvc.DefaultProjectID = "00000000-0000-0000-0000-00000000cafe"
 	timeSvc := timeentryservice.New(sqlite.NewTimeEntryRepository(db), hub, nil)
 
 	// Wiki + Search services (Phase 5).
@@ -423,7 +426,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Scans the [now+Lead, now+Lead+Window] band every Tick and fires
 	// event.upcoming_1h notifications for the project owner. PRD F-C-4.
 	reminder := &eventservice.Reminder{
-		Repo:   eventRepo,
+		Repo:   sqlite.NewTaskRepository(db),
 		Notify: notifierSvc.Notify,
 		NotifyProjectOwner: func(ctx context.Context, eventID string) (ownerID, title, link string, err error) {
 			ev, err := eventSvc.Get(ctx, eventID)

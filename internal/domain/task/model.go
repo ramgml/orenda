@@ -81,6 +81,10 @@ var (
 // Position is a float to support fractional insertion in Phase 2 kanban
 // (place between two siblings by averaging their positions). CreatedAt and
 // UpdatedAt are managed by the storage layer.
+//
+// Tasks with a non-nil StartAt + EndAt show on the calendar view (Phase 11
+// unified the legacy events table into tasks). A task can be on the
+// calendar, on the kanban, or both.
 type Task struct {
 	ID            string       `json:"id"`
 	ProjectID     string       `json:"project_id"`
@@ -102,8 +106,16 @@ type Task struct {
 	TimeEstimateS *int         `json:"time_estimate_s,omitempty"`
 	TimeSpentS    int          `json:"time_spent_s"`
 	Position      float64      `json:"position"`
-	CreatedAt     time.Time    `json:"created_at"`
-	UpdatedAt     time.Time    `json:"updated_at"`
+
+	// Calendar fields. When both StartAt and EndAt are set the task
+	// shows on the calendar; otherwise it's a plain kanban item.
+	StartAt *time.Time `json:"start_at,omitempty"`
+	EndAt   *time.Time `json:"end_at,omitempty"`
+	AllDay  bool       `json:"all_day"`
+	Color   string     `json:"color,omitempty"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Validate returns an error if the Task fields are inconsistent.
@@ -125,6 +137,14 @@ func (t *Task) Validate() error {
 	}
 	if t.Awaiting == "" {
 		t.Awaiting = AwaitingNone
+	}
+	// Calendar fields: if one is set, both must be set. End must be
+	// strictly after start.
+	if (t.StartAt == nil) != (t.EndAt == nil) {
+		return ErrInvalidInput
+	}
+	if t.StartAt != nil && t.EndAt != nil && !t.EndAt.After(*t.StartAt) {
+		return ErrInvalidInput
 	}
 	return nil
 }
