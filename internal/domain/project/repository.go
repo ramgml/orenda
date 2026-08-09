@@ -29,4 +29,11 @@ type Repository interface {
 	// GetBoard returns the (single) board for the given project id. Phase 1
 	// always returns one board per project.
 	GetBoard(ctx context.Context, projectID string) (*Board, []*Column, error)
+
+	// GetColumn fetches a single column by id, or ErrNotFound.
+	GetColumn(ctx context.Context, id string) (*Column, error)
+
+	// UpdateColumn persists mutable fields (name, position, wip_limit, color).
+	// Returns ErrNotFound when no row matches.
+	UpdateColumn(ctx context.Context, c *Column) error
 }

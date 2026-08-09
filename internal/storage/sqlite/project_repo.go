@@ -259,3 +259,65 @@ func boolToInt(b bool) int {
 	}
 	return 0
 }
+
+// UpdateColumn persists mutable fields (name, position, wip_limit, color)
+// of a kanban column. WIPLimit = nil → store NULL (no limit).
+//
+// Returns project.ErrNotFound when no row matches the id.
+func (r *projectRepo) UpdateColumn(ctx context.Context, c *project.Column) error {
+	if c.ID == "" {
+		return project.ErrInvalidInput
+	}
+	var wipLimit sql.NullInt64
+	if c.WIPLimit != nil {
+		wipLimit = sql.NullInt64{Int64: int64(*c.WIPLimit), Valid: true}
+	}
+	var color sql.NullString
+	if c.Color != "" {
+		color = sql.NullString{String: c.Color, Valid: true}
+	}
+	const q = `
+		UPDATE columns
+		SET name = ?, position = ?, wip_limit = ?, color = ?
+		WHERE id = ?
+	`
+	res, err := r.db.ExecContext(ctx, q, c.Name, c.Position, wipLimit, color, c.ID)
+	if err != nil {
+		return fmt.Errorf("project.UpdateColumn: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("project.UpdateColumn: rows: %w", err)
+	}
+	if n == 0 {
+		return project.ErrNotFound
+	}
+	return nil
+}
+
+// GetColumn fetches a single column by id, returning ErrNotFound when missing.
+func (r *projectRepo) GetColumn(ctx context.Context, id string) (*project.Column, error) {
+	const q = `
+		SELECT id, board_id, name, position, wip_limit, color
+		FROM columns WHERE id = ?
+	`
+	var (
+		col   project.Column
+		wip   sql.NullInt64
+		color sql.NullString
+	)
+	err := r.db.QueryRowContext(ctx, q, id).
+		Scan(&col.ID, &col.BoardID, &col.Name, &col.Position, &wip, &color)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, project.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("project.GetColumn: %w", err)
+	}
+	if wip.Valid {
+		v := int(wip.Int64)
+		col.WIPLimit = &v
+	}
+	col.Color = color.String
+	return &col, nil
+}

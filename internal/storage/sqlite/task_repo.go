@@ -252,6 +252,22 @@ func (r *taskRepo) DeleteSubtask(ctx context.Context, id string) error {
 	return nil
 }
 
+// CountByColumn returns the number of tasks in the given column.
+//
+// Includes tasks in any status (backlog, todo, in_progress, review, done).
+// Phase 2.8 keeps it simple — the kanban WIP limit reflects total tasks
+// visible in the column, not "active" ones, so users don't lose count
+// when dragging between statuses.
+func (r *taskRepo) CountByColumn(ctx context.Context, columnID string) (int, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM tasks WHERE column_id = ?`, columnID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("task.CountByColumn: %w", err)
+	}
+	return n, nil
+}
+
 // ----------------------------------------------------------------------------
 // helpers
 // ----------------------------------------------------------------------------

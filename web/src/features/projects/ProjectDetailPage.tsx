@@ -41,7 +41,7 @@ export function ProjectDetailPage(): JSX.Element {
       </h1>
       <KanbanBoard
         projectId={board.board.project_id}
-        columns={board.columns.map((c) => ({ id: c.id, name: c.name }))}
+        columns={board.columns}
       />
     </section>
   )

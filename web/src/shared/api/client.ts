@@ -59,6 +59,9 @@ export interface BoardColumn {
   color?: string
 }
 
+/** Alias kept for PATCH /columns/:id which returns the same shape. */
+export type Column = BoardColumn
+
 export interface Board {
   id: string
   project_id: string
@@ -189,6 +192,15 @@ class ApiClient {
     return this.http
       .get<ProjectBoard>(`/api/v1/projects/${projectId}/board`)
       .then((r) => r.data)
+  }
+
+  /** Update mutable column fields (name, position, wip_limit, color).
+   * wip_limit=null → leave as-is; wip_limit=0 → clear; >0 → set. */
+  updateColumn(
+    columnId: string,
+    input: { name?: string; position?: number; wip_limit?: number | null; color?: string },
+  ): Promise<Column> {
+    return this.http.patch<Column>(`/api/v1/columns/${columnId}`, input).then((r) => r.data)
   }
 
   listProjectTasks(projectId: string, params?: { status?: string; column_id?: string }): Promise<Task[]> {

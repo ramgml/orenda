@@ -2,7 +2,7 @@ import { FormEvent, useState } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 
 import { TaskCard } from './TaskCard'
-import type { Task } from '@/shared/api/client'
+import { api, type Column, type Task } from '@/shared/api/client'
 import { queueCreateTask } from '@/shared/offline/outbox'
 
 /**
@@ -17,17 +17,20 @@ export function ColumnView({
   projectId,
   tasks,
   onCreate,
+  onColumnUpdated,
 }: {
   columnId: string
   name: string
   projectId: string
   tasks: Task[]
   onCreate: (title: string) => Promise<void>
+  onColumnUpdated?: (col: Column) => void
 }): JSX.Element {
   const { setNodeRef, isOver } = useDroppable({ id: columnId })
   const [creating, setCreating] = useState(false)
   const [title, setTitle] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
 
   async function submit(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault()
@@ -59,7 +62,17 @@ export function ColumnView({
         <h2 className="font-medium text-sm uppercase tracking-wide text-slate-600 dark:text-slate-300">
           {name}
         </h2>
-        <span className="text-xs text-slate-400">{tasks.length}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-400">{tasks.length}</span>
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            title="Edit column"
+            className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-sm leading-none"
+          >
+            ⚙
+          </button>
+        </div>
       </div>
 
       <ul className="space-y-2 flex-1">
@@ -106,6 +119,125 @@ export function ColumnView({
           + Add task
         </button>
       )}
+
+      {editing && (
+        <EditColumnModal
+          columnId={columnId}
+          initialName={name}
+          onClose={() => setEditing(false)}
+          onSaved={(col) => {
+            setEditing(false)
+            onColumnUpdated?.(col)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+interface EditColumnModalProps {
+  columnId: string
+  initialName: string
+  onClose: () => void
+  onSaved: (col: Column) => void
+}
+
+/** Small inline form to rename a column, change its color and set WIP limit. */
+function EditColumnModal({
+  columnId,
+  initialName,
+  onClose,
+  onSaved,
+}: EditColumnModalProps): JSX.Element {
+  const [name, setName] = useState(initialName)
+  const [color, setColor] = useState('#94a3b8')
+  const [wip, setWip] = useState<string>('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function submit(e: FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault()
+    if (!name.trim()) {
+      setError('Name is required')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const wipNum = wip === '' ? null : parseInt(wip, 10)
+      if (wip !== '' && Number.isNaN(wipNum)) {
+        setError('WIP limit must be a number')
+        setBusy(false)
+        return
+      }
+      const col = await api.updateColumn(columnId, {
+        name: name.trim(),
+        color,
+        wip_limit: wipNum,
+      })
+      onSaved(col)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      // axios 422: extract server message if present
+      setError(/wip_limit_too_small/.test(msg) ? 'WIP limit is below the current task count.' : msg)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-sm w-full p-5 space-y-3">
+        <h3 className="font-semibold">Edit column</h3>
+        <form onSubmit={submit} className="space-y-2">
+          <label className="block text-sm">
+            Name
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="mt-1 block w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+            />
+          </label>
+          <label className="block text-sm">
+            Color
+            <input
+              type="color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="mt-1 block w-12 h-8 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+            />
+          </label>
+          <label className="block text-sm">
+            WIP limit (empty = no limit)
+            <input
+              type="number"
+              min="0"
+              value={wip}
+              onChange={(e) => setWip(e.target.value)}
+              placeholder="unlimited"
+              className="mt-1 block w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+            />
+          </label>
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
+            >
+              {busy ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }

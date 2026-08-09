@@ -84,8 +84,9 @@ type columnInput struct {
 
 // patchColumnHandler updates mutable column fields.
 //
-// Phase 2.3 keeps the surface tiny: name, position, wip_limit, color. The
-// task_repository moves happen via moveTaskHandler above.
+// Allowed fields: name, position, wip_limit, color. wip_limit=0 means
+// "remove the limit" (stored as NULL). 422 is returned when a new
+// non-zero wip_limit is below the current task count in that column.
 func patchColumnHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in columnInput
@@ -93,9 +94,67 @@ func patchColumnHandler(deps Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		_ = in // fields land via a Phase 2.8 endpoint that updates columns directly.
-		writeJSON(w, http.StatusNotImplemented, map[string]string{
-			"error": "patch_column: not implemented yet (Phase 2.8)",
-		})
+		id := chi.URLParam(r, "id")
+		if id == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_id"})
+			return
+		}
+		col, err := deps.Projects.GetColumn(r.Context(), id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		// Apply mutable fields. Empty name is rejected (the column must
+		// stay non-empty so the kanban header never goes blank).
+		if in.Name != "" {
+			col.Name = in.Name
+		}
+		if in.Position != 0 {
+			col.Position = in.Position
+		}
+		if in.Color != "" {
+			col.Color = in.Color
+		}
+		// WIPLimit uses a pointer to distinguish "unchanged" from "clear".
+		// The JSON decoder produces nil for missing; we use a *int in the
+		// input struct already (above). nil here = leave as-is; non-nil =
+		// explicit clear when 0, or set when > 0.
+		if in.WIPLimit != nil {
+			if *in.WIPLimit < 0 {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "wip_limit_negative"})
+				return
+			}
+			if *in.WIPLimit == 0 {
+				col.WIPLimit = nil // clear
+			} else {
+				v := *in.WIPLimit
+				col.WIPLimit = &v
+			}
+		}
+
+		// Validate the new limit against the current task count.
+		if col.WIPLimit != nil && deps.Tasks != nil {
+			n, err := deps.Tasks.CountByColumn(r.Context(), col.ID)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			if n > *col.WIPLimit {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+					"error":       "wip_limit_too_small",
+					"current":     n,
+					"wip_limit":   *col.WIPLimit,
+					"snapshot_id": col.ID,
+				})
+				return
+			}
+		}
+
+		if err := deps.Projects.UpdateColumn(r.Context(), col); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, col)
 	}
 }

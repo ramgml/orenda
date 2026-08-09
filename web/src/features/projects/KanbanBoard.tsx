@@ -10,7 +10,7 @@ import {
 } from '@dnd-kit/core'
 
 import { useAuth } from '@/features/auth/AuthContext'
-import { api, type Task } from '@/shared/api/client'
+import { api, type Column, type Task } from '@/shared/api/client'
 import { useWebSocketTopic } from '@/shared/ws'
 
 import { ColumnView } from './ColumnView'
@@ -27,13 +27,19 @@ export function KanbanBoard({
   columns,
 }: {
   projectId: string
-  columns: { id: string; name: string }[]
+  columns: Column[]
 }): JSX.Element {
   // useAuth is consumed only to keep the WS hook's context alive.
   useAuth()
   const [tasks, setTasks] = useState<Task[]>([])
+  const [cols, setCols] = useState<Column[]>(columns)
   const [activeTask, setActiveTask] = useState<Task | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // Keep local cols in sync if the parent re-fetches the board.
+  useEffect(() => {
+    setCols(columns)
+  }, [columns])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -103,7 +109,7 @@ export function KanbanBoard({
       )}
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-          {columns.map((col) => (
+          {cols.map((col) => (
             <ColumnView
               key={col.id}
               columnId={col.id}
@@ -114,6 +120,9 @@ export function KanbanBoard({
                 const t = await api.createTask(projectId, { title, column_id: col.id })
                 setTasks((cur) => [...cur, t])
               }}
+              onColumnUpdated={(updated) =>
+                setCols((cur) => cur.map((c) => (c.id === updated.id ? updated : c)))
+              }
             />
           ))}
         </div>

@@ -44,4 +44,9 @@ type Repository interface {
 
 	// DeleteSubtask removes a subtask.
 	DeleteSubtask(ctx context.Context, id string) error
+
+	// CountByColumn returns how many tasks currently live in the given
+	// column (status != 'done' if you only want active ones — Phase 2.8
+	// keeps it simple: every task in the column counts toward the limit).
+	CountByColumn(ctx context.Context, columnID string) (int, error)
 }
