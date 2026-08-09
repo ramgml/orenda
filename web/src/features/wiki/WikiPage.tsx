@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 
 import { api, type WikiPage, type WikiTreeNode } from '@/shared/api/client'
 import { useWebSocketTopic } from '@/shared/ws'
+import { slugify } from '@/shared/util/slug'
 
 /**
  * /wiki — sidebar tree + markdown editor + preview.
@@ -171,32 +172,42 @@ function WikiSidebar({
   current?: string
   onCreated: (newSlug: string) => void
 }): JSX.Element {
-  const [newSlug, setNewSlug] = useState('')
+  // The form accepts a free-text title (any language). We auto-derive
+  // the slug via slugify() and let the user override it if they want a
+  // custom URL. Once the user touches the slug field we stop
+  // regenerating it from the title.
+  const [title, setTitle] = useState('')
+  const [slugOverride, setSlugOverride] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
+  const autoSlug = slugify(title)
+  const slug = (slugOverride ?? autoSlug).trim().toLowerCase()
+
   async function submitNewPage(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault()
-    const slug = newSlug.trim().toLowerCase()
-    if (!slug) return
+    const t = title.trim()
+    if (!t) return
     if (!/^[a-z0-9_-]+$/.test(slug)) {
-      setErr('Slug: lowercase letters, digits, "-" and "_" only.')
+      setErr('Slug must contain only [a-z0-9_-].')
       return
     }
     setCreating(true)
     setErr(null)
     try {
       // Pre-create so the page is visible in the tree immediately.
+      // The slug is what we sent; the backend echoes it back.
       await api.savePage({
         slug,
-        title: slug,
+        title: t,
         content_md: '',
       })
-      setNewSlug('')
+      setTitle('')
+      setSlugOverride(null)
       onCreated(slug)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      setErr(/slug_taken/.test(msg) ? 'That slug already exists.' : msg)
+      setErr(/slug_taken/.test(msg) ? 'A page with this slug already exists.' : msg)
     } finally {
       setCreating(false)
     }
@@ -204,24 +215,40 @@ function WikiSidebar({
 
   return (
     <aside className="rounded border border-slate-200 dark:border-slate-800 p-3 overflow-auto max-h-[80vh] space-y-3">
-      <form onSubmit={submitNewPage} className="space-y-1">
+      <form onSubmit={submitNewPage} className="space-y-1.5">
         <h2 className="text-sm font-semibold text-slate-500">New page</h2>
-        <div className="flex gap-1">
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Page title (any language)"
+          className="w-full px-2 py-1 text-sm rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+          autoFocus
+        />
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-slate-500 font-mono shrink-0">/wiki/</span>
           <input
             type="text"
-            value={newSlug}
-            onChange={(e) => setNewSlug(e.target.value)}
-            placeholder="page-slug"
-            className="flex-1 min-w-0 px-2 py-1 text-sm rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+            value={slug}
+            onChange={(e) => {
+              const v = e.target.value
+              // If the user edits the slug we treat it as an explicit
+              // override and stop regenerating from the title. If they
+              // clear it back to the auto value we follow along again.
+              const isAuto = v === autoSlug
+              setSlugOverride(isAuto ? null : v)
+            }}
+            placeholder="auto-generated"
+            className="flex-1 min-w-0 px-2 py-1 text-xs font-mono rounded border border-slate-200 dark:border-slate-700 bg-transparent"
           />
-          <button
-            type="submit"
-            disabled={creating || !newSlug.trim()}
-            className="px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-xs"
-          >
-            {creating ? '…' : 'Create'}
-          </button>
         </div>
+        <button
+          type="submit"
+          disabled={creating || !title.trim()}
+          className="w-full px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-xs"
+        >
+          {creating ? 'Creating…' : 'Create'}
+        </button>
         {err && <p className="text-xs text-red-600">{err}</p>}
       </form>
 
