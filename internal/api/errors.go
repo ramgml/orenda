@@ -34,11 +34,13 @@ func writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, task.ErrNotFound),
 		errors.Is(err, wiki.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
-	case errors.Is(err, user.ErrEmailTaken):
-		writeJSON(w, http.StatusConflict, map[string]string{"error": "email_taken"})
+	case errors.Is(err, user.ErrEmailTaken),
+		errors.Is(err, wiki.ErrSlugTaken):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "slug_taken"})
 	case errors.Is(err, user.ErrInvalidInput),
 		errors.Is(err, project.ErrInvalidInput),
-		errors.Is(err, task.ErrInvalidInput):
+		errors.Is(err, task.ErrInvalidInput),
+		errors.Is(err, wiki.ErrInvalidInput):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
 	default:
 		if apiLogger != nil {

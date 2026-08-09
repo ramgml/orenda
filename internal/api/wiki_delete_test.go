@@ -70,6 +70,62 @@ func wikiRouter(t *testing.T) (http.Handler, string) {
 	return router, cookie
 }
 
+// PUT /pages/{slug} with only title + content_md (no slug in body)
+// must succeed — the Save button on the wiki editor sends this exact
+// shape, and the handler must take the slug from the URL. Regression
+// test for the 500 that the Save button used to produce.
+func TestWiki_PutUpdatesWithoutSlugInBody(t *testing.T) {
+	router, cookie := wikiRouter(t)
+
+	// Seed a page.
+	seedBody, _ := json.Marshal(map[string]string{
+		"slug": "notes", "title": "Old title", "content_md": "old body",
+	})
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/pages", bytes.NewReader(seedBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	createRR := httptest.NewRecorder()
+	router.ServeHTTP(createRR, createReq)
+	require.Equal(t, http.StatusOK, createRR.Code, "create: %s", createRR.Body.String())
+
+	// PUT with only title + content_md. No slug.
+	putBody, _ := json.Marshal(map[string]string{
+		"title": "Updated title", "content_md": "updated body",
+	})
+	putReq := httptest.NewRequest(http.MethodPut, "/api/v1/pages/notes", bytes.NewReader(putBody))
+	putReq.Header.Set("Content-Type", "application/json")
+	putReq.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	putRR := httptest.NewRecorder()
+	router.ServeHTTP(putRR, putReq)
+	require.Equal(t, http.StatusOK, putRR.Code, "put: %s", putRR.Body.String())
+
+	var updated map[string]any
+	require.NoError(t, json.Unmarshal(putRR.Body.Bytes(), &updated))
+	assert.Equal(t, "notes", updated["slug"], "URL slug is authoritative")
+	assert.Equal(t, "Updated title", updated["title"])
+	assert.Equal(t, "updated body", updated["content_md"])
+}
+
+// Russian (Cyrillic) title + auto-Latin slug is a valid save too.
+func TestWiki_PutAcceptsNonASCIITitle(t *testing.T) {
+	router, cookie := wikiRouter(t)
+	putBody, _ := json.Marshal(map[string]string{
+		"title":      "Обновлённый заголовок",
+		"content_md": "текст на русском",
+	})
+	putReq := httptest.NewRequest(http.MethodPut, "/api/v1/pages/cyrillic", bytes.NewReader(putBody))
+	putReq.Header.Set("Content-Type", "application/json")
+	putReq.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+	putRR := httptest.NewRecorder()
+	router.ServeHTTP(putRR, putReq)
+	require.Equal(t, http.StatusOK, putRR.Code, "put: %s", putRR.Body.String())
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(putRR.Body.Bytes(), &out))
+	assert.Equal(t, "cyrillic", out["slug"])
+	assert.Equal(t, "Обновлённый заголовок", out["title"])
+}
+
 func TestWiki_Delete(t *testing.T) {
 	router, cookie := wikiRouter(t)
 

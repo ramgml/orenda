@@ -44,6 +44,16 @@ func listPagesHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // savePageHandler creates or updates a page.
+//
+// Two routing shapes share this handler:
+//
+//	POST /api/v1/pages          — create. Slug comes from the body.
+//	PUT  /api/v1/pages/{slug}   — update. Slug comes from the URL
+//	                                (and wins if the body also supplies
+//	                                one — keeps the URL as the source of
+//	                                truth, which the Save button relies
+//	                                on because it sends only title +
+//	                                content_md).
 func savePageHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.WikiService == nil {
@@ -62,9 +72,14 @@ func savePageHandler(deps Dependencies) http.HandlerFunc {
 			ParentID:  in.ParentID,
 			Position:  in.Position,
 		}
-		// Existing pages may supply a slug to update.
-		if id := chi.URLParam(r, "slug"); id != "" {
-			if existing, err := deps.WikiService.GetBySlug(r.Context(), id); err == nil && existing != nil {
+		// For PUT /pages/{slug} the URL slug is authoritative: the Save
+		// button sends only title + content_md, so without this the
+		// handler would build a page with an empty slug, Validate would
+		// reject it with wiki.ErrInvalidInput, and writeError would
+		// (before the recent fix) surface it as 500.
+		if urlSlug := chi.URLParam(r, "slug"); urlSlug != "" {
+			p.Slug = urlSlug
+			if existing, err := deps.WikiService.GetBySlug(r.Context(), urlSlug); err == nil && existing != nil {
 				p.ID = existing.ID
 			}
 		}
