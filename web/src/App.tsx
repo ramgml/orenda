@@ -56,7 +56,7 @@ function Shell(): JSX.Element {
     <div className="min-h-full flex flex-col">
       {status === 'authenticated' && (
         <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-          <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="w-full px-6 py-3 flex items-center justify-between gap-4">
             <Link to="/" className="flex items-center gap-2 font-semibold text-lg">
               <span className="inline-block h-6 w-6 rounded bg-orenda-500" aria-hidden />
               Orenda
@@ -86,7 +86,7 @@ function Shell(): JSX.Element {
         </header>
       )}
 
-      <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-8">
+      <main className="flex-1 w-full px-6 py-6">
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<RequireAuth><Dashboard info={info} error={error} /></RequireAuth>} />
