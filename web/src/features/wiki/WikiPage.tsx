@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 import { api, type WikiPage, type WikiTreeNode } from '@/shared/api/client'
 import { useWebSocketTopic } from '@/shared/ws'
@@ -297,7 +299,7 @@ function PageEditor({
   onSave: () => void
   onDelete: () => void
 }): JSX.Element {
-  const [tab, setTab] = useState<'edit' | 'source'>('edit')
+  const [tab, setTab] = useState<'edit' | 'preview' | 'source'>('edit')
 
   return (
     <>
@@ -339,8 +341,11 @@ function PageEditor({
         <TabBtn active={tab === 'edit'} onClick={() => setTab('edit')}>
           Edit
         </TabBtn>
+        <TabBtn active={tab === 'preview'} onClick={() => setTab('preview')}>
+          Preview
+        </TabBtn>
         <TabBtn active={tab === 'source'} onClick={() => setTab('source')}>
-          Markdown
+          Source
         </TabBtn>
       </div>
 
@@ -350,6 +355,18 @@ function PageEditor({
           onChange={(md) => onChange({ ...page, content_md: md })}
           placeholder="Type / for commands…"
         />
+      ) : tab === 'preview' ? (
+        <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-6 py-5 min-h-[300px]">
+          {page.content_md ? (
+            <article className="prose dark:prose-invert max-w-none text-sm">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {page.content_md}
+              </ReactMarkdown>
+            </article>
+          ) : (
+            <p className="text-slate-400 italic text-sm">Nothing to preview yet.</p>
+          )}
+        </div>
       ) : (
         <textarea
           value={page.content_md ?? ''}
