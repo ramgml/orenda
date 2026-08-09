@@ -59,9 +59,10 @@ func (f *fakeRepo) AddSubtask(context.Context, *task.Subtask) error { return nil
 func (f *fakeRepo) ListSubtasks(context.Context, string) ([]*task.Subtask, error) {
 	return nil, nil
 }
-func (f *fakeRepo) UpdateSubtask(context.Context, *task.Subtask) error { return nil }
-func (f *fakeRepo) DeleteSubtask(context.Context, string) error        { return nil }
-func (f *fakeRepo) CountByColumn(context.Context, string) (int, error) { return 0, nil }
+func (f *fakeRepo) UpdateSubtask(context.Context, *task.Subtask) error    { return nil }
+func (f *fakeRepo) DeleteSubtask(context.Context, string) error           { return nil }
+func (f *fakeRepo) CountByColumn(context.Context, string) (int, error)    { return 0, nil }
+func (f *fakeRepo) FirstColumnID(context.Context, string) (string, error) { return "", nil }
 
 // withStart helper — Set StartAt + EndAt on a task for the fake.
 func withStart(t *task.Task, start time.Time) *task.Task {

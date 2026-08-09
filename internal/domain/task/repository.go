@@ -58,4 +58,10 @@ type Repository interface {
 	// column (status != 'done' if you only want active ones — Phase 2.8
 	// keeps it simple: every task in the column counts toward the limit).
 	CountByColumn(ctx context.Context, columnID string) (int, error)
+
+	// FirstColumnID returns the id of the first column of the project's
+	// default board (lowest position), or "" if the project has no
+	// board. Used by event.Service.Create to put newly-created
+	// calendar tasks into a real kanban column.
+	FirstColumnID(ctx context.Context, projectID string) (string, error)
 }

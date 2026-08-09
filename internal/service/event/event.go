@@ -73,6 +73,17 @@ func (s *Service) Create(ctx context.Context, e *event.Event) (*event.Event, err
 	if t.ID == "" {
 		t.ID = newUUID()
 	}
+	// Park the new task in the project's first kanban column so it
+	// shows up on the project page. Without this, column_id stays
+	// NULL and the kanban's "group by column" loop never renders
+	// the task anywhere.
+	if t.ColumnID == "" && t.ProjectID != "" {
+		if cid, err := s.Tasks.FirstColumnID(ctx, t.ProjectID); err != nil {
+			return nil, err
+		} else if cid != "" {
+			t.ColumnID = cid
+		}
+	}
 	got, err := s.createTask(ctx, t)
 	if err != nil {
 		return nil, err

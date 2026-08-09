@@ -275,6 +275,29 @@ func (r *taskRepo) CountByColumn(ctx context.Context, columnID string) (int, err
 	return n, nil
 }
 
+// FirstColumnID returns the id of the first column of the project's
+// default board, ordered by position ASC. Empty string if the
+// project has no board (e.g. an unfinished bootstrap). Used by the
+// event service to park new calendar tasks into a real kanban
+// column so they show up on the project page.
+func (r *taskRepo) FirstColumnID(ctx context.Context, projectID string) (string, error) {
+	var colID string
+	err := r.db.QueryRowContext(ctx, `
+		SELECT c.id
+		FROM columns c
+		JOIN boards  b ON c.board_id = b.id
+		WHERE b.project_id = ?
+		ORDER BY c.position ASC
+		LIMIT 1`, projectID).Scan(&colID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("task.FirstColumnID: %w", err)
+	}
+	return colID, nil
+}
+
 // ----------------------------------------------------------------------------
 // helpers
 // ----------------------------------------------------------------------------
