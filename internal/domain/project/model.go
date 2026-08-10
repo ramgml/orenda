@@ -32,6 +32,11 @@ type Project struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// DefaultColor is the color used when a project is created without one
+// and when an explicit empty color is PATCHed in (the latter meaning
+// "reset to default").
+const DefaultColor = "#3b82f6"
+
 // Validate returns an error if the Project fields are inconsistent.
 func (p *Project) Validate() error {
 	if p.Name == "" {
@@ -41,7 +46,7 @@ func (p *Project) Validate() error {
 		return ErrInvalidInput
 	}
 	if p.Color == "" {
-		p.Color = "#3b82f6" // default Orenda blue
+		p.Color = DefaultColor
 	}
 	return nil
 }

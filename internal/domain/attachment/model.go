@@ -14,9 +14,10 @@ import (
 type TargetType string
 
 const (
-	TargetTask  TargetType = "task"
-	TargetPage  TargetType = "page"
-	TargetEvent TargetType = "event"
+	TargetTask    TargetType = "task"
+	TargetPage    TargetType = "page"
+	TargetEvent   TargetType = "event"
+	TargetProject TargetType = "project"
 )
 
 // UploaderType identifies who uploaded the attachment.

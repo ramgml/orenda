@@ -206,6 +206,10 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Get("/board", getProjectBoardHandler(deps))
 					r.Get("/tasks", listProjectTasksHandler(deps))
 					r.Post("/tasks", createTaskHandler(deps))
+					// Phase 11: project page tabs.
+					r.Get("/activity", listProjectActivityHandler(deps))
+					r.Get("/attachments", listProjectAttachmentsHandler(deps))
+					r.Post("/attachments", addProjectAttachmentHandler(deps))
 				})
 			})
 

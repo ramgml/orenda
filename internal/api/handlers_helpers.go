@@ -21,3 +21,14 @@ func parseOptionalTime(s string) *time.Time {
 	}
 	return nil
 }
+
+// derefOr returns *p if p is non-nil, otherwise fallback. It exists so
+// JSON-decoded optional fields (pointer types) can fall back to a
+// sensible default at construction time without scattering the nil
+// checks across every handler.
+func derefOr[T any](p *T, fallback T) T {
+	if p == nil {
+		return fallback
+	}
+	return *p
+}

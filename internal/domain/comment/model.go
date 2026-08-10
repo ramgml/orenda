@@ -1,6 +1,6 @@
 // Package comment holds the Comment domain entity.
 //
-// Comments are markdown bodies attached to a target (task / page / event).
+// Comments are markdown bodies attached to a target (task / page / event / project).
 // They support @mentions which the notifier (Phase 6) consumes.
 package comment
 
@@ -13,9 +13,10 @@ import (
 type TargetType string
 
 const (
-	TargetTask  TargetType = "task"
-	TargetPage  TargetType = "page"  // reserved for Phase 5
-	TargetEvent TargetType = "event" // reserved for Phase 4
+	TargetTask    TargetType = "task"
+	TargetPage    TargetType = "page"    // reserved for Phase 5
+	TargetEvent   TargetType = "event"   // reserved for Phase 4
+	TargetProject TargetType = "project" // Phase 11: project-level discussion
 )
 
 // AuthorType identifies the kind of author.

@@ -5,6 +5,10 @@ import { AuthProvider, useAuth } from '@/features/auth/AuthContext'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { ProjectsPage } from '@/features/projects/ProjectsPage'
 import { ProjectDetailPage } from '@/features/projects/ProjectDetailPage'
+import { ProjectKanbanTab } from '@/features/projects/tabs/ProjectKanbanTab'
+import { ProjectActivityTab } from '@/features/projects/tabs/ProjectActivityTab'
+import { ProjectAttachmentsTab } from '@/features/projects/tabs/ProjectAttachmentsTab'
+import { ProjectSettingsTab } from '@/features/projects/tabs/ProjectSettingsTab'
 import { AgentsPage } from '@/features/agents/AgentsPage'
 import { TaskViewPage } from '@/features/tasks/TaskViewPage'
 import { CalendarPage } from '@/features/calendar/CalendarPage'
@@ -91,7 +95,12 @@ function Shell(): JSX.Element {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<RequireAuth><Dashboard info={info} error={error} /></RequireAuth>} />
           <Route path="/projects" element={<RequireAuth><ProjectsPage /></RequireAuth>} />
-          <Route path="/projects/:id" element={<RequireAuth><ProjectDetailPage /></RequireAuth>} />
+          <Route path="/projects/:id" element={<RequireAuth><ProjectDetailPage /></RequireAuth>}>
+            <Route index element={<ProjectKanbanTab />} />
+            <Route path="activity" element={<ProjectActivityTab />} />
+            <Route path="attachments" element={<ProjectAttachmentsTab />} />
+            <Route path="settings" element={<ProjectSettingsTab />} />
+          </Route>
           <Route path="/agents" element={<RequireAuth><AgentsPage /></RequireAuth>} />
           <Route path="/tasks/:id" element={<RequireAuth><TaskViewPage /></RequireAuth>} />
           <Route path="/calendar" element={<RequireAuth><CalendarPage /></RequireAuth>} />
