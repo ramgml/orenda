@@ -15,18 +15,18 @@ import { CalendarPage } from '@/features/calendar/CalendarPage'
 import { TimerWidget } from '@/features/tasks/TimerWidget'
 import { WikiPage } from '@/features/wiki/WikiPage'
 import { SearchPage } from '@/features/search/SearchPage'
-import { NotificationsBell } from '@/features/notifications/NotificationsBell'
 import { BackupsSettingsPage } from '@/features/settings/Backups'
 import { BotsSettingsPage } from '@/features/settings/Bots'
 import { ReportsPage } from '@/features/reports/ReportsPage'
-import { ThemeToggle } from '@/shared/ui/ThemeToggle'
 import { api, type InfoResponse, type Task } from '@/shared/api/client'
-import { HealthBadge } from '@/shared/ui/HealthBadge'
+
+import { AppLayout } from '@/features/layout/AppLayout'
 
 /**
- * Top-level shell. Auth-aware layout with a Dashboard that surfaces
- * live counts (projects, open tasks, agents, upcoming events) and a
- * top nav linking to every major section.
+ * Top-level shell. The authenticated surface is now wrapped in
+ * <AppLayout> which provides the collapsible sidebar with project
+ * navigation. The Dashboard + login screens sit outside this layout
+ * because they have a different chrome (no project rail).
  */
 export function App(): JSX.Element {
   return (
@@ -37,7 +37,6 @@ export function App(): JSX.Element {
 }
 
 function Shell(): JSX.Element {
-  const { status, user, logout } = useAuth()
   const [info, setInfo] = useState<InfoResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -48,79 +47,42 @@ function Shell(): JSX.Element {
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
   }, [])
 
-  if (status === 'loading') {
-    return (
-      <div className="min-h-full flex items-center justify-center text-slate-500">
-        Loading session…
-      </div>
-    )
-  }
-
   return (
-    <div className="min-h-full flex flex-col">
-      {status === 'authenticated' && (
-        <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-          <div className="w-full px-6 py-3 flex items-center justify-between gap-4">
-            <Link to="/" className="flex items-center gap-2 font-semibold text-lg">
-              <span className="inline-block h-6 w-6 rounded bg-orenda-500" aria-hidden />
-              Orenda
-            </Link>
-            <nav className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-300">
-              <Link to="/" className="hover:text-orenda-600">Dashboard</Link>
-              <Link to="/projects" className="hover:text-orenda-600">Projects</Link>
-              <Link to="/agents" className="hover:text-orenda-600">Agents</Link>
-              <Link to="/calendar" className="hover:text-orenda-600">Calendar</Link>
-              <Link to="/wiki" className="hover:text-orenda-600">Wiki</Link>
-              <Link to="/search" className="hover:text-orenda-600">Search</Link>
-              <Link to="/reports" className="hover:text-orenda-600">Reports</Link>
-              <Link to="/settings" className="hover:text-orenda-600">Settings</Link>
-              <NotificationsBell />
-              <HealthBadge />
-              <ThemeToggle />
-              <span className="text-xs text-slate-400">{user?.email}</span>
-              <button
-                type="button"
-                onClick={() => logout()}
-                className="px-2 py-1 rounded text-xs border border-slate-300 dark:border-slate-700"
-              >
-                Sign out
-              </button>
-            </nav>
-          </div>
-        </header>
-      )}
+    <>
+      <Routes>
+        {/* Login has its own chrome (no sidebar / top bar). */}
+        <Route path="/login" element={<LoginPage />} />
 
-      <main className="flex-1 w-full px-6 py-6">
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/" element={<RequireAuth><Dashboard info={info} error={error} /></RequireAuth>} />
-          <Route path="/projects" element={<RequireAuth><ProjectsPage /></RequireAuth>} />
-          <Route path="/projects/:id" element={<RequireAuth><ProjectDetailPage /></RequireAuth>}>
+        {/* Authenticated app: sidebar + page content (Phase pre-11),
+            with the Phase 11 nested project tabs. */}
+        <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
+          <Route path="/" element={<Dashboard info={info} error={error} />} />
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:id" element={<ProjectDetailPage />}>
             <Route index element={<ProjectKanbanTab />} />
             <Route path="activity" element={<ProjectActivityTab />} />
             <Route path="attachments" element={<ProjectAttachmentsTab />} />
             <Route path="settings" element={<ProjectSettingsTab />} />
           </Route>
-          <Route path="/agents" element={<RequireAuth><AgentsPage /></RequireAuth>} />
-          <Route path="/tasks/:id" element={<RequireAuth><TaskViewPage /></RequireAuth>} />
-          <Route path="/calendar" element={<RequireAuth><CalendarPage /></RequireAuth>} />
-          <Route path="/wiki/:slug?" element={<RequireAuth><WikiPage /></RequireAuth>} />
-          <Route path="/search" element={<RequireAuth><SearchPage /></RequireAuth>} />
-          <Route path="/settings" element={<RequireAuth><Placeholder title="Settings" /></RequireAuth>} />
-          <Route path="/settings/backups" element={<RequireAuth><BackupsSettingsPage /></RequireAuth>} />
-          <Route path="/settings/bots" element={<RequireAuth><BotsSettingsPage /></RequireAuth>} />
-          <Route path="/reports" element={<RequireAuth><ReportsPage /></RequireAuth>} />
+          <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/tasks/:id" element={<TaskViewPage />} />
+          <Route path="/calendar" element={<CalendarPage />} />
+          <Route path="/wiki/:slug?" element={<WikiPage />} />
+          <Route path="/search" element={<SearchPage />} />
+          <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/settings" element={<Placeholder title="Settings" />} />
+          <Route path="/settings/backups" element={<BackupsSettingsPage />} />
+          <Route path="/settings/bots" element={<BotsSettingsPage />} />
           <Route path="*" element={<Placeholder title="Not found" />} />
-        </Routes>
-      </main>
+        </Route>
+      </Routes>
 
-      <footer className="border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 text-center py-4">
-        Orenda {info?.version ?? '…'} · local-first productivity
-      </footer>
-
-      {/* Floating timer widget — renders bottom-right when authenticated. */}
+      {/* Floating timer widget is rendered globally so it persists across navigation. */}
       <TimerWidget />
-    </div>
+
+      {/* Footer lives outside AppLayout so it shows on login too. */}
+      <Footer info={info} />
+    </>
   )
 }
 
@@ -130,9 +92,8 @@ function Shell(): JSX.Element {
  */
 function RequireAuth({ children }: { children: ReactNode }): JSX.Element {
   const { status } = useAuth()
-  const location = window.location
   if (status !== 'authenticated') {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />
+    return <Navigate to="/login" replace />
   }
   return <>{children}</>
 }
@@ -161,9 +122,7 @@ function Dashboard({ info, error }: { info: InfoResponse | null; error: string |
               <span
                 key={k}
                 className={`px-2 py-1 rounded ${
-                  v
-                    ? 'bg-green-100 text-green-800'
-                    : 'bg-slate-100 text-slate-500'
+                  v ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-500'
                 }`}
               >
                 {k}
@@ -294,5 +253,13 @@ function Placeholder({ title }: { title: string }): JSX.Element {
       <h1 className="text-2xl font-semibold mb-2">{title}</h1>
       <p className="text-slate-600 dark:text-slate-300">Coming in a later phase.</p>
     </section>
+  )
+}
+
+function Footer({ info }: { info: InfoResponse | null }): JSX.Element {
+  return (
+    <footer className="border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 text-center py-3">
+      Orenda {info?.version ?? '…'} · local-first productivity
+    </footer>
   )
 }

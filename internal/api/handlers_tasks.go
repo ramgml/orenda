@@ -37,7 +37,7 @@ type taskInput struct {
 func listProjectTasksHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		f := task.Filter{
-			ProjectID: chi.URLParam(r, "clId"),
+			ProjectID: chi.URLParam(r, "id"),
 		}
 		if s := r.URL.Query().Get("status"); s != "" {
 			f.Status = task.Status(s)

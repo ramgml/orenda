@@ -243,6 +243,7 @@ func NewRouter(deps Dependencies) http.Handler {
 					})
 					r.Get("/comments", listTaskCommentsHandler(deps))
 					r.Post("/comments", createTaskCommentHandler(deps))
+					r.Get("/attachments", listTaskAttachmentsHandler(deps))
 					r.Post("/attachments", addTaskAttachmentHandler(deps))
 					r.Route("/attachments/{attId}", func(r chi.Router) {
 						r.Get("/download", downloadAttachmentHandler(deps))

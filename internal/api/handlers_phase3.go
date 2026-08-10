@@ -219,6 +219,35 @@ func createTaskCommentHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
+// listTaskAttachmentsHandler returns every attachment uploaded against
+// a task. Used by the task detail page to render the file list.
+//
+// Regression history: this endpoint was accidentally omitted from the
+// router — only POST /attachments and GET /attachments/{attId}/download
+// were wired. The frontend's `api.listTaskAttachments(taskId)` had been
+// calling a non-existent route and chi replied with 405 Method Not
+// Allowed. Now both routes live in the same block so a future split
+// will surface as a build-time error.
+func listTaskAttachmentsHandler(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.Attachments == nil {
+			http.Error(w, "attachment service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		got, err := deps.Attachments.ListByTarget(
+			r.Context(), attachment.TargetTask, chi.URLParam(r, "id"),
+		)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if got == nil {
+			got = []*attachment.Attachment{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"attachments": got})
+	}
+}
+
 // downloadAttachmentHandler streams the underlying file to the
 // client. The Content-Type is the mime stored at upload time; the
 // filename is preserved in Content-Disposition so browsers save

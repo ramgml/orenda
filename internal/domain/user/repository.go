@@ -17,6 +17,10 @@ type Repository interface {
 	// GetByEmail returns the user with the given email or ErrNotFound.
 	GetByEmail(ctx context.Context, email string) (*User, error)
 
+	// List returns all users ordered by created_at ASC. The slice is empty
+	// (not nil) when there are no rows; callers can rely on that.
+	List(ctx context.Context) ([]*User, error)
+
 	// Update saves changes to an existing user. Returns ErrNotFound if the
 	// id doesn't exist.
 	Update(ctx context.Context, u *User) error

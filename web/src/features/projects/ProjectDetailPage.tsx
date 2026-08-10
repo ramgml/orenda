@@ -7,7 +7,7 @@ import { INBOX_PROJECT_ID } from '@/shared/constants'
 /**
  * /projects/:id — header + tab nav. The actual tab content is rendered
  * by nested routes (Phase 11):
- *   index        → Kanban
+ *   index        → Kanban (ProjectKanbanTab)
  *   activity     → ProjectActivityTab
  *   attachments  → ProjectAttachmentsTab
  *   settings     → ProjectSettingsTab
@@ -18,12 +18,17 @@ import { INBOX_PROJECT_ID } from '@/shared/constants'
  *     snaps back to the previous value.
  *   • The Archive button used to live here in Phase 2.6 — it has
  *     moved into Settings; this header now only carries the badges.
+ *
+ * Phase pre-11 sidebar refactor lives in AppLayout; this page only
+ * owns the project header + tab strip.
  */
 export function ProjectDetailPage(): JSX.Element {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [project, setProject] = useState<Project | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const isInbox = project?.id === INBOX_PROJECT_ID
 
   useEffect(() => {
     if (!id) return
@@ -42,8 +47,6 @@ export function ProjectDetailPage(): JSX.Element {
   }, [id])
 
   if (error) return <p className="text-red-700">{error}</p>
-
-  const isInbox = project?.id === INBOX_PROJECT_ID
 
   return (
     <section>
@@ -70,7 +73,7 @@ export function ProjectDetailPage(): JSX.Element {
         </h1>
       </div>
 
-      <ProjectTabs projectId={project?.id ?? id ?? ''} onTabClick={() => undefined} />
+      <ProjectTabs projectId={project?.id ?? id ?? ''} />
 
       <div className="mt-4">
         <Outlet />
@@ -100,7 +103,6 @@ function ProjectTabs({
   projectId,
 }: {
   projectId: string
-  onTabClick: () => void
 }): JSX.Element | null {
   if (!projectId) return null
   const base = `/projects/${projectId}`

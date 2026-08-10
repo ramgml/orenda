@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react'
 import { useDroppable } from '@dnd-kit/core'
+import { useNavigate } from 'react-router-dom'
 
 import { TaskCard } from './TaskCard'
 import { api, type Column, type Task } from '@/shared/api/client'
@@ -27,6 +28,7 @@ export function ColumnView({
   onColumnUpdated?: (col: Column) => void
 }): JSX.Element {
   const { setNodeRef, isOver } = useDroppable({ id: columnId })
+  const navigate = useNavigate()
   const [creating, setCreating] = useState(false)
   const [title, setTitle] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -47,6 +49,10 @@ export function ColumnView({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
+  }
+
+  function openTask(taskId: string): void {
+    navigate(`/tasks/${taskId}`)
   }
 
   return (
@@ -78,17 +84,7 @@ export function ColumnView({
       <ul className="space-y-2 flex-1">
         {tasks.map((t) => (
           <li key={t.id}>
-            <a
-              href={`/tasks/${t.id}`}
-              onClick={(e) => {
-                // Drag-and-drop handles its own click suppression via the
-                // activation constraint; regular clicks navigate.
-                if (e.defaultPrevented) return
-              }}
-              className="block"
-            >
-              <TaskCard task={t} />
-            </a>
+            <TaskCard task={t} onOpen={openTask} />
           </li>
         ))}
       </ul>
