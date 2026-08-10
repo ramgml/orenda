@@ -234,6 +234,114 @@ class ApiClient {
       .then((r) => r.data)
   }
 
+  // ---- Subtasks ----
+
+  listSubtasks(taskId: string): Promise<{ subtasks: Subtask[] }> {
+    return this.http
+      .get<{ subtasks: Subtask[] }>(`/api/v1/tasks/${taskId}/subtasks`)
+      .then((r) => r.data)
+  }
+
+  addSubtask(taskId: string, input: { title: string; position?: number }): Promise<Subtask> {
+    return this.http
+      .post<Subtask>(`/api/v1/tasks/${taskId}/subtasks`, input)
+      .then((r) => r.data)
+  }
+
+  updateSubtask(
+    subtaskId: string,
+    input: Partial<{ title: string; done: boolean; position: number }>,
+  ): Promise<Subtask> {
+    return this.http
+      .patch<Subtask>(`/api/v1/subtasks/${subtaskId}`, input)
+      .then((r) => r.data)
+  }
+
+  deleteSubtask(subtaskId: string): Promise<void> {
+    return this.http
+      .delete<void>(`/api/v1/subtasks/${subtaskId}`)
+      .then(() => undefined)
+  }
+
+  // ---- Attachments ----
+
+  listTaskAttachments(taskId: string): Promise<{ attachments: TaskAttachment[] }> {
+    return this.http
+      .get<{ attachments: TaskAttachment[] }>(`/api/v1/tasks/${taskId}/attachments`)
+      .then((r) => r.data)
+  }
+
+  uploadTaskAttachment(
+    taskId: string,
+    file: File,
+  ): Promise<TaskAttachment> {
+    const form = new FormData()
+    form.append('file', file)
+    return this.http
+      .post<TaskAttachment>(`/api/v1/tasks/${taskId}/attachments`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data)
+  }
+
+  deleteTaskAttachment(attachmentId: string): Promise<void> {
+    return this.http
+      .delete<void>(`/api/v1/attachments/${attachmentId}`)
+      .then(() => undefined)
+  }
+
+  // ---- Checklists ----
+
+  listChecklists(taskId: string): Promise<{ checklists: Checklist[] }> {
+    return this.http
+      .get<{ checklists: Checklist[] }>(`/api/v1/tasks/${taskId}/checklists`)
+      .then((r) => r.data)
+  }
+
+  addChecklist(taskId: string, input: { title: string; position?: number }): Promise<Checklist> {
+    return this.http
+      .post<Checklist>(`/api/v1/tasks/${taskId}/checklists`, input)
+      .then((r) => r.data)
+  }
+
+  deleteChecklist(checklistId: string): Promise<void> {
+    return this.http
+      .delete<void>(`/api/v1/checklists/${checklistId}`)
+      .then(() => undefined)
+  }
+
+  addChecklistItem(
+    checklistId: string,
+    input: { title: string; position?: number },
+  ): Promise<ChecklistItem> {
+    return this.http
+      .post<ChecklistItem>(`/api/v1/checklists/${checklistId}/items`, input)
+      .then((r) => r.data)
+  }
+
+  updateChecklistItem(
+    itemId: string,
+    input: Partial<{ title: string; done: boolean; position: number }>,
+  ): Promise<ChecklistItem> {
+    return this.http
+      .patch<ChecklistItem>(`/api/v1/checklist-items/${itemId}`, input)
+      .then((r) => r.data)
+  }
+
+  deleteChecklistItem(itemId: string): Promise<void> {
+    return this.http
+      .delete<void>(`/api/v1/checklist-items/${itemId}`)
+      .then(() => undefined)
+  }
+
+  // ---- Activity log ----
+
+  listTaskActivity(taskId: string): Promise<{ activity: TaskActivity[] }> {
+    return this.http
+      .get<{ activity: TaskActivity[] }>(`/api/v1/tasks/${taskId}/activity`)
+      .then((r) => r.data)
+  }
+
   createTask(projectId: string, input: { title: string; column_id?: string; description?: string }): Promise<Task> {
     return this.http
       .post<Task>(`/api/v1/projects/${projectId}/tasks`, input)
@@ -588,6 +696,52 @@ export interface TimeReport {
   to: string
   tasks: { task_id: string; total_sec: number; title?: string }[]
   total_sec: number
+}
+
+export interface Subtask {
+  id: string
+  task_id: string
+  title: string
+  done: boolean
+  position: number
+}
+
+export interface TaskAttachment {
+  id: string
+  target_type: string
+  target_id: string
+  filename: string
+  mime: string
+  size: number
+  uploaded_by_type: string
+  uploaded_by_id: string
+  created_at: string
+  sha256?: string
+}
+
+export interface Checklist {
+  id: string
+  task_id: string
+  title: string
+  position: number
+}
+
+export interface ChecklistItem {
+  id: string
+  checklist_id: string
+  title: string
+  done: boolean
+  position: number
+}
+
+export interface TaskActivity {
+  id: string
+  task_id: string
+  actor_type: string
+  actor_id: string
+  action: string
+  payload: string
+  created_at: string
 }
 
 export const api = new ApiClient()
