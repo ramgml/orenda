@@ -66,15 +66,15 @@ func (f *fakeRepo) FirstColumnID(context.Context, string) (string, error) { retu
 
 // Checklist stubs — the reminder path doesn't exercise them but
 // task.Repository now requires them. Returning empty results is fine.
-func (f *fakeRepo) AddChecklist(context.Context, string, string) (string, error) {
-	return "", nil
+func (f *fakeRepo) AddChecklist(context.Context, string, string) (*task.ChecklistRow, error) {
+	return nil, nil
 }
 func (f *fakeRepo) ListChecklists(context.Context, string) ([]task.ChecklistRow, error) {
 	return nil, nil
 }
 func (f *fakeRepo) DeleteChecklist(context.Context, string) error { return nil }
-func (f *fakeRepo) AddChecklistItem(context.Context, string, string) (string, error) {
-	return "", nil
+func (f *fakeRepo) AddChecklistItem(context.Context, string, string) (*task.ChecklistItemRow, error) {
+	return nil, nil
 }
 func (f *fakeRepo) ListChecklistItems(context.Context, string) ([]task.ChecklistItemRow, error) {
 	return nil, nil

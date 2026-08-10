@@ -282,23 +282,23 @@ func (r *taskRepo) GetSubtask(ctx context.Context, id string) (*task.Subtask, er
 // Checklists
 // ---------------------------------------------------------------------------
 
-func (r *taskRepo) AddChecklist(ctx context.Context, taskID, title string) (string, error) {
+func (r *taskRepo) AddChecklist(ctx context.Context, taskID, title string) (*task.ChecklistRow, error) {
 	if taskID == "" || title == "" {
-		return "", errors.New("task.AddChecklist: empty taskID or title")
+		return nil, errors.New("task.AddChecklist: empty taskID or title")
 	}
 	var pos int
 	if err := r.db.QueryRowContext(ctx,
 		`SELECT COALESCE(MAX(position), -1) + 1 FROM checklists WHERE task_id = ?`,
 		taskID).Scan(&pos); err != nil {
-		return "", fmt.Errorf("task.AddChecklist: peek position: %w", err)
+		return nil, fmt.Errorf("task.AddChecklist: peek position: %w", err)
 	}
 	id := newUUID()
 	if _, err := r.db.ExecContext(ctx,
 		`INSERT INTO checklists (id, task_id, title, position) VALUES (?, ?, ?, ?)`,
 		id, taskID, title, pos); err != nil {
-		return "", fmt.Errorf("task.AddChecklist: %w", err)
+		return nil, fmt.Errorf("task.AddChecklist: %w", err)
 	}
-	return id, nil
+	return &task.ChecklistRow{ID: id, TaskID: taskID, Title: title, Position: pos}, nil
 }
 
 func (r *taskRepo) ListChecklists(ctx context.Context, taskID string) ([]task.ChecklistRow, error) {
@@ -328,24 +328,30 @@ func (r *taskRepo) DeleteChecklist(ctx context.Context, listID string) error {
 	return nil
 }
 
-func (r *taskRepo) AddChecklistItem(ctx context.Context, listID, title string) (string, error) {
+func (r *taskRepo) AddChecklistItem(ctx context.Context, listID, title string) (*task.ChecklistItemRow, error) {
 	if listID == "" || title == "" {
-		return "", errors.New("task.AddChecklistItem: empty listID or title")
+		return nil, errors.New("task.AddChecklistItem: empty listID or title")
 	}
 	var pos int
 	if err := r.db.QueryRowContext(ctx,
 		`SELECT COALESCE(MAX(position), -1) + 1 FROM checklist_items WHERE checklist_id = ?`,
 		listID).Scan(&pos); err != nil {
-		return "", fmt.Errorf("task.AddChecklistItem: peek position: %w", err)
+		return nil, fmt.Errorf("task.AddChecklistItem: peek position: %w", err)
 	}
 	id := newUUID()
 	if _, err := r.db.ExecContext(ctx,
 		`INSERT INTO checklist_items (id, checklist_id, title, done, position)
 		 VALUES (?, ?, ?, 0, ?)`,
 		id, listID, title, pos); err != nil {
-		return "", fmt.Errorf("task.AddChecklistItem: %w", err)
+		return nil, fmt.Errorf("task.AddChecklistItem: %w", err)
 	}
-	return id, nil
+	return &task.ChecklistItemRow{
+		ID:          id,
+		ChecklistID: listID,
+		Title:       title,
+		Done:        false,
+		Position:    pos,
+	}, nil
 }
 
 func (r *taskRepo) ListChecklistItems(ctx context.Context, listID string) ([]task.ChecklistItemRow, error) {

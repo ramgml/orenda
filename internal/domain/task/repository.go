@@ -70,10 +70,11 @@ type Repository interface {
 
 	// ---- Checklists (each task can have any number) ----
 
-	AddChecklist(ctx context.Context, taskID, title string) (id string, err error)
+	AddChecklist(ctx context.Context, taskID, title string) (row *ChecklistRow, err error)
 	ListChecklists(ctx context.Context, taskID string) (rows []ChecklistRow, err error)
 	DeleteChecklist(ctx context.Context, listID string) error
-	AddChecklistItem(ctx context.Context, listID, title string) (id string, err error)
+
+	AddChecklistItem(ctx context.Context, listID, title string) (row *ChecklistItemRow, err error)
 	ListChecklistItems(ctx context.Context, listID string) (rows []ChecklistItemRow, err error)
 	UpdateChecklistItem(ctx context.Context, itemID string, done *bool, title *string) error
 	DeleteChecklistItem(ctx context.Context, itemID string) error
@@ -81,18 +82,19 @@ type Repository interface {
 
 // ChecklistRow + ChecklistItemRow are flat DTOs surfaced through
 // the Repository so handlers don't need to import the checklist
-// package just to read rows.
+// package just to read rows. JSON tags follow the snake_case
+// convention used by the rest of the API.
 type ChecklistRow struct {
-	ID       string
-	TaskID   string
-	Title    string
-	Position int
+	ID       string `json:"id"`
+	TaskID   string `json:"task_id"`
+	Title    string `json:"title"`
+	Position int    `json:"position"`
 }
 
 type ChecklistItemRow struct {
-	ID          string
-	ChecklistID string
-	Title       string
-	Done        bool
-	Position    int
+	ID          string `json:"id"`
+	ChecklistID string `json:"checklist_id"`
+	Title       string `json:"title"`
+	Done        bool   `json:"done"`
+	Position    int    `json:"position"`
 }
