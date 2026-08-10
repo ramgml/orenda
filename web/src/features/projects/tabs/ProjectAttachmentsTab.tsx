@@ -107,6 +107,9 @@ export function ProjectAttachmentsTab(): JSX.Element {
               <span className="text-xs text-slate-400">{formatBytes(a.size)}</span>
               <a
                 href={api.taskAttachmentDownloadUrl(a.id)}
+                download
+                target="_blank"
+                rel="noopener"
                 className="text-xs px-2 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 Download

@@ -92,6 +92,9 @@ export function AttachmentsList({
               <span aria-hidden className="text-slate-400">📎</span>
               <a
                 href={api.taskAttachmentDownloadUrl(a.id)}
+                download={a.filename}
+                target="_blank"
+                rel="noopener"
                 className="flex-1 text-sm truncate hover:underline"
                 title={a.mime}
               >
