@@ -288,12 +288,12 @@ func addChecklistHandler(deps Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_title"})
 			return
 		}
-		id, err := deps.Tasks.AddChecklist(r.Context(), chi.URLParam(r, "id"), body.Title)
+		row, err := deps.Tasks.AddChecklist(r.Context(), chi.URLParam(r, "id"), body.Title)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]any{"id": id, "title": body.Title})
+		writeJSON(w, http.StatusCreated, row)
 	}
 }
 
@@ -333,12 +333,12 @@ func addChecklistItemHandler(deps Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_title"})
 			return
 		}
-		id, err := deps.Tasks.AddChecklistItem(r.Context(), chi.URLParam(r, "clId"), body.Title)
+		row, err := deps.Tasks.AddChecklistItem(r.Context(), chi.URLParam(r, "clId"), body.Title)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]any{"id": id, "title": body.Title})
+		writeJSON(w, http.StatusCreated, row)
 	}
 }
 
@@ -354,7 +354,7 @@ func updateChecklistItemHandler(deps Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		if err := deps.Tasks.UpdateChecklistItem(r.Context(), chi.URLParam(r, "clId"), body.Done, body.Title); err != nil {
+		if err := deps.Tasks.UpdateChecklistItem(r.Context(), chi.URLParam(r, "itemId"), body.Done, body.Title); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -364,7 +364,7 @@ func updateChecklistItemHandler(deps Dependencies) http.HandlerFunc {
 
 func deleteChecklistItemHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := deps.Tasks.DeleteChecklistItem(r.Context(), chi.URLParam(r, "clId")); err != nil {
+		if err := deps.Tasks.DeleteChecklistItem(r.Context(), chi.URLParam(r, "itemId")); err != nil {
 			writeError(w, err)
 			return
 		}
