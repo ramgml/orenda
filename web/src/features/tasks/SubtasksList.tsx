@@ -38,7 +38,7 @@ export function SubtasksList({ taskId, initial }: { taskId: string; initial: Sub
   async function onToggle(s: Subtask): Promise<void> {
     setSubs((cur) => cur.map((x) => (x.id === s.id ? { ...x, done: !x.done } : x)))
     try {
-      await api.updateSubtask(s.id, { done: !s.done })
+      await api.updateSubtask(taskId, s.id, { done: !s.done })
     } catch {
       // Roll back on failure.
       setSubs((cur) => cur.map((x) => (x.id === s.id ? { ...x, done: s.done } : x)))
@@ -49,7 +49,7 @@ export function SubtasksList({ taskId, initial }: { taskId: string; initial: Sub
     if (!window.confirm(`Delete subtask "${s.title}"?`)) return
     setSubs((cur) => cur.filter((x) => x.id !== s.id))
     try {
-      await api.deleteSubtask(s.id)
+      await api.deleteSubtask(taskId, s.id)
     } catch {
       reload()
     }

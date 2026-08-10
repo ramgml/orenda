@@ -257,17 +257,18 @@ class ApiClient {
   }
 
   updateSubtask(
+    taskId: string,
     subtaskId: string,
     input: Partial<{ title: string; done: boolean; position: number }>,
   ): Promise<Subtask> {
     return this.http
-      .patch<Subtask>(`/api/v1/subtasks/${subtaskId}`, input)
+      .patch<Subtask>(`/api/v1/tasks/${taskId}/subtasks/${subtaskId}`, input)
       .then((r) => r.data)
   }
 
-  deleteSubtask(subtaskId: string): Promise<void> {
+  deleteSubtask(taskId: string, subtaskId: string): Promise<void> {
     return this.http
-      .delete<void>(`/api/v1/subtasks/${subtaskId}`)
+      .delete<void>(`/api/v1/tasks/${taskId}/subtasks/${subtaskId}`)
       .then(() => undefined)
   }
 
