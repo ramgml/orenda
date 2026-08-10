@@ -19,7 +19,8 @@ import (
 type Role string
 
 const (
-	RoleOwner Role = "owner"
+	RoleOwner  Role = "owner"
+	RoleSystem Role = "system"
 )
 
 // Sentinel errors returned by User repository implementations.

@@ -121,6 +121,42 @@ func (r *userRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// List returns all users ordered by created_at ASC. Used by the CLI
+// `orenda user list` command. Returns an empty (non-nil) slice when
+// the table has no rows.
+func (r *userRepo) List(ctx context.Context) ([]*user.User, error) {
+	const q = `
+		SELECT id, email, password_hash, display_name, role, created_at, updated_at
+		FROM users ORDER BY created_at ASC, id ASC
+	`
+	rows, err := r.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("user.List: %w", err)
+	}
+	defer rows.Close()
+
+	users := make([]*user.User, 0)
+	for rows.Next() {
+		var (
+			u    user.User
+			role string
+			cAt  string
+			uAt  string
+		)
+		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.DisplayName, &role, &cAt, &uAt); err != nil {
+			return nil, fmt.Errorf("user.List: scan: %w", err)
+		}
+		u.Role = user.Role(role)
+		u.CreatedAt = parseTime(cAt)
+		u.UpdatedAt = parseTime(uAt)
+		users = append(users, &u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("user.List: rows: %w", err)
+	}
+	return users, nil
+}
+
 // FirstID returns the id of the first user row (single-owner model).
 // Used by the bot callback resolver which needs the owner's id.
 func (r *userRepo) FirstID(ctx context.Context) (string, error) {

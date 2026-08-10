@@ -24,6 +24,22 @@ func TestSecurityHeaders_AreSet(t *testing.T) {
 	assert.Contains(t, rr.Header().Get("Content-Security-Policy"), "default-src 'self'")
 }
 
+// Regression: Workbox PWA serves cached woff fonts via blob: URLs.
+// The original policy `font-src 'self'` blocked those, surfacing as
+// `Loading the font <URL> violates the following Content Security
+// Policy directive: "font-src 'self'"` in DevTools. We extend with
+// data: and blob: which is safe — fonts can't inject script.
+func TestSecurityHeaders_FontSrcAllowsBlobAndData(t *testing.T) {
+	router := api.NewRouter(api.Dependencies{})
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	csp := rr.Header().Get("Content-Security-Policy")
+	assert.Contains(t, csp, "font-src 'self' data: blob:",
+		"CSP must include data:/blob: so cached/embedded fonts load")
+}
+
 func TestRateLimit_Anonymous429(t *testing.T) {
 	router := api.NewRouter(api.Dependencies{})
 

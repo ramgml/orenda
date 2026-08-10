@@ -67,6 +67,18 @@ func (r *fakeUserRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+// List returns every user in the fake. Added when the user.Repository
+// gained a List method (Phase-utility: `orenda user list`).
+func (r *fakeUserRepo) List(_ context.Context) ([]*user.User, error) {
+	out := make([]*user.User, 0, len(r.users))
+	for _, u := range r.users {
+		out = append(out, u)
+	}
+	// Deterministic order is not required by callers; tests that care
+	// compare via map lookups.
+	return out, nil
+}
+
 // fakeTokenRepo satisfies api.APITokenLookup for tests.
 type fakeTokenRepo struct {
 	hashes map[string]*auth.TokenRow
