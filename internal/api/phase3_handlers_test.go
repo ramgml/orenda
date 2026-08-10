@@ -63,6 +63,13 @@ func (a attachmentTestAdapter) Delete(ctx context.Context, id string) error {
 	return a.inner.Delete(ctx, id)
 }
 
+func (a attachmentTestAdapter) Open(
+	ctx context.Context,
+	id string,
+) (*attachment.Attachment, api.ReadSeekCloser, error) {
+	return a.inner.Open(ctx, id)
+}
+
 // adapterForTokens bridges sqlite.APITokenRepo to the agent.TokenMinter
 // interface (production wiring lives in cmd/orenda).
 type adapterForTokens struct{ inner *sqlite.APITokenRepo }

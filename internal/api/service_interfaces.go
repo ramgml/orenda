@@ -15,6 +15,12 @@ import (
 	"github.com/ramgml/orenda/internal/domain/task"
 )
 
+// ReadSeekCloser is just an alias for the stdlib composite interface
+// — *os.File satisfies it. We re-declare it here so the
+// AttachmentService interface doesn't have to leak io into its
+// import set.
+type ReadSeekCloser = io.ReadSeekCloser
+
 // CommentService is the slice of comment.Service that handlers use.
 type CommentService interface {
 	Add(ctx context.Context, c *comment.Comment) (*comment.Comment, error)
@@ -43,6 +49,9 @@ type AttachmentService interface {
 	Get(ctx context.Context, id string) (*attachment.Attachment, error)
 	ListByTarget(ctx context.Context, t attachment.TargetType, targetID string) ([]*attachment.Attachment, error)
 	Delete(ctx context.Context, id string) error
+	// Open returns the row and a ready-to-stream file handle. The
+	// caller closes the file. Used by the download endpoint.
+	Open(ctx context.Context, id string) (*attachment.Attachment, ReadSeekCloser, error)
 }
 
 // ActivityService is the slice of activity.Repository + recorder that

@@ -4,6 +4,8 @@ import { useParams } from 'react-router-dom'
 import { useAuth } from '@/features/auth/AuthContext'
 import {
   api,
+  type Checklist,
+  type ChecklistItem,
   type Comment as TaskComment,
   type Subtask,
   type Task,
@@ -16,6 +18,7 @@ import { StartTimer } from '@/features/tasks/TimerWidget'
 import { CommentsList } from './CommentsList'
 import { SubtasksList } from './SubtasksList'
 import { AttachmentsList } from './AttachmentsList'
+import { ChecklistsList } from './ChecklistsList'
 
 /**
  * /tasks/:id — full task view.
@@ -36,6 +39,8 @@ export function TaskViewPage(): JSX.Element {
   const [task, setTask] = useState<Task | null>(null)
   const [subs, setSubs] = useState<Subtask[]>([])
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
+  const [checklists, setChecklists] = useState<Checklist[]>([])
+  const [checklistItems, setChecklistItems] = useState<Record<string, ChecklistItem[]>>({})
   const [activity, setActivity] = useState<TaskActivity[]>([])
   const [comments, setComments] = useState<TaskComment[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -46,18 +51,37 @@ export function TaskViewPage(): JSX.Element {
   async function load(): Promise<void> {
     if (!id) return
     try {
-      const [t, subsR, attR, actR, comments] = await Promise.all([
+      const [t, subsR, attR, actR, comments, clR] = await Promise.all([
         api.getTask(id),
         api.listSubtasks(id),
         api.listTaskAttachments(id),
         api.listTaskActivity(id),
         api.listTaskComments(id),
+        api.listChecklists(id),
       ])
       setTask(t)
       setSubs(subsR.subtasks ?? [])
       setAttachments(attR.attachments ?? [])
       setActivity(actR.activity ?? [])
       setComments(comments.comments ?? [])
+      const cls = clR.checklists ?? []
+      setChecklists(cls)
+      // Hydrate items per list in parallel; skip a list silently if
+      // its items can't load — better to show an empty list than to
+      // nuke the rest of the page.
+      const pairs = await Promise.all(
+        cls.map(async (l) => {
+          try {
+            const r = await api.listChecklistItems(l.id)
+            return [l.id, r.items ?? []] as const
+          } catch {
+            return [l.id, [] as ChecklistItem[]] as const
+          }
+        }),
+      )
+      const next: Record<string, ChecklistItem[]> = {}
+      for (const [id, its] of pairs) next[id] = its
+      setChecklistItems(next)
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -209,6 +233,12 @@ export function TaskViewPage(): JSX.Element {
         <SubtasksList taskId={task.id} initial={subs} />
 
         <AttachmentsList taskId={task.id} initial={attachments} />
+
+        <ChecklistsList
+          taskId={task.id}
+          initialLists={checklists}
+          initialItems={checklistItems}
+        />
 
         <div>
           <h2 className="text-sm font-semibold mb-2 text-slate-500">

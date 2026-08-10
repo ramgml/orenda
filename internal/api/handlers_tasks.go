@@ -37,7 +37,7 @@ type taskInput struct {
 func listProjectTasksHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		f := task.Filter{
-			ProjectID: chi.URLParam(r, "id"),
+			ProjectID: chi.URLParam(r, "clId"),
 		}
 		if s := r.URL.Query().Get("status"); s != "" {
 			f.Status = task.Status(s)
@@ -255,5 +255,168 @@ func addSubtaskHandler(deps Dependencies) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusCreated, s)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Checklists
+// ---------------------------------------------------------------------------
+
+func listChecklistsHandler(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := deps.Tasks.ListChecklists(r.Context(), chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"checklists": rows})
+	}
+}
+
+func addChecklistHandler(deps Dependencies) http.HandlerFunc {
+	type in struct {
+		Title    string `json:"title"`
+		Position int    `json:"position"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body in
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		if body.Title == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_title"})
+			return
+		}
+		id, err := deps.Tasks.AddChecklist(r.Context(), chi.URLParam(r, "id"), body.Title)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"id": id, "title": body.Title})
+	}
+}
+
+func deleteChecklistHandler(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := deps.Tasks.DeleteChecklist(r.Context(), chi.URLParam(r, "clId")); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func listChecklistItemsHandler(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		rows, err := deps.Tasks.ListChecklistItems(r.Context(), chi.URLParam(r, "clId"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": rows})
+	}
+}
+
+func addChecklistItemHandler(deps Dependencies) http.HandlerFunc {
+	type in struct {
+		Title    string `json:"title"`
+		Position int    `json:"position"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body in
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		if body.Title == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_title"})
+			return
+		}
+		id, err := deps.Tasks.AddChecklistItem(r.Context(), chi.URLParam(r, "clId"), body.Title)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"id": id, "title": body.Title})
+	}
+}
+
+type updateChecklistItemInput struct {
+	Title *string `json:"title"`
+	Done  *bool   `json:"done"`
+}
+
+func updateChecklistItemHandler(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body updateChecklistItemInput
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		if err := deps.Tasks.UpdateChecklistItem(r.Context(), chi.URLParam(r, "clId"), body.Done, body.Title); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func deleteChecklistItemHandler(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := deps.Tasks.DeleteChecklistItem(r.Context(), chi.URLParam(r, "clId")); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// updateSubtaskHandler PATCHes a subtask by id. The repo's
+// UpdateSubtask takes the full Subtask, so we look the row up first
+// and apply the supplied fields on top.
+func updateSubtaskHandler(deps Dependencies) http.HandlerFunc {
+	type in struct {
+		Title    *string `json:"title"`
+		Done     *bool   `json:"done"`
+		Position *int    `json:"position"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body in
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		subID := chi.URLParam(r, "subId")
+		s, err := deps.Tasks.GetSubtask(r.Context(), subID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if body.Title != nil {
+			s.Title = *body.Title
+		}
+		if body.Done != nil {
+			s.Done = *body.Done
+		}
+		if body.Position != nil {
+			s.Position = *body.Position
+		}
+		if err := deps.Tasks.UpdateSubtask(r.Context(), s); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// deleteSubtaskHandler removes a subtask.
+func deleteSubtaskHandler(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := deps.Tasks.DeleteSubtask(r.Context(), chi.URLParam(r, "subId")); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

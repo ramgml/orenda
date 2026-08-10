@@ -198,6 +198,13 @@ func (a attachmentAdapter) Delete(ctx context.Context, id string) error {
 	return a.inner.Delete(ctx, id)
 }
 
+func (a attachmentAdapter) Open(
+	ctx context.Context,
+	id string,
+) (*attachmentdomain.Attachment, api.ReadSeekCloser, error) {
+	return a.inner.Open(ctx, id)
+}
+
 func attachmentServiceFor(s *attachmentsvc.Service) apiAttachment {
 	return attachmentAdapter{inner: s}
 }
@@ -472,7 +479,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		Agents:       sqlite.NewAgentRepository(db),
 		Comments:     commentSvc,
 		Attachments: attachmentServiceFor(attachmentsvc.New(sqlite.NewAttachmentRepository(db), attachmentsvc.Config{
-			UploadDir:    cfg.Uploads.Dir,
+			UploadDir:    cfg.ResolveUploadsDir(cwdOr(absCfg, ".")),
 			MaxSizeBytes: int64(cfg.Uploads.MaxSizeMB) * 1024 * 1024,
 			AllowedMimes: cfg.Uploads.AllowedMimes,
 		}, hub)),

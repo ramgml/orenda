@@ -54,6 +54,9 @@ type Repository interface {
 	// DeleteSubtask removes a subtask.
 	DeleteSubtask(ctx context.Context, id string) error
 
+	// GetSubtask fetches a single subtask by id, or returns ErrNotFound.
+	GetSubtask(ctx context.Context, id string) (*Subtask, error)
+
 	// CountByColumn returns how many tasks currently live in the given
 	// column (status != 'done' if you only want active ones — Phase 2.8
 	// keeps it simple: every task in the column counts toward the limit).
@@ -64,4 +67,32 @@ type Repository interface {
 	// board. Used by event.Service.Create to put newly-created
 	// calendar tasks into a real kanban column.
 	FirstColumnID(ctx context.Context, projectID string) (string, error)
+
+	// ---- Checklists (each task can have any number) ----
+
+	AddChecklist(ctx context.Context, taskID, title string) (id string, err error)
+	ListChecklists(ctx context.Context, taskID string) (rows []ChecklistRow, err error)
+	DeleteChecklist(ctx context.Context, listID string) error
+	AddChecklistItem(ctx context.Context, listID, title string) (id string, err error)
+	ListChecklistItems(ctx context.Context, listID string) (rows []ChecklistItemRow, err error)
+	UpdateChecklistItem(ctx context.Context, itemID string, done *bool, title *string) error
+	DeleteChecklistItem(ctx context.Context, itemID string) error
+}
+
+// ChecklistRow + ChecklistItemRow are flat DTOs surfaced through
+// the Repository so handlers don't need to import the checklist
+// package just to read rows.
+type ChecklistRow struct {
+	ID       string
+	TaskID   string
+	Title    string
+	Position int
+}
+
+type ChecklistItemRow struct {
+	ID          string
+	ChecklistID string
+	Title       string
+	Done        bool
+	Position    int
 }

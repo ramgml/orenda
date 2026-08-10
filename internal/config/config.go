@@ -424,6 +424,14 @@ func (c *Config) ResolveDBPath(baseDir string) string {
 	return resolveRelative(baseDir, c.Storage.DBPath)
 }
 
+// ResolveUploadsDir returns an absolute path for cfg.Uploads.Dir. The
+// attachment service reads/writes files relative to this path; without
+// resolution the working directory of the serve process becomes
+// load-bearing and uploads appear to vanish after a restart.
+func (c *Config) ResolveUploadsDir(baseDir string) string {
+	return resolveRelative(baseDir, c.Uploads.Dir)
+}
+
 func resolveRelative(base, p string) string {
 	if p == "" {
 		return base

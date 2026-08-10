@@ -222,9 +222,27 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Post("/review", reviewTaskHandler(deps))
 					r.Get("/subtasks", listSubtasksHandler(deps))
 					r.Post("/subtasks", addSubtaskHandler(deps))
+					r.Route("/subtasks/{subId}", func(r chi.Router) {
+						r.Patch("/", updateSubtaskHandler(deps))
+						r.Delete("/", deleteSubtaskHandler(deps))
+					})
+					r.Get("/checklists", listChecklistsHandler(deps))
+					r.Post("/checklists", addChecklistHandler(deps))
+					r.Route("/checklists/{clId}", func(r chi.Router) {
+						r.Delete("/", deleteChecklistHandler(deps))
+						r.Get("/items", listChecklistItemsHandler(deps))
+						r.Post("/items", addChecklistItemHandler(deps))
+						r.Route("/items/{itemId}", func(r chi.Router) {
+							r.Patch("/", updateChecklistItemHandler(deps))
+							r.Delete("/", deleteChecklistItemHandler(deps))
+						})
+					})
 					r.Get("/comments", listTaskCommentsHandler(deps))
 					r.Post("/comments", createTaskCommentHandler(deps))
 					r.Post("/attachments", addTaskAttachmentHandler(deps))
+					r.Route("/attachments/{attId}", func(r chi.Router) {
+						r.Get("/download", downloadAttachmentHandler(deps))
+					})
 					r.Get("/activity", listTaskActivityHandler(deps))
 					r.Get("/context", getTaskContextHandler(deps))
 					// Phase 4: timer endpoints
@@ -238,6 +256,12 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Route("/{id}", func(r chi.Router) {
 					r.Patch("/", patchColumnHandler(deps))
 				})
+			})
+
+			// Global attachment download — works for any task attachment
+			// regardless of which project/task it lives in.
+			r.Route("/attachments/{attId}", func(r chi.Router) {
+				r.Get("/download", downloadAttachmentHandler(deps))
 			})
 
 			// Long-poll for agents without WebSocket support. Subscribe

@@ -259,6 +259,153 @@ func (r *taskRepo) DeleteSubtask(ctx context.Context, id string) error {
 	return nil
 }
 
+// GetSubtask fetches one subtask row.
+func (r *taskRepo) GetSubtask(ctx context.Context, id string) (*task.Subtask, error) {
+	var (
+		s       task.Subtask
+		doneInt int
+	)
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, task_id, title, done, position FROM subtasks WHERE id = ?`, id,
+	).Scan(&s.ID, &s.TaskID, &s.Title, &doneInt, &s.Position)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, task.ErrNotFound
+		}
+		return nil, fmt.Errorf("task.GetSubtask: %w", err)
+	}
+	s.Done = doneInt != 0
+	return &s, nil
+}
+
+// ---------------------------------------------------------------------------
+// Checklists
+// ---------------------------------------------------------------------------
+
+func (r *taskRepo) AddChecklist(ctx context.Context, taskID, title string) (string, error) {
+	if taskID == "" || title == "" {
+		return "", errors.New("task.AddChecklist: empty taskID or title")
+	}
+	var pos int
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(position), -1) + 1 FROM checklists WHERE task_id = ?`,
+		taskID).Scan(&pos); err != nil {
+		return "", fmt.Errorf("task.AddChecklist: peek position: %w", err)
+	}
+	id := newUUID()
+	if _, err := r.db.ExecContext(ctx,
+		`INSERT INTO checklists (id, task_id, title, position) VALUES (?, ?, ?, ?)`,
+		id, taskID, title, pos); err != nil {
+		return "", fmt.Errorf("task.AddChecklist: %w", err)
+	}
+	return id, nil
+}
+
+func (r *taskRepo) ListChecklists(ctx context.Context, taskID string) ([]task.ChecklistRow, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, task_id, title, position FROM checklists
+		 WHERE task_id = ? ORDER BY position ASC`, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("task.ListChecklists: %w", err)
+	}
+	defer rows.Close()
+	out := make([]task.ChecklistRow, 0)
+	for rows.Next() {
+		var c task.ChecklistRow
+		if err := rows.Scan(&c.ID, &c.TaskID, &c.Title, &c.Position); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (r *taskRepo) DeleteChecklist(ctx context.Context, listID string) error {
+	if _, err := r.db.ExecContext(ctx,
+		`DELETE FROM checklists WHERE id = ?`, listID); err != nil {
+		return fmt.Errorf("task.DeleteChecklist: %w", err)
+	}
+	return nil
+}
+
+func (r *taskRepo) AddChecklistItem(ctx context.Context, listID, title string) (string, error) {
+	if listID == "" || title == "" {
+		return "", errors.New("task.AddChecklistItem: empty listID or title")
+	}
+	var pos int
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(position), -1) + 1 FROM checklist_items WHERE checklist_id = ?`,
+		listID).Scan(&pos); err != nil {
+		return "", fmt.Errorf("task.AddChecklistItem: peek position: %w", err)
+	}
+	id := newUUID()
+	if _, err := r.db.ExecContext(ctx,
+		`INSERT INTO checklist_items (id, checklist_id, title, done, position)
+		 VALUES (?, ?, ?, 0, ?)`,
+		id, listID, title, pos); err != nil {
+		return "", fmt.Errorf("task.AddChecklistItem: %w", err)
+	}
+	return id, nil
+}
+
+func (r *taskRepo) ListChecklistItems(ctx context.Context, listID string) ([]task.ChecklistItemRow, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, checklist_id, title, done, position
+		 FROM checklist_items WHERE checklist_id = ?
+		 ORDER BY position ASC`, listID)
+	if err != nil {
+		return nil, fmt.Errorf("task.ListChecklistItems: %w", err)
+	}
+	defer rows.Close()
+	out := make([]task.ChecklistItemRow, 0)
+	for rows.Next() {
+		var (
+			it      task.ChecklistItemRow
+			doneInt int
+		)
+		if err := rows.Scan(&it.ID, &it.ChecklistID, &it.Title, &doneInt, &it.Position); err != nil {
+			return nil, err
+		}
+		it.Done = doneInt != 0
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
+func (r *taskRepo) UpdateChecklistItem(ctx context.Context, itemID string, done *bool, title *string) error {
+	sets := ""
+	args := []any{}
+	if done != nil {
+		sets += ", done = ?"
+		v := 0
+		if *done {
+			v = 1
+		}
+		args = append(args, v)
+	}
+	if title != nil {
+		sets += ", title = ?"
+		args = append(args, *title)
+	}
+	if sets == "" {
+		return nil
+	}
+	args = append(args, itemID)
+	q := "UPDATE checklist_items SET id = id" + sets + " WHERE id = ?"
+	if _, err := r.db.ExecContext(ctx, q, args...); err != nil {
+		return fmt.Errorf("task.UpdateChecklistItem: %w", err)
+	}
+	return nil
+}
+
+func (r *taskRepo) DeleteChecklistItem(ctx context.Context, itemID string) error {
+	if _, err := r.db.ExecContext(ctx,
+		`DELETE FROM checklist_items WHERE id = ?`, itemID); err != nil {
+		return fmt.Errorf("task.DeleteChecklistItem: %w", err)
+	}
+	return nil
+}
+
 // CountByColumn returns the number of tasks in the given column.
 //
 // Includes tasks in any status (backlog, todo, in_progress, review, done).

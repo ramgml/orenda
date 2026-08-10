@@ -209,6 +209,25 @@ func (s *Service) Get(ctx context.Context, id string) (*attachment.Attachment, e
 	return s.Repo.GetByID(ctx, id)
 }
 
+// Open returns the attachment row and an open file handle ready to
+// be streamed to a client. The caller is responsible for closing the
+// returned file. Returns ErrNotFound if the row is missing or the
+// underlying file has been removed from disk.
+func (s *Service) Open(ctx context.Context, id string) (*attachment.Attachment, *os.File, error) {
+	a, err := s.Repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	f, err := os.Open(a.Path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, ErrNotFound
+		}
+		return nil, nil, fmt.Errorf("attachment.Open: %w", err)
+	}
+	return a, f, nil
+}
+
 // ListByTarget returns attachments for a target.
 func (s *Service) ListByTarget(ctx context.Context, t attachment.TargetType, targetID string) ([]*attachment.Attachment, error) {
 	return s.Repo.ListByTarget(ctx, t, targetID)

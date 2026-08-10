@@ -290,6 +290,12 @@ class ApiClient {
       .then(() => undefined)
   }
 
+  /** Build the absolute URL the browser should hit to download a file.
+   * Uses withCredentials so the session cookie is sent. */
+  taskAttachmentDownloadUrl(attachmentId: string): string {
+    return `/api/v1/attachments/${attachmentId}/download`
+  }
+
   // ---- Checklists ----
 
   listChecklists(taskId: string): Promise<{ checklists: Checklist[] }> {
@@ -316,6 +322,12 @@ class ApiClient {
   ): Promise<ChecklistItem> {
     return this.http
       .post<ChecklistItem>(`/api/v1/checklists/${checklistId}/items`, input)
+      .then((r) => r.data)
+  }
+
+  listChecklistItems(checklistId: string): Promise<{ items: ChecklistItem[] }> {
+    return this.http
+      .get<{ items: ChecklistItem[] }>(`/api/v1/checklists/${checklistId}/items`)
       .then((r) => r.data)
   }
 

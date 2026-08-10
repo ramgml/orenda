@@ -5,6 +5,8 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -215,6 +217,44 @@ func createTaskCommentHandler(deps Dependencies) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusCreated, got)
 	}
+}
+
+// downloadAttachmentHandler streams the underlying file to the
+// client. The Content-Type is the mime stored at upload time; the
+// filename is preserved in Content-Disposition so browsers save
+// with the right name.
+func downloadAttachmentHandler(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.Attachments == nil {
+			http.Error(w, "attachment service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		a, f, err := deps.Attachments.Open(r.Context(), chi.URLParam(r, "attId"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		defer f.Close()
+
+		w.Header().Set("Content-Type", a.Mime)
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", a.Size))
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, sanitizeFilename(a.Filename)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.Copy(w, f)
+	}
+}
+
+// sanitizeFilename strips a few control characters and quotes from a
+// filename so it can safely live inside an HTTP header value.
+func sanitizeFilename(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r == 0 || r == 0x7f || r == '"' || r == '\\' || r == '\n' || r == '\r' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // addTaskAttachmentHandler accepts multipart/form-data with file field.

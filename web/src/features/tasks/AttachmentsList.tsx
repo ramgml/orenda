@@ -90,12 +90,13 @@ export function AttachmentsList({
               className="flex items-center gap-2 group rounded px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-900"
             >
               <span aria-hidden className="text-slate-400">📎</span>
-              <span
-                className="flex-1 text-sm truncate"
+              <a
+                href={api.taskAttachmentDownloadUrl(a.id)}
+                className="flex-1 text-sm truncate hover:underline"
                 title={a.mime}
               >
                 {a.filename}
-              </span>
+              </a>
               <span className="text-[10px] text-slate-400">{formatSize(a.size)}</span>
               <button
                 type="button"
