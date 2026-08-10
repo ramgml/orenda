@@ -336,39 +336,50 @@ class ApiClient {
       .then((r) => r.data)
   }
 
-  deleteChecklist(checklistId: string): Promise<void> {
+  deleteChecklist(taskId: string, checklistId: string): Promise<void> {
     return this.http
-      .delete<void>(`/api/v1/checklists/${checklistId}`)
+      .delete<void>(`/api/v1/tasks/${taskId}/checklists/${checklistId}`)
       .then(() => undefined)
   }
 
   addChecklistItem(
+    taskId: string,
     checklistId: string,
     input: { title: string; position?: number },
   ): Promise<ChecklistItem> {
     return this.http
-      .post<ChecklistItem>(`/api/v1/checklists/${checklistId}/items`, input)
+      .post<ChecklistItem>(`/api/v1/tasks/${taskId}/checklists/${checklistId}/items`, input)
       .then((r) => r.data)
   }
 
-  listChecklistItems(checklistId: string): Promise<{ items: ChecklistItem[] }> {
+  listChecklistItems(
+    taskId: string,
+    checklistId: string,
+  ): Promise<{ items: ChecklistItem[] }> {
     return this.http
-      .get<{ items: ChecklistItem[] }>(`/api/v1/checklists/${checklistId}/items`)
+      .get<{ items: ChecklistItem[] }>(
+        `/api/v1/tasks/${taskId}/checklists/${checklistId}/items`,
+      )
       .then((r) => r.data)
   }
 
   updateChecklistItem(
+    taskId: string,
+    checklistId: string,
     itemId: string,
     input: Partial<{ title: string; done: boolean; position: number }>,
   ): Promise<ChecklistItem> {
     return this.http
-      .patch<ChecklistItem>(`/api/v1/checklist-items/${itemId}`, input)
+      .patch<ChecklistItem>(
+        `/api/v1/tasks/${taskId}/checklists/${checklistId}/items/${itemId}`,
+        input,
+      )
       .then((r) => r.data)
   }
 
-  deleteChecklistItem(itemId: string): Promise<void> {
+  deleteChecklistItem(taskId: string, checklistId: string, itemId: string): Promise<void> {
     return this.http
-      .delete<void>(`/api/v1/checklist-items/${itemId}`)
+      .delete<void>(`/api/v1/tasks/${taskId}/checklists/${checklistId}/items/${itemId}`)
       .then(() => undefined)
   }
 

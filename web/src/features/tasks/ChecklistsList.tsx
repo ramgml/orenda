@@ -49,7 +49,7 @@ export function ChecklistsList({
       return next
     })
     try {
-      await api.deleteChecklist(l.id)
+      await api.deleteChecklist(taskId, l.id)
     } catch {
       // ignore
     }
@@ -63,6 +63,7 @@ export function ChecklistsList({
       {lists.map((l) => (
         <ChecklistBlock
           key={l.id}
+          taskId={taskId}
           list={l}
           items={itemsByList[l.id] ?? []}
           onChange={(next) =>
@@ -91,11 +92,13 @@ export function ChecklistsList({
 }
 
 function ChecklistBlock({
+  taskId,
   list,
   items,
   onChange,
   onDelete,
 }: {
+  taskId: string
   list: Checklist
   items: ChecklistItem[]
   onChange: (next: ChecklistItem[]) => void
@@ -107,7 +110,7 @@ function ChecklistBlock({
   async function addItem(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault()
     if (!title.trim()) return
-    const it = await api.addChecklistItem(list.id, { title: title.trim() })
+    const it = await api.addChecklistItem(taskId, list.id, { title: title.trim() })
     onChange([...items, it])
     setTitle('')
   }
@@ -115,7 +118,7 @@ function ChecklistBlock({
   async function toggle(it: ChecklistItem): Promise<void> {
     onChange(items.map((x) => (x.id === it.id ? { ...x, done: !x.done } : x)))
     try {
-      await api.updateChecklistItem(it.id, { done: !it.done })
+      await api.updateChecklistItem(taskId, list.id, it.id, { done: !it.done })
     } catch {
       onChange(items.map((x) => (x.id === it.id ? { ...x, done: it.done } : x)))
     }
@@ -124,7 +127,7 @@ function ChecklistBlock({
   async function del(it: ChecklistItem): Promise<void> {
     onChange(items.filter((x) => x.id !== it.id))
     try {
-      await api.deleteChecklistItem(it.id)
+      await api.deleteChecklistItem(taskId, list.id, it.id)
     } catch {
       onChange(items)
     }

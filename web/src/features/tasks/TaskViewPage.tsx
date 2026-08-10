@@ -72,7 +72,7 @@ export function TaskViewPage(): JSX.Element {
       const pairs = await Promise.all(
         cls.map(async (l) => {
           try {
-            const r = await api.listChecklistItems(l.id)
+            const r = await api.listChecklistItems(id, l.id)
             return [l.id, r.items ?? []] as const
           } catch {
             return [l.id, [] as ChecklistItem[]] as const
