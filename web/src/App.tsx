@@ -92,6 +92,14 @@ function Shell(): JSX.Element {
  */
 function RequireAuth({ children }: { children: ReactNode }): JSX.Element {
   const { status } = useAuth()
+  // While /me is in flight, render a placeholder so react-router doesn't
+  // bounce the user to /login (and then back to / from LoginPage) on every
+  // hard reload. Only redirect once we *know* the session is anonymous.
+  if (status === 'loading') {
+    return (
+      <div className="p-6 text-sm text-slate-500">Loading…</div>
+    )
+  }
   if (status !== 'authenticated') {
     return <Navigate to="/login" replace />
   }
