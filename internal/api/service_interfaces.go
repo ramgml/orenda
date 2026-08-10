@@ -59,6 +59,10 @@ type AttachmentService interface {
 type ActivityService interface {
 	ListByTask(ctx context.Context, taskID string) ([]*activity.Activity, error)
 	ListByActor(ctx context.Context, actorType activity.ActorType, actorID string) ([]*activity.Activity, error)
+	// ListByProject aggregates activity rows from every task in a
+	// project, newest first. The limit is clamped at the repository
+	// layer (200 default, 500 maximum).
+	ListByProject(ctx context.Context, projectID string, limit int) ([]*activity.ProjectActivityEvent, error)
 }
 
 // TaskActivityService is the read surface for the task "context"

@@ -22,6 +22,7 @@ import (
 	"github.com/ramgml/orenda/internal/api"
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
+	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/attachment"
 	"github.com/ramgml/orenda/internal/domain/user"
@@ -84,6 +85,28 @@ func (a adapterForTokens) MintToken(ctx context.Context, userID, name, hash, sco
 	return row.ID, row.Name, nil
 }
 
+// activityRecorderAdapter lets the test router record task-activity
+// rows the same way production does. Without it the Phase 11 project
+// activity feed is empty.
+//
+// Production taskservice emits some events with an empty ActorID
+// (Service.Move today), but the activity model requires it. Substitute
+// a sentinel so the row makes it into the table.
+type activityRecorderAdapter struct{ repo activity.Repository }
+
+func (a activityRecorderAdapter) Record(ctx context.Context, taskID string, actorType activity.ActorType, actorID string, action activity.Action, payload string) error {
+	if actorID == "" {
+		actorID = "unknown"
+	}
+	return a.repo.Create(ctx, &activity.Activity{
+		TaskID:    taskID,
+		ActorType: actorType,
+		ActorID:   actorID,
+		Action:    action,
+		Payload:   payload,
+	})
+}
+
 const p3Email = "p3-owner@orenda.test"
 
 // buildP3Router wires a fresh router with the full Phase 3 dependency set.
@@ -116,10 +139,16 @@ func buildP3Router(t *testing.T) (http.Handler, *sqlLite) {
 
 	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
 	commentSvc := commentservice.New(sqlite.NewCommentRepository(db), hub, nil)
+	activityRepo := sqlite.NewActivityRepository(db)
+	// activityRecorderAdapter writes task-activity rows the same way
+	// production does (via the SQLite activity repo). Without this
+	// the Phase 11 project activity tab sees zero rows even after
+	// creating tasks and comments.
+	recorder := activityRecorderAdapter{repo: activityRepo}
 	taskSvc := taskservice.New(
 		sqlite.NewTaskRepository(db),
 		sqlite.NewTaskLockRepository(db),
-		nil, nil, hub,
+		recorder, nil, hub,
 	)
 
 	deps := api.Dependencies{
@@ -139,7 +168,7 @@ func buildP3Router(t *testing.T) (http.Handler, *sqlLite) {
 		),
 		Comments:    commentSvc,
 		Attachments: nil,
-		Activities:  sqlite.NewActivityRepository(db),
+		Activities:  activityRepo,
 		SyncOps:     sqlite.NewSyncOpsRepository(db),
 		WSHub:       hub,
 		CookieName:  "orenda_session",

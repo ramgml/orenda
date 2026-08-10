@@ -195,6 +195,14 @@ class ApiClient {
     return this.http.patch<Project>(`/api/v1/projects/${projectId}`, input).then((r) => r.data)
   }
 
+  getProject(projectId: string): Promise<Project> {
+    return this.http.get<Project>(`/api/v1/projects/${projectId}`).then((r) => r.data)
+  }
+
+  deleteProject(projectId: string): Promise<void> {
+    return this.http.delete<void>(`/api/v1/projects/${projectId}`).then(() => undefined)
+  }
+
   getBoard(projectId: string): Promise<ProjectBoard> {
     return this.http
       .get<ProjectBoard>(`/api/v1/projects/${projectId}/board`)
@@ -296,6 +304,24 @@ class ApiClient {
     return `/api/v1/attachments/${attachmentId}/download`
   }
 
+  // ---- Project attachments (Phase 11) ----
+
+  listProjectAttachments(projectId: string): Promise<{ attachments: TaskAttachment[] }> {
+    return this.http
+      .get<{ attachments: TaskAttachment[] }>(`/api/v1/projects/${projectId}/attachments`)
+      .then((r) => r.data)
+  }
+
+  uploadProjectAttachment(projectId: string, file: File): Promise<TaskAttachment> {
+    const form = new FormData()
+    form.append('file', file)
+    return this.http
+      .post<TaskAttachment>(`/api/v1/projects/${projectId}/attachments`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data)
+  }
+
   // ---- Checklists ----
 
   listChecklists(taskId: string): Promise<{ checklists: Checklist[] }> {
@@ -351,6 +377,21 @@ class ApiClient {
   listTaskActivity(taskId: string): Promise<{ activity: TaskActivity[] }> {
     return this.http
       .get<{ activity: TaskActivity[] }>(`/api/v1/tasks/${taskId}/activity`)
+      .then((r) => r.data)
+  }
+
+  /** Aggregate activity across every task in a project, newest first.
+   * `limit` is optional; the server defaults to 200 and clamps at 500. */
+  getProjectActivity(
+    projectId: string,
+    limit?: number,
+  ): Promise<{ activity: ProjectActivityItem[] }> {
+    const params = limit && limit > 0 ? { limit } : undefined
+    return this.http
+      .get<{ activity: ProjectActivityItem[] }>(
+        `/api/v1/projects/${projectId}/activity`,
+        { params },
+      )
       .then((r) => r.data)
   }
 
@@ -754,6 +795,13 @@ export interface TaskActivity {
   action: string
   payload: string
   created_at: string
+}
+
+/** One row in the project Activity tab. Extends TaskActivity with
+ *  the joined task title so the UI can render "X commented on Y"
+ *  without a second round-trip per row. */
+export interface ProjectActivityItem extends TaskActivity {
+  task_title: string
 }
 
 export const api = new ApiClient()

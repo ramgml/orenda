@@ -53,6 +53,59 @@ func (r *activityRepo) ListByActor(ctx context.Context, actorType activity.Actor
 	return r.query(ctx, q, string(actorType), actorID)
 }
 
+// ListByProject aggregates activity rows from every task that belongs
+// to the given project. Newest first; the SQL LIMIT clamps runaway
+// reads when a project accumulates tens of thousands of events.
+//
+// Implementation note: SQLite does not expose the joined columns
+// directly via the shared `activitySelectColumns`, so this method
+// writes its own SELECT. Keeping the column list in sync with the
+// scan below is enforced by reading the same names — see
+// `activitySelectColumns` if you add fields there.
+func (r *activityRepo) ListByProject(ctx context.Context, projectID string, limit int) ([]*activity.ProjectActivityEvent, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	const q = `
+SELECT a.id, a.task_id, a.actor_type, a.actor_id, a.action, a.payload, a.created_at,
+       t.title
+FROM task_activity a
+JOIN tasks t ON t.id = a.task_id
+WHERE t.project_id = ?
+ORDER BY a.created_at DESC
+LIMIT ?
+`
+	rows, err := r.db.QueryContext(ctx, q, projectID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("activity.ListByProject: %w", err)
+	}
+	defer rows.Close()
+	out := make([]*activity.ProjectActivityEvent, 0)
+	for rows.Next() {
+		var (
+			ev      activity.ProjectActivityEvent
+			aType   string
+			action  string
+			payload sql.NullString
+			cAt     string
+		)
+		if err := rows.Scan(
+			&ev.ID, &ev.TaskID, &aType, &ev.ActorID, &action, &payload, &cAt,
+			&ev.TaskTitle,
+		); err != nil {
+			return nil, fmt.Errorf("activity.ListByProject: scan: %w", err)
+		}
+		ev.ActorType = activity.ActorType(aType)
+		ev.Action = activity.Action(action)
+		if payload.Valid {
+			ev.Payload = payload.String
+		}
+		ev.CreatedAt = parseTime(cAt)
+		out = append(out, &ev)
+	}
+	return out, rows.Err()
+}
+
 func (r *activityRepo) query(ctx context.Context, q string, args ...any) ([]*activity.Activity, error) {
 	rows, err := r.db.QueryContext(ctx, q, args...)
 	if err != nil {
