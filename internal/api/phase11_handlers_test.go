@@ -235,19 +235,17 @@ func TestPhase11_ProjectAttachments(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code, "upload body=%s", rr.Body.String())
 
 	var up struct {
-		Attachment struct {
-			ID         string `json:"id"`
-			TargetType string `json:"target_type"`
-			TargetID   string `json:"target_id"`
-			Filename   string `json:"filename"`
-			Mime       string `json:"mime"`
-		} `json:"attachment"`
+		ID         string `json:"id"`
+		TargetType string `json:"target_type"`
+		TargetID   string `json:"target_id"`
+		Filename   string `json:"filename"`
+		Mime       string `json:"mime"`
 	}
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &up))
-	assert.Equal(t, "project", up.Attachment.TargetType, "TargetType must be 'project'")
-	assert.Equal(t, projectID, up.Attachment.TargetID)
-	assert.Equal(t, "notes.txt", up.Attachment.Filename)
-	assert.Equal(t, "text/plain", up.Attachment.Mime)
+	assert.Equal(t, "project", up.TargetType, "TargetType must be 'project'")
+	assert.Equal(t, projectID, up.TargetID)
+	assert.Equal(t, "notes.txt", up.Filename)
+	assert.Equal(t, "text/plain", up.Mime)
 
 	// List.
 	rr = p3AuthGet(router, cookie, "/api/v1/projects/"+projectID+"/attachments")
@@ -265,7 +263,7 @@ func TestPhase11_ProjectAttachments(t *testing.T) {
 	assert.Equal(t, "notes.txt", list.Attachments[0].Filename)
 
 	// Download via the global /api/v1/attachments/{id}/download route.
-	rr = p3AuthGet(router, cookie, "/api/v1/attachments/"+up.Attachment.ID+"/download")
+	rr = p3AuthGet(router, cookie, "/api/v1/attachments/"+up.ID+"/download")
 	require.Equal(t, http.StatusOK, rr.Code, "download body=%s", rr.Body.String())
 	assert.Equal(t, "notes from project tab", rr.Body.String())
 	assert.Equal(t, "text/plain", rr.Header().Get("Content-Type"))

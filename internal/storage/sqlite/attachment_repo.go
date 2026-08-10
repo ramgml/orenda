@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ramgml/orenda/internal/domain/attachment"
 )
@@ -27,15 +28,18 @@ func (r *attachmentRepo) Create(ctx context.Context, a *attachment.Attachment) e
 	if a.ID == "" {
 		a.ID = newUUID()
 	}
+	if a.CreatedAt.IsZero() {
+		a.CreatedAt = time.Now().UTC()
+	}
 
 	const q = `
 		INSERT INTO attachments (id, target_type, target_id, filename, mime, size, path, sha256,
 		                        uploaded_by_type, uploaded_by_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err := r.db.ExecContext(ctx, q,
 		a.ID, string(a.TargetType), a.TargetID, a.Filename, a.Mime, a.Size, a.Path, a.SHA256,
-		string(a.UploadedByType), a.UploadedByID,
+		string(a.UploadedByType), a.UploadedByID, a.CreatedAt.UTC().Format(time.RFC3339),
 	)
 	if err != nil {
 		return fmt.Errorf("attachment.Create: %w", err)

@@ -344,10 +344,10 @@ func addTaskAttachmentHandler(deps Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]any{
-			"attachment": res.Attachment,
-			"duplicate":  res.Duplicate,
-		})
+		if res.Duplicate {
+			w.Header().Set("X-Attachment-Duplicate", "true")
+		}
+		writeJSON(w, http.StatusCreated, res.Attachment)
 	}
 }
 
