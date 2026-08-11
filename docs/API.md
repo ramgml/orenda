@@ -79,6 +79,7 @@ Tasks awaiting human action — the union of `awaiting='human'` and `status='rev
 | GET | `/api/v1/review-queue` | `{tasks: [ReviewQueueItem], count}` |
 | GET | `/api/v1/review-queue/count` | `{count}` — cheap, used by the sidebar badge |
 | GET | `/api/v1/today` | `{overdue, due_today, scheduled_today, awaiting_count}` (Phase 20). One round-trip for the daily-driver dashboard |
+| GET/POST | `/api/v1/courses[/{id}]` | Phase 18 LMS. `POST` body: `{title, intent_md}`. `GET /{id}` returns the full tree (course + modules + lessons + quizzes + progress) |
 
 Inline accept / return goes through the standard review endpoint (`POST /api/v1/tasks/{id}/review` with `decision: approve|reject`). Approval moves the task to `done`; return moves it back to `in_progress` + `awaiting='agent'` and (optionally) records a comment the agent sees on resume.
 
@@ -101,6 +102,8 @@ Inline accept / return goes through the standard review endpoint (`POST /api/v1/
 | POST | `/api/v1/agent/tasks/{id}/release` | |
 | POST | `/api/v1/agent/tasks/{id}/submit` | |
 | GET | `/api/v1/agent/tasks/{id}/context` | 403 if not assigned |
+| GET | `/api/v1/agent/courses?status=draft` | Phase 18: list courses the tutor can claim |
+| PUT | `/api/v1/agent/courses/{id}/curriculum` | body `{modules: [{title, position, lessons: [{title, position}]}]}` — atomic swap |
 
 ## Calendar / Time
 

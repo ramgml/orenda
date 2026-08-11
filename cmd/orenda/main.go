@@ -42,6 +42,7 @@ import (
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	attachmentsvc "github.com/ramgml/orenda/internal/service/attachment"
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
+	courseservice "github.com/ramgml/orenda/internal/service/course"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
@@ -380,6 +381,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	wikiSvc.Mirror = mirrorSvc
 	searchSvc := searchservice.New(sqlite.NewSearchRepository(db), hub)
 
+	// Phase 18: courses (LMS).
+	courseRepo := sqlite.NewCourseRepository(db)
+	courseSvc := courseservice.New(courseRepo)
+
 	// Notifier (Phase 6): registry + console bot (always available) + WS
 	// hub publish. External transports land in Phase 10.
 	botRegistry := bot.NewRegistry()
@@ -492,6 +497,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		TimeService:         timeSvc,
 		WikiService:         wikiSvc,
 		SearchService:       searchSvc,
+		Courses:             courseRepo,
+		CourseService:       courseSvc,
 		Notifier:            notifierSvc,
 		Backup:              backupSvc,
 		BackupEnabled:       cfg.Backup.Enabled,
