@@ -20,6 +20,7 @@ import { BackupsSettingsPage } from '@/features/settings/Backups'
 import { BotsSettingsPage } from '@/features/settings/Bots'
 import { ReportsPage } from '@/features/reports/ReportsPage'
 import { InboxPage } from '@/features/inbox/InboxPage'
+import { ReviewPage } from '@/features/review/ReviewPage'
 import { api, type InfoResponse, type Task } from '@/shared/api/client'
 
 import { AppLayout } from '@/features/layout/AppLayout'
@@ -79,6 +80,7 @@ function Shell(): JSX.Element {
         <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
           <Route path="/" element={<Dashboard info={info} error={error} />} />
           <Route path="/inbox" element={<InboxPage />} />
+          <Route path="/review" element={<ReviewPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:id" element={<ProjectDetailPage />}>
             <Route index element={<ProjectKanbanTab />} />
