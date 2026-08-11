@@ -51,3 +51,5 @@ tui.json
 
 # --- omp (assistant-private) ---
 .omp/
+# --- Parallel agent worktrees (nested option; see AGENTS.md) ---
+.worktrees/

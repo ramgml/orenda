@@ -138,8 +138,11 @@ make lint
 Agents run in parallel and **cannot see each other**. You cannot know whether another agent is working right now — assume there is always one. Therefore every task, even a one-file docs change, gets its own worktree. The main checkout is someone else's live workspace.
 
 ```bash
-# Start of task: branch + worktree off dev, placed NEXT TO the repo (never inside)
+# Start of task: branch + worktree off dev, NEXT TO the repo (default)
 git worktree add ../orenda-<task> -b phase-X-Y-<name> dev
+
+# Legal alternative: a nested dot-directory, covered by .gitignore:
+git worktree add .worktrees/<task> -b phase-X-Y-<name> dev
 
 # ...work in ../orenda-<task>...
 
@@ -155,7 +158,7 @@ Rules:
 
 - **The main checkout is read-only for you.** No edits there; no `git checkout` / `git reset` / `git clean` / `git restore` in any checkout you didn't create. Inspecting files read-only is fine.
 - One branch = one worktree. A branch cannot be checked out in two places; create the task branch with `git worktree add -b`.
-- Worktrees live **next to** the repo (`../orenda-<task>`), never inside it — a nested worktree breaks `go test ./...` and other tooling in the main tree.
+- Placement: **sibling `../orenda-<task>` is the default** (zero config, zero tooling risk). A nested `.worktrees/<task>` is also legal **only because** `.worktrees/` is in `.gitignore` — the leading dot keeps Go tooling out (`go test ./...` skips dot-dirs) and gitignore keeps `git add -A`, search and watchers clean. Any other nested location is forbidden: an unignored nested checkout breaks the main tree (embedded-repo index garbage, duplicate module builds, watcher storms).
 - Gitignored content is not copied. In a fresh worktree run `npm install` in `web/` and `./bin/orenda migrate up` (each worktree gets its own `data/orenda.db`).
 - Port 2137 is singleton: run a second instance with `ORENDA_SERVER__PORT=<other>` or don't run it at all.
 - Merge to `dev` is a deliberate act: only after review, and never against someone's uncommitted work in the main tree.
