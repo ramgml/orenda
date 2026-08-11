@@ -94,6 +94,22 @@ export interface Task {
   awaiting: string
   context_md?: string
   agent_notes?: string
+  /** Calendar fields (Phase 12/14). A task with both start_at and
+   * end_at shows on the calendar; otherwise it's a plain kanban row. */
+  start_at?: string
+  end_at?: string
+  all_day?: boolean
+  /** Phase 13: hex colour label rendered as a left stripe on cards
+   * and on the task sidebar. Empty string (default) means no stripe.
+   * The backend always emits this field so PATCH responses can
+   * distinguish "no change" from "cleared". */
+  color: string
+  /** Phase 13: tag set attached to this task. Populated by the
+   * server on GET /tasks/{id} (always returned) and on the kanban
+   * list endpoint when the batch enrichment is on (Phase 17 will
+   * wire that enrichment; until then the field stays undefined on
+   * list responses and the UI falls back to []). */
+  tags?: Tag[]
   due_at?: string
   started_at?: string
   claimed_at?: string
@@ -103,6 +119,13 @@ export interface Task {
   position: number
   created_at: string
   updated_at: string
+}
+
+/** Phase 13: a global label that can be attached to tasks. */
+export interface Tag {
+  id: string
+  name: string
+  color?: string
 }
 
 export interface Agent {
@@ -417,6 +440,37 @@ class ApiClient {
     return this.http
       .delete<void>(`/api/v1/tasks/${taskId}/checklists/${checklistId}/items/${itemId}`)
       .then(() => undefined)
+  }
+
+  // ---- Tags (Phase 13) ----
+
+  listTags(): Promise<{ tags: Tag[] }> {
+    return this.http.get<{ tags: Tag[] }>('/api/v1/tags').then((r) => r.data)
+  }
+
+  createTag(input: { name: string; color?: string }): Promise<Tag> {
+    return this.http.post<Tag>('/api/v1/tags', input).then((r) => r.data)
+  }
+
+  updateTag(id: string, input: { name?: string; color?: string }): Promise<Tag> {
+    return this.http.patch<Tag>(`/api/v1/tags/${id}`, input).then((r) => r.data)
+  }
+
+  deleteTag(id: string): Promise<void> {
+    return this.http.delete<void>(`/api/v1/tags/${id}`).then(() => undefined)
+  }
+
+  listTaskTags(taskId: string): Promise<{ tags: Tag[] }> {
+    return this.http
+      .get<{ tags: Tag[] }>(`/api/v1/tasks/${taskId}/tags`)
+      .then((r) => r.data)
+  }
+
+  /** Replace the task's tag set atomically. Empty array = clear. */
+  setTaskTags(taskId: string, tagIds: string[]): Promise<{ tags: Tag[] }> {
+    return this.http
+      .put<{ tags: Tag[] }>(`/api/v1/tasks/${taskId}/tags`, { tag_ids: tagIds })
+      .then((r) => r.data)
   }
 
   // ---- Activity log ----

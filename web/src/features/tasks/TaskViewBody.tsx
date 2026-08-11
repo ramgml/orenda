@@ -7,6 +7,7 @@ import {
   type Checklist,
   type ChecklistItem,
   type Comment as TaskComment,
+  type Tag,
   type Task,
   type TaskActivity,
   type TaskAttachment,
@@ -19,6 +20,7 @@ import { CommentsList } from './CommentsList'
 import { ChildTasksList } from './ChildTasksList'
 import { AttachmentsList } from './AttachmentsList'
 import { ChecklistsList } from './ChecklistsList'
+import { TagsList } from './TagsList'
 import { TaskLink } from './TaskModal'
 
 /**
@@ -55,6 +57,7 @@ export function TaskViewBody({
   const [checklistItems, setChecklistItems] = useState<Record<string, ChecklistItem[]>>({})
   const [activity, setActivity] = useState<TaskActivity[]>([])
   const [comments, setComments] = useState<TaskComment[]>([])
+  const [tags, setTags] = useState<Tag[]>([])
   const [error, setError] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
   const [busy, setBusy] = useState(false)
@@ -62,13 +65,14 @@ export function TaskViewBody({
 
   async function load(): Promise<void> {
     try {
-      const [t, childrenR, attR, actR, comments, clR] = await Promise.all([
+      const [t, childrenR, attR, actR, comments, clR, tagsR] = await Promise.all([
         api.getTask(taskId),
         api.listChildTasks(taskId),
         api.listTaskAttachments(taskId),
         api.listTaskActivity(taskId),
         api.listTaskComments(taskId),
         api.listChecklists(taskId),
+        api.listTaskTags(taskId),
       ])
       setTask(t)
       // Lazily fetch the parent for the breadcrumb. Done after
@@ -106,6 +110,7 @@ export function TaskViewBody({
       const next: Record<string, ChecklistItem[]> = {}
       for (const [id, its] of pairs) next[id] = its
       setChecklistItems(next)
+      setTags(tagsR.tags ?? [])
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -187,6 +192,22 @@ export function TaskViewBody({
     setBusy(true)
     try {
       const t = await api.patchTask(taskId, { title: title.trim() })
+      setTask(t)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Color patch. Empty string explicitly clears the colour label
+  // (per the *string semantics in the backend). The picker always
+  // shows a value; "clear" is its own button so users have an
+  // obvious path to remove the stripe.
+  const onSaveColor = async (color: string): Promise<void> => {
+    setBusy(true)
+    try {
+      const t = await api.patchTask(taskId, { color })
       setTask(t)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -358,6 +379,8 @@ export function TaskViewBody({
           </div>
         )}
         {task.due_at && <SidebarField label="Due" value={task.due_at} />}
+        <ColorPicker value={task.color} onSave={onSaveColor} busy={busy} />
+        <TagsList taskId={taskId} initial={tags} />
         <div className="rounded border border-slate-200 dark:border-slate-800 p-3">
           <p className="text-xs text-slate-500 mb-1">Time tracking</p>
           <p className="font-mono mb-2">{(task.time_spent_s / 60).toFixed(1)} min</p>
@@ -551,6 +574,75 @@ function SidebarField({ label, value }: { label: string; value: string }): JSX.E
   )
 }
 
+/**
+ * Colour label picker (Phase 13).
+ *
+ * The picker is debounced implicitly by blur — we only call onSave
+ * when the input loses focus or the user picks a colour. This keeps
+ * the backend round-trips to one per change instead of one per
+ * keystroke, and avoids emitting activity rows for intermediate
+ * values.
+ *
+ * Layout: small swatch (input[type=color]) + hex readout + "clear"
+ * button. The swatch is the actual picker; the hex text is just a
+ * human-readable echo.
+ */
+function ColorPicker({
+  value,
+  onSave,
+  busy,
+}: {
+  value: string
+  onSave: (color: string) => Promise<void>
+  busy: boolean
+}): JSX.Element {
+  const [draft, setDraft] = useState(value)
+
+  // Re-sync draft when the parent task reloads (WS event, save
+  // round-trip, etc.). Without this, an external colour change
+  // wouldn't show up until the user unfocused the picker.
+  useEffect(() => {
+    setDraft(value)
+  }, [value])
+
+  function commit(next: string): void {
+    if (next === value) return
+    setDraft(next)
+    void onSave(next)
+  }
+
+  return (
+    <div className="rounded border border-slate-200 dark:border-slate-800 p-3 space-y-2">
+      <p className="text-xs text-slate-500">Colour label</p>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={draft || '#3b82f6'}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => commit(draft)}
+          disabled={busy}
+          className="h-7 w-9 rounded border border-slate-300 dark:border-slate-700 bg-transparent cursor-pointer"
+          title="Pick a colour"
+        />
+        <span className="font-mono text-xs text-slate-600 dark:text-slate-300 flex-1">
+          {draft || 'none'}
+        </span>
+        {draft && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => commit('')}
+            className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 text-xs disabled:opacity-50"
+            title="Remove the colour label"
+          >
+            clear
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ActivityLog({ items }: { items: TaskActivity[] }): JSX.Element {
   // Action verbs we render as a human label.
   const verb: Record<string, string> = {
@@ -574,6 +666,8 @@ function ActivityLog({ items }: { items: TaskActivity[] }): JSX.Element {
     'task.checklist_added': 'added a checklist',
     'task.checklist_item_added': 'added a checklist item',
     'task.checklist_item_done': 'completed a checklist item',
+    'task.tags_replaced': 'changed the tag set',
+    'task.color_changed': 'changed the colour label',
   }
   // Most recent first.
   const sorted = useMemo(

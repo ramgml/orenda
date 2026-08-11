@@ -282,6 +282,218 @@ func (r *taskRepo) ChildProgress(ctx context.Context, parentID string) (total, d
 }
 
 // ---------------------------------------------------------------------------
+// Tags (Phase 13)
+// ---------------------------------------------------------------------------
+//
+// The `tags` table is a global label vocabulary (name is unique
+// across the database, not scoped to a project). Tasks link to tags
+// through the many-to-many `task_tags` join with ON DELETE CASCADE so
+// removing a task or a tag cleans up the links automatically.
+//
+// SetTaskTags is the only write path used by the API — it's a single
+// transaction (DELETE then bulk INSERT) so the user never observes a
+// half-updated set. Callers (the handler) should compare the
+// desired set to the current one and skip the call when nothing
+// changed to avoid noise in the activity feed.
+
+func (r *taskRepo) ListTags(ctx context.Context) ([]task.Tag, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, name, COALESCE(color, '') FROM tags ORDER BY name ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("task.ListTags: %w", err)
+	}
+	defer rows.Close()
+	out := make([]task.Tag, 0)
+	for rows.Next() {
+		var t task.Tag
+		if err := rows.Scan(&t.ID, &t.Name, &t.Color); err != nil {
+			return nil, fmt.Errorf("task.ListTags: scan: %w", err)
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (r *taskRepo) GetTagByID(ctx context.Context, id string) (*task.Tag, error) {
+	var t task.Tag
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, name, COALESCE(color, '') FROM tags WHERE id = ?`, id,
+	).Scan(&t.ID, &t.Name, &t.Color)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, task.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("task.GetTagByID: %w", err)
+	}
+	return &t, nil
+}
+
+func (r *taskRepo) CreateTag(ctx context.Context, t *task.Tag) error {
+	if err := t.Validate(); err != nil {
+		return err
+	}
+	if t.ID == "" {
+		t.ID = newUUID()
+	}
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO tags (id, name, color) VALUES (?, ?, ?)`,
+		t.ID, t.Name, nullString(t.Color))
+	if err != nil {
+		// UNIQUE(name) violation surfaces here; callers translate to 409.
+		return fmt.Errorf("task.CreateTag: %w", err)
+	}
+	return nil
+}
+
+func (r *taskRepo) UpdateTag(ctx context.Context, t *task.Tag) error {
+	if err := t.Validate(); err != nil {
+		return err
+	}
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE tags SET name = ?, color = ? WHERE id = ?`,
+		t.Name, nullString(t.Color), t.ID)
+	if err != nil {
+		return fmt.Errorf("task.UpdateTag: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return task.ErrNotFound
+	}
+	return nil
+}
+
+func (r *taskRepo) DeleteTag(ctx context.Context, id string) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM tags WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("task.DeleteTag: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return task.ErrNotFound
+	}
+	return nil
+}
+
+// ListTagsForTask returns every tag attached to the given task,
+// ordered by name. Used by the task detail endpoint; the kanban
+// list endpoint uses TagsForTasks (batch) instead.
+func (r *taskRepo) ListTagsForTask(ctx context.Context, taskID string) ([]task.Tag, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT t.id, t.name, COALESCE(t.color, '')
+		FROM tags t
+		JOIN task_tags tt ON tt.tag_id = t.id
+		WHERE tt.task_id = ?
+		ORDER BY t.name ASC`, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("task.ListTagsForTask: %w", err)
+	}
+	defer rows.Close()
+	out := make([]task.Tag, 0)
+	for rows.Next() {
+		var t task.Tag
+		if err := rows.Scan(&t.ID, &t.Name, &t.Color); err != nil {
+			return nil, fmt.Errorf("task.ListTagsForTask: scan: %w", err)
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// SetTaskTags replaces the tag set for a task atomically.
+//
+// Implementation notes:
+//   - The DELETE+INSERT pair runs inside a single transaction. If the
+//     INSERT fails (e.g. an id that no longer exists) the DELETE is
+//     rolled back, so the task keeps its previous tag set.
+//   - We don't validate the tag IDs here; a bad id simply results in
+//     a FK violation (ON DELETE CASCADE keeps this table clean).
+//     Callers should pre-validate when surfacing a clean error to the
+//     UI (the handler does this).
+//   - De-dup is implicit: the join table's PRIMARY KEY (task_id, tag_id)
+//     makes a second insert of the same pair a no-op via INSERT OR
+//     IGNORE (modernc/sqlite honours it for UNIQUE/PK violations).
+func (r *taskRepo) SetTaskTags(ctx context.Context, taskID string, tagIDs []string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("task.SetTaskTags: begin: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err = tx.ExecContext(ctx, `DELETE FROM task_tags WHERE task_id = ?`, taskID); err != nil {
+		return fmt.Errorf("task.SetTaskTags: delete: %w", err)
+	}
+	for _, id := range tagIDs {
+		if id == "" {
+			continue
+		}
+		if _, err = tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO task_tags (task_id, tag_id) VALUES (?, ?)`,
+			taskID, id); err != nil {
+			return fmt.Errorf("task.SetTaskTags: insert: %w", err)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("task.SetTaskTags: commit: %w", err)
+	}
+	return nil
+}
+
+// TagsForTasks returns the tag set for every task in taskIDs in a
+// single round-trip. Result is keyed by task id; every input id
+// appears in the map (tasks with no tags get an empty slice, not a
+// missing key). This makes the kanban enrichment loop safe — code
+// can iterate `range got` without nil checks per card.
+func (r *taskRepo) TagsForTasks(ctx context.Context, taskIDs []string) (map[string][]task.Tag, error) {
+	out := make(map[string][]task.Tag, len(taskIDs))
+	if len(taskIDs) == 0 {
+		return out, nil
+	}
+	// Pre-populate so tasks without tags still surface as empty
+	// slices (not missing keys). Saves the caller from having to
+	// know which task ids are in the input.
+	for _, id := range taskIDs {
+		out[id] = []task.Tag{}
+	}
+	// Build a "?, ?, ?" placeholder string for the IN clause.
+	placeholders := strings.Repeat("?, ", len(taskIDs)-1) + "?"
+	args := make([]any, 0, len(taskIDs))
+	for _, id := range taskIDs {
+		args = append(args, id)
+	}
+	q := `
+		SELECT tt.task_id, t.id, t.name, COALESCE(t.color, '')
+		FROM task_tags tt
+		JOIN tags t ON t.id = tt.tag_id
+		WHERE tt.task_id IN (` + placeholders + `)
+		ORDER BY tt.task_id ASC, t.name ASC`
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("task.TagsForTasks: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			taskID string
+			t      task.Tag
+		)
+		if err := rows.Scan(&taskID, &t.ID, &t.Name, &t.Color); err != nil {
+			return nil, fmt.Errorf("task.TagsForTasks: scan: %w", err)
+		}
+		out[taskID] = append(out[taskID], t)
+	}
+	return out, rows.Err()
+}
+
+// ---------------------------------------------------------------------------
 // Checklists
 // ---------------------------------------------------------------------------
 

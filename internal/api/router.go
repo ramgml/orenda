@@ -233,6 +233,9 @@ func NewRouter(deps Dependencies) http.Handler {
 					// Create a child through POST /api/v1/projects/:pid/tasks
 					// with `parent_task_id` set; list with GET /children.
 					r.Get("/children", listChildTasksHandler(deps))
+					// Phase 13: per-task tag assignment.
+					r.Get("/tags", listTaskTagsHandler(deps))
+					r.Put("/tags", setTaskTagsHandler(deps))
 					r.Get("/checklists", listChecklistsHandler(deps))
 					r.Post("/checklists", addChecklistHandler(deps))
 					r.Route("/checklists/{clId}", func(r chi.Router) {
@@ -265,6 +268,16 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Patch("/", patchColumnHandler(deps))
 					// Phase 12.6: delete a (must be empty) column.
 					r.Delete("/", deleteColumnHandler(deps))
+				})
+			})
+
+			// Phase 13: tag catalogue (global — not per-project).
+			r.Route("/tags", func(r chi.Router) {
+				r.Get("/", listTagsHandler(deps))
+				r.Post("/", createTagHandler(deps))
+				r.Route("/{id}", func(r chi.Router) {
+					r.Patch("/", patchTagHandler(deps))
+					r.Delete("/", deleteTagHandler(deps))
 				})
 			})
 

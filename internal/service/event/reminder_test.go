@@ -84,6 +84,28 @@ func (f *fakeRepo) UpdateChecklistItem(context.Context, string, *bool, *string) 
 }
 func (f *fakeRepo) DeleteChecklistItem(context.Context, string) error { return nil }
 
+// Phase 13 tag stubs. The reminder scheduler never reads tags, but
+// the new Repository interface requires them; returning empty is
+// fine because no test depends on tag content here.
+func (f *fakeRepo) ListTags(context.Context) ([]task.Tag, error) { return nil, nil }
+func (f *fakeRepo) GetTagByID(context.Context, string) (*task.Tag, error) {
+	return nil, task.ErrNotFound
+}
+func (f *fakeRepo) CreateTag(context.Context, *task.Tag) error { return nil }
+func (f *fakeRepo) UpdateTag(context.Context, *task.Tag) error { return nil }
+func (f *fakeRepo) DeleteTag(context.Context, string) error    { return nil }
+func (f *fakeRepo) ListTagsForTask(context.Context, string) ([]task.Tag, error) {
+	return nil, nil
+}
+func (f *fakeRepo) SetTaskTags(context.Context, string, []string) error { return nil }
+func (f *fakeRepo) TagsForTasks(context.Context, []string) (map[string][]task.Tag, error) {
+	// The reminder path doesn't read tags, so an empty (non-nil) map
+	// is the right "nothing here" answer. Returning nil,true would
+	// trip the nilnil linter, and returning nil,false would force
+	// callers to nil-check.
+	return map[string][]task.Tag{}, nil
+}
+
 // withStart helper — Set StartAt + EndAt on a task for the fake.
 func withStart(t *task.Task, start time.Time) *task.Task {
 	t.StartAt = &start
