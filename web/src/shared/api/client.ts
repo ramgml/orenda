@@ -661,6 +661,24 @@ class ApiClient {
     return this.http.get<{ count: number }>(`/api/v1/review-queue/count`).then((r) => r.data)
   }
 
+  // ---- Today (Phase 20) ----
+
+  getToday(): Promise<{
+    overdue: Task[]
+    due_today: Task[]
+    scheduled_today: Task[]
+    awaiting_count: number
+  }> {
+    return this.http
+      .get<{
+        overdue: Task[]
+        due_today: Task[]
+        scheduled_today: Task[]
+        awaiting_count: number
+      }>(`/api/v1/today`)
+      .then((r) => r.data)
+  }
+
   // ---- Task dependencies (Phase 15) ----
   //
   // PUT replaces the full blocker set in one shot — empty array clears.

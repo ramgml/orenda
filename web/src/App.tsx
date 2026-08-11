@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from 'react'
-import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import { AuthProvider, useAuth } from '@/features/auth/AuthContext'
 import { LoginPage } from '@/features/auth/LoginPage'
@@ -22,7 +22,8 @@ import { ReportsPage } from '@/features/reports/ReportsPage'
 import { InboxPage } from '@/features/inbox/InboxPage'
 import { QuickCapture } from '@/features/inbox/QuickCapture'
 import { ReviewPage } from '@/features/review/ReviewPage'
-import { api, type InfoResponse, type Task } from '@/shared/api/client'
+import { TodayPage } from '@/features/today/TodayPage'
+import { api, type InfoResponse } from '@/shared/api/client'
 
 import { AppLayout } from '@/features/layout/AppLayout'
 
@@ -46,13 +47,14 @@ export function App(): JSX.Element {
 
 function Shell(): JSX.Element {
   const [info, setInfo] = useState<InfoResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     api
       .info()
       .then(setInfo)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .catch(() => {
+        /* info stays null; Footer renders '…' for the version */
+      })
   }, [])
 
   // Modal-on-top trick: when the current location was reached with a
@@ -79,7 +81,7 @@ function Shell(): JSX.Element {
         {/* Authenticated app: sidebar + page content (Phase pre-11),
             with the Phase 11 nested project tabs. */}
         <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
-          <Route path="/" element={<Dashboard info={info} error={error} />} />
+          <Route path="/" element={<TodayPage />} />
           <Route path="/inbox" element={<InboxPage />} />
           <Route path="/review" element={<ReviewPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
@@ -150,154 +152,10 @@ function RequireAuth({ children }: { children: ReactNode }): JSX.Element {
   return <>{children}</>
 }
 
-function Dashboard({ info, error }: { info: InfoResponse | null; error: string | null }): JSX.Element {
-  return (
-    <section className="space-y-4">
-      <h1 className="text-2xl font-semibold">Dashboard</h1>
-
-      {error && (
-        <div className="rounded border border-red-300 bg-red-50 text-red-800 p-3 text-sm">
-          Failed to reach backend: {error}
-        </div>
-      )}
-
-      <Stats />
-
-      {info && (
-        <div className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950">
-          <div className="text-sm text-slate-500">Server</div>
-          <div className="text-lg font-mono">
-            {info.name} {info.version}
-          </div>
-          <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-            {Object.entries(info.capabilities).map(([k, v]) => (
-              <span
-                key={k}
-                className={`px-2 py-1 rounded ${
-                  v ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-500'
-                }`}
-              >
-                {k}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-    </section>
-  )
-}
-
-// Stats — four live cards with project/task/agent/event counts. Each
-// card links to its section so the dashboard is a navigation hub as
-// much as a status screen.
-function Stats(): JSX.Element {
-  const [projects, setProjects] = useState<number | null>(null)
-  const [openTasks, setOpenTasks] = useState<number | null>(null)
-  const [agents, setAgents] = useState<number | null>(null)
-  const [events, setEvents] = useState<number | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    async function load(): Promise<void> {
-      try {
-        const [proj, ag] = await Promise.all([api.listProjects(), api.listAgents()])
-        if (cancelled) return
-        setProjects(proj.length)
-        setAgents(ag.length)
-        // Open tasks: sum of tasks where status !== 'done' across projects.
-        // We piggyback on listProjectTasks; small projects make this fine.
-        const allTasks = await Promise.all(
-          proj.map((p) => api.listProjectTasks(p.id).catch(() => [] as Task[])),
-        )
-        if (cancelled) return
-        const open = allTasks
-          .flat()
-          .filter((t) => t.status !== 'done')
-          .length
-        setOpenTasks(open)
-        // Upcoming events in the next 7 days.
-        const now = new Date()
-        const week = new Date(now)
-        week.setDate(week.getDate() + 7)
-        const evs = await api
-          .listEvents({
-            from: now.toISOString(),
-            to: week.toISOString(),
-          })
-          .catch(() => [])
-        if (cancelled) return
-        setEvents(evs.length)
-      } catch (e) {
-        if (!cancelled) setErr(e instanceof Error ? e.message : String(e))
-      }
-    }
-    load()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  return (
-    <div className="space-y-2">
-      {err && (
-        <div className="rounded border border-amber-300 bg-amber-50 text-amber-800 p-2 text-xs">
-          Could not load stats: {err}
-        </div>
-      )}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard
-          to="/projects"
-          label="Projects"
-          value={projects}
-          accent="bg-orenda-100 dark:bg-orenda-900/30 text-orenda-700 dark:text-orenda-300"
-        />
-        <StatCard
-          to="/"
-          label="Open tasks"
-          value={openTasks}
-          accent="bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
-        />
-        <StatCard
-          to="/agents"
-          label="Agents"
-          value={agents}
-          accent="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
-        />
-        <StatCard
-          to="/calendar"
-          label="Events (7d)"
-          value={events}
-          accent="bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300"
-        />
-      </div>
-    </div>
-  )
-}
-
-function StatCard({
-  to,
-  label,
-  value,
-  accent,
-}: {
-  to: string
-  label: string
-  value: number | null
-  accent: string
-}): JSX.Element {
-  return (
-    <Link
-      to={to}
-      className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 hover:border-orenda-500 transition"
-    >
-      <div className="text-xs text-slate-500 uppercase tracking-wide">{label}</div>
-      <div className={`mt-2 inline-block px-3 py-1 rounded font-mono text-2xl ${accent}`}>
-        {value === null ? '…' : value}
-      </div>
-    </Link>
-  )
-}
+// Phase 20: Dashboard was the home route; replaced by TodayPage
+// (overdue / due-today / scheduled / awaiting in one screen). The
+// old Stats component has been removed; the same data is reachable
+// through Reports + the project sidebar.
 
 function Placeholder({ title }: { title: string }): JSX.Element {
   return (
