@@ -1275,6 +1275,68 @@ make build
 
 ---
 
+## Phase 26 — Верификация фронтенда: E2E smoke + component coverage *(3–4 дня)*
+
+**Цель:** регрессии фронтенда ловятся тестами, а не глазами при dogfooding. Два слоя: **vitest** — логика страниц и компонентов (инфраструктура уже есть), **Playwright** — критические потоки целиком против реального бинаря (роутинг + REST + WS + auth). Отменяет зафиксированное ранее решение пропустить E2E (SESSION.md 2026-08-08, «Что можно дальше»).
+
+**Контекст (что уже есть):**
+
+- vitest + Testing Library + jsdom; конфиг `web/vitest.config.ts` (environment `node`, jsdom opt-in через `// @vitest-environment jsdom` в шапке файла, alias `@`); 11 тестов: утилиты/хуки + `TaskCard`, `ProjectDetailPage`, `TaskTagChip`.
+- `make test` гоняет только Go; фронтенд-тесты — `cd web && npm run test` (волновые правила требуют `make test && npx vitest`).
+- Покрытия нет у 13 из 16 feature-директорий: auth, today, inbox, review, calendar, wiki, search, notifications, settings, agents, reports, attachments, layout.
+- Бинарь self-contained: `orenda serve` отдаёт embedded SPA — E2E поднимается без dev-сервера. Seed через CLI (`orenda user create --password-stdin`) и REST (агент для review-потока создаётся через user-JWT API, затем claim/submit через `/api/v1/agent/*`).
+- Порт 2137 — singleton (AGENTS.md): тестовый инстанс на `ORENDA_SERVER__PORT=<test-port>` с временной data-директорией (env-override конфига, см. `internal/config`).
+- CI в проекте нет — гейты локальные (`make`).
+
+**Ключевые решения:**
+
+- Только Chromium (`npx playwright install chromium`) — local-first, одного браузера достаточно; браузерная матрица — overkill.
+- Playwright `webServer` управляет жизненным циклом: `./bin/orenda serve` на тестовом порту, readiness по `/healthz`; global setup готовит tmp `data/`, `migrate up`, seed user/проект/задачу. Сборка бинаря — precondition `make test-e2e`, не playwright.
+- E2E — smoke, не exhaustive: 6–8 спек на критические потоки; глубокая логика остаётся на vitest.
+- `make test` после фазы = Go + vitest; E2E — отдельный `make test-e2e` (тяжёлые браузеры, не на каждый коммит).
+
+### Tasks
+
+- [ ] **26.1** Playwright scaffold (`web/`):
+  - devDep `@playwright/test`; `playwright.config.ts`: `baseURL` из env, `retries: 1` (flake-guard), trace `on-first-retry`.
+  - Global setup: tmp `data/`, `migrate up`, seed user (CLI), базовый проект + задача (REST).
+  - `webServer`: запуск `./bin/orenda serve` с тестовым портом и tmp data; reuse существующего сервера запрещён (чистая БД обязательна).
+  - npm scripts: `test:e2e`, `test:e2e:ui` (отладка).
+- [ ] **26.2** E2E smoke-спеки (`web/e2e/`, 6–8 штук):
+  - auth: незалогиненный `/projects` → редирект на `/login` → логин → возврат на исходный путь (контракт `RequireAuth`).
+  - Today: секции overdue / due_today / scheduled / awaiting рендерятся; seed-задача в нужной секции.
+  - Quick capture: `q` открывает модалку, `Cmd/Ctrl+Enter` сабмитит → toast «Open task» → задача видна в Inbox.
+  - Канбан: создать задачу → карточка в колонке; перенос dnd (pointer events с движением) → после reload позиция сохранена.
+  - Review: seed агент → claim+submit по REST → `/review` показывает карточку → Accept → задача done; Return без комментария заблокирован.
+  - WS live-update: открытая `/review` и бейдж в сайдбаре обновляются при submit через API без reload.
+- [ ] **26.3** vitest component coverage (jsdom-pragma по месту, `fireEvent` из Testing Library):
+  - `RequireAuth` (redirect + сохранение пути), `LoginPage` (submit → api, показ ошибки 401).
+  - `TodayPage` (секции по мок-payload `/api/v1/today`), `QuickCapture` (hotkey, submit, toast).
+  - `ReviewPage` (inline Accept/Return; Return требует комментарий).
+  - `NotificationBell` (badge count, dedup), live-бейдж ревью в сайдбаре.
+  - Канбан: чистая логика позиций/reorder (не сам dnd-kit в jsdom).
+  - Критерий: каждая из 13 непокрытых feature-директорий получает ≥1 тест; страницы критических потоков покрыты.
+- [ ] **26.4** Wiring и документация:
+  - `Makefile`: `test` += `cd web && npm run test`; новый таргет `test-e2e` (build + playwright).
+  - PLAN: волновое правило `make test && npx vitest` сворачивается в `make test`.
+  - `docs/SESSION.md` — отметить снятие E2E-пропуска.
+
+### Definition of Done
+
+- `make test` зелёный (Go + vitest) на `dev`.
+- `make test-e2e` зелёный против свежесобранного бинаря на чистой БД; два прогона подряд — без флейков.
+- Mutation check: один smoke-поток намеренно сломан в коде — спека падает (доказательство, что тест проверяет поведение).
+
+### Что НЕ делаем в этой фазе
+
+- Матрицу браузеров и мобильные viewport'ы (Chromium/desktop достаточно для local-first).
+- Visual regression (screenshot diff) — отдельная история при появлении дизайн-системы.
+- E2E для PWA/offline (service worker + Playwright = флейки; outbox уже покрыт unit-тестом).
+- Coverage-цели в процентах; покрываем потоки, а не цифру.
+- CI-интеграцию (CI нет; `make test-e2e` — локальный/предрелизный гейт).
+
+---
+
 ## DB Schema (для миграции 001_init.sql)
 
 > Подробная схема появится в Phase 1. Ниже — скелет.
@@ -1605,6 +1667,7 @@ CREATE INDEX idx_backup_log_created ON backup_log(created_at);
 | **P1** | 22 Restore | Страховка данных; дёшево и независимо |
 | **P1** | 25 Agent DX (MCP/CLI/skill) | Подключение агентов за минуты; после 15 |
 | **P1** | 18 Курсы | Главная продуктовая дифференциация; крупная — после стабилизации P0-ядра (владелец может поднять) |
+| **P1** | 26 Верификация фронтенда | Надёжность dogfooding: регрессии UI сейчас ловятся глазами; волн не ждёт — фазы 13–25 смержены |
 | **P2** | 13 Теги | Nice-to-have; карточки и так перегружаются в 17 |
 | **P2** | 24 OpenAPI+stats | MCP (25) — лучшая поверхность для агентов; спека держится последней из-за route-coverage теста |
 
@@ -1691,3 +1754,4 @@ Wave 2 (после Wave 1):
 | 2026-08-11 | 0.10.0 | Phase 25: agent DX — MCP server, CLI (orenda agent), skill-пакет |
 | 2026-08-11 | 0.11.0 | Волновой план параллельного выполнения фаз 13–25 (миграции, горячие файлы, волны) |
 | 2026-08-11 | 0.12.0 | Приоритеты фаз P0/P1/P2 (видение, dogfooding, надёжность) |
+| 2026-08-11 | 0.13.0 | Phase 26: верификация фронтенда — Playwright E2E smoke + vitest component coverage (отмена решения «E2E пропускаем») |
