@@ -48,3 +48,6 @@ logs/
 opencode.json
 opencode.json.tui-migration.bak
 tui.json
+
+# --- omp (assistant-private) ---
+.omp/

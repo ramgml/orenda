@@ -130,6 +130,24 @@ make lint
 - Promote to `main` via PR from `dev` when ready. Tag release: `git tag vX.Y.Z`.
 - See `CHANGELOG.md` for versioning policy and release notes.
 
+### Parallel work with git worktree
+
+When several phase branches are in flight at once (e.g. parallel AI agents), use worktrees instead of switching branches in the main checkout:
+
+```bash
+git worktree add -b phase-12-custom-columns ../orenda-phase12 dev
+git worktree list
+git worktree remove ../orenda-phase12   # after merge; then `git worktree prune`
+```
+
+Rules:
+
+- One branch = one worktree. A branch cannot be checked out in two places; create the phase branch with `git worktree add -b`.
+- Worktrees live **next to** the repo (`../orenda-<phase>`), never inside it.
+- Gitignored content is not copied. In a fresh worktree run `npm install` in `web/` and `./bin/orenda migrate up` (each worktree gets its own `data/orenda.db`).
+- Port 2137 is singleton: run a second instance with `ORENDA_SERVER__PORT=<other>` or don't run it at all.
+- Remove the worktree right after its branch is merged; run `git worktree prune` occasionally.
+
 ## License
 
 MIT (to be confirmed before first release).
