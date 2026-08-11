@@ -6,9 +6,9 @@
  *   │ Orenda              [user avatar]   │  ← SidebarHeader (logo + user)
  *   │ ─────────────────────────────────── │
  *   │ [+ New project]                      │  ← NewProjectInline
- *   │ ✉  Inbox [System]    0        (no ★) │  ← SidebarProjectItem (pinned, system)
+ *   │ ✉  Inbox                7           │  ← static Inbox link (Phase 16)
  *   │ ──── Pinned (2) ──────────────────►  │
- *   │ •• Orenda          7 ★              │  ← SidebarProjectItem
+ *   │ •• Orenda          4 ★              │  ← SidebarProjectItem
  *   │ •• Site            0 ★              │
  *   │ ──── Active (4) ──────────────────►  │
  *   │ •• Blog            3                │
@@ -22,10 +22,11 @@
  *   │ ⤢  Collapse sidebar                  │  ← SidebarToggle
  *   └─────────────────────────────────────┘
  *
- * The Inbox is treated as a system project: it always sits at the top
- * of the rail (regardless of alphabet order or pin state), cannot be
- * pinned/unpinned, and is hidden from the archive section if it ever
- * slipped through. See `INBOX_PROJECT_ID` in shared/constants.ts.
+ * Phase 16: the Inbox is no longer a project. It's rendered as a
+ * static link with its own badge (count of inbox tasks) just below
+ * the New Project button. Clicking it opens /inbox — the dedicated
+ * page for unfiled cards. The well-known Inbox id no longer exists;
+ * tasks in the Inbox are simply tasks with project_id IS NULL.
  *
  * Layout (collapsed): a ~64px column of colour dots + nav glyphs.
  * Hover any dot to see the project name as a tooltip.
@@ -37,6 +38,7 @@ import { useMemo } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 
 import { useAuth } from '@/features/auth/AuthContext'
+import { api } from '@/shared/api/client'
 import { useProjects } from '@/shared/hooks/useProjects'
 import { useOpenTaskCounts } from '@/shared/hooks/useOpenTaskCounts'
 import { usePinnedProjects } from '@/shared/hooks/usePinnedProjects'
@@ -79,6 +81,12 @@ export function ProjectSidebar(): JSX.Element {
     [allProjects, pinnedIds],
   )
 
+  // Inbox badge: number of open inbox tasks. The hook is per-project,
+  // so we make a separate "all-inbox" count by fetching the inbox
+  // list and counting locally. Cheap because the inbox is small in
+  // practice and the hook is a tiny wrapper around useQuery.
+  const inboxCount = useInboxOpenCount()
+
   // Tailwind class lookup is dynamic (md: vs base); we build the
   // container class string once per render to keep JSX clean.
   const containerWidth = collapsed ? SIDEBAR_COLLAPSED : SIDEBAR_WIDTH
@@ -101,7 +109,32 @@ export function ProjectSidebar(): JSX.Element {
       {!collapsed && <NewProjectInline />}
       {collapsed && <NewProjectInline collapsed />}
 
-      {/* Project sections: Inbox (system) / Pinned / Active / Archived. */}
+      {/* Static Inbox link (Phase 16). The Inbox isn't a project —
+          it's a flat list served by /api/v1/inbox/tasks. The link
+          uses the same SidebarProjectItem shell so the visual
+          treatment matches the project rows below it (icon, count,
+          active highlight). */}
+      <div className="px-2 pt-2">
+        <SidebarProjectItem
+          project={{
+            id: '__inbox__',
+            name: 'Inbox',
+            color: '#6b7280',
+            owner_id: '',
+            archived: false,
+            created_at: '',
+            updated_at: '',
+          }}
+          openTaskCount={inboxCount}
+          active={location.pathname === '/inbox'}
+          pinned={false}
+          collapsed={collapsed}
+          onTogglePin={togglePin}
+          inboxLink
+        />
+      </div>
+
+      {/* Project sections: Pinned / Active / Archived. */}
       <div className="flex-1 pb-2">
         {isLoading && !projects ? (
           !collapsed && (
@@ -109,29 +142,6 @@ export function ProjectSidebar(): JSX.Element {
           )
         ) : (
           <>
-            {partition.inbox && (
-              // Inbox renders without a section header: it's a single
-              // first-class project, not a "category". We give it a
-              // fixed slot at the top so the user always knows where
-              // calendar events land.
-              <div className="px-2 pt-2">
-                {!collapsed && (
-                  <div className="px-2 pt-1 pb-1 text-[11px] uppercase tracking-wide text-slate-500 font-semibold">
-                    Workspace
-                  </div>
-                )}
-                <SidebarProjectItem
-                  project={partition.inbox}
-                  openTaskCount={openCounts.get(partition.inbox.id)}
-                  active={partition.inbox.id === activeProjectId}
-                  pinned={false}
-                  isSystem
-                  collapsed={collapsed}
-                  onTogglePin={togglePin}
-                />
-              </div>
-            )}
-
             {partition.pinned.length > 0 && (
               <SidebarSection label="Pinned" count={partition.pinned.length}>
                 {partition.pinned.map((p) => (
@@ -213,3 +223,39 @@ export function ProjectSidebar(): JSX.Element {
     </aside>
   )
 }
+
+// useInboxOpenCount returns the number of inbox tasks whose status is
+// not "done". Used by the sidebar badge. Stale-while-revalidate via
+// react-query keeps the count snappy without re-fetching on every
+// navigation — the inbox rarely changes relative to project views.
+function useInboxOpenCount(): number | undefined {
+  // We piggyback on a fetch of the inbox list; the page itself does
+  // the same fetch when mounted, so when both are visible the second
+  // call hits the react-query cache. The hook lives in the sidebar
+  // because that's where the badge lives — moving it to InboxPage
+  // would mean either duplicating the fetch or extracting a
+  // dedicated hook.
+  const [count, setCount] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const r = await api.listInboxTasks()
+        if (cancelled) return
+        setCount(
+          (r.tasks ?? []).filter((t) => t.status !== 'done').length,
+        )
+      } catch {
+        // best-effort; leave the badge empty on error.
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return count
+}
+
+// useState/useEffect imports — keep at the bottom so the module flow
+// stays top-down.
+import { useEffect, useState } from 'react'

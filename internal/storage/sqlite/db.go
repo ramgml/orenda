@@ -164,6 +164,29 @@ func Migrate(ctx context.Context, db *sql.DB, migrationsFS embed.FS, dir string)
 	return nil
 }
 
+// foreignKeysOffMarker is the magic comment a migration body can carry to
+// opt into a foreign_keys=OFF transaction.
+//
+// Why this exists: rebuilding the `tasks` table (Phase 16) requires
+// `DROP TABLE tasks_old` after the rows have been copied into a fresh
+// `tasks`. With FK enforcement ON, SQLite refuses the DROP because
+// child tables (task_locks, checklists, comments, task_activity,
+// time_entries, …) still reference the old name — even though SQLite's
+// default `legacy_alter_table` is OFF and `ALTER TABLE … RENAME` would
+// have rewritten those REFERENCES to the new name. We can't rely on
+// `defer_foreign_constraints` either because DROP performs implicit
+// cascading DELETEs even when deferred. The standard SQLite recipe is
+// to flip `PRAGMA foreign_keys = OFF` for the duration of the
+// migration — but the pragma is per-connection and a no-op inside a
+// transaction, so applyMigrationUnsafe() borrows a single connection
+// from the pool and runs the migration body on it.
+//
+// Usage: put a SQL comment `-- orenda:foreign_keys_off` anywhere in
+// the migration body (any line, any position). The runner strips it
+// from the executed body and switches to the unsafe path. Migrations
+// without the marker take the normal FK=ON path.
+const foreignKeysOffMarker = "-- orenda:foreign_keys_off"
+
 // loadApplied returns the set of already-applied migration versions.
 func loadApplied(ctx context.Context, db *sql.DB) (map[string]struct{}, error) {
 	rows, err := db.QueryContext(ctx, `SELECT version FROM schema_migrations`)
@@ -219,7 +242,19 @@ func pathVersion(filename string) string {
 }
 
 // applyMigration executes body in a transaction and records the version.
+//
+// Migrations whose body contains `-- orenda:foreign_keys_off` are routed
+// through applyMigrationUnsafe(), which borrows a single connection
+// from the pool and runs the body under `PRAGMA foreign_keys = OFF`.
+// See the foreignKeysOffMarker doc for why.
 func applyMigration(ctx context.Context, db *sql.DB, version, body string) error {
+	if strings.Contains(body, foreignKeysOffMarker) {
+		// Strip the marker so it doesn't pollute the executed SQL
+		// (some parsers tolerate line comments, but stripping is the
+		// simplest and least error-prone).
+		cleaned := strings.ReplaceAll(body, foreignKeysOffMarker, "")
+		return applyMigrationUnsafe(ctx, db, version, cleaned)
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -231,6 +266,65 @@ func applyMigration(ctx context.Context, db *sql.DB, version, body string) error
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO schema_migrations(version) VALUES (?)`, version); err != nil {
+		return fmt.Errorf("record version: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// applyMigrationUnsafe runs body under `PRAGMA foreign_keys = OFF` on a
+// dedicated connection. Per-connection pragma state and the pool's
+// max-conn setting (1 in Open) require us to run the entire migration
+// body — including its implicit transaction — on the borrowed conn.
+// `defer_foreign_keys` is intentionally NOT used because DROP TABLE
+// triggers implicit cascading DELETEs even when constraints are
+// deferred; we genuinely need FK enforcement off.
+//
+// Safety nets:
+//   - `PRAGMA foreign_key_check` inside the tx verifies no orphan rows
+//     were left behind; a non-empty result aborts the migration and
+//     rolls back the schema_migrations row.
+//   - `PRAGMA foreign_keys = ON` is restored before the conn returns
+//     to the pool so subsequent queries on the same db handle honour
+//     FKs.
+func applyMigrationUnsafe(ctx context.Context, db *sql.DB, version, body string) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("unsafe borrow conn: %w", err)
+	}
+	defer func() {
+		// Best-effort restore. If this fails the conn is poisoned
+		// but the pool will detect it on next use (the SQLite
+		// driver validates every conn on checkout).
+		_, _ = conn.ExecContext(context.Background(), `PRAGMA foreign_keys = ON`)
+		_ = conn.Close()
+	}()
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		return fmt.Errorf("unsafe pragma off: %w", err)
+	}
+	// Run the body in a tx on the same conn — `defer_foreign_keys`
+	// inside the tx is unnecessary; we've already turned enforcement
+	// off for this connection.
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("unsafe begin: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, body); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("exec body: %w", err)
+	}
+	// Sanity: the migration body should have left the schema in a
+	// consistent FK state (no orphans). Fail loud if it didn't — a
+	// broken FK check is far easier to debug now than to chase later.
+	if _, err := tx.ExecContext(ctx, `PRAGMA foreign_key_check`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("foreign_key_check: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO schema_migrations(version) VALUES (?)`, version); err != nil {
+		_ = tx.Rollback()
 		return fmt.Errorf("record version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

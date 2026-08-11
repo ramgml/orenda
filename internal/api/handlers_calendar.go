@@ -4,6 +4,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -18,20 +19,41 @@ import (
 // ----------------------------------------------------------------------------
 
 // eventInput is the JSON body for create/update.
+//
+// Phase 16: ProjectID is *string so the API can distinguish "absent"
+// (leave project alone) from "explicit empty" (file the event in the
+// Inbox). Create accepts both: omitted = whatever's on the URL or ""
+// for inbox; explicit = use it as-is. Update treats omission as
+// "leave alone" (so an event update that doesn't touch the project
+// field doesn't unfile the event).
 type eventInput struct {
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	StartAt     string `json:"start_at"` // RFC3339 or "2006-01-02 15:04:05"
-	EndAt       string `json:"end_at"`
-	AllDay      bool   `json:"all_day"`
-	Color       string `json:"color"`
-	ProjectID   string `json:"project_id"`
-	Recurrence  string `json:"recurrence"`
+	Title       string  `json:"title"`
+	Description string  `json:"description"`
+	StartAt     string  `json:"start_at"` // RFC3339 or "2006-01-02 15:04:05"
+	EndAt       string  `json:"end_at"`
+	AllDay      bool    `json:"all_day"`
+	Color       string  `json:"color"`
+	ProjectID   *string `json:"project_id"` // Phase 16: nullable semantics
+	Recurrence  string  `json:"recurrence"`
 }
 
 // listEventsHandler returns events in [from, to).
 //
 // Query params: from, to (RFC3339), project_id (optional).
+//
+// Phase 23.3: master events with a recurrence rule are expanded into
+// the [from, to) window via Service.ExpandRecurrence. Each occurrence
+// is returned as an event.Event with StartAt/EndAt shifted and the
+// master id preserved in the synthetic id (masterID::occurrenceIndex)
+// — that way the calendar UI can render the recurring series without
+// storing N rows, while still allowing a "click to open" on a
+// specific occurrence (which round-trips to the master via the
+// synthetic id). The front-end treats the synthetic id as opaque.
+//
+// Events without a recurrence rule still appear as-is. The window
+// boundary is half-open: occurrences whose start is exactly at `to`
+// are excluded so a calendar day view doesn't double-count the
+// last slot.
 func listEventsHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := parseOptionalTime(r.URL.Query().Get("from"))
@@ -46,12 +68,44 @@ func listEventsHandler(deps Dependencies) http.HandlerFunc {
 			http.Error(w, "event service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		events, err := deps.EventService.ListInRange(r.Context(), *from, *to, projectID)
+		masters, err := deps.EventService.ListInRange(r.Context(), *from, *to, projectID)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"events": events})
+
+		out := make([]*event.Event, 0, len(masters))
+		for _, m := range masters {
+			occs, oerr := deps.EventService.ExpandRecurrence(m, *from, *to)
+			if oerr != nil {
+				// Tolerate one bad RRULE: skip the expansion and emit
+				// the master as a single occurrence so the calendar
+				// still shows the event for the day. The user can
+				// edit the rule from the event page.
+				out = append(out, m)
+				continue
+			}
+			for i, occ := range occs {
+				// Synthetic id so the UI can render each
+				// occurrence distinctly but the master remains
+				// addressable via the prefix. The double-colon is
+				// the same separator RecurrenceDetail docs use in
+				// libraries like rrule.js — easy to grep.
+				clone := occ.Event
+				clone.ID = fmt.Sprintf("%s::%d", occ.Event.ID, i)
+				clone.StartAt = occ.StartAt
+				clone.EndAt = occ.EndAt
+				// Preserve recurrence on the master row of the
+				// first occurrence so the UI's "edit series"
+				// affordance stays available. Subsequent
+				// occurrences are pure displays.
+				if i > 0 {
+					clone.Recurrence = ""
+				}
+				out = append(out, &clone)
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"events": out})
 	}
 }
 
@@ -72,8 +126,10 @@ func createEventHandler(deps Dependencies) http.HandlerFunc {
 			Description: in.Description,
 			AllDay:      in.AllDay,
 			Color:       in.Color,
-			ProjectID:   in.ProjectID,
 			Recurrence:  in.Recurrence,
+		}
+		if in.ProjectID != nil {
+			e.ProjectID = *in.ProjectID
 		}
 		e.StartAt = *parseOptionalTime(in.StartAt)
 		e.EndAt = *parseOptionalTime(in.EndAt)
@@ -138,8 +194,14 @@ func updateEventHandler(deps Dependencies) http.HandlerFunc {
 		if in.Color != "" {
 			existing.Color = in.Color
 		}
-		if in.ProjectID != "" {
-			existing.ProjectID = in.ProjectID
+		// Phase 16: PATCH /events/{id} with project_id absent leaves
+		// the project alone (existing semantics, friendlier than the
+		// older code's ""-means-leave-alone but only by accident).
+		// PATCH with project_id: "" files the event in the Inbox
+		// (the mergeEventIntoTask helper handles the cascade clear of
+		// column_id when the project becomes empty).
+		if in.ProjectID != nil {
+			existing.ProjectID = *in.ProjectID
 		}
 		if in.Recurrence != "" {
 			existing.Recurrence = in.Recurrence

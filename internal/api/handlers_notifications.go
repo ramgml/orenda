@@ -82,11 +82,17 @@ func notifierInbox(deps Dependencies) notifierservice.InboxRepository {
 
 // notifyTaskAssignee sends a notifier event to the project owner about a
 // task lifecycle change (claimed/released/submitted). Resolves the agent
-// name (if any) and the project owner from deps. Best-effort — never
-// blocks the HTTP response, never returns an error.
+// name (if any) and the recipient from deps. Best-effort — never blocks
+// the HTTP response, never returns an error.
 //
-// Returns silently if any lookup fails: notifications must not break the
-// underlying claim/release/submit flow.
+// Phase 16: tasks with project_id IS NULL (Inbox) have no project
+// owner to look up. For those we fall back to "first non-system user
+// in the database" — the lone owner in a single-user install. If
+// there are no users (fresh DB before bootstrap), the call is a no-op
+// (which is fine — there's nobody to notify yet).
+//
+// Returns silently if any lookup fails: notifications must not break
+// the underlying claim/release/submit flow.
 func notifyTaskAssignee(
 	ctx context.Context,
 	deps Dependencies,
@@ -97,13 +103,22 @@ func notifyTaskAssignee(
 	if deps.Notifier == nil || tr == nil {
 		return
 	}
-	p, err := deps.Projects.GetProject(ctx, tr.ProjectID)
-	if err != nil || p == nil {
+	userID := ""
+	if tr.ProjectID != "" {
+		p, err := deps.Projects.GetProject(ctx, tr.ProjectID)
+		if err == nil && p != nil {
+			userID = p.OwnerID
+		}
+	}
+	if userID == "" {
+		userID = firstNonSystemUserID(ctx, deps)
+	}
+	if userID == "" {
 		return
 	}
 	notifyEvent(ctx, deps, notifierservice.Event{
 		Type:       eventType,
-		UserID:     p.OwnerID,
+		UserID:     userID,
 		TargetType: "task",
 		TargetID:   tr.ID,
 		Title:      tr.Title,
@@ -111,6 +126,23 @@ func notifyTaskAssignee(
 		Link:       "/tasks/" + tr.ID,
 		DedupKey:   dedupKey,
 	})
+}
+
+// firstNonSystemUserID finds the first user with role != "system".
+// Used as the notification recipient for Inbox (project-less) tasks
+// — there is no project owner to consult in that case. The query is
+// cheap (one indexed lookup, no full scan thanks to the role column)
+// and the call site is a best-effort notifier, so a non-deterministic
+// "first" is acceptable.
+func firstNonSystemUserID(ctx context.Context, deps Dependencies) string {
+	if deps.Users == nil {
+		return ""
+	}
+	u, err := deps.Users.FirstNonSystem(ctx)
+	if err != nil || u == nil {
+		return ""
+	}
+	return u.ID
 }
 
 // agentNameOf best-effort lookup; returns "" if the agent isn't found.

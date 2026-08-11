@@ -202,7 +202,7 @@ export function CalendarPage(): JSX.Element {
         end_at: end.toISOString(),
         all_day: view === 'month',
         color: PRESET_COLORS[0],
-        project_id: INBOX_PROJECT_ID,
+        project_id: '',
       },
     })
   }
@@ -358,10 +358,13 @@ interface EventDraft {
   end_at: string
   all_day: boolean
   color: string
+  /**
+   * Phase 16: empty string is the explicit "no project" choice
+   * (event lands in the Inbox). The dropdown below also offers
+   * `<option value="">Inbox (no project)</option>` as the default.
+   */
   project_id: string
 }
-
-const INBOX_PROJECT_ID = '00000000-0000-0000-0000-00000000cafe'
 
 // Tiny ErrorBoundary around the calendar so a future rbc throw (e.g.
 // wrong prop type) doesn't blank the whole page. The error is
@@ -401,7 +404,7 @@ function blankDraft(): EventDraft {
     end_at: end.toISOString(),
     all_day: false,
     color: PRESET_COLORS[0],
-    project_id: INBOX_PROJECT_ID,
+    project_id: '',
   }
 }
 
@@ -413,7 +416,7 @@ function modeDraftFromEvent(e: CalendarEvent): EventDraft {
     end_at: e.end_at,
     all_day: e.all_day,
     color: e.color ?? PRESET_COLORS[0],
-    project_id: e.project_id ?? INBOX_PROJECT_ID,
+    project_id: e.project_id ?? '',
   }
 }
 
@@ -744,10 +747,12 @@ function EventModal({
             onChange={(e) => setForm({ ...form, project_id: e.target.value })}
             className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
           >
-            {projects.length === 0 && <option value={form.project_id}>(no projects yet)</option>}
+            {/* Phase 16: empty string = Inbox (no project). The
+                server stores project_id IS NULL for these events. */}
+            <option value="">Inbox (no project)</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.id === INBOX_PROJECT_ID ? `${p.name} (default)` : p.name}
+                {p.name}
               </option>
             ))}
           </select>

@@ -2,11 +2,14 @@
  * Unit tests for `partitionProjects`. The function is pure, so we can
  * exercise every ordering edge case without touching React or the
  * network.
+ *
+ * Phase 16: the Inbox is no longer a project. partitionProjects no
+ * longer special-cases the well-known Inbox id; the Inbox lives in
+ * the sidebar as a separate static link.
  */
 import { describe, expect, it } from 'vitest'
 
 import type { Project } from '@/shared/api/client'
-import { INBOX_PROJECT_ID } from '@/shared/constants'
 import { partitionProjects } from '@/features/sidebar/partitionProjects'
 
 function p(
@@ -26,64 +29,45 @@ function p(
   }
 }
 
-const inbox = p(INBOX_PROJECT_ID, 'Inbox')
 const orenda = p('p-orenda', 'Orenda')
 const blog = p('p-blog', 'Blog')
 const side = p('p-side', 'Side project')
 const archivedOld = p('p-old', 'Old site', { archived: true })
 
 describe('partitionProjects', () => {
-  it('puts the Inbox at the top and out of other buckets', () => {
-    const out = partitionProjects([blog, inbox, orenda], [])
-    expect(out.inbox?.id).toBe(INBOX_PROJECT_ID)
+  it('classifies plain projects into Active only', () => {
+    const out = partitionProjects([blog, orenda], [])
     expect(out.active.map((x) => x.id)).toEqual(['p-blog', 'p-orenda'])
     expect(out.pinned).toEqual([])
     expect(out.archived).toEqual([])
   })
 
   it('sorts Active alphabetically regardless of input order', () => {
-    const out = partitionProjects([orenda, blog, side, inbox], [])
+    const out = partitionProjects([orenda, blog, side], [])
     expect(out.active.map((x) => x.name)).toEqual(['Blog', 'Orenda', 'Side project'])
   })
 
   it('preserves pin insertion order and removes pinned projects from Active', () => {
     // User pinned Side first, then Orenda, then Blog.
-    const out = partitionProjects([blog, orenda, side, inbox], ['p-side', 'p-orenda', 'p-blog'])
+    const out = partitionProjects([blog, orenda, side], ['p-side', 'p-orenda', 'p-blog'])
     expect(out.pinned.map((x) => x.id)).toEqual(['p-side', 'p-orenda', 'p-blog'])
     expect(out.active).toEqual([])
   })
 
   it('drops archived projects into the archived bucket only', () => {
-    const out = partitionProjects([archivedOld, orenda, inbox], [])
+    const out = partitionProjects([archivedOld, orenda], [])
     expect(out.archived.map((x) => x.id)).toEqual(['p-old'])
     expect(out.active.map((x) => x.id)).toEqual(['p-orenda'])
   })
 
-  it('Inbox never appears in Archived even if archived=true', () => {
-    const archivedInbox: Project = { ...inbox, archived: true }
-    const out = partitionProjects([archivedInbox, orenda], [])
-    // The Inbox is still surfaced — it's a system project.
-    expect(out.inbox?.id).toBe(INBOX_PROJECT_ID)
-    expect(out.archived).toEqual([])
-  })
-
-  it('returns undefined inbox when the project is missing', () => {
-    const out = partitionProjects([orenda, blog], [])
-    expect(out.inbox).toBeUndefined()
-    expect(out.active.map((x) => x.id)).toEqual(['p-blog', 'p-orenda'])
+  it('returns an empty partition on an empty project list', () => {
+    const out = partitionProjects([], [])
+    expect(out).toEqual({ pinned: [], active: [], archived: [] })
   })
 
   it('ignores pinned IDs that no longer exist (defensive)', () => {
-    const out = partitionProjects([orenda, inbox], ['p-ghost', 'p-orenda'])
+    const out = partitionProjects([orenda], ['p-ghost', 'p-orenda'])
     expect(out.pinned.map((x) => x.id)).toEqual(['p-orenda'])
     expect(out.active).toEqual([])
-  })
-
-  it('keeps Inbox and a pinned project in two distinct buckets', () => {
-    const out = partitionProjects([inbox, orenda, blog], ['p-orenda'])
-    expect(out.inbox?.id).toBe(INBOX_PROJECT_ID)
-    expect(out.pinned.map((x) => x.id)).toEqual(['p-orenda'])
-    // Blog is the only remaining non-inbox, non-pinned project.
-    expect(out.active.map((x) => x.id)).toEqual(['p-blog'])
   })
 })

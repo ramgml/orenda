@@ -304,11 +304,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	logger.Info("migrations applied")
 
-	// Calendar events default to the Inbox project — make sure it
-	// exists so the first /api/v1/events POST doesn't FK-fail.
-	if err := ensureInboxProject(cmd.Context(), db); err != nil {
-		return fmt.Errorf("ensure inbox: %w", err)
-	}
+	// Calendar events can be created with or without a project — the
+	// event service no longer falls back to a system "Inbox" project,
+	// it simply files events with project_id IS NULL when no project
+	// is supplied. Migration 015 also drops the system Inbox project
+	// and user, so there's nothing to bootstrap here.
 
 	// Build repositories.
 	users := sqlite.NewUserRepository(db)
@@ -355,6 +355,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	activityRecorder := activityservice.New(activityRepo)
 	taskSvc := taskservice.New(tasksRepo, taskLocks, taskRecorderFor(activityRecorder), commentAdderFor(commentSvc), hub)
 	taskSvc.Mirror = mirrorSvc
+	taskSvc.Columns = projects // Phase 23.1 + 16.7: WIP lookup + inbox→project filing
 
 	// Agent service (Phase 3.5) — Register, Heartbeat, SweepOffline.
 	// Wired but not yet exposed via handlers (3.11).
@@ -372,7 +373,6 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// eventService facade still exists for API compatibility, but it
 	// reads and writes the tasks table now.
 	eventSvc := eventservice.New(sqlite.NewTaskRepository(db), hub, nil)
-	eventSvc.DefaultProjectID = "00000000-0000-0000-0000-00000000cafe"
 	timeSvc := timeentryservice.New(sqlite.NewTimeEntryRepository(db), hub, nil)
 
 	// Wiki + Search services (Phase 5).

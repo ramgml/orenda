@@ -134,14 +134,11 @@ func TestUserRepo_List_EmptyAndOrdered(t *testing.T) {
 	db := setupUserDB(t)
 	repo := NewUserRepository(db)
 
-	// Migrations 012 seeds a system-inbox user, so List() returns at
-	// least one row even on a freshly migrated DB. We don't assert
-	// the exact contents of the seed here — that's covered in the
-	// migration tests — only that List returns the rows in
-	// created_at ASC order.
+	// Phase 16 (migration 015) removed the placeholder system-inbox
+	// user, so a freshly migrated DB starts empty. Verify that.
 	initial, err := repo.List(context.Background())
 	require.NoError(t, err)
-	require.NotEmpty(t, initial, "migrations should seed at least the system-inbox placeholder")
+	assert.Empty(t, initial, "freshly migrated DB should have no users (system-inbox was removed in 015)")
 
 	// Insert two human users; expect them ordered by created_at then id.
 	first := &user.User{Email: "first@x.io", PasswordHash: "h", DisplayName: "First"}
@@ -151,12 +148,10 @@ func TestUserRepo_List_EmptyAndOrdered(t *testing.T) {
 
 	users, err := repo.List(context.Background())
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(users), 3)
+	require.Len(t, users, 2)
 
-	// The two we just inserted must appear at the tail in order.
-	last2 := users[len(users)-2:]
-	assert.Equal(t, "first@x.io", last2[0].Email, "first-created must come first")
-	assert.Equal(t, "second@x.io", last2[1].Email)
+	assert.Equal(t, "first@x.io", users[0].Email, "first-created must come first")
+	assert.Equal(t, "second@x.io", users[1].Email)
 }
 
 func TestUserRepo_List_ReturnsNonNil(t *testing.T) {
@@ -165,8 +160,10 @@ func TestUserRepo_List_ReturnsNonNil(t *testing.T) {
 
 	users, err := repo.List(context.Background())
 	require.NoError(t, err)
-	// Even with the system-inbox seed present, callers must receive a
-	// non-nil slice — never `nil`, which would force every caller to
+	// Callers must receive a non-nil slice — never `nil`, which would
+	// force every caller to nil-check the result before ranging.
+	// (After migration 015 the system-inbox seed is gone, so an
+	// empty slice is the expected starting state.)
 	// guard against a null range.
 	assert.NotNil(t, users)
 }

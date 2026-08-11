@@ -341,10 +341,19 @@ func (r *projectRepo) DeleteColumn(ctx context.Context, id string) error {
 }
 
 // GetColumn fetches a single column by id, returning ErrNotFound when missing.
+//
+// Phase 16 + 23: the column is joined with its board so the caller
+// gets the owning project_id in one round-trip. The Service.Move
+// needs this to (a) file an Inbox card under the project of the
+// column it's dropped onto and (b) surface a human-friendly project
+// id in WIP-limit error messages if we ever decide to.
 func (r *projectRepo) GetColumn(ctx context.Context, id string) (*project.Column, error) {
 	const q = `
-		SELECT id, board_id, name, position, wip_limit, color
-		FROM columns WHERE id = ?
+		SELECT c.id, c.board_id, c.name, c.position, c.wip_limit, c.color,
+		       b.project_id
+		FROM columns c
+		JOIN boards b ON b.id = c.board_id
+		WHERE c.id = ?
 	`
 	var (
 		col   project.Column
@@ -352,7 +361,7 @@ func (r *projectRepo) GetColumn(ctx context.Context, id string) (*project.Column
 		color sql.NullString
 	)
 	err := r.db.QueryRowContext(ctx, q, id).
-		Scan(&col.ID, &col.BoardID, &col.Name, &col.Position, &wip, &color)
+		Scan(&col.ID, &col.BoardID, &col.Name, &col.Position, &wip, &color, &col.ProjectID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, project.ErrNotFound
 	}

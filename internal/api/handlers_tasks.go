@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,6 +15,12 @@ import (
 
 // taskInput is the JSON body for create/patch operations. Pointer fields
 // distinguish "absent" from "explicitly empty".
+//
+// Phase 16 added ProjectID as *string so a PATCH can move a task
+// between Inbox (empty) and a real project in one round-trip. The
+// create endpoint also accepts it (the inbox handler uses the same
+// struct), letting clients file a freshly captured idea under a
+// project without a second request.
 type taskInput struct {
 	Title         string            `json:"title"`
 	Description   string            `json:"description"`
@@ -21,6 +28,7 @@ type taskInput struct {
 	Priority      task.Priority     `json:"priority"`
 	AssigneeType  task.AssigneeType `json:"assignee_type"`
 	AssigneeID    string            `json:"assignee_id"`
+	ProjectID     *string           `json:"project_id"` // Phase 16: nullable
 	ColumnID      string            `json:"column_id"`
 	ParentTaskID  string            `json:"parent_task_id"`
 	ContextMD     string            `json:"context_md"`
@@ -57,6 +65,11 @@ func listProjectTasksHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // createTaskHandler creates a task in a project.
+//
+// Phase 16: the body may carry `project_id` to override the URL param.
+// That's how the inbox endpoint (POST /api/v1/inbox/tasks) calls into
+// the same struct without a separate code path. We still take the
+// project from the URL by default — most clients don't send it.
 func createTaskHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in taskInput
@@ -64,8 +77,12 @@ func createTaskHandler(deps Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
+		projectID := chi.URLParam(r, "id")
+		if in.ProjectID != nil {
+			projectID = *in.ProjectID
+		}
 		tr := &task.Task{
-			ProjectID:    chi.URLParam(r, "id"),
+			ProjectID:    projectID,
 			ColumnID:     in.ColumnID,
 			ParentTaskID: in.ParentTaskID,
 			Title:        in.Title,
@@ -104,11 +121,19 @@ func createTaskHandler(deps Dependencies) http.HandlerFunc {
 		// until somebody dragged them manually. The frontend already
 		// knows the parent's column and passes it through, so this is
 		// just a safety net for API users who don't.
+		//
+		// Phase 16: when the parent itself is an Inbox task (no
+		// column), we don't fall back to the project's first column —
+		// there's no project, so FirstColumnID returns "" and the
+		// child stays off-board by design (the parent is a flat list,
+		// not a kanban).
 		if tr.ParentTaskID != "" && tr.ColumnID == "" {
 			if parent, err := deps.Tasks.GetByID(r.Context(), tr.ParentTaskID); err == nil && parent.ColumnID != "" {
 				tr.ColumnID = parent.ColumnID
-			} else if colID, err := deps.Tasks.FirstColumnID(r.Context(), tr.ProjectID); err == nil {
-				tr.ColumnID = colID
+			} else if tr.ProjectID != "" {
+				if colID, err := deps.Tasks.FirstColumnID(r.Context(), tr.ProjectID); err == nil {
+					tr.ColumnID = colID
+				}
 			}
 		}
 
@@ -162,7 +187,7 @@ func patchTaskHandler(deps Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		applyTaskPatch(tr, in)
+		applyTaskPatch(r.Context(), deps, tr, in)
 		if err := deps.Tasks.Update(r.Context(), tr); err != nil {
 			writeError(w, err)
 			return
@@ -179,7 +204,22 @@ func patchTaskHandler(deps Dependencies) http.HandlerFunc {
 // Non-pointer string fields are only updated when non-empty so the caller
 // can send a partial document (PATCH semantics). Pointer fields carry
 // explicit null intent.
-func applyTaskPatch(tr *task.Task, in taskInput) {
+//
+// Phase 16 — project transitions:
+//
+//   - in.ProjectID == nil                → leave project_id alone.
+//   - *in.ProjectID == "" (explicit)     → file task under Inbox; clear
+//     column_id (inbox cards have no board).
+//   - *in.ProjectID != "" && unchanged   → no column re-resolution
+//     (caller may have moved columns within the same project).
+//   - *in.ProjectID != "" && changed     → assign column_id = first
+//     column of the new project unless the caller also set
+//     column_id explicitly in the same PATCH.
+//
+// The column-resolution policy mirrors the create handler so the
+// UX is consistent: dropping an inbox card onto a board always
+// lands it in the first column.
+func applyTaskPatch(ctx context.Context, deps Dependencies, tr *task.Task, in taskInput) {
 	if in.Title != "" {
 		tr.Title = in.Title
 	}
@@ -191,9 +231,6 @@ func applyTaskPatch(tr *task.Task, in taskInput) {
 	}
 	if in.Priority != "" {
 		tr.Priority = in.Priority
-	}
-	if in.ColumnID != "" {
-		tr.ColumnID = in.ColumnID
 	}
 	if in.ParentTaskID != "" {
 		tr.ParentTaskID = in.ParentTaskID
@@ -209,6 +246,24 @@ func applyTaskPatch(tr *task.Task, in taskInput) {
 	}
 	if in.AssigneeID != "" {
 		tr.AssigneeID = in.AssigneeID
+	}
+	// Project transition (Phase 16). Decides whether to also touch
+	// column_id so the task lands on a real column instead of dangling.
+	if in.ProjectID != nil && *in.ProjectID != tr.ProjectID {
+		newProject := *in.ProjectID
+		tr.ProjectID = newProject
+		if in.ColumnID == "" {
+			// No explicit column in this PATCH — derive from the
+			// new project. Empty (inbox) clears column_id.
+			if newProject == "" {
+				tr.ColumnID = ""
+			} else if colID, err := deps.Tasks.FirstColumnID(ctx, newProject); err == nil {
+				tr.ColumnID = colID
+			}
+		}
+	}
+	if in.ColumnID != "" {
+		tr.ColumnID = in.ColumnID
 	}
 	if in.DueAt != nil {
 		tr.DueAt = parseOptionalTime(*in.DueAt)

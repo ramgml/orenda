@@ -165,11 +165,11 @@ func TestRunUserList_Empty(t *testing.T) {
 
 	out, err := runUserListCLI(t, cfgPath)
 	require.NoError(t, err)
-	// Fresh migrations always seed the system-inbox placeholder, so the
-	// list can never be literally empty. We assert the seed row is
-	// shown instead.
-	assert.Contains(t, out, "system-inbox@orenda.local")
-	assert.Contains(t, out, "system")
+	// Phase 16: migration 015 dropped the system-inbox placeholder
+	// user, so a freshly-migrated DB has zero users. The list should
+	// still print the header (handled by runUserList) but no data
+	// rows. We assert the absence of any email to confirm emptiness.
+	assert.NotContains(t, out, "@")
 }
 
 func TestRunUserList_OneUser(t *testing.T) {

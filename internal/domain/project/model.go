@@ -69,12 +69,18 @@ type Board struct {
 // two siblings without renumbering all subsequent positions (just pick
 // (prev + next) / 2).
 type Column struct {
-	ID       string  `json:"id"`
-	BoardID  string  `json:"board_id"`
-	Name     string  `json:"name"`
-	Position float64 `json:"position"`
-	WIPLimit *int    `json:"wip_limit,omitempty"`
-	Color    string  `json:"color,omitempty"`
+	ID      string `json:"id"`
+	BoardID string `json:"board_id"`
+	// ProjectID is populated by the storage layer when columns are
+	// read through GetColumn (it joins against boards). Phase 16
+	// needs it so the kanban can file an Inbox card under the
+	// project of the column it was dropped onto without a second
+	// round-trip.
+	ProjectID string  `json:"project_id,omitempty"`
+	Name      string  `json:"name"`
+	Position  float64 `json:"position"`
+	WIPLimit  *int    `json:"wip_limit,omitempty"`
+	Color     string  `json:"color,omitempty"`
 }
 
 // DefaultColumns lists the four columns every new project starts with.

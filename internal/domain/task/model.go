@@ -113,17 +113,30 @@ type Task struct {
 	EndAt   *time.Time `json:"end_at,omitempty"`
 	AllDay  bool       `json:"all_day"`
 	Color   string     `json:"color,omitempty"`
+	// Phase 23.3: RFC 5545 RRULE. Migration 015 added the column
+	// to the tasks table (Phase 12's fold dropped it). The calendar
+	// expands this via Service.ExpandRecurrence; "" means no
+	// recurrence and the master renders as a single occurrence.
+	Recurrence string `json:"recurrence,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Validate returns an error if the Task fields are inconsistent.
+//
+// ProjectID is allowed to be empty: an "Inbox" task (Phase 16) has no
+// project — it floats until the user files it under one. The invariant
+// is then that ColumnID must also be empty (an inbox card has no
+// board / column to live in).
 func (t *Task) Validate() error {
 	if t.Title == "" {
 		return ErrInvalidInput
 	}
-	if t.ProjectID == "" {
+	// Phase 16: empty ProjectID is the Inbox case. The pair rule
+	// "project set ⇒ column optional" stays, but "inbox ⇒ no column"
+	// is now an explicit invariant.
+	if t.ProjectID == "" && t.ColumnID != "" {
 		return ErrInvalidInput
 	}
 	if t.Status == "" {

@@ -19,6 +19,7 @@ import { SearchPage } from '@/features/search/SearchPage'
 import { BackupsSettingsPage } from '@/features/settings/Backups'
 import { BotsSettingsPage } from '@/features/settings/Bots'
 import { ReportsPage } from '@/features/reports/ReportsPage'
+import { InboxPage } from '@/features/inbox/InboxPage'
 import { api, type InfoResponse, type Task } from '@/shared/api/client'
 
 import { AppLayout } from '@/features/layout/AppLayout'
@@ -77,6 +78,7 @@ function Shell(): JSX.Element {
             with the Phase 11 nested project tabs. */}
         <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
           <Route path="/" element={<Dashboard info={info} error={error} />} />
+          <Route path="/inbox" element={<InboxPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:id" element={<ProjectDetailPage />}>
             <Route index element={<ProjectKanbanTab />} />

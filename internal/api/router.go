@@ -22,6 +22,8 @@
 //	DELETE /api/v1/tasks/{id}
 //	GET    /api/v1/tasks/{id}/subtasks
 //	POST   /api/v1/tasks/{id}/subtasks
+//	GET    /api/v1/inbox/tasks
+//	POST   /api/v1/inbox/tasks
 //	GET    /*
 //
 // Authentication, REST resources, and WebSocket land in later phases.
@@ -295,6 +297,15 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Patch("/", updateEventHandler(deps))
 					r.Delete("/", deleteEventHandler(deps))
 				})
+			})
+
+			// Phase 16: Inbox — tasks with project_id IS NULL. Listed and
+			// created via dedicated endpoints so the frontend /inbox
+			// page has a flat-list surface that doesn't share the
+			// project kanban query.
+			r.Route("/inbox", func(r chi.Router) {
+				r.Get("/tasks", listInboxTasksHandler(deps))
+				r.Post("/tasks", createInboxTaskHandler(deps))
 			})
 
 			r.Get("/reports/time", reportTimeHandler(deps))

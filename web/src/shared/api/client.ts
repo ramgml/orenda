@@ -77,6 +77,11 @@ export interface ProjectBoard {
 
 export interface Task {
   id: string
+  /**
+   * Phase 16: empty string is a valid value — represents a task in
+   * the Inbox (project_id IS NULL). Use the dedicated /inbox/tasks
+   * endpoint to list those, or filter by project_id="" client-side.
+   */
   project_id: string
   parent_task_id?: string
   column_id?: string
@@ -449,6 +454,32 @@ class ApiClient {
 
   deleteTask(taskId: string): Promise<void> {
     return this.http.delete<void>(`/api/v1/tasks/${taskId}`).then(() => undefined)
+  }
+
+  // ---- Inbox (Phase 16) ----
+  //
+  // The Inbox is the set of tasks with project_id IS NULL. It's a
+  // flat list (no board, no columns) — the user files these cards
+  // onto a real project via PATCH /tasks/{id} {project_id: "..."}.
+
+  /** List tasks in the Inbox (project_id IS NULL), newest first. */
+  listInboxTasks(params?: { status?: string }): Promise<{ tasks: Task[] }> {
+    return this.http
+      .get<{ tasks: Task[] }>('/api/v1/inbox/tasks', { params })
+      .then((r) => r.data)
+  }
+
+  /** Create a task with project_id explicitly empty (Inbox). */
+  createInboxTask(input: {
+    title: string
+    description?: string
+    parent_task_id?: string
+    status?: string
+    priority?: string
+    assignee_type?: string
+    assignee_id?: string
+  }): Promise<Task> {
+    return this.http.post<Task>('/api/v1/inbox/tasks', input).then((r) => r.data)
   }
 
   /** Phase 2: relocate a task into a column (kanban move). */

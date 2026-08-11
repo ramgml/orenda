@@ -34,7 +34,14 @@ func TestTask_Validate_Errors(t *testing.T) {
 		mut  func(t *task.Task)
 	}{
 		{"missing title", func(t *task.Task) { t.ProjectID = "p" }},
-		{"missing project", func(t *task.Task) { t.Title = "x" }},
+		{"inbox with column", func(t *task.Task) {
+			// Phase 16: empty ProjectID is allowed (Inbox) but the
+			// task must not also have a ColumnID — the inbox has no
+			// board, so column_id must be NULL.
+			t.Title = "x"
+			t.ProjectID = ""
+			t.ColumnID = "col-1"
+		}},
 		{"invalid status", func(t *task.Task) {
 			t.Title = "x"
 			t.ProjectID = "p"
@@ -48,4 +55,10 @@ func TestTask_Validate_Errors(t *testing.T) {
 			require.Error(t, tr.Validate())
 		})
 	}
+}
+
+// Phase 16: an Inbox task (no project, no column) is valid.
+func TestTask_Validate_InboxTask(t *testing.T) {
+	tr := &task.Task{Title: "capture me"}
+	require.NoError(t, tr.Validate())
 }

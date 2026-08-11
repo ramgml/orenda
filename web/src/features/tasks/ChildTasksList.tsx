@@ -65,10 +65,18 @@ export function ChildTasksList({
     if (!title.trim()) return
     setBusy(true)
     try {
-      const t = await api.createChildTask(projectId, {
-        title: title.trim(),
-        parent_task_id: taskId,
-      })
+      // Phase 16: projectId may be empty (the parent is an Inbox
+      // task). Use the dedicated inbox endpoint so the server stores
+      // project_id IS NULL instead of erroring on an empty target.
+      const t = projectId
+        ? await api.createChildTask(projectId, {
+            title: title.trim(),
+            parent_task_id: taskId,
+          })
+        : await api.createInboxTask({
+            title: title.trim(),
+            parent_task_id: taskId,
+          })
       setTasks((cur) => [...cur, t])
       setProgress((p) => ({ total: p.total + 1, done: t.status === 'done' ? p.done + 1 : p.done }))
       setTitle('')

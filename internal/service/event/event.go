@@ -39,11 +39,6 @@ type Service struct {
 	Tasks    task.Repository
 	Hub      ws.Hub
 	Recorder Recorder
-
-	// DefaultProjectID is the project that newly-created events
-	// without an explicit project_id land in (legacy "Inbox"
-	// project created by migration 012).
-	DefaultProjectID string
 }
 
 // New returns an Event service.
@@ -52,9 +47,10 @@ func New(repo task.Repository, hub ws.Hub, rec Recorder) *Service {
 }
 
 // Create persists a new event by inserting a task with a time range.
-// Title, project_id, start_at and end_at are required; everything else
-// is optional. The task lives in the project's default "todo"
-// column on insert.
+// Title, start_at and end_at are required; project_id is OPTIONAL —
+// events can land in the Inbox (project_id IS NULL) just like any
+// other task. When a project IS supplied, the event is parked in
+// that project's first kanban column; otherwise it's an inbox card.
 func (s *Service) Create(ctx context.Context, e *event.Event) (*event.Event, error) {
 	if err := e.Validate(); err != nil {
 		if errors.Is(err, event.ErrInvalidInput) {
@@ -62,21 +58,15 @@ func (s *Service) Create(ctx context.Context, e *event.Event) (*event.Event, err
 		}
 		return nil, err
 	}
-	projectID := e.ProjectID
-	if projectID == "" {
-		projectID = s.DefaultProjectID
-	}
-	if projectID == "" {
-		return nil, ErrInvalidInput
-	}
-	t := taskFromEvent(e, projectID)
+	t := taskFromEvent(e, e.ProjectID)
 	if t.ID == "" {
 		t.ID = newUUID()
 	}
 	// Park the new task in the project's first kanban column so it
 	// shows up on the project page. Without this, column_id stays
 	// NULL and the kanban's "group by column" loop never renders
-	// the task anywhere.
+	// the task anywhere. Inbox tasks (no project) deliberately stay
+	// column_id = NULL — there's no board for them.
 	if t.ColumnID == "" && t.ProjectID != "" {
 		if cid, err := s.Tasks.FirstColumnID(ctx, t.ProjectID); err != nil {
 			return nil, err
@@ -285,8 +275,12 @@ func stepFor(rule string, interval int) func(time.Time) time.Time {
 
 // taskFromEvent copies calendar fields onto a task skeleton. The
 // task.Status defaults to "todo"; the actual column is resolved
-// at insert time by the repository (it picks the first column of
-// the project).
+// at insert time by the repository (it picks the first column of the
+// project).
+//
+// Phase 23.3: Recurrence is carried across so a saved RRULE
+// survives the events→tasks fold and the calendar can expand
+// occurrences server-side on list.
 func taskFromEvent(e *event.Event, projectID string) *task.Task {
 	start, end := e.StartAt, e.EndAt
 	return &task.Task{
@@ -301,9 +295,21 @@ func taskFromEvent(e *event.Event, projectID string) *task.Task {
 		EndAt:       &end,
 		AllDay:      e.AllDay,
 		Color:       e.Color,
+		Recurrence:  e.Recurrence,
 	}
 }
 
+// mergeEventIntoTask copies the PATCH-supplied fields onto tr.
+
+// mergeEventIntoTask copies the PATCH-supplied fields onto tr.
+//
+// Phase 16: ProjectID is assigned UNCONDITIONALLY — a PATCH with
+// `project_id: ""` is the user's way of moving an event back to the
+// Inbox. The previous `if e.ProjectID != ""` guard silently ignored
+// clear intents, which would leave events stranded on a project the
+// user wanted to unfile. Callers (handlers_calendar.go) must not
+// invoke this with e.ProjectID unset — they always send the field,
+// using "" for "Inbox".
 func mergeEventIntoTask(e *event.Event, tr *task.Task) *task.Task {
 	tr.Title = e.Title
 	if e.Description != "" {
@@ -321,21 +327,30 @@ func mergeEventIntoTask(e *event.Event, tr *task.Task) *task.Task {
 	if e.Color != "" {
 		tr.Color = e.Color
 	}
-	if e.ProjectID != "" {
-		tr.ProjectID = e.ProjectID
+	// Phase 16: unconditional. "" means "Inbox" — clear the column too
+	// if we just de-projected the event, otherwise the FK stays
+	// pointing at a column on a board that's gone (or will be).
+	prev := tr.ProjectID
+	tr.ProjectID = e.ProjectID
+	if tr.ProjectID == "" && prev != "" {
+		tr.ColumnID = ""
 	}
+	// Phase 23.3: carry the RRULE across so the calendar keeps
+	// expanding the series after the user edits anything else.
+	tr.Recurrence = e.Recurrence
 	return tr
 }
 
 func eventFromTask(tr *task.Task) *event.Event {
 	return &event.Event{
-		ID:        tr.ID,
-		Title:     tr.Title,
-		StartAt:   *tr.StartAt,
-		EndAt:     *tr.EndAt,
-		AllDay:    tr.AllDay,
-		Color:     tr.Color,
-		ProjectID: tr.ProjectID,
+		ID:         tr.ID,
+		Title:      tr.Title,
+		StartAt:    *tr.StartAt,
+		EndAt:      *tr.EndAt,
+		AllDay:     tr.AllDay,
+		Color:      tr.Color,
+		ProjectID:  tr.ProjectID,
+		Recurrence: tr.Recurrence,
 	}
 }
 
