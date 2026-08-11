@@ -1,13 +1,21 @@
-import { useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import {
   DndContext,
   DragEndEvent,
   DragOverlay,
   DragStartEvent,
   PointerSensor,
+  closestCenter,
   useSensor,
   useSensors,
 } from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 import { useAuth } from '@/features/auth/AuthContext'
 import { api, type Column, type Task } from '@/shared/api/client'
@@ -17,7 +25,17 @@ import { ColumnView } from './ColumnView'
 import { TaskCard } from './TaskCard'
 
 /**
- * Kanban board for one project: 5 columns + drag-and-drop via @dnd-kit/core.
+ * Kanban board for one project: drag-and-drop columns AND tasks via
+ * @dnd-kit. Phase 12 added column-level reordering and the "+ Add
+ * column" affordance.
+ *
+ * Two DnD layers share the same DndContext:
+ *  - Task drag: `activeTask.id` matches a task id; drop target is a
+ *    column id (the existing column droppable).
+ *  - Column drag: `activeColumnId` matches a column id; drop target is
+ *    another column id; we use SortableContext(horizontal) and reorder
+ *    the columns array, then PATCH the moved column with a midpoint
+ *    position.
  *
  * Tasks are loaded on mount and after every WS event; on drop we update
  * optimistically and POST to the move endpoint. On failure we revert.
@@ -84,36 +102,90 @@ export function KanbanBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
-  // Re-fetch on every task event. Simple, correct, and acceptable at
-  // Phase 2 scale (one owner, one board, <1k tasks).
+  // Re-fetch on every task/column event. Simple, correct, and
+  // acceptable at Phase 2/12 scale (one owner, one board, <1k tasks).
   useWebSocketTopic('tasks', () => {
     load()
   })
 
+  function isColumnId(id: string): boolean {
+    return cols.some((c) => c.id === id)
+  }
+
   function onDragStart(ev: DragStartEvent): void {
+    if (isColumnId(String(ev.active.id))) return // column drag handled in onDragEnd
     const t = tasks.find((x) => x.id === ev.active.id)
     if (t) setActiveTask(t)
   }
 
   async function onDragEnd(ev: DragEndEvent): Promise<void> {
     setActiveTask(null)
-    const taskId = String(ev.active.id)
-    const targetColumnId = ev.over ? String(ev.over.id) : null
-    if (!targetColumnId) return
+    const activeId = String(ev.active.id)
+    const overId = ev.over ? String(ev.over.id) : null
+    if (!overId) return
 
-    const current = tasks.find((t) => t.id === taskId)
+    // Column reorder: both endpoints are columns.
+    if (isColumnId(activeId) && isColumnId(overId) && activeId !== overId) {
+      await reorderColumns(activeId, overId)
+      return
+    }
+
+    // Task move into a column.
+    const targetColumnId = overId
+    const current = tasks.find((t) => t.id === activeId)
     if (!current || current.column_id === targetColumnId) return
 
     const prev = tasks
     setTasks((cur) =>
-      cur.map((t) => (t.id === taskId ? { ...t, column_id: targetColumnId } : t)),
+      cur.map((t) => (t.id === activeId ? { ...t, column_id: targetColumnId } : t)),
     )
 
     try {
-      await api.moveTask(taskId, targetColumnId)
+      await api.moveTask(activeId, targetColumnId)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setTasks(prev)
+    }
+  }
+
+  /**
+   * Reorder columns locally + PATCH the moved column with a position
+   * computed from its new neighbours. On PATCH failure we revert by
+   * re-fetching the board (the WS broadcast on column update would do
+   * it anyway, but doing it inline makes the failure feel immediate).
+   */
+  async function reorderColumns(activeId: string, overId: string): Promise<void> {
+    const fromIdx = cols.findIndex((c) => c.id === activeId)
+    const toIdx = cols.findIndex((c) => c.id === overId)
+    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return
+
+    const reordered = arrayMove(cols, fromIdx, toIdx)
+    const prev = cols
+    setCols(reordered)
+
+    // Midpoint between the columns now surrounding the moved one.
+    const before = toIdx > 0 ? reordered[toIdx - 1].position : null
+    const after = toIdx < reordered.length - 1 ? reordered[toIdx + 1].position : null
+    let newPos: number
+    if (before != null && after != null) {
+      newPos = (before + after) / 2
+    } else if (before != null) {
+      // Moved to the very end.
+      newPos = before + 1024
+    } else if (after != null) {
+      // Moved to the very front.
+      newPos = after - 1024
+    } else {
+      // Single-column board — position is moot.
+      newPos = 1024
+    }
+
+    try {
+      const updated = await api.updateColumn(activeId, { position: newPos })
+      setCols((cur) => cur.map((c) => (c.id === updated.id ? updated : c)))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      setCols(prev)
     }
   }
 
@@ -143,7 +215,7 @@ export function KanbanBoard({
           {error}
         </div>
       )}
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-between">
         <label className="flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
           <input
             type="checkbox"
@@ -159,29 +231,187 @@ export function KanbanBoard({
           </span>
         </label>
       </div>
-      <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-          {cols.map((col) => (
-            <ColumnView
-              key={col.id}
-              columnId={col.id}
-              projectId={projectId}
-              name={col.name}
-              tasks={tasksByCol.get(col.id) ?? []}
-              onCreate={async (title) => {
-                const t = await api.createTask(projectId, { title, column_id: col.id })
-                setTasks((cur) => [...cur, t])
-              }}
-              onColumnUpdated={(updated) =>
-                setCols((cur) => cur.map((c) => (c.id === updated.id ? updated : c)))
-              }
-            />
-          ))}
-        </div>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+      >
+        <SortableContext
+          items={cols.map((c) => c.id)}
+          strategy={horizontalListSortingStrategy}
+        >
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            {cols.map((col) => (
+              <SortableColumnView
+                key={col.id}
+                column={col}
+                projectId={projectId}
+                tasks={tasksByCol.get(col.id) ?? []}
+                onCreate={async (title) => {
+                  const t = await api.createTask(projectId, { title, column_id: col.id })
+                  setTasks((cur) => [...cur, t])
+                }}
+                onColumnUpdated={(updated) =>
+                  setCols((cur) => cur.map((c) => (c.id === updated.id ? updated : c)))
+                }
+              />
+            ))}
+            <AddColumnTile projectId={projectId} onCreated={(c) => setCols((cur) => [...cur, c])} />
+          </div>
+        </SortableContext>
         <DragOverlay>
           {activeTask ? <TaskCard task={activeTask} /> : null}
         </DragOverlay>
       </DndContext>
     </div>
+  )
+}
+
+/**
+ * Sortable wrapper around ColumnView that provides dnd-kit handle
+ * listeners via useSortable. The column itself remains a useDroppable
+ * target (for task drops) — useSortable's setNodeRef composes with
+ * useDroppable's setNodeRef via forwarding ref. We pass the listeners
+ * down to ColumnView's header via dragHandleProps.
+ */
+function SortableColumnView({
+  column,
+  projectId,
+  tasks,
+  onCreate,
+  onColumnUpdated,
+}: {
+  column: Column
+  projectId: string
+  tasks: Task[]
+  onCreate: (title: string) => Promise<void>
+  onColumnUpdated: (col: Column) => void
+}): JSX.Element {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: column.id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  }
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      <ColumnView
+        columnId={column.id}
+        projectId={projectId}
+        name={column.name}
+        tasks={tasks}
+        onCreate={onCreate}
+        onColumnUpdated={onColumnUpdated}
+        dragHandleProps={listeners}
+      />
+    </div>
+  )
+}
+
+/**
+ * "+ Add column" affordance at the end of the board. Inline form: name +
+ * optional color, submit calls api.createColumn. Optimistic append on
+ * success; on failure shows the error inline.
+ */
+function AddColumnTile({
+  projectId,
+  onCreated,
+}: {
+  projectId: string
+  onCreated: (col: Column) => void
+}): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [color, setColor] = useState('#94a3b8')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function submit(e: FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed) {
+      setError('Name is required')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const col = await api.createColumn(projectId, { name: trimmed, color })
+      onCreated(col)
+      setName('')
+      setColor('#94a3b8')
+      setOpen(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        data-testid="add-column-tile"
+        className="rounded-lg border border-dashed border-slate-300 dark:border-slate-700 bg-transparent hover:bg-slate-50 dark:hover:bg-slate-900 text-xs text-slate-500 hover:text-orenda-600 min-h-[200px] flex items-center justify-center"
+      >
+        + Add column
+      </button>
+    )
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      data-testid="add-column-form"
+      className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-3 flex flex-col gap-2 min-h-[200px]"
+    >
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Column name"
+        className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
+      />
+      <label className="flex items-center gap-2 text-xs text-slate-500">
+        Color
+        <input
+          type="color"
+          value={color}
+          onChange={(e) => setColor(e.target.value)}
+          className="w-10 h-6 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+        />
+      </label>
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      <div className="flex gap-1 mt-auto">
+        <button
+          type="submit"
+          disabled={busy}
+          className="flex-1 px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-xs"
+        >
+          {busy ? 'Adding…' : 'Add'}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false)
+            setError(null)
+            setName('')
+          }}
+          className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 text-xs"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
   )
 }

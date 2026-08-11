@@ -328,3 +328,57 @@ func (r *projectRepo) GetColumn(ctx context.Context, id string) (*project.Column
 	col.Color = color.String
 	return &col, nil
 }
+
+// CreateColumn appends a new column to the project's (single) board. The
+// position is chosen as max(existing positions) + 1024 so the new column
+// always lands at the end of the board and reordering a single column
+// stays a midpoint operation. Name and (optional) WIP/Color come from c;
+// c.ID, BoardID, and Position are filled in by the repo.
+//
+// Returns project.ErrNotFound when the project has no board (project
+// missing or freshly seeded). Returns ErrInvalidInput when c.Name is empty.
+func (r *projectRepo) CreateColumn(ctx context.Context, projectID string, c *project.Column) (*project.Column, error) {
+	if c == nil || c.Name == "" {
+		return nil, project.ErrInvalidInput
+	}
+	if c.ID == "" {
+		c.ID = newUUID()
+	}
+
+	board, _, err := r.GetBoard(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Pick the next position. Default 0 means "the board is empty", which
+	// can't happen for boards created by CreateProject (which seeds 5
+	// default columns) but is a safe fallback for a hypothetical manual
+	// board.
+	const maxPosQ = `SELECT COALESCE(MAX(position), 0) FROM columns WHERE board_id = ?`
+	var maxPos float64
+	if err := r.db.QueryRowContext(ctx, maxPosQ, board.ID).Scan(&maxPos); err != nil {
+		return nil, fmt.Errorf("project.CreateColumn: max position: %w", err)
+	}
+	c.BoardID = board.ID
+	c.Position = maxPos + 1024
+
+	var wipLimit sql.NullInt64
+	if c.WIPLimit != nil {
+		wipLimit = sql.NullInt64{Int64: int64(*c.WIPLimit), Valid: true}
+	}
+	var color sql.NullString
+	if c.Color != "" {
+		color = sql.NullString{String: c.Color, Valid: true}
+	}
+
+	const ins = `
+		INSERT INTO columns (id, board_id, name, position, wip_limit, color)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`
+	if _, err := r.db.ExecContext(ctx, ins,
+		c.ID, c.BoardID, c.Name, c.Position, wipLimit, color,
+	); err != nil {
+		return nil, fmt.Errorf("project.CreateColumn: insert: %w", err)
+	}
+	return c, nil
+}
