@@ -261,6 +261,8 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Route("/columns", func(r chi.Router) {
 				r.Route("/{id}", func(r chi.Router) {
 					r.Patch("/", patchColumnHandler(deps))
+					// Phase 12.6: delete a (must be empty) column.
+					r.Delete("/", deleteColumnHandler(deps))
 				})
 			})
 

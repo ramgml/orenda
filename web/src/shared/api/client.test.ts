@@ -76,6 +76,12 @@ describe('api client', () => {
     expect(stubHttp.post).toHaveBeenCalledWith('/api/v1/projects/p-1/columns', { name: 'QA' })
   })
 
+  it('deleteColumn DELETEs the column endpoint and resolves to void', async () => {
+    stubHttp.delete.mockResolvedValue({ data: undefined })
+    await api.deleteColumn('col-2')
+    expect(stubHttp.delete).toHaveBeenCalledWith('/api/v1/columns/col-2')
+  })
+
   it('deletePage returns void and hits the right URL', async () => {
     stubHttp.delete.mockResolvedValue({ data: undefined })
     await api.deletePage('to-delete')

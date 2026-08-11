@@ -20,6 +20,7 @@ export function ColumnView({
   tasks,
   onCreate,
   onColumnUpdated,
+  onColumnDeleted,
   dragHandleProps,
 }: {
   columnId: string
@@ -28,6 +29,13 @@ export function ColumnView({
   tasks: Task[]
   onCreate: (title: string) => Promise<void>
   onColumnUpdated?: (col: Column) => void
+  /**
+   * Optional callback fired after the backend confirms a column
+   * delete. Phase 12.6 uses it to drop the column from local state
+   * without a full board refetch; the WS broadcast will also remove
+   * the column from every other tab.
+   */
+  onColumnDeleted?: (colId: string) => void
   /**
    * Optional dnd-kit props for the column-as-a-whole drag handle (the
    * header area). When present, the header becomes draggable so the
@@ -145,10 +153,15 @@ export function ColumnView({
         <EditColumnModal
           columnId={columnId}
           initialName={name}
+          currentTaskCount={tasks.length}
           onClose={() => setEditing(false)}
           onSaved={(col) => {
             setEditing(false)
             onColumnUpdated?.(col)
+          }}
+          onDeleted={() => {
+            setEditing(false)
+            onColumnDeleted?.(columnId)
           }}
         />
       )}
@@ -159,22 +172,36 @@ export function ColumnView({
 interface EditColumnModalProps {
   columnId: string
   initialName: string
+  /** Number of tasks currently in the column — shown as a hint before
+   * the user confirms the delete. Mirrors what the server will
+   * enforce (422 when non-zero). */
+  currentTaskCount: number
   onClose: () => void
   onSaved: (col: Column) => void
+  onDeleted: () => void
 }
 
-/** Small inline form to rename a column, change its color and set WIP limit. */
+/** Small inline form to rename a column, change its color, set WIP
+ *  limit, and — since Phase 12.6 — delete the column when it's empty.
+ *  Delete is gated by a two-step confirmation because it's
+ *  irreversible: a stray click shouldn't be able to wipe a column. */
 function EditColumnModal({
   columnId,
   initialName,
+  currentTaskCount,
   onClose,
   onSaved,
+  onDeleted,
 }: EditColumnModalProps): JSX.Element {
   const [name, setName] = useState(initialName)
   const [color, setColor] = useState('#94a3b8')
   const [wip, setWip] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Two-step confirm: first click arms the button ("Delete column"),
+  // second click actually fires. Resets if the user changes their mind
+  // or types in the form fields.
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   async function submit(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault()
@@ -206,6 +233,34 @@ function EditColumnModal({
     }
   }
 
+  async function onDelete(): Promise<void> {
+    if (currentTaskCount > 0) {
+      // Defence in depth — the server is the source of truth, but
+      // failing fast here saves a round-trip and makes the UX clearer.
+      setError(
+        `Move the ${currentTaskCount} task${currentTaskCount === 1 ? '' : 's'} in this column to another column first.`,
+      )
+      setConfirmDelete(false)
+      return
+    }
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await api.deleteColumn(columnId)
+      onDeleted()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(/column_not_empty/.test(msg) ? 'Tasks were added to this column while you were editing. Move them out first.' : msg)
+      setConfirmDelete(false)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-sm w-full p-5 space-y-3">
@@ -216,7 +271,10 @@ function EditColumnModal({
             <input
               autoFocus
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value)
+                setConfirmDelete(false)
+              }}
               className="mt-1 block w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
             />
           </label>
@@ -258,6 +316,30 @@ function EditColumnModal({
             </button>
           </div>
         </form>
+        <div className="border-t border-slate-200 dark:border-slate-800 pt-3 space-y-1">
+          <p className="text-xs text-slate-500">
+            {currentTaskCount === 0
+              ? 'This column is empty — safe to delete.'
+              : `This column holds ${currentTaskCount} task${
+                  currentTaskCount === 1 ? '' : 's'
+                }. Move them out first.`}
+          </p>
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={busy}
+            data-testid="delete-column-button"
+            className={
+              confirmDelete
+                ? 'w-full px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-semibold'
+                : 'w-full px-3 py-1.5 rounded border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 disabled:opacity-50 text-sm'
+            }
+          >
+            {confirmDelete
+              ? `Click again to delete "${initialName}"`
+              : 'Delete column'}
+          </button>
+        </div>
       </div>
     </div>
   )

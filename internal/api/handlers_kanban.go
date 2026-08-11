@@ -3,6 +3,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -231,5 +232,70 @@ func patchColumnHandler(deps Dependencies) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, col)
+	}
+}
+
+// deleteColumnHandler removes a column. The handler is split out from
+// the generic writeError path so it can attach the task count to the
+// 422 response — the UI uses that to render "N tasks are still in
+// this column, move them first".
+//
+// Status codes:
+//
+//	204 — deleted
+//	404 — no such column
+//	422 — column still holds tasks (ErrColumnNotEmpty)
+//
+// On success we broadcast column.deleted on the existing 'tasks'
+// topic. The kanban already subscribes to that topic and reloads on
+// every event, so a single broadcast is enough to drop the column
+// from every open tab.
+func deleteColumnHandler(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		if id == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_id"})
+			return
+		}
+
+		// Look up the column first so we can include its board_id in the
+		// WS payload (and emit a clean 404 when missing).
+		col, err := deps.Projects.GetColumn(r.Context(), id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		err = deps.Projects.DeleteColumn(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, project.ErrColumnNotEmpty) {
+				// Re-query the count so the UI gets an up-to-date number.
+				var n int
+				if deps.Tasks != nil {
+					if c, cerr := deps.Tasks.CountByColumn(r.Context(), id); cerr == nil {
+						n = c
+					}
+				}
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+					"error":   "column_not_empty",
+					"current": n,
+				})
+				return
+			}
+			writeError(w, err)
+			return
+		}
+
+		if deps.WSHub != nil {
+			deps.WSHub.Publish(r.Context(), ws.Event{
+				Topic: "tasks",
+				Body: map[string]any{
+					"type":      "column.deleted",
+					"column_id": id,
+					"board_id":  col.BoardID,
+				},
+			})
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

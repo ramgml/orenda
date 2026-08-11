@@ -39,6 +39,12 @@ type Repository interface {
 	// ErrNotFound when the project (or its board) doesn't exist.
 	CreateColumn(ctx context.Context, projectID string, c *Column) (*Column, error)
 
+	// DeleteColumn removes a column. Returns ErrNotFound when the id is
+	// unknown and ErrColumnNotEmpty when tasks still reference it (the
+	// caller must move them away first; we never cascade-delete tasks
+	// silently because that would destroy user data without warning).
+	DeleteColumn(ctx context.Context, id string) error
+
 	// UpdateColumn persists mutable fields (name, position, wip_limit, color).
 	// Returns ErrNotFound when no row matches.
 	UpdateColumn(ctx context.Context, c *Column) error

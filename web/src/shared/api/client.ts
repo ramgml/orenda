@@ -231,6 +231,17 @@ class ApiClient {
       .then((r) => r.data)
   }
 
+  /** Remove a column. Throws AxiosError with response.status === 422
+   *  (and response.data.current = N) when the column still holds N
+   *  tasks — the UI uses that count to render a helpful hint. 404
+   *  means the column is already gone (idempotent from the user's
+   *  POV). */
+  deleteColumn(columnId: string): Promise<void> {
+    return this.http
+      .delete<void>(`/api/v1/columns/${columnId}`)
+      .then(() => undefined)
+  }
+
   listProjectTasks(projectId: string, params?: { status?: string; column_id?: string }): Promise<Task[]> {
     return this.http
       .get<{ tasks: Task[] }>(`/api/v1/projects/${projectId}/tasks`, { params })
