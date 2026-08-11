@@ -20,6 +20,7 @@ import { BackupsSettingsPage } from '@/features/settings/Backups'
 import { BotsSettingsPage } from '@/features/settings/Bots'
 import { ReportsPage } from '@/features/reports/ReportsPage'
 import { InboxPage } from '@/features/inbox/InboxPage'
+import { QuickCapture } from '@/features/inbox/QuickCapture'
 import { ReviewPage } from '@/features/review/ReviewPage'
 import { api, type InfoResponse, type Task } from '@/shared/api/client'
 
@@ -116,6 +117,12 @@ function Shell(): JSX.Element {
 
       {/* Floating timer widget is rendered globally so it persists across navigation. */}
       <TimerWidget />
+
+      {/* Phase 21: global quick-capture modal. Hotkey 'q' or the
+          bottom-right "+" button opens it. Always available while
+          authenticated (mounted just inside the Shell so it stays
+          after login). */}
+      <QuickCapture />
 
       {/* Footer lives outside AppLayout so it shows on login too. */}
       <Footer info={info} />
