@@ -19,6 +19,7 @@ import { CommentsList } from './CommentsList'
 import { ChildTasksList } from './ChildTasksList'
 import { AttachmentsList } from './AttachmentsList'
 import { ChecklistsList } from './ChecklistsList'
+import { TaskLink } from './TaskModal'
 
 /**
  * Shared task-detail content.
@@ -44,6 +45,9 @@ export function TaskViewBody({
 }): JSX.Element {
   const { user } = useAuth()
   const [task, setTask] = useState<Task | null>(null)
+  // Parent task is fetched lazily (only when the current task has a
+  // parent_task_id) so top-level tasks don't pay for an extra GET.
+  const [parentTask, setParentTask] = useState<Task | null>(null)
   const [childTasks, setChildTasks] = useState<Task[]>([])
   const [childProgress, setChildProgress] = useState<ChildTaskProgress>({ total: 0, done: 0 })
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
@@ -67,6 +71,18 @@ export function TaskViewBody({
         api.listChecklists(taskId),
       ])
       setTask(t)
+      // Lazily fetch the parent for the breadcrumb. Done after
+      // setTask so we know the parent id; failures are silent
+      // (the breadcrumb just won't render).
+      if (t.parent_task_id) {
+        try {
+          setParentTask(await api.getTask(t.parent_task_id))
+        } catch {
+          setParentTask(null)
+        }
+      } else {
+        setParentTask(null)
+      }
       setChildTasks(childrenR.tasks ?? [])
       setChildProgress(childrenR.progress ?? { total: 0, done: 0 })
       setAttachments(attR.attachments ?? [])
@@ -205,6 +221,19 @@ export function TaskViewBody({
   return (
     <section className="grid gap-6 md:grid-cols-3">
       <div className="md:col-span-2 space-y-6">
+        {task.parent_task_id && (
+          <div className="text-xs text-slate-500 flex items-center gap-1.5 -mb-2">
+            <span aria-hidden="true">↳</span>
+            <span>Child of</span>
+            <TaskLink
+              taskId={task.parent_task_id}
+              className="text-orenda-600 hover:underline truncate max-w-xs"
+            >
+              {parentTask?.title ?? 'parent task'}
+            </TaskLink>
+          </div>
+        )}
+
         <EditableTitle value={task.title} onSave={onSaveTitle} busy={busy} />
 
         <DescriptionEditor

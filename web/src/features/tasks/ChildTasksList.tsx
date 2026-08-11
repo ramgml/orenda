@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 
 import { api, type ChildTaskProgress, type Task } from '@/shared/api/client'
+import { TaskLink } from './TaskModal'
 
 /**
  * Status badge colour for a child task. Mirrors the kanban palette so
@@ -129,12 +129,12 @@ export function ChildTasksList({
               key={t.id}
               className="flex items-center gap-2 group rounded border border-transparent hover:border-slate-200 dark:hover:border-slate-700 px-2 py-1"
             >
-              <Link
-                to={`/tasks/${t.id}`}
+              <TaskLink
+                taskId={t.id}
                 className="flex-1 text-sm hover:underline truncate"
               >
                 {t.title}
-              </Link>
+              </TaskLink>
               <span
                 className={`text-xs px-1.5 py-0.5 rounded ${statusBadgeClass(t.status)}`}
               >
