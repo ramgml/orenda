@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 
+import { TaskLink } from '@/features/tasks/TaskModal'
 import { api, type ProjectActivityItem } from '@/shared/api/client'
 
 /**
@@ -56,12 +57,12 @@ export function ProjectActivityTab(): JSX.Element {
           <span className="px-1.5 py-0.5 rounded text-xs uppercase tracking-wide bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
             {it.action}
           </span>
-          <Link
-            to={`/tasks/${it.task_id}`}
+          <TaskLink
+            taskId={it.task_id}
             className="truncate hover:text-orenda-600 hover:underline"
           >
             {it.task_title || it.task_id.slice(0, 8)}
-          </Link>
+          </TaskLink>
           <span className="ml-auto text-xs text-slate-400">{it.actor_type}</span>
         </li>
       ))}

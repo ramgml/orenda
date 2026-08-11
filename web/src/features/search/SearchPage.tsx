@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import { TaskLink } from '@/features/tasks/TaskModal'
 import { api, type SearchHit } from '@/shared/api/client'
 
 /**
@@ -90,12 +91,21 @@ export function SearchPage(): JSX.Element {
               className="rounded border border-slate-200 dark:border-slate-800 p-3"
             >
               <div className="flex items-center justify-between mb-1">
-                <Link
-                  to={hitHref(h)}
-                  className="font-medium text-orenda-600 hover:underline"
-                >
-                  {h.title || h.id.slice(0, 12)}
-                </Link>
+                {h.type === 'page' ? (
+                  <Link
+                    to={hitHref(h)}
+                    className="font-medium text-orenda-600 hover:underline"
+                  >
+                    {h.title || h.id.slice(0, 12)}
+                  </Link>
+                ) : (
+                  <TaskLink
+                    taskId={h.id}
+                    className="font-medium text-orenda-600 hover:underline"
+                  >
+                    {h.title || h.id.slice(0, 12)}
+                  </TaskLink>
+                )}
                 <span className="text-xs uppercase text-slate-500 tracking-wide">
                   {h.type} · {h.score.toFixed(2)}
                 </span>

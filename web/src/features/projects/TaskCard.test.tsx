@@ -102,6 +102,11 @@ describe('TaskCard', () => {
     // We render the card inside a real Router + a Route that captures
     // the destination, so we can assert that programmatic navigation
     // actually arrived at the right URL.
+    //
+    // After the modal refactor the navigation also carries
+    // `state.backgroundLocation` (so the kanban stays mounted behind
+    // the modal). The Routes below only check the path; the state is
+    // just an implementation detail of openTaskModal.
     const { container, queryByText } = render(
       <MemoryRouter initialEntries={['/']}>
         <DndContext>

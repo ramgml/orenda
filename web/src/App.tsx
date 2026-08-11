@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from 'react'
-import { Link, Navigate, Route, Routes } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import { AuthProvider, useAuth } from '@/features/auth/AuthContext'
 import { LoginPage } from '@/features/auth/LoginPage'
@@ -11,6 +11,7 @@ import { ProjectAttachmentsTab } from '@/features/projects/tabs/ProjectAttachmen
 import { ProjectSettingsTab } from '@/features/projects/tabs/ProjectSettingsTab'
 import { AgentsPage } from '@/features/agents/AgentsPage'
 import { TaskViewPage } from '@/features/tasks/TaskViewPage'
+import { TaskModal } from '@/features/tasks/TaskModal'
 import { CalendarPage } from '@/features/calendar/CalendarPage'
 import { TimerWidget } from '@/features/tasks/TimerWidget'
 import { WikiPage } from '@/features/wiki/WikiPage'
@@ -21,6 +22,10 @@ import { ReportsPage } from '@/features/reports/ReportsPage'
 import { api, type InfoResponse, type Task } from '@/shared/api/client'
 
 import { AppLayout } from '@/features/layout/AppLayout'
+
+// State carried in navigation when opening a task as a modal.
+// See features/tasks/TaskModal.tsx for the open/close contract.
+type BackgroundLocationState = { backgroundLocation?: { pathname: string } }
 
 /**
  * Top-level shell. The authenticated surface is now wrapped in
@@ -47,9 +52,24 @@ function Shell(): JSX.Element {
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
   }, [])
 
+  // Modal-on-top trick: when the current location was reached with a
+  // `backgroundLocation` in its state (i.e. the user clicked a card /
+  // link via `openTaskModal` / `TaskLink`), we render the *previous*
+  // location inside the main <Routes> (so the kanban stays mounted
+  // and scroll/dnd state survive), and additionally render the modal
+  // inside a second <Routes> that uses the live location.
+  //
+  // Direct deep-links to /tasks/:id don't carry `backgroundLocation`,
+  // so the main <Routes> falls back to TaskViewPage (full-page view)
+  // and the modal block is skipped.
+  const location = useLocation()
+  const state = (location.state ?? null) as BackgroundLocationState | null
+  const backgroundLocation = state?.backgroundLocation
+  const backgroundPathname = backgroundLocation?.pathname ?? null
+
   return (
     <>
-      <Routes>
+      <Routes location={backgroundPathname ? { ...location, pathname: backgroundPathname } : location}>
         {/* Login has its own chrome (no sidebar / top bar). */}
         <Route path="/login" element={<LoginPage />} />
 
@@ -76,6 +96,19 @@ function Shell(): JSX.Element {
           <Route path="*" element={<Placeholder title="Not found" />} />
         </Route>
       </Routes>
+
+      {/* Modal layer: only renders when the current navigation carries a
+          `backgroundLocation`, i.e. the user opened the modal from
+          another page (not via a direct deep-link). The modal route
+          is intentionally NOT wrapped in <RequireAuth> — by the time
+          we get here the user has already been authenticated on the
+          background page, and TaskViewBody's own API calls surface
+          401s gracefully if the session somehow expires mid-flight. */}
+      {backgroundPathname && (
+        <Routes>
+          <Route path="/tasks/:id" element={<TaskModal />} />
+        </Routes>
+      )}
 
       {/* Floating timer widget is rendered globally so it persists across navigation. */}
       <TimerWidget />

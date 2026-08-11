@@ -1,6 +1,7 @@
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useDraggable } from '@dnd-kit/core'
 
+import { openTaskModal } from '@/features/tasks/TaskModal'
 import type { Task } from '@/shared/api/client'
 
 /**
@@ -17,6 +18,12 @@ import type { Task } from '@/shared/api/client'
  *  `onClick` + `useNavigate`, which @dnd-kit leaves alone as long as
  *  `PointerSensor` doesn't start a real drag (activation distance is
  *  set to 4px in KanbanBoard.tsx, so taps pass through untouched).
+ *
+ * Modal-on-top:
+ *  Clicking the card opens the task as a Trello-style overlay via
+ *  `openTaskModal` instead of replacing the kanban with a full-page
+ *  route. The parent (ColumnView) keeps its scroll position, the
+ *  dnd state, and the filter chips visible behind the modal.
  */
 export function TaskCard({
   task,
@@ -30,6 +37,7 @@ export function TaskCard({
   onOpen?: (taskId: string) => void
 }): JSX.Element {
   const navigate = useNavigate()
+  const location = useLocation()
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
   })
@@ -41,7 +49,7 @@ export function TaskCard({
     if (onOpen) {
       onOpen(task.id)
     } else {
-      navigate(`/tasks/${task.id}`)
+      openTaskModal(navigate, location, task.id)
     }
   }
 

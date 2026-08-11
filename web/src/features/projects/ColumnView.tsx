@@ -1,8 +1,9 @@
 import { FormEvent, useState } from 'react'
 import { useDroppable } from '@dnd-kit/core'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { TaskCard } from './TaskCard'
+import { openTaskModal } from '@/features/tasks/TaskModal'
 import { api, type Column, type Task } from '@/shared/api/client'
 import { queueCreateTask } from '@/shared/offline/outbox'
 
@@ -29,6 +30,7 @@ export function ColumnView({
 }): JSX.Element {
   const { setNodeRef, isOver } = useDroppable({ id: columnId })
   const navigate = useNavigate()
+  const location = useLocation()
   const [creating, setCreating] = useState(false)
   const [title, setTitle] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -52,7 +54,7 @@ export function ColumnView({
   }
 
   function openTask(taskId: string): void {
-    navigate(`/tasks/${taskId}`)
+    openTaskModal(navigate, location, taskId)
   }
 
   return (
