@@ -754,7 +754,52 @@ make build
 
 ---
 
+## Phase 15 — Зависимости задач и видимость занятости для агентов *(3–4 дня)*
 
+**Цель:** задачи могут блокировать друг друга; агенты видят, какие задачи готовы к параллельной работе, а какие заблокированы или уже выполняются другим агентом. Сейчас зависимостей нет вовсе, а занятость задачи агент узнаёт только попыткой claim → голый 409.
+
+**Контекст (что уже есть):**
+
+- `task_locks PK(task_id)` — один держатель; повторный claim → 409 `{"error":"lock_taken"}` (`handlers_agent.go`), но БЕЗ указания, кто держит и с каких пор.
+- В agent-namespace `/api/v1/agent/*` нет GET-эндпоинтов: агент не может ни получить список задач, ни найти свободные — только claim/release/submit/context по известному id (`router.go:346-353`).
+- В `tasks` уже есть `assignee_type/assignee_id/claimed_at` — данные для сигнала «занято» хранятся, но не отдаются агентам.
+- Таблицы зависимостей нет → миграция `014_task_dependencies.sql` (аддитивна).
+- «Готовность» к параллельной работе — производная: все блокеры done И лок свободен И сама задача не done.
+
+### Tasks
+
+- [ ] **15.1** Миграция `014_task_dependencies.sql`:
+  - `task_dependencies(task_id, depends_on_task_id, PRIMARY KEY(task_id, depends_on_task_id), FK→tasks ON DELETE CASCADE)`
+  - Индекс по `depends_on_task_id` (обратный lookup: «что разблокирует эта задача»)
+- [ ] **15.2** Domain + repo:
+  - `AddDependency(ctx, taskID, dependsOnID)` — с проверкой цикла (DFS по графу) и отказом на self-dependency
+  - `RemoveDependency`, `Blockers(ctx, taskID)` (незавершённые зависимости), `Dependents(ctx, taskID)`
+- [ ] **15.3** Service:
+  - `Claim` отказывает при незавершённых блокерах → 422 `task_blocked` + список id блокеров в теле (иначе зависимости декоративны)
+  - 409 `lock_taken` расширить: `holder_agent_id`, `holder_agent_name`, `claimed_at`
+- [ ] **15.4** Handlers:
+  - `GET /api/v1/agent/tasks` — список задач для агента: `status`, `assignee`, `claimed_at`, `blocked_by[]`, вычисляемое `ready`; query `?ready=true` — только готовые к параллельной работе
+  - `GET /agent/tasks/{id}/context` — добавить `blocked_by[]` и текущего держателя лока
+  - User-side: `PUT /api/v1/tasks/{id}/dependencies {depends_on_ids}` (replace), блокеры в ответе `GET /board` и `GET /tasks`
+  - WS-событие в topic `tasks` при изменении зависимостей
+- [ ] **15.5** Frontend:
+  - `TaskCard` — бейдж «blocked» (с числом блокеров) и бейдж занятости агентом (assignee уже есть в payload)
+  - Страница задачи — редактор зависимостей («Blocked by»: поиск задачи, добавить/удалить)
+- [ ] **15.6** Документация: `docs/API.md` — новые поля и эндпоинты, семантика `ready`
+- [ ] **15.7** Тесты:
+  - Цикл в зависимостях отклоняется (A→B→A)
+  - Claim заблокированной задачи → 422 со списком блокеров; после done блокера → claim успешен
+  - 409 содержит holder-поля
+  - `?ready=true` исключает заблокированные и занятые
+
+### Definition of Done
+
+- Зависимость создаётся из UI, заблокированная задача помечена на доске.
+- Агент через `GET /api/v1/agent/tasks?ready=true` получает только параллельно выполнимые задачи.
+- Claim заблокированной → 422 с блокерами; claim занятой → 409 с именем держателя.
+- Циклы отклоняются. `make test && make lint` зелёные.
+
+---
 
 ## DB Schema (для миграции 001_init.sql)
 
@@ -1089,3 +1134,4 @@ CREATE INDEX idx_backup_log_created ON backup_log(created_at);
 | 2026-08-11 | 0.2.0 | Phase 12: кастомные колонки канбана (create/reorder/rename UX) |
 | 2026-08-11 | 0.3.0 | Phase 13: теги и цветовые метки задач |
 | 2026-08-11 | 0.4.0 | Phase 14: разделение subtasks/checklists по смыслу (Weeek-style) |
+| 2026-08-11 | 0.5.0 | Phase 15: зависимости задач, ready-выборка для агентов, видимость занятости |
