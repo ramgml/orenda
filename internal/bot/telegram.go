@@ -29,8 +29,37 @@ type Telegram struct {
 	// callback handler in callback.go wires this to task actions.
 	OnCallback func(ctx context.Context, query CallbackQuery) error
 
+	// OnMessage is invoked for every inbound text message that has
+	// no callback_query attached. Phase 21 wires this to the inbox
+	// capture flow: "send a line, get a task".
+	OnMessage func(ctx context.Context, m InboxMessage) error
+
 	// apiFactory allows tests to inject a fake BotAPI.
 	apiFactory func(token string) (telegramAPI, error)
+}
+
+// InboxMessage is the inbound text-message payload Phase 21 cares
+// about: chat id, sender id, the message text. We deliberately
+// keep this smaller than the Telegram update struct so the OnMessage
+// callback doesn't pull the whole API surface into its signature.
+type InboxMessage struct {
+	ChatID    int64
+	MessageID int
+	UserID    int64 // sender (may differ from chatID for groups)
+	Text      string
+}
+
+// SendReply is a tiny helper to reply to the chat from inside the
+// OnMessage handler. It doesn't depend on any extra wiring — the
+// Telegram bot's `api` field is reachable through a closure on
+// the receiver. See poll() below for how OnMessage is called.
+func (t *Telegram) SendReply(ctx context.Context, chatID int64, text string) error {
+	if t.api == nil {
+		return ErrBotUnavailable
+	}
+	msg := tgbotapi.NewMessage(chatID, text)
+	_, err := t.api.Send(msg)
+	return err
 }
 
 // telegramAPI is the tiny surface the bot needs (lets tests mock).
@@ -189,6 +218,27 @@ func (t *Telegram) poll(ctx context.Context) {
 					MessageID: msgID,
 					Data:      q.Data,
 				})
+				continue
+			}
+			// Plain text message — Phase 21 inbox capture. We only
+			// dispatch to OnMessage if the chat type is private (a
+			// group message would route to a multi-user codepath we
+			// haven't built yet — single-owner install ignores
+			// non-private chats by design).
+			if upd.Message != nil && t.OnMessage != nil {
+				m := upd.Message
+				if m.Chat.Type == "private" && strings.TrimSpace(m.Text) != "" {
+					userID := int64(0)
+					if m.From != nil {
+						userID = m.From.ID
+					}
+					_ = t.OnMessage(ctx, InboxMessage{
+						ChatID:    m.Chat.ID,
+						MessageID: m.MessageID,
+						UserID:    userID,
+						Text:      m.Text,
+					})
+				}
 			}
 		}
 	}

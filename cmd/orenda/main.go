@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -37,6 +38,7 @@ import (
 	"github.com/ramgml/orenda/internal/backup"
 	"github.com/ramgml/orenda/internal/bot"
 	"github.com/ramgml/orenda/internal/config"
+	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/mirror"
 	activityservice "github.com/ramgml/orenda/internal/service/activity"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
@@ -44,6 +46,7 @@ import (
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
 	courseservice "github.com/ramgml/orenda/internal/service/course"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
+	"github.com/ramgml/orenda/internal/service/notifier"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
@@ -154,6 +157,43 @@ func int64ToString(v int64) string {
 		buf[i] = '-'
 	}
 	return string(buf[i:])
+}
+
+// findTelegramSubscriber returns the user_id whose Telegram
+// subscription targets the given chat_id.
+//
+// The notifier.SubscriptionRepository already exposes
+// ListByBotType for this — we adapt it to a small projection here
+// so the wire-up code doesn't depend on the full notifier.Subscription
+// shape (we only need four fields).
+
+// findTelegramSubscriber returns the user_id whose Telegram
+// subscription targets the given chat_id.
+//
+// The notifier.SubscriptionRepository already exposes
+// ListByBotType for this. We operate on the notifier.Subscription
+// shape directly because the bot side already imports it; the
+// shape has TargetAddress + Enabled fields that are exactly what
+// we need, and the projection is cheaper than a second type.
+func findTelegramSubscriber(
+	ctx context.Context,
+	repo notifier.SubscriptionRepository,
+	chatID int64,
+) string {
+	addr := int64ToString(chatID)
+	subs, err := repo.ListByBotType(ctx, "telegram")
+	if err != nil || len(subs) == 0 {
+		return ""
+	}
+	for _, s := range subs {
+		if !s.Enabled {
+			continue
+		}
+		if s.TargetAddress == addr {
+			return s.UserID
+		}
+	}
+	return ""
 }
 
 // taskRecorderAdapter bridges activity.Recorder.RecordTask to
@@ -434,6 +474,59 @@ func runServe(cmd *cobra.Command, _ []string) error {
 					return herr
 				}
 				return tg.AnswerCallback(ctx, q.ID, "ok")
+			}
+
+			// Phase 21: route plain text messages from a private chat
+			// into the Inbox. The simplest flow:
+			//   1. Look up the user subscribed to this chat_id.
+			//   2. Create an inbox task (project_id IS NULL) with the
+			//      message text as title (truncated to 200 chars).
+			//   3. Reply "✅ Captured to Inbox".
+			// Subscription lookup is best-effort: no subscription =
+			// ignore. The single-owner install has one user row, so
+			// "the user subscribed to this telegram chat" is the
+			// normal case after `orenda subscription add telegram …
+			// target=<chat_id>`.
+			tg.OnMessage = func(ctx context.Context, m bot.InboxMessage) error {
+				subRepo := sqlite.NewBotSubscriptionRepository(db)
+				addr := int64ToString(m.ChatID)
+				subs, err := subRepo.ListByBotType(ctx, "telegram")
+				var owner string
+				if err == nil {
+					for _, s := range subs {
+						if s.Enabled && s.TargetAddress == addr {
+							owner = s.UserID
+							break
+						}
+					}
+				}
+				if owner == "" {
+					return nil
+				}
+				title := strings.TrimSpace(m.Text)
+				if len(title) > 200 {
+					title = title[:200] + "…"
+				}
+				now := time.Now().UTC()
+				tr := &task.Task{
+					ProjectID:    "",
+					Title:        title,
+					Status:       task.StatusTodo,
+					Priority:     task.PriorityMedium,
+					Awaiting:     task.AwaitingNone,
+					AssigneeType: task.AssigneeUser,
+					AssigneeID:   owner,
+					TimeSpentS:   0,
+					Position:     0,
+					AllDay:       false,
+					CreatedAt:    now,
+					UpdatedAt:    now,
+				}
+				_ = owner
+				if err := tasksRepo.Create(ctx, tr); err != nil {
+					return err
+				}
+				return tg.SendReply(ctx, m.ChatID, "✅ Captured to Inbox")
 			}
 		}
 	}
