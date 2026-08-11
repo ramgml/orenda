@@ -85,7 +85,7 @@ make lint
 ### When you start a phase
 1. Read `docs/PLAN.md` for the phase definition.
 2. Check Definition of Done.
-3. Create branch `phase-X-Y-short-name`.
+3. Create worktree + branch `phase-X-Y-short-name` (см. «Worktree per task» — обязательно, без исключений).
 4. Implement tasks in order.
 5. Run `make test && make lint`.
 6. Re-index the codebase knowledge graph after code changes: codebase-memory-mcp `index_repository` with `mode: "fast"` (`"full"` on first index). Code discovery runs through `search_graph`/`trace_path` — a stale graph misleads the next agent.
@@ -104,6 +104,8 @@ make lint
 - ❌ Don't add `any` types in TS.
 - ❌ Don't bypass auth "temporarily".
 - ❌ Don't commit `data/` contents (gitignored).
+- ❌ Don't edit the main working tree directly — worktree per task, always. Other agents may hold uncommitted work there; they don't know about you either.
+- ❌ Don't run `git checkout` / `git reset` / `git clean` / `git restore` in a checkout you didn't create.
 - ❌ Don't push to remote without explicit user request.
 
 ## Key files to read first
@@ -131,22 +133,32 @@ make lint
 - Promote to `main` via PR from `dev` when ready. Tag release: `git tag vX.Y.Z`.
 - See `CHANGELOG.md` for versioning policy and release notes.
 
-### Parallel work with git worktree
+### Worktree per task (mandatory, unconditional)
 
-When several phase branches are in flight at once (e.g. parallel AI agents), use worktrees instead of switching branches in the main checkout:
+Agents run in parallel and **cannot see each other**. You cannot know whether another agent is working right now — assume there is always one. Therefore every task, even a one-file docs change, gets its own worktree. The main checkout is someone else's live workspace.
 
 ```bash
-git worktree add -b phase-12-custom-columns ../orenda-phase12 dev
-git worktree list
-git worktree remove ../orenda-phase12   # after merge; then `git worktree prune`
+# Start of task: branch + worktree off dev, placed NEXT TO the repo (never inside)
+git worktree add ../orenda-<task> -b phase-X-Y-<name> dev
+
+# ...work in ../orenda-<task>...
+
+# Commit early, commit often: uncommitted work is unprotected —
+# another agent's tree operation can silently destroy it.
+git add -A && git commit -m "phase(X.Y): ..."
+
+# After merge to dev:
+git worktree remove ../orenda-<task> && git worktree prune
 ```
 
 Rules:
 
-- One branch = one worktree. A branch cannot be checked out in two places; create the phase branch with `git worktree add -b`.
-- Worktrees live **next to** the repo (`../orenda-<phase>`), never inside it.
+- **The main checkout is read-only for you.** No edits there; no `git checkout` / `git reset` / `git clean` / `git restore` in any checkout you didn't create. Inspecting files read-only is fine.
+- One branch = one worktree. A branch cannot be checked out in two places; create the task branch with `git worktree add -b`.
+- Worktrees live **next to** the repo (`../orenda-<task>`), never inside it — a nested worktree breaks `go test ./...` and other tooling in the main tree.
 - Gitignored content is not copied. In a fresh worktree run `npm install` in `web/` and `./bin/orenda migrate up` (each worktree gets its own `data/orenda.db`).
 - Port 2137 is singleton: run a second instance with `ORENDA_SERVER__PORT=<other>` or don't run it at all.
+- Merge to `dev` is a deliberate act: only after review, and never against someone's uncommitted work in the main tree.
 - Remove the worktree right after its branch is merged; run `git worktree prune` occasionally.
 
 ## License
