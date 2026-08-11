@@ -72,6 +72,17 @@ export function AttachmentsList({
           + Upload
         </button>
       </h2>
+      <p className="text-xs text-slate-400 mb-2">
+        Drop a file, click <span className="font-medium">+ Upload</span>, or press{' '}
+        <kbd className="px-1 py-0.5 rounded border border-slate-300 dark:border-slate-700 font-mono text-[10px]">
+          Ctrl
+        </kbd>
+        +
+        <kbd className="px-1 py-0.5 rounded border border-slate-300 dark:border-slate-700 font-mono text-[10px]">
+          V
+        </kbd>{' '}
+        to paste a screenshot from the clipboard.
+      </p>
       <input
         ref={inputRef}
         type="file"

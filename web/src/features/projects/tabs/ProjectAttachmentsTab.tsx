@@ -101,6 +101,17 @@ export function ProjectAttachmentsTab(): JSX.Element {
         }`}
       >
         {busy ? 'Uploading…' : 'Drop files here or click to upload'}
+        <div className="mt-1 text-xs text-slate-500">
+          You can also paste a screenshot from the clipboard with{' '}
+          <kbd className="px-1 py-0.5 rounded border border-slate-300 dark:border-slate-700 font-mono text-[10px]">
+            Ctrl
+          </kbd>
+          +
+          <kbd className="px-1 py-0.5 rounded border border-slate-300 dark:border-slate-700 font-mono text-[10px]">
+            V
+          </kbd>
+          .
+        </div>
         <input
           ref={fileInputRef}
           type="file"
