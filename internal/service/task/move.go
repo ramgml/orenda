@@ -80,8 +80,12 @@ type Service struct {
 
 // MirrorWriter is the seam for the Phase 7 markdown mirror. The concrete
 // implementation is internal/mirror.Service; nil means "no mirror".
+//
+// Phase 13 added the tags slice to WriteTask so the markdown frontmatter
+// carries the label vocabulary. Callers that don't have tags handy
+// pass nil; the frontmatter omits the field entirely.
 type MirrorWriter interface {
-	WriteTask(t *task.Task, checklists []task.Checklist, itemsByList map[string][]task.ChecklistItem, comments []*commentdomain.Comment) (string, error)
+	WriteTask(t *task.Task, checklists []task.Checklist, itemsByList map[string][]task.ChecklistItem, comments []*commentdomain.Comment, tags []task.Tag) (string, error)
 	DeleteTask(id string) error
 }
 
@@ -444,6 +448,10 @@ func (s *Service) publishTask(ctx context.Context, eventType string, tr *task.Ta
 // Best-effort: failures are ignored — the next push will catch up.
 // Exported so handlers that bypass the service (PATCH /tasks/:id) can
 // still trigger the mirror.
+//
+// Phase 13: fetches the task's current tags and threads them into the
+// mirror frontmatter. Each tag fetch failure is swallowed — the next
+// push run will re-fetch and pick up the latest set.
 func (s *Service) MirrorSave(ctx context.Context, tr *task.Task) {
 	if s.Mirror == nil || tr == nil {
 		return
@@ -471,7 +479,8 @@ func (s *Service) MirrorSave(ctx context.Context, tr *task.Task) {
 		}
 		itemsByList[r.ID] = conv
 	}
-	_, _ = s.Mirror.WriteTask(tr, cls, itemsByList, nil)
+	tags, _ := s.Tasks.ListTagsForTask(ctx, tr.ID)
+	_, _ = s.Mirror.WriteTask(tr, cls, itemsByList, nil, tags)
 }
 
 // mirrorSave is the internal alias kept for service-internal callers.

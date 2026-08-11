@@ -150,11 +150,19 @@ func applySyncOp(r *http.Request, deps Dependencies, id *Identity, op syncOp) sy
 		}
 		// Apply payload fields. Last-write-wins per PLAN#8.6 — we don't
 		// compare updated_at since ops arrive in chronological order.
+		//
+		// Phase 13 additions: `color` is *string (absent vs explicit
+		// "" clear); `tags` is *[]string (nil = leave, &[] = clear,
+		// non-empty = replace). Both mirror the user-side PATCH
+		// semantics so the offline outbox and the online API behave
+		// identically.
 		var in struct {
-			Title       string `json:"title,omitempty"`
-			Description string `json:"description,omitempty"`
-			Status      string `json:"status,omitempty"`
-			Priority    string `json:"priority,omitempty"`
+			Title       string    `json:"title,omitempty"`
+			Description string    `json:"description,omitempty"`
+			Status      string    `json:"status,omitempty"`
+			Priority    string    `json:"priority,omitempty"`
+			Color       *string   `json:"color,omitempty"`
+			Tags        *[]string `json:"tags,omitempty"`
 		}
 		if err := json.Unmarshal(op.Payload, &in); err != nil {
 			res.Error = "invalid_payload"
@@ -172,9 +180,17 @@ func applySyncOp(r *http.Request, deps Dependencies, id *Identity, op syncOp) sy
 		if in.Priority != "" {
 			tr.Priority = task.Priority(in.Priority)
 		}
+		if in.Color != nil {
+			tr.Color = *in.Color
+		}
 		if err := deps.Tasks.Update(ctx, tr); err != nil {
 			res.Error = err.Error()
 			return res
+		}
+		// Tag replacement goes through the same diff path as the
+		// user-side PATCH so a no-op doesn't spam the activity feed.
+		if in.Tags != nil {
+			applyTaskTagsChange(ctx, deps, tr.ID, *in.Tags)
 		}
 		if deps.TaskService != nil {
 			deps.TaskService.MirrorSave(ctx, tr)

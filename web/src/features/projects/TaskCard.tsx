@@ -2,6 +2,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useDraggable } from '@dnd-kit/core'
 
 import { openTaskModal } from '@/features/tasks/TaskModal'
+import { TaskTagChips } from '@/features/tasks/TaskTagChip'
 import type { Task } from '@/shared/api/client'
 
 /**
@@ -24,6 +25,15 @@ import type { Task } from '@/shared/api/client'
  *  `openTaskModal` instead of replacing the kanban with a full-page
  *  route. The parent (ColumnView) keeps its scroll position, the
  *  dnd state, and the filter chips visible behind the modal.
+ *
+ * Phase 13 visual additions:
+ *  - Left colour stripe: 3px wide, derived from `task.color`; absent
+ *    when colour is empty (the default for most tasks). Phase 17
+ *    will fold priority into the stripe too; Phase 13 keeps the two
+ *    channels independent so they don't conflict.
+ *  - Tag chips below the title: rendered through the dumb
+ *    `TaskTagChips` component, which Phase 17 may also reuse inside
+ *    its bigger card redesign.
  */
 export function TaskCard({
   task,
@@ -60,6 +70,10 @@ export function TaskCard({
     }
   }
 
+  const stripeStyle: React.CSSProperties | undefined = task.color
+    ? { borderLeftWidth: '3px', borderLeftColor: task.color, borderLeftStyle: 'solid' as const }
+    : undefined
+
   return (
     <div
       ref={setNodeRef}
@@ -67,6 +81,7 @@ export function TaskCard({
       onKeyDown={handleKeyDown}
       {...attributes}
       {...listeners}
+      style={stripeStyle}
       className={`rounded border bg-white dark:bg-slate-950 p-2 text-sm cursor-grab select-none ${
         isDragging ? 'opacity-40 border-orenda-500' : 'border-slate-200 dark:border-slate-700'
       }`}
@@ -80,7 +95,10 @@ export function TaskCard({
           child
         </span>
       )}
-      {task.title}
+      <div className="text-slate-800 dark:text-slate-100">{task.title}</div>
+      {task.tags && task.tags.length > 0 && (
+        <TaskTagChips tags={task.tags} className="mt-1.5" />
+      )}
     </div>
   )
 }

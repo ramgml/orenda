@@ -14,20 +14,6 @@ import (
 	"github.com/ramgml/orenda/internal/domain/task"
 )
 
-// doReq is a small helper: send an HTTP request with cookie+JSON
-// body and return the response. Local copy — the same helper exists
-// in tags_integration_test.go (Phase 13) but that test file isn't
-// part of this phase's merge.
-func doReq(router http.Handler, method, path, cookie string, body any) *httptest.ResponseRecorder {
-	raw, _ := json.Marshal(body)
-	req := httptest.NewRequest(method, path, bytes.NewReader(raw))
-	req.Header.Set("Cookie", "orenda_session="+cookie)
-	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-	router.ServeHTTP(rr, req)
-	return rr
-}
-
 // Phase 16.5: /api/v1/inbox/tasks — list + create inbox tasks.
 func TestInbox_ListAndCreate(t *testing.T) {
 	f := columnDeps(t)

@@ -44,7 +44,7 @@ func TestMirror_WriteTask(t *testing.T) {
 		},
 	}
 
-	path, err := svc.WriteTask(tr, checklists, itemsByList, comments)
+	path, err := svc.WriteTask(tr, checklists, itemsByList, comments, nil)
 	require.NoError(t, err)
 	assert.FileExists(t, path)
 
@@ -96,7 +96,32 @@ func TestMirror_WriteTask_FilenameIsID(t *testing.T) {
 	svc := mirror.New(dir)
 	path, err := svc.WriteTask(&task.Task{
 		ID: "abc", Title: "x",
-	}, nil, nil, nil)
+	}, nil, nil, nil, nil)
 	require.NoError(t, err)
 	assert.True(t, strings.HasSuffix(path, filepath.Join("tasks", "abc.md")))
+}
+
+// Phase 13: tags + colour land in the frontmatter so a plain git
+// diff of the mirror dir tells the label story.
+func TestMirror_WriteTask_TagsAndColor(t *testing.T) {
+	dir := t.TempDir()
+	svc := mirror.New(dir)
+	path, err := svc.WriteTask(
+		&task.Task{
+			ID:    "t-coloured",
+			Title: "Polish the picker",
+			Color: "#0ea5e9",
+		},
+		nil, nil, nil,
+		[]task.Tag{
+			{ID: "tg-1", Name: "frontend", Color: "#22c55e"},
+			{ID: "tg-2", Name: "ux"},
+		},
+	)
+	require.NoError(t, err)
+	body, err := os.ReadFile(path)
+	require.NoError(t, err)
+	text := string(body)
+	assert.Contains(t, text, `color: "#0ea5e9"`)
+	assert.Contains(t, text, `tags: ["frontend", "ux"]`)
 }

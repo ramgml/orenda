@@ -34,6 +34,7 @@ function makeTask(): Task {
     awaiting: 'none',
     time_spent_s: 0,
     position: 0,
+    color: '',
     created_at: '',
     updated_at: '',
   }
@@ -119,5 +120,67 @@ describe('TaskCard', () => {
     )
     fireEvent.click(getCardRoot(container))
     expect(queryByText('ARRIVED')).toBeTruthy()
+  })
+
+  // Phase 13: the card's left stripe is derived from `task.color`.
+  it('renders a left colour stripe when the task has a color', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <DndContext>
+          <TaskCard task={makeTask()} />
+        </DndContext>
+      </MemoryRouter>,
+    )
+    // No colour → no stripe (borderLeftWidth default 0).
+    const cardNoColor = getCardRoot(container)
+    expect(cardNoColor.style.borderLeftWidth).toBe('')
+
+    const withColor = render(
+      <MemoryRouter>
+        <DndContext>
+          <TaskCard task={{ ...makeTask(), id: 't-coloured', color: '#0ea5e9' }} />
+        </DndContext>
+      </MemoryRouter>,
+    )
+    const cardColored = getCardRoot(withColor.container)
+    expect(cardColored.style.borderLeftWidth).toBe('3px')
+    expect(cardColored.style.borderLeftColor).toBe('rgb(14, 165, 233)')
+  })
+
+  // Phase 13: tag chips render below the title when the task has tags.
+  it('renders tag chips when the task has tags', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <DndContext>
+          <TaskCard
+            task={{
+              ...makeTask(),
+              tags: [
+                { id: 't-1', name: 'frontend', color: '#22c55e' },
+                { id: 't-2', name: 'backend' },
+              ],
+            }}
+          />
+        </DndContext>
+      </MemoryRouter>,
+    )
+    expect(container.textContent).toContain('frontend')
+    expect(container.textContent).toContain('backend')
+  })
+
+  it('omits tag chips when the task has no tags', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <DndContext>
+          <TaskCard task={{ ...makeTask(), tags: [] }} />
+        </DndContext>
+      </MemoryRouter>,
+    )
+    // The title is rendered; no tag-pill spans should be present.
+    // We anchor on the TaskTagChip class signature: inline-flex items-center
+    // px-1.5 py-0.5 text-[10px] font-medium rounded border max-w-[8rem].
+    const card = getCardRoot(container)
+    const tagPills = card.querySelectorAll('span.inline-flex.items-center')
+    expect(tagPills.length).toBe(0)
   })
 })

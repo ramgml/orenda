@@ -95,6 +95,31 @@ type Repository interface {
 	ListChecklistItems(ctx context.Context, listID string) (rows []ChecklistItemRow, err error)
 	UpdateChecklistItem(ctx context.Context, itemID string, done *bool, title *string) error
 	DeleteChecklistItem(ctx context.Context, itemID string) error
+
+	// ---- Tags (Phase 13) ----
+	//
+	// Tags are global (no project_id) — they're a label vocabulary
+	// shared across all the user's projects. Phase 13 wires CRUD on
+	// the catalogue and assignment to tasks; per-tag scoping to a
+	// project is a Phase 18+ concern if it ever becomes one.
+	//
+	// SetTaskTags replaces the task's tag set atomically (single tx:
+	// DELETE then INSERT). The handler is responsible for skipping
+	// this call when the request carries the same set as the current
+	// one to avoid spurious activity entries.
+	//
+	// TagsForTasks is the batch shape used by the kanban list
+	// endpoint: one query returns {taskID: []*Tag} for every task in
+	// the input slice, so per-card fetch on the frontend isn't
+	// needed. Order: tag name ASC.
+	ListTags(ctx context.Context) ([]Tag, error)
+	GetTagByID(ctx context.Context, id string) (*Tag, error)
+	CreateTag(ctx context.Context, t *Tag) error
+	UpdateTag(ctx context.Context, t *Tag) error
+	DeleteTag(ctx context.Context, id string) error
+	ListTagsForTask(ctx context.Context, taskID string) ([]Tag, error)
+	SetTaskTags(ctx context.Context, taskID string, tagIDs []string) error
+	TagsForTasks(ctx context.Context, taskIDs []string) (map[string][]Tag, error)
 }
 
 // ChecklistRow + ChecklistItemRow are flat DTOs surfaced through

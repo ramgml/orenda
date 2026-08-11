@@ -21,6 +21,16 @@ import (
 // create endpoint also accepts it (the inbox handler uses the same
 // struct), letting clients file a freshly captured idea under a
 // project without a second request.
+//
+// Phase 13 additions:
+//   - Color is *string so a client can send "" (clear the colour label)
+//     or omit the field (leave unchanged). The non-pointer form would
+//     have no way to express "clear".
+//   - Tags is a *[]string pointer too. nil = leave the tag set alone;
+//     &[] (empty slice) = clear all tags; non-empty = replace with
+//     this exact set. The handler then reconciles with the current
+//     set and only fires SetTaskTags + the activity row when the
+//     observable state actually changes.
 type taskInput struct {
 	Title         string            `json:"title"`
 	Description   string            `json:"description"`
@@ -33,6 +43,8 @@ type taskInput struct {
 	ParentTaskID  string            `json:"parent_task_id"`
 	ContextMD     string            `json:"context_md"`
 	AgentNotes    string            `json:"agent_notes"`
+	Color         *string           `json:"color"`
+	Tags          *[]string         `json:"tags"`
 	DueAt         *string           `json:"due_at"` // RFC3339 or null
 	StartedAt     *string           `json:"started_at"`
 	ClaimedAt     *string           `json:"claimed_at"`
@@ -187,6 +199,11 @@ func patchTaskHandler(deps Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
+
+		// Phase 13: capture the colour BEFORE applyTaskPatch overwrites it
+		// so the activity row can report both sides of the transition.
+		prevColor := tr.Color
+
 		applyTaskPatch(r.Context(), deps, tr, in)
 		if err := deps.Tasks.Update(r.Context(), tr); err != nil {
 			writeError(w, err)
@@ -195,6 +212,29 @@ func patchTaskHandler(deps Dependencies) http.HandlerFunc {
 		if deps.TaskService != nil {
 			deps.TaskService.MirrorSave(r.Context(), tr)
 		}
+
+		// Phase 13: colour change → activity row. "" on either side means
+		// "no colour" (CSS null); the diff is still meaningful so we
+		// always emit when in.Color was provided.
+		if in.Color != nil && prevColor != tr.Color && deps.TaskService != nil {
+			actorID := ""
+			if id, ok := IdentityFrom(r.Context()); ok && id != nil {
+				actorID = id.UserID
+			}
+			deps.TaskService.RecordActivity(
+				r.Context(), tr.ID, actorID,
+				activity.ActionColorChanged,
+				fmt.Sprintf(`{"from":%q,"to":%q}`, prevColor, tr.Color),
+			)
+		}
+
+		// Phase 13: tag replacement. We diff against the current set so
+		// a no-op PATCH (the frontend often re-sends the same set) does
+		// not flood the activity feed.
+		if in.Tags != nil {
+			applyTaskTagsChange(r.Context(), deps, tr.ID, *in.Tags)
+		}
+
 		writeJSON(w, http.StatusOK, tr)
 	}
 }
@@ -264,6 +304,13 @@ func applyTaskPatch(ctx context.Context, deps Dependencies, tr *task.Task, in ta
 	}
 	if in.ColumnID != "" {
 		tr.ColumnID = in.ColumnID
+	}
+	if in.Color != nil {
+		// PATCH: *string so an empty value explicitly clears the
+		// colour label. We don't validate the format here; the
+		// <input type="color"> element on the frontend enforces it
+		// and a bogus value just renders as black in CSS.
+		tr.Color = *in.Color
 	}
 	if in.DueAt != nil {
 		tr.DueAt = parseOptionalTime(*in.DueAt)

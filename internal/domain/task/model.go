@@ -112,7 +112,11 @@ type Task struct {
 	StartAt *time.Time `json:"start_at,omitempty"`
 	EndAt   *time.Time `json:"end_at,omitempty"`
 	AllDay  bool       `json:"all_day"`
-	Color   string     `json:"color,omitempty"`
+	// Color is intentionally NOT omitempty: an empty string carries
+	// meaning ("no colour label"), and clients need to see the
+	// distinction between "absent" and "explicit empty" after a
+	// PATCH /tasks/{id} {color: ""}.
+	Color string `json:"color"`
 	// Phase 23.3: RFC 5545 RRULE. Migration 015 added the column
 	// to the tasks table (Phase 12's fold dropped it). The calendar
 	// expands this via Service.ExpandRecurrence; "" means no
@@ -180,9 +184,53 @@ type ChecklistItem struct {
 	Position    int    `json:"position"`
 }
 
-// Tag is a free-form label that can be attached to tasks (Phase 1 minimum).
+// Tag is a free-form label that can be attached to tasks (Phase 1
+// schema; Phase 13 wires the API + UI).
+//
+// A tag is identified by its unique name; the colour is purely cosmetic
+// (rendered as the chip background on cards and the task sidebar).
 type Tag struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Color string `json:"color,omitempty"`
+}
+
+// Validate returns an error if the Tag is inconsistent.
+//
+// Name rules: non-empty, <= 50 chars. Colour is optional; when present
+// it must look like a CSS hex colour (#RGB or #RRGGBB) — the UI uses
+// <input type="color"> which already enforces this, but the check
+// here protects against a hand-crafted API client.
+func (t *Tag) Validate() error {
+	if t.Name == "" {
+		return ErrInvalidInput
+	}
+	if len(t.Name) > 50 {
+		return ErrInvalidInput
+	}
+	if t.Color != "" && !isHexColor(t.Color) {
+		return ErrInvalidInput
+	}
+	return nil
+}
+
+// isHexColor reports whether s looks like "#abc" or "#aabbcc" (CSS hex).
+func isHexColor(s string) bool {
+	if len(s) != 4 && len(s) != 7 {
+		return false
+	}
+	if s[0] != '#' {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= '0' && c <= '9':
+		case c >= 'a' && c <= 'f':
+		case c >= 'A' && c <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
 }

@@ -42,27 +42,42 @@ func New(dir string) *Service {
 // each one). This entry point therefore only embeds the task's own
 // checklists — local quick-checkbox primitives that live and die with
 // the parent and have no representation in git elsewhere.
-func (s *Service) WriteTask(t *task.Task, checklists []task.Checklist, itemsByList map[string][]task.ChecklistItem, comments []*comment.Comment) (string, error) {
+//
+// Phase 13: `tags` is rendered as a YAML list in the frontmatter
+// (`tags: [a, b]`) so plain git diffs show label churn alongside
+// status/priority changes. Names are used (not ids) because the
+// labels are what humans read in git history.
+func (s *Service) WriteTask(
+	t *task.Task,
+	checklists []task.Checklist,
+	itemsByList map[string][]task.ChecklistItem,
+	comments []*comment.Comment,
+	tags []task.Tag,
+) (string, error) {
 	if t == nil {
 		return "", fmt.Errorf("mirror: task is nil")
 	}
-	fm := frontmatter(map[string]any{
+	fmFields := map[string]any{
 		"id":       t.ID,
 		"type":     "task",
 		"status":   string(t.Status),
 		"priority": string(t.Priority),
 		"updated":  formatRFC3339(t.UpdatedAt),
-	})
-	if t.ParentTaskID != "" {
-		fm = frontmatter(map[string]any{
-			"id":             t.ID,
-			"type":           "task",
-			"status":         string(t.Status),
-			"priority":       string(t.Priority),
-			"parent_task_id": t.ParentTaskID,
-			"updated":        formatRFC3339(t.UpdatedAt),
-		})
 	}
+	if t.ParentTaskID != "" {
+		fmFields["parent_task_id"] = t.ParentTaskID
+	}
+	if len(tags) > 0 {
+		names := make([]string, len(tags))
+		for i, tg := range tags {
+			names[i] = tg.Name
+		}
+		fmFields["tags"] = names
+	}
+	if t.Color != "" {
+		fmFields["color"] = t.Color
+	}
+	fm := frontmatter(fmFields)
 
 	var b strings.Builder
 	b.WriteString(fm)

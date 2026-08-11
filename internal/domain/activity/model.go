@@ -45,6 +45,14 @@ const (
 	ActionChecklistAdded     Action = "checklist_added"
 	ActionChecklistItemAdded Action = "checklist_item_added"
 	ActionChecklistItemDone  Action = "checklist_item_done"
+
+	// Phase 13: tags + colour label. Tags are a single replace-style
+	// verb (rather than add/remove) because the UI sends the full set
+	// and the diff doesn't add signal. Payload: {"before": [name,…],
+	// "after": [name,…]}. Colour: {"from": "", "to": "#abcdef"}; the
+	// "" before/after sentinel means "no colour".
+	ActionTagsReplaced Action = "tags_replaced"
+	ActionColorChanged Action = "color_changed"
 )
 
 // Sentinel errors.
