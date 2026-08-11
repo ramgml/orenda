@@ -99,6 +99,23 @@ export function TaskModal(): JSX.Element | null {
 
 type BackgroundState = { backgroundLocation?: Location }
 
+// isInModal reports whether the current location was reached through
+// a backgroundLocation state — i.e. the user is already looking at a
+// task modal on top of another page. We use this to decide whether a
+// follow-up navigation should push a new history entry or replace the
+// current one:
+//
+//   - First click from a normal page → push (so the user can return
+//     to that page on close).
+//   - Click from inside an already-open modal → replace (so opening
+//     a child doesn't stack modals on top of each other).
+//
+// `location.state` may be `null`; the optional-chain handles that.
+function isInModal(location: Location): boolean {
+  const s = (location.state ?? null) as BackgroundState | null
+  return Boolean(s?.backgroundLocation)
+}
+
 /**
  * Programmatic equivalent of `<TaskLink>` — use with `useNavigate()`.
  *
@@ -107,12 +124,12 @@ type BackgroundState = { backgroundLocation?: Location }
  *   const location = useLocation()
  *   <button onClick={() => openTaskModal(navigate, location, task.id)}>
  *
- * The navigation uses `replace: true` so opening a child task from
- * inside an already-open modal swaps the entry instead of stacking a
- * new one on top. This matches Trello / Linear: closing the modal
- * always pops back to whatever was on the screen before the user
- * opened the first task (the kanban, a search page, an activity
- * tab…), regardless of how many tasks they drilled through.
+ * Replaces the current history entry iff we're already inside an
+ * open modal; otherwise pushes. This keeps the stack at exactly two
+ * entries deep ([background page, current task]) so closing the
+ * modal always lands the user back where they started — kanban,
+ * search, project activity tab, inbox project, whatever — regardless
+ * of how many child tasks they drilled through.
  */
 export function openTaskModal(
   navigate: NavigateFunction,
@@ -120,7 +137,7 @@ export function openTaskModal(
   taskId: string,
 ): void {
   navigate(`/tasks/${taskId}`, {
-    replace: true,
+    replace: isInModal(location),
     state: { backgroundLocation: location } satisfies BackgroundState,
   })
 }
@@ -132,8 +149,8 @@ export function openTaskModal(
  * Example:
  *   <TaskLink taskId={hit.id} className="hover:underline">View</TaskLink>
  *
- * Uses `replace: true` for the same reason as `openTaskModal` — see
- * that function's doc comment.
+ * Same push-vs-replace rule as `openTaskModal` — see its doc
+ * comment.
  */
 export function TaskLink({
   taskId,
@@ -147,10 +164,11 @@ export function TaskLink({
   title?: string
 }): JSX.Element {
   const location = useLocation()
+  const replace = isInModal(location)
   return (
     <Link
       to={`/tasks/${taskId}`}
-      replace
+      replace={replace}
       state={{ backgroundLocation: location } satisfies BackgroundState}
       className={className}
       title={title}
