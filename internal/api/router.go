@@ -182,6 +182,11 @@ func NewRouter(deps Dependencies) http.Handler {
 	// can hit it without a session.
 	r.Get("/api/v1/stats", getStatsHandler(deps.WSHub, deps.DBPath))
 
+	// Phase 24: machine-readable contract for external agents.
+	// Public — the spec isn't secret, and matching docs/API.md
+	// means "everything documented is reachable".
+	r.Get("/api/v1/openapi.yaml", openAPIHandler())
+
 	// API surface (v1).
 	r.Route("/api/v1", func(r chi.Router) {
 		caps := deps.Capabilities

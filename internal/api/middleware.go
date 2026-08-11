@@ -60,6 +60,16 @@ func requestLogger(logger *zap.Logger) func(http.Handler) http.Handler {
 // acceptable for a single-owner local install.
 const slowRequestThreshold = 500 * time.Millisecond
 
+// ResetLiveStats zeroes the in-process counters. Tests use this to
+// establish a clean baseline before asserting on /api/v1/stats.
+func ResetLiveStats() {
+	liveStats.totalReq.Store(0)
+	for i := range liveStats.byStatus {
+		liveStats.byStatus[i].Store(0)
+	}
+	liveStats.slowCount.Store(0)
+}
+
 // corsLoopback configures CORS for the local-first use case.
 //
 // Loopback origins are always allowed. External origins receive no
