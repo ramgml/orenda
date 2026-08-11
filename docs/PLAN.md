@@ -801,6 +801,425 @@ make build
 
 ---
 
+## Phase 16 — Inbox: карточки без проекта, а не системный проект *(2–3 дня)*
+
+**Цель:** Inbox перестаёт быть системным проектом с магическим id. Inbox — это просто набор карточек (задач), у которых ещё нет проекта: `tasks.project_id IS NULL`. Системный проект `00000000-0000-0000-0000-00000000cafe` и его placeholder-пользователь удаляются миграцией.
+
+> ⚠️ **Не путать** с «notifications inbox» из Phase 6 (`notifications` таблица, bell UI) — это другой, не связанный концепт. Эта фаза его не трогает.
+
+**Контекст (что уже есть):**
+
+- `tasks.project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE` (`001_init.sql:101`). Миграция 012 создала системного пользователя `00000000-0000-0000-0000-000000000001` (`system-inbox@orenda.local`, role `system`) и проект Inbox `...cafe`, чтобы у calendar-events без проекта был FK-target.
+- Runtime-поддержка: `ensureInboxProject`/`ensureInboxBoardAndColumns` + константа `inboxProjectID` в `cmd/orenda/cli_helpers.go`; вызовы в `runServe` (`main.go:309`) и `openCLIDB`; `eventSvc.DefaultProjectID = "...cafe"` (`main.go:375`, fallback в `service/event/event.go::Create`).
+- Frontend: `INBOX_PROJECT_ID` в `web/src/shared/constants.ts`; сайдбар рендерит Inbox как системный проект (`ProjectSidebar.tsx`, `partitionProjects.ts` bucket `inbox`, `SidebarProjectItem` prop `isSystem`); special-casing в `ProjectDetailPage.tsx` и `tabs/ProjectSettingsTab.tsx`; `CalendarPage.tsx` дефолтит события в `...cafe`.
+- `tasks.column_id` уже nullable (`ON DELETE SET NULL`) — карточка без колонки легальна.
+- Конвенция optional FK в Go: строка, `""` ↔ NULL через `nullString()` (как `ParentTaskID`, `ColumnID`).
+
+**Ключевые решения (согласовано 2026-08-11):**
+
+- Go: `Task.ProjectID` остаётся `string`; `""` = нет проекта (inbox). JSON `project_id` эмитится всегда, `""` = inbox.
+- Inbox-задача не имеет board/column: `project_id IS NULL` ⇒ `column_id IS NULL` (инвариант в `Task.Validate`).
+- Удаление обычного проекта по-прежнему каскадно удаляет его задачи (семантику `ON DELETE CASCADE` не меняем).
+- Drag-and-drop внутри inbox не нужен: это плоский список карточек, а не доска.
+
+### Tasks
+
+- [ ] **16.1** Migration runner: поддержка FK-off миграций (`internal/storage/sqlite/db.go`).
+  - Зачем: rebuild `tasks` — родительской таблицы (на неё ссылаются `task_locks`, `checklists`, `task_tags`, `task_activity`, `time_entries` и сама `tasks.parent_task_id`). При `foreign_keys=ON` `ALTER TABLE ... RENAME` переписывает REFERENCES дочерних таблиц на переименованную таблицу (`legacy_alter_table` это НЕ отключает — проверено эмпирически на bundled SQLite), а `DROP TABLE` затем каскадно сносит все дочерние строки. `defer_foreign_keys` тоже не спасает: каскадные действия implicit DELETE при DROP всё равно выполняются. Официальная процедура SQLite требует `PRAGMA foreign_keys=OFF`, а этот pragma — no-op внутри транзакции, поэтому раннер должен переключать его вокруг транзакции миграции.
+  - Маркер в файле миграции: строка-комментарий `-- orenda:foreign_keys_off`. При наличии маркера `applyMigration`: пингует отдельный `db.Conn` (pragma — per-connection state), `PRAGMA foreign_keys = OFF` → обычная tx с телом → `PRAGMA foreign_key_check` внутри tx (любая строка = ошибка, rollback) → запись версии → commit → вернуть `foreign_keys = ON` и закрыть conn (defer, включая пути ошибок).
+- [ ] **16.2** Миграция `015_inbox_no_project.sql` (с маркером из 16.1):
+  1. `DROP TRIGGER IF EXISTS` для `trg_tasks_touch`, `trg_tasks_fts_insert/update/delete`; `DROP INDEX IF EXISTS` для `idx_tasks_project`, `idx_tasks_status`, `idx_tasks_assignee`, `idx_tasks_due`, `idx_tasks_parent` (001), `idx_tasks_project_column_position`, `idx_tasks_assignee_status` (003), `idx_tasks_time` (012, partial).
+  2. `ALTER TABLE tasks RENAME TO tasks_old`; `CREATE TABLE tasks` — та же схема (включая `start_at/end_at/all_day/color` из 012), но `project_id TEXT REFERENCES projects(id) ON DELETE CASCADE` **без NOT NULL**.
+  3. `INSERT INTO tasks (rowid, ...) SELECT rowid, ... FROM tasks_old ORDER BY rowid` — rowid сохраняем ради FTS5 external-content (`tasks_fts`, `content_rowid='rowid'`).
+  4. `DROP TABLE tasks_old`; пересоздать все индексы и триггеры из п.1 (определения дословно из 003/008); `INSERT INTO tasks_fts(tasks_fts) VALUES('rebuild')`.
+  5. `UPDATE tasks SET project_id=NULL, column_id=NULL WHERE project_id='00000000-0000-0000-0000-00000000cafe'`.
+  6. `DELETE FROM projects WHERE id='...cafe'` (boards→columns каскадятся; задачи уже отвязаны).
+  7. Guarded delete placeholder-пользователя: `DELETE FROM users WHERE id='...0001' AND role='system' AND NOT EXISTS (SELECT 1 FROM projects WHERE owner_id='...0001')`.
+- [ ] **16.3** Domain (`internal/domain/task/`):
+  - `Validate()`: убрать отказ на пустой `ProjectID`; добавить инвариант `ProjectID=="" && ColumnID!="" → ErrInvalidInput` (у inbox-карточки нет колонки).
+  - `Filter`: добавить `NoProject bool` (true → `project_id IS NULL`, игнорирует `ProjectID`).
+  - Докомментарии: `ProjectID string` — `""` = Inbox.
+- [ ] **16.4** SQLite repo (`task_repo.go`):
+  - `Create`: `nullString(t.ProjectID)` (сейчас сырая строка — `""` ловил бы FK-ошибку).
+  - `Update`: добавить `project_id = ?` в SET (сейчас проект нельзя сменить вообще).
+  - `scanTask`/`scanTaskRow`: `project_id` сканить в `sql.NullString` (NULL в `*string` падает).
+  - `ListByProject`: ветка `NoProject` → `project_id IS NULL`; пустой `ProjectID` без `NoProject` — по-прежнему `ErrInvalidInput`.
+- [ ] **16.5** API — inbox endpoints + PATCH project_id (`handlers_tasks.go`, `router.go`):
+  - `GET /api/v1/inbox/tasks` → `{"tasks": [...]}` (фильтр `?status=` как у project-листа; порядок `position, created_at`).
+  - `POST /api/v1/inbox/tasks` — тело как у create в проекте, проект принудительно `""`. Общую create-логику вынести в helper, вызываемый из обоих хендлеров.
+  - `taskInput.ProjectID *string` (pointer: absent ≠ explicit `""`). В `patchTaskHandler`: смена проекта → если `""` то `ColumnID=""`; если задан и (колонка пуста или проект изменился) → `ColumnID=FirstColumnID(newProject)`, явный `column_id` из тела приоритетнее.
+  - Маршруты в группе `RequireUser`: `r.Route("/inbox", ...)`.
+- [ ] **16.6** Event service + calendar handlers:
+  - Удалить поле `Service.DefaultProjectID` и fallback в `Create`: пустой проект ⇒ `project_id=NULL`, `FirstColumnID` не вызывается.
+  - `mergeEventIntoTask`: копировать `ProjectID` безусловно (иначе событие нельзя вернуть в inbox).
+  - `handlers_calendar.go`: `eventInput.ProjectID` → `*string`; update применяет при `!= nil` (explicit `""` = убрать проект).
+- [ ] **16.7** Move consistency (`internal/service/task/move.go`): при `Move` в колонку проекта P задаче с другим/пустым проектом проставлять `ProjectID=P` (перетаскивание inbox-карточки на доску = назначение проекту).
+- [ ] **16.8** `notifyTaskAssignee` (`handlers_notifications.go`): при `ProjectID==""` уведомлять первого non-system пользователя (`deps.Users.List` + фильтр `role != system`); если пользователей нет — молча пропустить (текущее поведение для битого проекта).
+- [ ] **16.9** cmd/orenda cleanup: удалить `inboxProjectID`, `ensureInboxProject`, `ensureInboxBoardAndColumns`, оба вызова (`cli_helpers.go`, `main.go`), строку `eventSvc.DefaultProjectID = ...`. `runUserResetPassword` фильтр `RoleSystem` оставить (безвреден).
+- [ ] **16.10** Sync (`handlers_sync.go`): `create_task` с пустым `Target` теперь создаёт inbox-задачу (Validate это разрешит) — покрыть тестом; `create_event` без `project_id` создаёт событие без проекта (fallback удалён в 16.6).
+- [ ] **16.11** Frontend — типы и клиент (`shared/api/client.ts`, `shared/constants.ts`):
+  - `Task.project_id: string` (бэкенд всегда эмитит; `""` = inbox). Удалить `INBOX_PROJECT_ID` и сам `constants.ts`, если других экспортов нет.
+  - `api.listInboxTasks()`, `api.createInboxTask({title, ...})` → новые endpoints из 16.5.
+- [ ] **16.12** Frontend — страница `/inbox` (`features/inbox/InboxPage.tsx` + route в `App.tsx`):
+  - Плоский список карточек (можно переиспользовать `TaskCard`), сортировка как отдаёт бэкенд.
+  - Inline-форма быстрого добавления (title) → `createInboxTask`.
+  - На карточке: селект «назначить проекту» (список активных проектов) → `PATCH /tasks/:id {project_id}`; клик открывает задачу (существующий modal-паттерн).
+  - Empty state («Inbox пуст — всё разобрано»).
+  - Dashboard stats (`App.tsx`) учитывают inbox-задачи в open count.
+- [ ] **16.13** Frontend — сайдбар: статичный пункт Inbox на месте бывшего системного проекта (ссылка `/inbox`, бейдж = число inbox-задач не в `done`, через `listInboxTasks`); убрать bucket `inbox` из `partitionProjects.ts` и prop `isSystem` из `SidebarProjectItem.tsx`; обновить `partitionProjects.test.ts`.
+- [ ] **16.14** Frontend — календарь (`CalendarPage.tsx`): удалить локальный `INBOX_PROJECT_ID`; draft по умолчанию `project_id: ''`; в `<select>` проектов первой опцией `value=""` — «Inbox (без проекта)»; submit шлёт `undefined` при `""`.
+- [ ] **16.15** Frontend — зачистка special-casing: `ProjectDetailPage.tsx`, `tabs/ProjectSettingsTab.tsx` (убрать `isInbox`: rename/archive/delete единообразны для всех проектов); `ChildTasksList.tsx` — `projectId` опционален, пустой → `createInboxTask` с `parent_task_id` (иначе POST на `/projects//tasks`); `TaskViewBody.tsx` — скрывать ссылку на проект при пустом `project_id`; `outbox.ts queueCreateTask` — разрешить пустой `projectId`.
+- [ ] **16.16** Обновить существующие тесты:
+  - `service/event/event_test.go` — убрать `DefaultProjectID`; «create without project» теперь ждёт `ProjectID == ""`.
+  - `api/phase8_sync_test.go:155` — убрать присвоение `DefaultProjectID`.
+  - `cmd/orenda/user_test.go::TestRunUserList_Empty` — системного пользователя больше нет: свежая БД пуста.
+  - `storage/sqlite/user_repo_test.go` — не ждёт seed system-пользователя.
+  - Комментарии: `project_repo_test.go`, `scope_integration_test.go`, `backup/restore_test.go` (системный Inbox больше не создаётся).
+- [ ] **16.17** Новые тесты:
+  - Миграция 015 (по образцу `TestMigrate_013/014` через `applyUpTo`): seed inbox-проект с board/column + 2 задачи, real-проект с parent/child + checklist на child → после миграции: inbox-задачи `project_id/column_id IS NULL`; parent-link и checklist целы (нет каскадного вайпа); `...cafe`, его board/columns и system-user удалены; FTS матчит перенесённую задачу; `trg_tasks_touch` работает.
+  - Repo: `Create`/`GetByID` roundtrip с пустым проектом; `ListByProject{NoProject:true}`; `Update` меняет проект туда-обратно.
+  - API: `POST/GET /api/v1/inbox/tasks`; `PATCH /tasks/:id {project_id:"p"}` → задача ушла из inbox, `column_id` = первая колонка проекта; `PATCH {project_id:""}` → вернулась в inbox, колонка очищена.
+  - Event: create без `project_id` → `project_id=""`; PATCH события `project_id:""` очищает проект.
+  - Frontend: `partitionProjects` без inbox; `client.test.ts` — `listInboxTasks/createInboxTask`; `TaskCard` с `project_id=""` не падает.
+- [ ] **16.18** Документация: `docs/API.md` (endpoints `/inbox/tasks`, `project_id` опционален в task/event payloads), `docs/DB.md` (015: nullable `project_id`, удаление Inbox), `docs/SESSION.md` (решение: Inbox ≠ проект).
+
+### Definition of Done
+
+- Inbox — маршрут `/inbox` с плоским списком задач без проекта; создание карточки, назначение проекту (карточка уходит из inbox на доску проекта в первую колонку), возврат в inbox.
+- В сайдбаре Inbox — статичный пункт с бейджем количества, не проект; архивировать/удалить/переименовать его нельзя (это не сущность).
+- События календаря можно создавать без проекта; «проект по умолчанию» исчез.
+- Существующая БД мигрируется без потерь: задачи legacy-проекта Inbox становятся inbox-карточками, дочерние таблицы и поиск целы, `PRAGMA foreign_key_check` чист.
+- `make test && make lint` зелёные; `npx vitest` зелёный.
+
+### Что НЕ делаем в этой фазе
+
+- Не меняем семантику удаления проекта (остаётся CASCADE, не «задачи в inbox»).
+- Не делаем kanban/dnd внутри inbox — это плоский список; сортировка фиксирована.
+- Не трогаем notifications inbox (Phase 6) — одноимённый, но другой концепт.
+- Не добавляем agent-side листинг inbox-задач (agent task lists — территория Phase 15).
+
+> **Нумерация миграций:** `014_child_tasks_inherit_column.sql` уже занят (Phase 14 follow-up), эта фаза берёт `015_*.sql`. Плановая миграция Phase 15 (`014_task_dependencies.sql`) при реализации становится `016_task_dependencies.sql`.
+
+---
+
+## Phase 17 — Карточки задач: информативная лицевая сторона (референсы: Weeek, Trello) *(3–4 дня)*
+
+**Цель:** канбан-карточка отвечает на вопросы «что горит, кто занят, что внутри» без открытия задачи. Сейчас лицевая сторона — только title + бейдж `↳ child` (`web/src/features/projects/TaskCard.tsx`), при этом payload задачи уже несёт priority/due_at/assignee/awaiting, а бэкенд хранит checklists, children, комментарии, вложения и теги.
+
+**Анализ текущего состояния (2026-08-11):**
+
+- `TaskCard.tsx` рендерит: title, бейдж child. Всё.
+- В `Task` (API) уже есть, но не показывается: `priority`, `due_at`, `assignee_type/assignee_id`, `awaiting`, `time_estimate_s/time_spent_s`, `started_at` (таймер идёт).
+- TS-тип `Task` в `client.ts` **отстаёт от бэкенда**: нет `start_at/end_at/all_day/color` (эмитятся с миграции 012) — починить заодно.
+- Нет в payload (нужны агрегаты): прогресс children (`ChildProgress` есть репо-метод, в список не включён), прогресс checklist_items, счётчики комментариев/вложений, теги (Phase 13 запланирована, не реализована).
+- Модалка задачи (`TaskViewBody`) богатая — проблема только лицевой стороны доски.
+
+**Референс-анатомия:**
+
+| Элемент | Trello | Weeek | Берём |
+|---|---|---|---|
+| Цветная кромка/полоса (приоритет/метка) | cover-полоса сверху | цветной маркер приоритета | левая 3px кромка = priority |
+| Теги | цветные pills над заголовком | чипы | чипы (зависит от Phase 13) |
+| Дата | бейдж со состояниями: overdue=красный, soon=янтарный, done=зелёный | дедлайн красным при просрочке | бейдж due со состояниями |
+| Прогресс | `☑ x/y` чек-листа | `x/y` подзадач | оба: children и checklist |
+| Счётчики | 💬 📎 👁 | 💬 📎 | 💬 📎 |
+| Исполнитель | аватары внизу справа | аватар внизу справа | чип; **агент ≠ человек** визуально (наш дифференциатор) |
+| Быстрые действия | hover: pencil (quick edit) | hover: исполнитель/статус/приоритет/таймер | hover-действия (P2) |
+| Таймер | — | запуск таймера с карточки | бейдж «таймер идёт» (started_at), запуск — P2 |
+
+**Целевая раскладка карточки:**
+
+```
+┌──────────────────────────────┐
+│▎tags: [фича][bug]           │  ▎= левая кромка приоритета (urgent=red, high=orange, low=slate)
+│▎Заголовок задачи             │
+│▎↳ child · ⏳ ждёт агента     │  (только если применимо)
+│▎📅 12 авг  ⏱ 3ч/5ч           │  due: красный/янтарный/зелёный по состоянию
+│▎☑ 2/5  ↳ 1/3  💬4  📎1   🤖QA │  счётчики · исполнитель справа
+└──────────────────────────────┘
+```
+
+Плотность регулируется одним переключателем «компактно/подробно» (localStorage, паттерн уже заведён для `orenda.kanban.showChildren`).
+
+### Tasks
+
+- [ ] **17.1** Бэкенд — агрегаты в списке задач (`task_repo.go`, `handlers_tasks.go`):
+  - Один aggregate-запрос (без N+1): `comments_count` (`comments WHERE target_type='task'`), `attachments_count`, `children_total/children_done`, `checklist_total/checklist_done` (join через `checklists`).
+  - Форма: отдельный метод `ListByProjectEnriched` или опциональный `Filter.WithAggregates` — решить при реализации; `GET /projects/{id}/tasks` и `GET /inbox/tasks` (Phase 16) возвращают обогащённые карточки.
+  - TS-тип `Task` в `client.ts`: добавить `start_at/end_at/all_day/color` + поля агрегатов (optional, чтобы не ломать `GET /tasks/{id}`).
+- [ ] **17.2** Декомпозиция `TaskCard.tsx` на чистые блоки: `PriorityBorder`, `TaskDueBadge` (чистая функция состояния: `done|overdue|today|upcoming` от `due_at`/`completed_at`), `TaskProgressBadges`, `TaskCounters`, `AssigneeChip` (user=инициалы, agent=🤖+имя; distinct цвет), `AwaitingBadge` (`awaiting != none`). Логику состояний — в чистые функции рядом (`taskCardBadges.ts`) для unit-тестов.
+- [ ] **17.3** Левая кромка приоритета: `urgent` → red-500, `high` → orange-400, `medium` → прозрачная, `low` → slate-300. Не использовать флаги-иконки (шум при плотной доске).
+- [ ] **17.4** Бейдж даты: `due_at` — состояния `overdue` (красный фон), `today` (янтарный), `upcoming` (нейтральный), `done` (зелёный, когда `completed_at` или `status=done`); формат `d MMM` (ru), год только если не текущий. Если задан `start_at` — отдельный нейтральный бейдж «запланировано» (📆 + дата).
+- [ ] **17.5** Прогресс и счётчики: `☑ x/y` (checklist, скрывать при total=0), `↳ x/y` (children), `💬 n`, `📎 n`, `⏱ spent/estimate` (только когда `time_estimate_s > 0`; краснить при перерасходе). Иконки — unicode/текст, как сейчас (без иконочной библиотеки — конвенция проекта).
+- [ ] **17.6** Исполнитель и ожидание: `AssigneeChip` справа внизу; agent → чип с 🤖 и именем агента (title=type), user → инициалы. `awaiting=agent|human` → маленький бейдж «⏳ агент» / «⏳ я» рядом с title. Идущий таймер (`started_at` без `completed_at` при активном time_entry) — пульсирующая точка: проверить доступность признака в payload (single-active timer, Phase 4), если дорого — в P2.
+- [ ] **17.7** Теги-чипы на карточке — **только после Phase 13** (тегов нет в API); задача-блокер: дизайн места под чипы заложить в 17.2, само отображение включить флагом.
+- [ ] **17.8** Переключатель плотности доски: «компактно» (только title + кромка приоритета + due-бейдж) / «подробно» (всё). `localStorage orenda.kanban.cardDensity`, дефолт «подробно». Тоггл рядом с `showChildren`.
+- [ ] **17.9** P2 (можно выносить в отдельную фазу): hover quick-actions (done-toggle, назначить, дата — по Weeek), обложка карточки (первое image-вложение, по Trello), индикатор «зависшей» карточки (`in_progress` + `updated_at` старше N дней).
+- [ ] **17.10** Inbox (Phase 16) и любые списки задач переиспользуют обогащённый `TaskCard` — убедиться, что блоки не зависят от kanban-контекста (dnd-listeners изолируются в обёртке).
+- [ ] **17.11** Тесты:
+  - Unit: `taskDueState()` — все четыре состояния + границы (ровно полночь, год); формат даты; прогресс-бейдж скрывается при `total=0`; `AssigneeChip` agent/user ветки.
+  - API: агрегаты в `GET /projects/:id/tasks` (seed: 2 children 1 done, checklist 2/3, comment, attachment → корректные счётчики), отсутствие N+1 (1 запрос агрегатов на список).
+  - Snapshot/рендер: карточка с полным набором бейджей и пустая (title only) — обе без сдвигов верстки (min-height строк).
+- [ ] **17.12** Документация: `docs/API.md` — новые поля агрегатов в ответе списка задач; `docs/SESSION.md` — решение по анатомии карточки.
+
+### Definition of Done
+
+- На доске по карточке видно: приоритет (кромка), дедлайн с цветовым состоянием, прогресс children и чек-листа, счётчики 💬/📎, исполнителя (агент отличим от человека), режим ожидания.
+- Ни одного лишнего запроса: список задач отдаёт все бейджи одним ответом; рендер доски не делает per-card fetch.
+- Переключатель «компактно/подробно» работает, выбор персистится.
+- Пустая карточка (только title) не «пляшет» по высоте рядом с наполненными.
+- `make test && make lint` + `npx vitest` зелёные.
+
+### Что НЕ делаем в этой фазе
+
+- Теги на карточке (ждёт Phase 13), кастомные поля, стикеры, голосование, watch/subscribe-глаз.
+- Обложки и hover quick-actions — вынесены в 17.9 (P2), по готовности отдельной фазой.
+- Не меняем модалку задачи (`TaskViewBody`) — она уже богатая; фаза про лицевую сторону.
+
+---
+
+## Phase 18 — Личные курсы, создаваемые ИИ-агентами *(1–1.5 недели)*
+
+**Цель:** пользователь формулирует намерение («выучить Rust за месяц, 3 раза в неделю по часу»), внешний ИИ-агент-тьютор строит программу курса, материализует уроки и упражнения и проверяет ответы. Курс — first-class LMS-сущность (программа → модули → уроки → вопросы), а упражнения остаются обычными задачами, чтобы переиспользовать claim/submit/review-flow агентов.
+
+**Контекст (что уже есть):**
+
+- Агентский цикл `claim → submit → review` на задачах (`/api/v1/agent/*`, Phase 3) — проверка ответов ученика ложится на него без изменений.
+- Wiki (Phase 5) может хранить справочные материалы; календарь/RRULE (Phase 4) — расписание занятий; задачи — упражнения с дедлайнами.
+- Long-poll `/api/v1/events/await` позволяет тьютору реагировать на новые курсы и ответы ученика без WS.
+- Single-owner: ACL на курсы не нужен, agent namespace уже изолирован токенами.
+
+**Ключевые решения (согласовано 2026-08-11):**
+
+- **Полная LMS-модель:** `courses → course_modules → course_lessons → course_quizzes` (свои таблицы, не композиция «проект + wiki»).
+- **Агент в MVP: генерация + проверка.** Диалоговый тьютор, адаптация темпа и интервальное повторение — за скобкой.
+- **Оркестрация через задачи:** создание курса порождает generator-задачу («построй программу», `awaiting=agent`, `context_md` = намерение + course_id). Тьютор claim'ит её, пишет программу через agent-endpoints курсов, сабмитит — человек ревьюит. Новых оркестраторов не вводим.
+- **Упражнение = задача.** `course_lessons.task_id` связывает урок с задачей-практикой; проверка ответа — штатный review этой задачи тьютором.
+
+**Референсы (open-source LMS):**
+
+| Проект | Стек | Что смотрим |
+|---|---|---|
+| [Frappe LMS](https://github.com/frappe/lms) | Python/Vue | **Главный референс.** Близкий по духу lean-LMS: courses/chapters/lessons/quizzes, прогресс, чистая схема БД и UI. Сверять нашу миграцию 017 с их моделью. |
+| [Canvas LMS](https://github.com/instructure/canvas-lms) | Ruby | Модули с requirements/prerequisites (`must_view / must_mark_done / must_submit / min_score`) и последовательной разблокировкой — ровно наш `locked→open→done`. |
+| [Moodle](https://github.com/moodle/moodle) | PHP | Эталон доменной модели: activity completion rules, типы вопросов quiz, gradebook. Тяжёлый — берём идеи, не архитектуру. |
+| [Open edX](https://github.com/openedx/edx-platform) | Python | Иерархия section→subsection→unit→XBlock; компонуемые контент-блоки урока (текст/видео/задача). Полезно, когда `content_md` урока перерастёт один markdown. |
+| [Chamilo](https://github.com/chamilo/chamilo-lms) | PHP | Learnpaths — последовательные цепочки уроков; близко к нашему потоку обучения. |
+| [H5P](https://github.com/h5p) | JS/PHP | Интерактивные типы вопросов/контента — референс для расширения `course_quizzes.kind` после MVP. |
+| [Anki](https://github.com/ankitects/anki) | Rust | Не LMS: эталон интервального повторения (SM-2/FSRS) — для будущей фазы повторения материала. |
+| GitHub topic [`ai-course-generator`](https://github.com/topics/ai-course-generator) | — | Мелкие проекты (1–11★), но единый паттерн генерации: prompt → curriculum JSON → per-lesson контент → quiz. Подтверждает нашу двухстадийность `draft→review→active`. |
+
+**Жизненный цикл курса:** `draft` (намерение) → тьютор строит программу → `review` (человек правит/принимает) → `active` (тьютор наполняет уроки контентом) → обучение (уроки открываются последовательно) → `done`. Плюс `archived`.
+
+### Tasks
+
+- [ ] **18.1** Миграция `017_courses.sql` (`014` — child-inherit, `015` — inbox/Phase 16, `016` — dependencies/Phase 15; нумерация по факту занятости):
+  - `courses(id, title, intent_md, level, pace, status draft|review|active|done|archived, owner_id→users, generator_task_id→tasks NULL, created_at, updated_at)`.
+  - `course_modules(id, course_id→courses CASCADE, title, description, position)`.
+  - `course_lessons(id, module_id→modules CASCADE, title, position, content_md, status locked|open|done, task_id→tasks SET NULL)`.
+  - `course_quizzes(id, lesson_id→lessons CASCADE, position, question_md, expected_md, kind open|exact)`.
+  - Индексы по всем FK + `courses(status)`.
+- [ ] **18.2** Domain (`internal/domain/course/`): сущности, `Validate()`, переходы статусов курса (`draft→review→active→done`, `review→draft` на доработку) и урока (`locked→open→done`); ошибки-сентинелы.
+- [ ] **18.3** SQLite repo: CRUD курсов/модулей/уроков/вопросов; `Progress(ctx, courseID) (lessons_total, lessons_done, quiz stats)`; выборка «следующий open-урок».
+- [ ] **18.4** Service (`internal/service/course/`):
+  - `CreateWithIntent` — создаёт курс (draft) + generator-задачу (context_md: intent, level, pace, course_id; awaiting=agent; в проект по умолчанию или без проекта после Phase 16).
+  - `SubmitCurriculum(courseID, modules[])` — атомарно заменяет черновик программы (delete+insert в tx), курс → review.
+  - `ApproveCurriculum` → active; `RequestChanges` → draft с комментарием.
+  - `MaterializeLesson` — тьютор пишет `content_md` + создаёт/линкует задачу-упражнение.
+  - `CompleteLesson` — урок done → следующий `locked→open`; курс → done, когда все уроки done.
+  - `AnswerQuiz` — `exact`: автопроверка (нормализация строк); `open`: создаёт review-задачу тьютору с ответом в `context_md`.
+- [ ] **18.5** User API (`RequireUser`): `GET/POST /api/v1/courses`, `GET/PATCH /api/v1/courses/{id}` (дерево модулей+уроков+прогресс), `POST /courses/{id}/approve`, `POST /courses/{id}/request-changes`, `POST /lessons/{id}/complete`, `POST /quizzes/{id}/answer`.
+- [ ] **18.6** Agent API (`RequireAgent`, namespace `/api/v1/agent/`): `GET /agent/courses?status=draft` (работа для тьютора), `PUT /agent/courses/{id}/curriculum`, `PUT /agent/lessons/{id}/content`, `POST /agent/lessons/{id}/quizzes`. Доступ без per-course ACL (single-owner).
+- [ ] **18.7** Frontend:
+  - `/courses` — список курсов: статус, прогресс-бар (уроки done/total), CTA «продолжить» → следующий open-урок.
+  - Wizard создания: намерение (свободный текст), уровень, темп → POST /courses; пояснение, что агент подхватит.
+  - `/courses/:id` — дерево модулей/уроков со статусами (locked серые); экран ревью программы для `review` (принять/на доработку с комментарием).
+  - `/lessons/:id` — контент (markdown), вопросы с полями ответов, кнопка «завершить урок», ссылка на задачу-упражнение.
+  - Sidebar: пункт Courses после Wiki.
+- [ ] **18.8** Тесты:
+  - Миграция: таблицы+FK+индексы; каскады (удаление курса сносит модули/уроки/вопросы; удаление задачи → `task_id=NULL`).
+  - Domain: запрет недопустимых переходов статусов.
+  - Service: `SubmitCurriculum` атомарен (падающая вставка не оставляет полупрограмму); `CompleteLesson` открывает следующий и закрывает курс; `exact`-quiz автопроверка (регистр/пробелы).
+  - API: полный цикл «создать курс → тьютор строит программу → ревью → active → урок done» интеграционно; agent-endpoints отклоняют user-cookie и наоборот.
+  - Frontend: прогресс-бар курса; locked-урок не кликабелен; ревью-экран показывает черновик программы.
+- [ ] **18.9** Документация: `docs/API.md` (courses endpoints, agent namespace), `docs/DB.md` (017), `docs/SESSION.md` (решение: LMS-модель + оркестрация задачами); пример system-prompt'а тьютора в `docs/` (формат curriculum JSON для `PUT .../curriculum`).
+
+### Definition of Done
+
+- Пользователь создаёт курс намерением; тьютор-агент без ручных пинков (через events/await + generator-задачу) строит программу; человек принимает её одной кнопкой.
+- Уроки открываются последовательно; прогресс курса виден на `/courses`.
+- Ответ на open-вопрос уходит тьютору на проверку штатным review-flow; exact-вопрос проверяется мгновенно.
+- Весь цикл воспроизводится в интеграционном тесте с mock-тьютором через публичные endpoints.
+- `make test && make lint` + `npx vitest` зелёные.
+
+### Что НЕ делаем в этой фазе
+
+- Диалоговый тьютор (чат), адаптация темпа, интервальное повторение (кандидат на RRULE-события позже).
+- Сертификаты, оценки/баллы, таймеры на вопросы, импорт/экспорт курсов (SCORM и т.п.).
+- Встроенный LLM-рантайм: тьютор — внешний агент, как и везде в Orenda.
+- Multi-user: курсы single-owner, как весь продукт сейчас.
+
+---
+
+## Phase 19 — Ревью-очередь: замыкание цикла агент→человек *(2–3 дня)*
+
+**Цель:** у человека есть один экран со всем, что ждёт его решения: задачи с `awaiting='human'` и в статусе `review`. Сейчас петля делегирования асимметрична: человек→агент работает (назначил, агент claim'ит), агент→человек — только notification, который легко потерять.
+
+**Контекст (что уже есть):**
+
+- `tasks.awaiting` (`none|human|agent`) и `POST /tasks/{id}/submit` + `/review` (Phase 3): агент сабмитит, `awaiting` становится `human`.
+- Notifications `task.review_needed` (Phase 6) — сигнал есть, агрегированного списка нет.
+- Бейджи в сайдбаре уже существуют для проектов (open counts).
+
+### Tasks
+
+- [ ] **19.1** Repo/service: `ListAwaitingReview(ctx)` — задачи `awaiting='human' OR status='review'`, join с projects для имени проекта, сортировка по `updated_at DESC` (свежее сверху). Учесть inbox-задачи (Phase 16, `project_id IS NULL` → join nullable).
+- [ ] **19.2** API: `GET /api/v1/review-queue` → `{tasks: [...], count}`; count переиспользуется бейджем сайдбара.
+- [ ] **19.3** Действия из списка: «принять» → `POST /tasks/{id}/review {decision:"accept"}`; «вернуть» → `{decision:"reject", comment}` (comment обязателен при reject — агенту нужна обратная связь; проверить, что review-endpoint принимает comment, при необходимости добавить).
+- [ ] **19.4** Frontend: страница `/review` (список обогащённых карточек Phase 17 + accept/reject inline); пункт в SidebarNav с бейджем count; автообновление по WS-событиям `task.*`.
+- [ ] **19.5** Тесты: submit агентом → задача в очереди; accept → `done`, из очереди пропадает; reject с comment → `todo` + `awaiting=agent` + комментарий виден в задаче; пустая очередь → 200 с `[]`.
+- [ ] **19.6** `docs/API.md` + `docs/SESSION.md`.
+
+### Definition of Done
+
+- `/review` показывает всё ожидающее человека; accept/reject без открытия задачи; бейдж с числом в сайдбаре обновляется realtime.
+- Submit mock-агентом виден в очереди без перезагрузки страницы.
+
+### Что НЕ делаем
+
+- SLA/дедлайны на ревью, эскалации, массовые действия, фильтры по агентам.
+
+---
+
+## Phase 20 — Экран «Сегодня» (daily driver) *(2–3 дня)*
+
+**Цель:** домашняя страница отвечает «что у меня сегодня»: просроченное, due сегодня, запланированное по времени, ожидающие меня (ссылка в Phase 19), активный таймер. Сейчас `/` — только статистика-счётчики.
+
+**Контекст (что уже есть):**
+
+- `due_at` на задачах; `start_at/end_at` (календарные задачи, `ListInRange`); single-active timer (Phase 4, `time_entries` с `ended_at IS NULL`); stats-дашборд в `App.tsx`.
+
+### Tasks
+
+- [ ] **20.1** API: `GET /api/v1/today` — один round-trip: `{overdue[], due_today[], scheduled_today[], awaiting_count, active_timer}`. Не собирать 5 запросов на клиенте.
+- [ ] **20.2** Frontend: `TodayPage` на `/` (stats-дашборд уезжает ниже или в `/reports`); секции с обогащёнными карточками (Phase 17); quick-complete чекбоксом прямо в списке; empty state («день свободен»).
+- [ ] **20.3** Секция «ближайшие 7 дней» (due, сгруппировано по дате) — компактная, одна строка на день.
+- [ ] **20.4** Тесты: агрегация `/today` (границы полуночи в локальной TZ пользователя — явно выбрать TZ-источник: server config, документировать); quick-complete дёргает PATCH и убирает карточку.
+- [ ] **20.5** `docs/API.md`.
+
+### Definition of Done
+
+- Открывая app, пользователь видит план дня без кликов; просрочка визуально отлична (красная секция); активный таймер виден с elapsed.
+
+### Что НЕ делаем
+
+- Drag-перепланирование между днями, time-blocking на календаре, smart-приоритизацию.
+
+---
+
+## Phase 21 — Quick capture в Inbox *(1–2 дня)*
+
+**Цель:** захват мысли ≤ 1 хоткей / 2 клика из любого экрана + приём сообщений из Telegram сразу в Inbox. GTD-capture без трения.
+
+**Контекст (что уже есть):**
+
+- `POST /api/v1/inbox/tasks` (Phase 16) — точка приземления. Если Phase 16 ещё не сделана, фаза берёт `POST /projects/{id}/tasks` с явным проектом как fallback, но целевое состояние — Inbox.
+- Telegram-бот на long-poll (Phase 10) уже умеет входящие сообщения и знает `chat_id` подписчиков.
+- Хоткеев в SPA пока нет; модалка-паттерн есть (TaskModal).
+
+### Tasks
+
+- [ ] **21.1** Frontend: глобальный хоткей `q` (и `Ctrl/Cmd+K` как палитра-кандидат) → capture-модалка: title (автофокус), опционально due; submit → Inbox; toast со ссылкой «открыть».
+- [ ] **21.2** Кнопка «+» в топбаре на всех экранах → та же модалка.
+- [ ] **21.3** Telegram: входящее личное сообщение от подписанного пользователя → задача в Inbox (title = текст сообщения, обрезка 200 chars); бот отвечает «✅ в Inbox»; команда боту не требуется.
+- [ ] **21.4** Тесты: capture → задача в inbox-листе; TG-сообщение от подписчика создаёт задачу, от неподписанного chat_id — игнор + лог.
+- [ ] **21.5** `docs/API.md` (если появятся новые endpoints), `docs/SESSION.md`.
+
+### Definition of Done
+
+- Захват из любого экрана хоткеем; сообщение боту появляется в Inbox за секунды (long-poll уже крутится).
+
+### Что НЕ делаем
+
+- NLP-разбор («завтра в 15:00» → due), вложения через TG, voice.
+
+---
+
+## Phase 22 — Restore-from-snapshot *(2–3 дня)*
+
+**Цель:** бэкап-контур Phase 7 замыкается: восстановление из sqlite-снапшота через CLI и UI, с safety-copy и post-restore миграциями. Бэкап без проверенного restore — не бэкап.
+
+**Контекст (что уже есть):**
+
+- `backup.Restore` (`internal/backup/backup.go:302`) — filesystem copy, не вызывается; `POST /backups/restore` endpoint существует; снапшоты с ротацией (Phase 7); FK-off runner (Phase 16.1) даёт `foreign_key_check` паттерн.
+
+### Tasks
+
+- [ ] **22.1** CLI: `orenda backup restore --snapshot <path>`: остановить writer (single-conn), safety-copy текущей БД (`orenda.db.pre-restore-<ts>`), замена файла (включая `-wal`/`-shm` обработку), `migrate up` на восстановленной БД, `PRAGMA integrity_check` + `foreign_key_check`, отчёт.
+- [ ] **22.2** UI: в Settings → Backups список снапшотов (endpoint есть) + кнопка Restore с модалкой-подтверждением (явный текст про замену данных); после restore — перезагрузка SPA.
+- [ ] **22.3** Защита от гонок: restore только при остановленном serve (CLI) или через maintenance-режим (UI: drain WS, блокировка API middleware на время restore).
+- [ ] **22.4** Тесты: snapshot → изменить данные → restore → данные снапшота на месте; restore старой версии схемы → миграции догоняют; safety-copy создана и валидна.
+- [ ] **22.5** `docs/API.md`, `docs/SESSION.md`; install docs: шаг проверки restore при установке.
+
+### Definition of Done
+
+- Полный цикл «снапшот → потерял данные → restore → данные на месте» воспроизводится тестом; serve стартует после restore без ручных шагов.
+
+### Что НЕ делаем
+
+- Point-in-time recovery из WAL-архива, шифрование/пароли на снапшоты, remote-pull из git-бэкапа.
+
+---
+
+## Phase 23 — Техдолг: WIP limits + recurring events *(1–2 дня)*
+
+**Цель:** закрыть две полу-проведённые фичи, найденные аудитом 2026-08-11. Обе — «честный долг»: дёшево доделать, дорого тащить дальше.
+
+**Контекст (доказанные дыры):**
+
+- `wip_limit`: колонке можно задать лимит (PATCH валидирует, UI редактирует), но `lookupWIPLimit` (`internal/service/task/move.go:163`) — заглушка `return 0, false`: перенос в переполненную колонку **не блокируется**. Латентный баг рядом: `ListByProject(Filter{ColumnID})` без `ProjectID` → `ErrInvalidInput` (пересечение с Phase 16.4 — согласовать порядок).
+- Recurring events: RRULE-машинерия (`ExpandRecurrence`) написана и покрыта тестами, `recurrence` принимается API, но `listEventsHandler` expansion не вызывает — повторяющееся событие сохраняется и никогда не разворачивается на календаре.
+
+### Tasks
+
+- [ ] **23.1** WIP: реальный `lookupWIPLimit` через columns repo (прокинуть в `task.Service`); `ErrColumnFull` → 422 `wip_limit` (маппинг в handler уже есть); починить column-only `ListByProject` (вместе с Phase 16.4, что бы ни вышло первым — второе ребейзится).
+- [ ] **23.2** Kanban UI: 422 при drop → toast «колонка переполнена (N из M)»; колонка с `count > limit` подсвечена.
+- [ ] **23.3** RRULE: `listEventsHandler` разворачивает мастер-события через `ExpandRecurrence` в окне `[from,to)`; редактирование — только серии целиком (без per-occurrence). Если решение «выкинуть» — удалить `recurrence` из API/типов/кода чисто. Рекомендация PM: доделать — Phase 18 (курсы) захочет расписание занятий.
+- [ ] **23.4** Тесты: move в полную колонку → 422; daily-событие видно в каждом дне окна листинга; bi-weekly `INTERVAL=2` корректен.
+
+### Definition of Done
+
+- Лимит реально блокирует drag-and-drop (и API-move); повторяющиеся события отображаются на календаре — или мёртвый код удалён, промежуточного состояния нет.
+
+### Что НЕ делаем
+
+- EXDATE/исключения occurrences, BYDAY/BYMONTH-правила, серии задач (только события).
+
+---
+
+## Phase 24 — OpenAPI + наблюдаемость *(2–3 дня)*
+
+**Цель:** машиночитаемый контракт для внешних агентов (генерация клиентов) + минимальная наблюдаемость self-hosted инстанса.
+
+### Tasks
+
+- [ ] **24.1** `docs/openapi.yaml` (OpenAPI 3.1), вручную поддерживаемый; CI-тест: извлекает маршруты из chi-роутера и сверяет со спекой (расхождение = красный тест). Boring-вариант без codegen-магии.
+- [ ] **24.2** `GET /api/v1/openapi.yaml` (публичный, для агентов; без auth — спека не секрет).
+- [ ] **24.3** `GET /api/v1/stats` (JSON): uptime, requests total/by-status (in-memory счётчики middleware), ws-подключения, размер БД, последний бэкап/снапшот, очередь notifier. Без внешних зависимостей (нет prometheus client).
+- [ ] **24.4** Лог медленных запросов (>500ms) через существующий request-logger middleware.
+- [ ] **24.5** Тесты: route-coverage spec-тест; `/stats` smoke; slow-request лог пишется.
+- [ ] **24.6** `docs/API.md` — ссылка на спеку; `docs/SESSION.md`.
+
+### Definition of Done
+
+- Агент скачивает спеку и генерирует типизированного клиента; владелец видит здоровье инстанса одним запросом; спека не может «отстать» незаметно (тест).
+
+### Что НЕ делаем
+
+- Prometheus/Alertmanager-стек, tracing, Swagger UI в бандле (redoc по ссылке — опционально).
+
+---
+
 ## DB Schema (для миграции 001_init.sql)
 
 > Подробная схема появится в Phase 1. Ниже — скелет.
@@ -1125,6 +1544,7 @@ CREATE INDEX idx_backup_log_created ON backup_log(created_at);
 8. **Пишите комментарии к коду** на английском, в стиле Go (`// Package foo does X`).
 9. **Сообщения коммитов** в формате `phase(X.Y): <description>`.
 10. **Long-running задачи** — в фоне воркера с graceful shutdown.
+11. **Изоляция рабочего дерева.** Реализацию фазы ведите в ветке `phase-X-Y-<name>` или изолированном git worktree (для саб-агентов — `isolated` + осознанный merge). Не редактируйте основное дерево напрямую, когда в нём идёт чужая работа: параллельные сессии в одном дереве сталкиваются на общих файлах, а незакоммиченные правки беззащитны перед чужими tree-операциями. Правки плана коммитьте сразу отдельной веткой.
 
 ## История версий плана
 
@@ -1135,3 +1555,7 @@ CREATE INDEX idx_backup_log_created ON backup_log(created_at);
 | 2026-08-11 | 0.3.0 | Phase 13: теги и цветовые метки задач |
 | 2026-08-11 | 0.4.0 | Phase 14: разделение subtasks/checklists по смыслу (Weeek-style) |
 | 2026-08-11 | 0.5.0 | Phase 15: зависимости задач, ready-выборка для агентов, видимость занятости |
+| 2026-08-11 | 0.6.0 | Phase 16: Inbox — карточки без проекта, системный проект удаляется |
+| 2026-08-11 | 0.7.0 | Phase 17: информативные карточки задач (референсы Weeek/Trello) |
+| 2026-08-11 | 0.8.0 | Phase 18: личные курсы, создаваемые ИИ-агентами (LMS-модель) |
+| 2026-08-11 | 0.9.0 | Phases 19–24: ревью-очередь, «Сегодня», quick capture, restore, техдолг WIP+RRULE, OpenAPI+stats; workflow rule 11 (worktree) |
