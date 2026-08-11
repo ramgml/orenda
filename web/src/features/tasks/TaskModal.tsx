@@ -106,6 +106,13 @@ type BackgroundState = { backgroundLocation?: Location }
  *   const navigate = useNavigate()
  *   const location = useLocation()
  *   <button onClick={() => openTaskModal(navigate, location, task.id)}>
+ *
+ * The navigation uses `replace: true` so opening a child task from
+ * inside an already-open modal swaps the entry instead of stacking a
+ * new one on top. This matches Trello / Linear: closing the modal
+ * always pops back to whatever was on the screen before the user
+ * opened the first task (the kanban, a search page, an activity
+ * tab…), regardless of how many tasks they drilled through.
  */
 export function openTaskModal(
   navigate: NavigateFunction,
@@ -113,6 +120,7 @@ export function openTaskModal(
   taskId: string,
 ): void {
   navigate(`/tasks/${taskId}`, {
+    replace: true,
     state: { backgroundLocation: location } satisfies BackgroundState,
   })
 }
@@ -123,6 +131,9 @@ export function openTaskModal(
  *
  * Example:
  *   <TaskLink taskId={hit.id} className="hover:underline">View</TaskLink>
+ *
+ * Uses `replace: true` for the same reason as `openTaskModal` — see
+ * that function's doc comment.
  */
 export function TaskLink({
   taskId,
@@ -139,6 +150,7 @@ export function TaskLink({
   return (
     <Link
       to={`/tasks/${taskId}`}
+      replace
       state={{ backgroundLocation: location } satisfies BackgroundState}
       className={className}
       title={title}
