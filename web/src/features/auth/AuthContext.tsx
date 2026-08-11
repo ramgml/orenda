@@ -49,7 +49,9 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       role: resp.role,
       scopes: resp.scopes,
     })
-    setToken(resp.token)
+    // Token comes from the cookie (Set-Cookie: orenda_session); the
+    // body is just user info. We don't have a separate JWT to store
+    // here — cookies carry the session.
     setStatus('authenticated')
   }, [])
 

@@ -32,6 +32,8 @@ const NAV: NavEntry[] = [
   // the daily-driver action surface — agents submit work, humans
   // resolve it. The badge drives the visibility.
   { to: '/review', label: 'Review', glyph: '✓', badge: 'review' },
+  // Phase 18: courses (LMS) — second-life activity after tasks.
+  { to: '/courses', label: 'Courses', glyph: '🎓', matchPrefix: '/courses' },
   { to: '/reports', label: 'Reports', glyph: '▤' },
   { to: '/settings', label: 'Settings', glyph: '⚙', matchPrefix: '/settings' },
 ]
