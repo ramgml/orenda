@@ -66,6 +66,17 @@ Listing, status changes, and deletion all use the standard task endpoints. `GET 
 
 Subtask-related endpoints (`/api/v1/tasks/{id}/subtasks[/{subId}]`) and the legacy `task.subtask_added` activity events are gone.
 
+### Review queue (Phase 19)
+
+Tasks awaiting human action — the union of `awaiting='human'` and `status='review'`. Newest first. Includes inbox tasks; `project_name`/`project_color` are empty strings for those.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/review-queue` | `{tasks: [ReviewQueueItem], count}` |
+| GET | `/api/v1/review-queue/count` | `{count}` — cheap, used by the sidebar badge |
+
+Inline accept / return goes through the standard review endpoint (`POST /api/v1/tasks/{id}/review` with `decision: approve|reject`). Approval moves the task to `done`; return moves it back to `in_progress` + `awaiting='agent'` and (optionally) records a comment the agent sees on resume.
+
 ## Agents (admin, cookie auth)
 
 | Method | Path | Notes |
