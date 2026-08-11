@@ -35,8 +35,22 @@ export interface UserProfile {
   scopes?: string[]
 }
 
-export interface LoginResponse extends UserProfile {
-  token: string
+export interface LoginResponse extends UserProfile {}
+
+/**
+ * Phase 18: Course mirrors the server's Course entity. Top-level
+ * status lifecycle: draft → review → active → done (+ archived).
+ */
+export interface Course {
+  id: string
+  title: string
+  intent_md?: string
+  level: string
+  pace: string
+  status: 'draft' | 'review' | 'active' | 'done' | 'archived'
+  owner_id: string
+  created_at: string
+  updated_at: string
 }
 
 export interface Project {
@@ -767,6 +781,52 @@ class ApiClient {
     return this.http
       .get<TimeReport>('/api/v1/reports/time', { params })
       .then((r) => r.data)
+  }
+
+  // ---- Courses (Phase 18) ----
+  //
+  // Phase 18 ships the courses API; the frontend mirrors two screens:
+  // a list (with create wizard) and a tree view (modules + lessons +
+  // progress).
+
+  listCourses(): Promise<{ courses: Course[]; count: number }> {
+    return this.http
+      .get<{ courses: Course[]; count: number }>('/api/v1/courses')
+      .then((r) => r.data)
+  }
+
+  createCourse(input: { title: string; intent_md?: string }): Promise<Course> {
+    return this.http.post<Course>('/api/v1/courses', input).then((r) => r.data)
+  }
+
+  getCourse(id: string): Promise<{
+    course: Course
+    modules: { id: string; course_id: string; title: string; description?: string; position: number }[]
+    lessons: { id: string; module_id: string; title: string; position: number; status: string }[]
+    progress: { lessons_total: number; lessons_done: number }
+  }> {
+    return this.http
+      .get<{
+        course: Course
+        modules: { id: string; course_id: string; title: string; description?: string; position: number }[]
+        lessons: { id: string; module_id: string; title: string; position: number; status: string }[]
+        progress: { lessons_total: number; lessons_done: number }
+      }>(`/api/v1/courses/${id}`)
+      .then((r) => r.data)
+  }
+
+  approveCourse(id: string): Promise<Course> {
+    return this.http.post<Course>(`/api/v1/courses/${id}/approve`, {}).then((r) => r.data)
+  }
+
+  requestCourseChanges(id: string): Promise<Course> {
+    return this.http
+      .post<Course>(`/api/v1/courses/${id}/request-changes`, {})
+      .then((r) => r.data)
+  }
+
+  completeLesson(id: string): Promise<unknown> {
+    return this.http.post<unknown>(`/api/v1/lessons/${id}/complete`, {}).then((r) => r.data)
   }
 
   // ---- Wiki (Phase 5) ----
