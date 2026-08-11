@@ -146,7 +146,8 @@ agent namespace. Source: `cmd/orenda/agent.go`. See
 | POST | `/api/v1/backups/test` | git push of mirror |
 | POST | `/api/v1/backups/snapshot` | write snapshot now |
 | GET | `/api/v1/backups/snapshots` | list |
-| POST | `/api/v1/backups/restore` | body `{path}`; refuses when the server is up and returns a hint pointing at the CLI (`orenda backup restore --from <path> --yes`). The CLI command (Phase 22) writes a safety-copy to `<dest>.pre-restore-<ts>`, runs migrations, and verifies with `integrity_check` + `foreign_key_check` |
+| POST | `/api/v1/backups/restore` | body `{path, force?}`; refuses when the server is up and returns a hint pointing at the CLI (`orenda backup restore --from <path> --yes`). The CLI command (Phase 22) writes a safety-copy to `<dest>.pre-restore-<ts>`, runs migrations, and verifies with `integrity_check` + `foreign_key_check`. With `force=true` and maintenance mode on (Phase 22.3), restores in-process: drains WS, swaps the file, re-runs migrations, verifies, keeps maintenance on for the operator to verify. |
+| GET/POST | `/api/v1/maintenance[/on\|off]` | Phase 22.3: maintenance mode. Reads always pass; writes 503 while on. Combine with `POST /backups/restore {force: true}` to do an in-process restore with WS drain. |
 | GET | `/api/v1/backups/log` | recent log |
 
 ## Offline sync

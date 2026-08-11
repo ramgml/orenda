@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"database/sql"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 )
 
 type recordingHub struct {
+	mu     sync.Mutex
 	events []recordedEvent
 }
 
@@ -25,8 +27,13 @@ type recordedEvent struct {
 }
 
 func (h *recordingHub) Publish(_ context.Context, e ws.Event) {
+	h.mu.Lock()
 	h.events = append(h.events, recordedEvent{topic: e.Topic, body: e.Body})
+	h.mu.Unlock()
 }
+
+// Close implements ws.Hub (Phase 22.3: required by Hub interface).
+func (h *recordingHub) Close() {}
 
 func (h *recordingHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 	ch := make(chan ws.Event, 1)

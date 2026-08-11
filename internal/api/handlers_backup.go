@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"os"
 
 	"github.com/ramgml/orenda/internal/backup"
 )
@@ -101,46 +100,10 @@ func listBackupSnapshotsHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-// restoreBackupRequest is the body of POST /backups/restore.
-//
-// Path is the snapshot file to restore from. The handler refuses while
-// the server is running — restoring an open sqlite file corrupts WAL/SHM.
-// The CLI is the supported recovery path; the API only confirms the
-// snapshot exists and returns a structured hint with the exact command.
-type restoreBackupRequest struct {
-	Path string `json:"path"`
-}
-
-// restoreBackupHandler validates the snapshot path and returns a hint
-// for the operator. It does NOT touch the live database — that's the
-// CLI's job, run after the server is stopped.
-func restoreBackupHandler(_ Dependencies) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var in restoreBackupRequest
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
-			return
-		}
-		if in.Path == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_path"})
-			return
-		}
-		if _, err := os.Stat(in.Path); err != nil {
-			if os.IsNotExist(err) {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "snapshot_not_found"})
-				return
-			}
-			writeError(w, err)
-			return
-		}
-		// Server is currently running with the live DB open. Refuse.
-		writeJSON(w, http.StatusConflict, map[string]any{
-			"error":    "server_running",
-			"hint":     "Stop the server first, then run: orenda backup restore --from " + in.Path + " --yes",
-			"snapshot": in.Path,
-		})
-	}
-}
+// restoreBackupHandler lives in handlers_restore.go (Phase 22.3 —
+// maintenance-mode path). The original handler returned a CLI
+// hint; the new one accepts a `force=true` body when maintenance
+// is on and runs the swap in-process.
 
 // listBackupLogHandler returns recent backup_log entries.
 func listBackupLogHandler(deps Dependencies) http.HandlerFunc {

@@ -22,6 +22,9 @@ import (
 type memHub struct{ n int }
 
 func (m *memHub) Publish(context.Context, ws.Event) { m.n++ }
+// Close implements ws.Hub (Phase 22.3).
+func (m *memHub) Close() {}
+
 func (m *memHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 	ch := make(chan ws.Event, 1)
 	return ch, func() { close(ch) }

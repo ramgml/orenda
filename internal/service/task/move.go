@@ -251,6 +251,7 @@ func derivePosition(opts MoveOptions, current float64) float64 {
 type nullHub struct{}
 
 func (nullHub) Publish(context.Context, ws.Event) {}
+func (nullHub) Close()                            {}
 func (nullHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 	ch := make(chan ws.Event)
 	close(ch)
