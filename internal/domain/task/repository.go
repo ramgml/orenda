@@ -7,14 +7,24 @@ import (
 
 // Filter narrows ListByProject results.
 //
-// Zero value lists everything in the project.
+// Zero value lists inbox tasks (tasks with project_id IS NULL).
+// The Filter models three orthogonal axes:
 //
-// ParentTaskID is a tri-state pointer: nil = no filter, &"" = top-level
-// tasks only (parent_task_id IS NULL), &"abc" = direct children of
-// task "abc". Used by the kanban (default = top-level) and by
-// GET /tasks/:id/children (ParentTaskID=&parentID).
+//   - "which project?" — ProjectID for normal lookup; NoProject=true
+//     for the inbox (mutually exclusive with ProjectID).
+//   - "top-level vs children" — ParentTaskID tri-state pointer; nil
+//     = no filter, &"" = top-level (parent_task_id IS NULL),
+//     &"abc" = direct children of task "abc".
+//   - "which column / assignee / status" — straightforward equality.
+//
+// The kanban list endpoint uses ProjectID; the inbox list endpoint
+// uses NoProject; /tasks/:id/children uses ParentTaskID=&parentID.
+// Service.Move calls ListByProject with only ColumnID set so it can
+// count tasks in a target column regardless of which project they
+// belong to (Phase 16.4 unblocked this).
 type Filter struct {
 	ProjectID    string
+	NoProject    bool // Phase 16: true → "WHERE project_id IS NULL"
 	ColumnID     string
 	Status       Status
 	AssigneeType AssigneeType

@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { api, type Project } from '@/shared/api/client'
-import { INBOX_PROJECT_ID } from '@/shared/constants'
 
 /**
  * /projects/:id/settings — color, description, archive, delete.
@@ -11,6 +10,10 @@ import { INBOX_PROJECT_ID } from '@/shared/constants'
  * inline-edited `<h1>` on the project header (Phase 11 UX). That
  * keeps the title discoverable on every tab without forcing the user
  * to remember to come back here.
+ *
+ * Phase 16: every project here is a real user project. The old system
+ * Inbox project is gone (unfiled tasks live at /inbox), so archive
+ * and delete are uniform — no special-casing for a "system" project.
  */
 export function ProjectSettingsTab(): JSX.Element {
   const { id } = useParams<{ id: string }>()
@@ -21,8 +24,6 @@ export function ProjectSettingsTab(): JSX.Element {
   const [color, setColor] = useState('#3b82f6')
   const [description, setDescription] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
-
-  const isInbox = project?.id === INBOX_PROJECT_ID
 
   useEffect(() => {
     if (!id) return
@@ -61,7 +62,7 @@ export function ProjectSettingsTab(): JSX.Element {
   }
 
   async function toggleArchive(): Promise<void> {
-    if (!project || isInbox) return
+    if (!project) return
     setBusy(true)
     setError(null)
     try {
@@ -77,7 +78,7 @@ export function ProjectSettingsTab(): JSX.Element {
   }
 
   async function deleteProject(): Promise<void> {
-    if (!project || isInbox) return
+    if (!project) return
     setBusy(true)
     setError(null)
     try {
@@ -147,61 +148,53 @@ export function ProjectSettingsTab(): JSX.Element {
           Archived projects stay in the list but are hidden from the Kanban view.
           You can restore them later.
         </p>
-        {isInbox ? (
-          <p className="text-sm text-slate-500 italic">
-            The Inbox project is system-managed and cannot be archived.
-          </p>
+        <button
+          type="button"
+          onClick={toggleArchive}
+          disabled={busy}
+          className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-sm hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
+        >
+          {project.archived ? 'Unarchive' : 'Archive'}
+        </button>
+      </section>
+
+      <section className="rounded border border-red-300 bg-red-50/40 dark:bg-red-900/10 dark:border-red-800 p-4 space-y-3">
+        <h2 className="text-base font-semibold text-red-800 dark:text-red-300">
+          Danger zone
+        </h2>
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Deleting a project removes its tasks, columns, comments, and attachments
+          permanently. This cannot be undone.
+        </p>
+        {confirmDelete ? (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={deleteProject}
+              disabled={busy}
+              className="px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-sm disabled:opacity-50"
+            >
+              {busy ? 'Deleting…' : 'Yes, delete project'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(false)}
+              disabled={busy}
+              className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-sm"
+            >
+              Cancel
+            </button>
+          </div>
         ) : (
           <button
             type="button"
-            onClick={toggleArchive}
-            disabled={busy}
-            className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-sm hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
+            onClick={() => setConfirmDelete(true)}
+            className="px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50 text-sm"
           >
-            {project.archived ? 'Unarchive' : 'Archive'}
+            Delete project…
           </button>
         )}
       </section>
-
-      {!isInbox && (
-        <section className="rounded border border-red-300 bg-red-50/40 dark:bg-red-900/10 dark:border-red-800 p-4 space-y-3">
-          <h2 className="text-base font-semibold text-red-800 dark:text-red-300">
-            Danger zone
-          </h2>
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            Deleting a project removes its tasks, columns, comments, and attachments
-            permanently. This cannot be undone.
-          </p>
-          {confirmDelete ? (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={deleteProject}
-                disabled={busy}
-                className="px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-sm disabled:opacity-50"
-              >
-                {busy ? 'Deleting…' : 'Yes, delete project'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(false)}
-                disabled={busy}
-                className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-sm"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmDelete(true)}
-              className="px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50 text-sm"
-            >
-              Delete project…
-            </button>
-          )}
-        </section>
-      )}
     </div>
   )
 }

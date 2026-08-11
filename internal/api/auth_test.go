@@ -69,6 +69,10 @@ func (r *fakeUserRepo) Delete(_ context.Context, id string) error {
 
 // List returns every user in the fake. Added when the user.Repository
 // gained a List method (Phase-utility: `orenda user list`).
+func (r *fakeUserRepo) FirstNonSystem(_ context.Context) (*user.User, error) {
+	return nil, user.ErrNotFound
+}
+
 func (r *fakeUserRepo) List(_ context.Context) ([]*user.User, error) {
 	out := make([]*user.User, 0, len(r.users))
 	for _, u := range r.users {

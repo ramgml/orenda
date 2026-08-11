@@ -41,7 +41,6 @@ func setupEventSvc(t *testing.T) (*eventsvc.Service, *memHub) {
 
 func TestEventService_CreateAndListInRange(t *testing.T) {
 	svc, hub := setupEventSvc(t)
-	svc.DefaultProjectID = "00000000-0000-0000-0000-00000000cafe"
 	start := time.Now().Add(-time.Hour).Truncate(time.Second)
 	end := start.Add(2 * time.Hour)
 	e := &event.Event{Title: "Stand-up", StartAt: start, EndAt: end}
@@ -58,16 +57,20 @@ func TestEventService_CreateAndListInRange(t *testing.T) {
 	assert.Len(t, list, 1)
 }
 
-func TestEventService_CreateWithoutProjectUsesDefault(t *testing.T) {
+// Phase 16: events without a project_id land in the Inbox (project_id
+// is the empty string, column_id is NULL). There's no fallback
+// project any more — the calendar's quick-capture flow simply files
+// the event without a project and the user can file it later via
+// PATCH /events/{id}.
+func TestEventService_CreateWithoutProjectInbox(t *testing.T) {
 	svc, _ := setupEventSvc(t)
-	svc.DefaultProjectID = "00000000-0000-0000-0000-00000000cafe"
 
 	start := time.Now().Add(time.Hour)
 	e := &event.Event{Title: "No project", StartAt: start, EndAt: start.Add(time.Hour)}
 	got, err := svc.Create(context.Background(), e)
 	require.NoError(t, err)
-	assert.Equal(t, "00000000-0000-0000-0000-00000000cafe", got.ProjectID,
-		"missing project_id should fall back to DefaultProjectID")
+	assert.Equal(t, "", got.ProjectID,
+		"missing project_id should land the event in the Inbox (empty project_id)")
 }
 
 func TestEventService_CreateRejectsEmptyTitle(t *testing.T) {

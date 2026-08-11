@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
 
 import { api, type Project } from '@/shared/api/client'
-import { INBOX_PROJECT_ID } from '@/shared/constants'
 
 /**
  * /projects/:id — header + tab nav. The actual tab content is rendered
@@ -19,6 +18,11 @@ import { INBOX_PROJECT_ID } from '@/shared/constants'
  *   • The Archive button used to live here in Phase 2.6 — it has
  *     moved into Settings; this header now only carries the badges.
  *
+ * Phase 16: every project here is a real user project. The old system
+ * Inbox project is gone; unfiled tasks live at /inbox. There's no
+ * special-casing in this page — rename / archive / delete are
+ * uniform.
+ *
  * Phase pre-11 sidebar refactor lives in AppLayout; this page only
  * owns the project header + tab strip.
  */
@@ -27,8 +31,6 @@ export function ProjectDetailPage(): JSX.Element {
   const navigate = useNavigate()
   const [project, setProject] = useState<Project | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  const isInbox = project?.id === INBOX_PROJECT_ID
 
   useEffect(() => {
     if (!id) return
@@ -54,17 +56,8 @@ export function ProjectDetailPage(): JSX.Element {
         <h1 className="text-2xl font-semibold flex items-center gap-2 min-w-0">
           <InlineProjectName
             project={project}
-            disabled={isInbox}
             onRename={(updated) => setProject(updated)}
           />
-          {isInbox && (
-            <span
-              className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 flex-shrink-0"
-              title="System-managed workspace. Always present; cannot be archived."
-            >
-              System
-            </span>
-          )}
           {project?.archived && (
             <span className="text-xs uppercase tracking-wide text-slate-500 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 flex-shrink-0">
               archived
@@ -141,11 +134,9 @@ function ProjectTabs({
  */
 function InlineProjectName({
   project,
-  disabled,
   onRename,
 }: {
   project: Project | null
-  disabled: boolean
   onRename: (p: Project) => void
 }): JSX.Element {
   const [editing, setEditing] = useState(false)
@@ -161,7 +152,7 @@ function InlineProjectName({
   editingRef.current = editing
 
   function beginEdit(): void {
-    if (!project || disabled) return
+    if (!project) return
     setDraft(project.name)
     setLocalError(null)
     setEditing(true)
@@ -244,13 +235,8 @@ function InlineProjectName({
     <button
       type="button"
       onClick={beginEdit}
-      disabled={disabled}
-      title={disabled ? 'System projects cannot be renamed' : 'Click to rename'}
-      className={`text-left truncate ${
-        disabled
-          ? 'cursor-default'
-          : 'cursor-text hover:bg-slate-100 dark:hover:bg-slate-800 px-2 py-1 -mx-2 -my-1 rounded'
-      }`}
+      title="Click to rename"
+      className="text-left truncate cursor-text hover:bg-slate-100 dark:hover:bg-slate-800 px-2 py-1 -mx-2 -my-1 rounded"
     >
       {project.name}
     </button>

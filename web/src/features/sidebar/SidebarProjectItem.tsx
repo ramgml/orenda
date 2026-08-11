@@ -28,8 +28,16 @@ interface SidebarProjectItemProps {
   pinned: boolean
   collapsed: boolean
   /**
-   * When true the item is rendered with a "System" badge and without
-   * a pin button. Currently used for the Inbox project only.
+   * Phase 16: the item is a synthetic "Inbox" row that links to
+   * /inbox (not /projects/:id). When true we swap the link target
+   * and skip the pin button (the Inbox is always first; pinning it
+   * would be redundant).
+   */
+  inboxLink?: boolean
+  /**
+   * Kept for backward compat with the old "system project" badge;
+   * no longer used because Phase 16 dropped the system Inbox project.
+   * Ignored — the item still works without it.
    */
   isSystem?: boolean
   onTogglePin: (projectId: string) => void
@@ -41,16 +49,24 @@ export function SidebarProjectItem({
   active,
   pinned,
   collapsed,
+  inboxLink = false,
   isSystem = false,
   onTogglePin,
 }: SidebarProjectItemProps): JSX.Element {
+  // Where does the row link to? Inbox rows go to /inbox, everything
+  // else goes to /projects/:id.
+  const linkTarget = inboxLink ? '/inbox' : `/projects/${project.id}`
+  // Inbox rows can't be pinned — they're a single first-class rail
+  // item, not a project you might or might not want to surface.
+  const showPin = !inboxLink && !isSystem
+
   // When the sidebar is collapsed we render a tiny icon-only tile that
   // links straight to the project. The dot carries the project's
   // colour, and the project title becomes a native tooltip.
   if (collapsed) {
     return (
       <Link
-        to={`/projects/${project.id}`}
+        to={linkTarget}
         title={project.name}
         aria-label={project.name}
         className={`flex items-center justify-center h-9 rounded mx-1 ${
@@ -84,7 +100,7 @@ export function SidebarProjectItem({
         }`}
       />
       <Link
-        to={`/projects/${project.id}`}
+        to={linkTarget}
         className="flex items-center gap-2 flex-1 min-w-0"
         aria-current={active ? 'page' : undefined}
       >
@@ -106,13 +122,13 @@ export function SidebarProjectItem({
 
       <span
         className="text-[11px] tabular-nums text-slate-400 dark:text-slate-500 min-w-[1.25rem] text-right shrink-0"
-        title={`${openTaskCount ?? 0} open tasks`}
-        aria-label={`${openTaskCount ?? 0} open tasks`}
+        title={`${openTaskCount ?? 0} open ${inboxLink ? 'inbox tasks' : 'tasks'}`}
+        aria-label={`${openTaskCount ?? 0} open ${inboxLink ? 'inbox tasks' : 'tasks'}`}
       >
         {openTaskCount === undefined ? '…' : openTaskCount > 99 ? '99+' : openTaskCount}
       </span>
 
-      {!isSystem && (
+      {showPin && (
         <button
           type="button"
           onClick={(e) => {

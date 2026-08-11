@@ -27,4 +27,14 @@ type Repository interface {
 
 	// Delete removes the user by id. Returns ErrNotFound if no row matched.
 	Delete(ctx context.Context, id string) error
+
+	// FirstNonSystem returns the first user whose role isn't "system",
+	// or ErrNotFound. Used by Phase 16 to address notifications for
+	// tasks without a project (Inbox) — there's no project owner in
+	// that case, so the lone human owner is the natural recipient.
+	// The "first" semantics are deliberate: a single-user install has
+	// exactly one such user, and the query is non-deterministic
+	// enough that the multi-user case doesn't accidentally privilege
+	// one account over another.
+	FirstNonSystem(ctx context.Context) (*User, error)
 }

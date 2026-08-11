@@ -12,6 +12,7 @@ import (
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/activity"
 	commentdomain "github.com/ramgml/orenda/internal/domain/comment"
+	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 )
@@ -69,6 +70,12 @@ type Service struct {
 	Comments CommentAdder
 	Hub      Hub
 	Mirror   MirrorWriter
+	// Columns exposes the project columns repository — used by
+	// Move() to (a) check WIP limits (Phase 23.1) and (b) resolve
+	// the project that owns the target column so an Inbox card
+	// dragged onto a real board gets filed under that project
+	// (Phase 16.7).
+	Columns project.Repository
 }
 
 // MirrorWriter is the seam for the Phase 7 markdown mirror. The concrete
@@ -112,7 +119,7 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 	}
 
 	// WIP-limit check (count tasks in target column, excluding self).
-	if limit, ok := lookupWIPLimit(ctx, opts.TargetColumnID); ok && limit > 0 {
+	if limit, ok := s.lookupWIPLimit(ctx, opts.TargetColumnID); ok && limit > 0 {
 		existing, lerr := s.Tasks.ListByProject(ctx, task.Filter{ColumnID: opts.TargetColumnID})
 		if lerr != nil {
 			return nil, fmt.Errorf("task service: list column: %w", lerr)
@@ -130,6 +137,17 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 
 	tr.ColumnID = opts.TargetColumnID
 	tr.Position = derivePosition(opts, tr.Position)
+
+	// Phase 16: dragging an Inbox card onto a project's board files
+	// it under that project. We resolve the project id from the
+	// target column's board via the columns repository (which knows
+	// the project_id → column_id mapping). When tr.ProjectID is
+	// already set (a normal intra-project move), this is a no-op.
+	if tr.ProjectID == "" {
+		if pid, ok := s.lookupProjectOfColumn(ctx, opts.TargetColumnID); ok {
+			tr.ProjectID = pid
+		}
+	}
 
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return nil, fmt.Errorf("task service: update: %w", err)
@@ -153,15 +171,34 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 	return tr, nil
 }
 
-// lookupWIPLimit returns the WIP limit for a column. Phase 2.5 wires the
-// real implementation; for now we expose the seam and rely on the column
-// table being looked up by the handler. Keeping the function here avoids
-// leaking the columns repository into Move() callers.
-//
-// This is a no-op stub that returns (0, false). Phase 2.8 will implement
-// it; for now WIP limits land via the dedicated column endpoint.
-func lookupWIPLimit(ctx context.Context, columnID string) (int, bool) {
-	return 0, false
+// lookupWIPLimit returns the WIP limit set on a column, or (0, false)
+// if the column has no limit / doesn't exist / the Columns repo
+// isn't wired. Phase 23.1 turns the long-standing stub into the real
+// implementation: columns.wip_limit is read once per Move() call
+// (cheap PK lookup, no caching needed).
+func (s *Service) lookupWIPLimit(ctx context.Context, columnID string) (int, bool) {
+	if s.Columns == nil || columnID == "" {
+		return 0, false
+	}
+	col, err := s.Columns.GetColumn(ctx, columnID)
+	if err != nil || col == nil || col.WIPLimit == nil {
+		return 0, false
+	}
+	return *col.WIPLimit, true
+}
+
+// lookupProjectOfColumn returns the project id that owns a column.
+// Used by Move() to file an Inbox card under a real project when it's
+// dragged onto one of that project's boards (Phase 16.7).
+func (s *Service) lookupProjectOfColumn(ctx context.Context, columnID string) (string, bool) {
+	if s.Columns == nil || columnID == "" {
+		return "", false
+	}
+	col, err := s.Columns.GetColumn(ctx, columnID)
+	if err != nil || col == nil {
+		return "", false
+	}
+	return col.ProjectID, true
 }
 
 // derivePosition resolves the new position from opts.

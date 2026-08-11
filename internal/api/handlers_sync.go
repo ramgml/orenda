@@ -103,16 +103,29 @@ func applySyncOp(r *http.Request, deps Dependencies, id *Identity, op syncOp) sy
 	switch op.Op {
 	case "create_task":
 		var in struct {
-			Title       string `json:"title"`
-			ColumnID    string `json:"column_id"`
-			Description string `json:"description"`
+			Title       string  `json:"title"`
+			ColumnID    string  `json:"column_id"`
+			Description string  `json:"description"`
+			ProjectID   *string `json:"project_id,omitempty"` // Phase 16: optional
 		}
 		if err := json.Unmarshal(op.Payload, &in); err != nil || in.Title == "" {
 			res.Error = "invalid_payload"
 			return res
 		}
+		// ProjectID resolution order (Phase 16):
+		//   1. body.project_id (explicit)        wins
+		//   2. op.Target (the request URL slug) — preserves the older
+		//      single-target semantics for clients that pin the URL
+		//   3. "" (Inbox) — the new default for "I just want to
+		//      capture this idea"
+		projectID := ""
+		if in.ProjectID != nil {
+			projectID = *in.ProjectID
+		} else if op.Target != "" {
+			projectID = op.Target
+		}
 		tr := &task.Task{
-			ProjectID:   op.Target,
+			ProjectID:   projectID,
 			ColumnID:    in.ColumnID,
 			Title:       in.Title,
 			Description: in.Description,

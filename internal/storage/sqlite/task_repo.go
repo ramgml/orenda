@@ -36,19 +36,19 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 			status, priority, assignee_type, assignee_id, awaiting,
 			context_md, agent_notes, due_at, started_at, claimed_at, completed_at,
 			time_estimate_s, time_spent_s, position,
-			start_at, end_at, all_day, color,
+			start_at, end_at, all_day, color, recurrence,
 			created_at, updated_at
 		) VALUES (
 			?, ?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?,
 			?, ?, ?, ?, ?, ?,
 			?, ?, ?,
-			?, ?, ?, ?,
+			?, ?, ?, ?, ?,
 			datetime('now'), datetime('now')
 		)
 	`
 	_, err := r.db.ExecContext(ctx, q,
-		t.ID, t.ProjectID, nullString(t.ParentTaskID), nullString(t.ColumnID),
+		t.ID, nullString(t.ProjectID), nullString(t.ParentTaskID), nullString(t.ColumnID),
 		t.Title, t.Description,
 		string(t.Status), string(t.Priority), nullString(string(t.AssigneeType)),
 		nullString(t.AssigneeID), string(t.Awaiting),
@@ -58,6 +58,7 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 		nullIntPtr(t.TimeEstimateS), t.TimeSpentS, t.Position,
 		nullString(formatTimePtr(t.StartAt)), nullString(formatTimePtr(t.EndAt)),
 		boolToInt(t.AllDay), nullString(t.Color),
+		nullString(t.Recurrence),
 	)
 	if err != nil {
 		return fmt.Errorf("task.Create: %w", err)
@@ -76,7 +77,18 @@ func (r *taskRepo) GetByID(ctx context.Context, id string) (*task.Task, error) {
 }
 
 func (r *taskRepo) ListByProject(ctx context.Context, f task.Filter) ([]*task.Task, error) {
-	if f.ProjectID == "" {
+	// Phase 16: the lookup is no longer "always project-scoped". Three
+	// shapes are accepted:
+	//
+	//   - f.NoProject == true                  → inbox (project_id IS NULL)
+	//   - f.ProjectID != ""                    → that specific project
+	//   - f.ProjectID == "" && !f.NoProject    → counted lookup (used
+	//     by Service.Move to enumerate tasks in a single column,
+	//     regardless of project — Phase 23.1 relies on this).
+	//
+	// Setting both NoProject and a non-empty ProjectID is rejected so
+	// the caller has to make a choice.
+	if f.NoProject && f.ProjectID != "" {
 		return nil, task.ErrInvalidInput
 	}
 
@@ -84,8 +96,17 @@ func (r *taskRepo) ListByProject(ctx context.Context, f task.Filter) ([]*task.Ta
 		clauses []string
 		args    []any
 	)
-	clauses = append(clauses, "project_id = ?")
-	args = append(args, f.ProjectID)
+	switch {
+	case f.NoProject:
+		clauses = append(clauses, "project_id IS NULL")
+	case f.ProjectID != "":
+		clauses = append(clauses, "project_id = ?")
+		args = append(args, f.ProjectID)
+	default:
+		// No filter — list everything across all projects. Service.Move
+		// takes this branch with ColumnID set to enumerate a single
+		// column; the inbox endpoint uses NoProject=true instead.
+	}
 
 	if f.ColumnID != "" {
 		clauses = append(clauses, "column_id = ?")
@@ -115,9 +136,11 @@ func (r *taskRepo) ListByProject(ctx context.Context, f task.Filter) ([]*task.Ta
 		}
 	}
 
-	q := selectTaskColumns +
-		" WHERE " + strings.Join(clauses, " AND ") +
-		" ORDER BY column_id ASC, position ASC, created_at ASC"
+	q := selectTaskColumns
+	if len(clauses) > 0 {
+		q += " WHERE " + strings.Join(clauses, " AND ")
+	}
+	q += " ORDER BY column_id ASC, position ASC, created_at ASC"
 
 	rows, err := r.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -140,17 +163,24 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) error {
 	if err := t.Validate(); err != nil {
 		return err
 	}
+	// Phase 16 added `project_id` to the SET list so a PATCH that
+	// files an inbox card under a project (or vice versa) actually
+	// persists. The empty-string case stays valid: Validate()
+	// accepts "" alongside ColumnID="". Phase 23.3 added
+	// `recurrence` so the calendar's RRULE expansion can read it
+	// back from the persisted row.
 	const q = `
 		UPDATE tasks SET
-			parent_task_id = ?, column_id = ?, title = ?, description = ?,
+			project_id = ?, parent_task_id = ?, column_id = ?, title = ?, description = ?,
 			status = ?, priority = ?, assignee_type = ?, assignee_id = ?,
 			awaiting = ?, context_md = ?, agent_notes = ?,
 			due_at = ?, started_at = ?, claimed_at = ?, completed_at = ?,
 			time_estimate_s = ?, time_spent_s = ?, position = ?,
-			start_at = ?, end_at = ?, all_day = ?, color = ?
+			start_at = ?, end_at = ?, all_day = ?, color = ?, recurrence = ?
 		WHERE id = ?
 	`
 	res, err := r.db.ExecContext(ctx, q,
+		nullString(t.ProjectID),
 		nullString(t.ParentTaskID), nullString(t.ColumnID),
 		t.Title, t.Description,
 		string(t.Status), string(t.Priority),
@@ -161,6 +191,7 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) error {
 		nullIntPtr(t.TimeEstimateS), t.TimeSpentS, t.Position,
 		nullString(formatTimePtr(t.StartAt)), nullString(formatTimePtr(t.EndAt)),
 		boolToInt(t.AllDay), nullString(t.Color),
+		nullString(t.Recurrence),
 		t.ID,
 	)
 	if err != nil {
@@ -434,31 +465,36 @@ SELECT id, project_id, parent_task_id, column_id, title, description,
        status, priority, assignee_type, assignee_id, awaiting,
        context_md, agent_notes, due_at, started_at, claimed_at, completed_at,
        time_estimate_s, time_spent_s, position,
-       start_at, end_at, all_day, color, created_at, updated_at
+       start_at, end_at, all_day, color, recurrence, created_at, updated_at
 FROM tasks
 `
 
 // scanTask reads one row (sql.Row) into a Task.
+//
+// Phase 16: project_id is scanned via sql.NullString because the column
+// became nullable. NULL → "" (the "Inbox" representation in Go).
+// Phase 23.3: recurrence is scanned the same way (NULL → "").
 func scanTask(row *sql.Row) (*task.Task, error) {
 	var t task.Task
 	var (
-		parent, columnID               sql.NullString
+		projectID, parent, columnID    sql.NullString
 		desc, assigneeType, assigneeID sql.NullString
 		contextMD, agentNotes          sql.NullString
 		due, started, claimed, compl   sql.NullString
 		calStart, calEnd, color        sql.NullString
+		recurrence                     sql.NullString
 		allDay                         int
 		estS                           sql.NullInt64
 		status, priority, awaiting     string
 		created, updated               string
 	)
 	err := row.Scan(
-		&t.ID, &t.ProjectID, &parent, &columnID, &t.Title, &desc,
+		&t.ID, &projectID, &parent, &columnID, &t.Title, &desc,
 		&status, &priority, &assigneeType, &assigneeID, &awaiting,
 		&contextMD, &agentNotes,
 		&due, &started, &claimed, &compl,
 		&estS, &t.TimeSpentS, &t.Position,
-		&calStart, &calEnd, &allDay, &color, &created, &updated,
+		&calStart, &calEnd, &allDay, &color, &recurrence, &created, &updated,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, task.ErrNotFound
@@ -466,6 +502,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	if err != nil {
 		return nil, fmt.Errorf("task.Scan: %w", err)
 	}
+	t.ProjectID = projectID.String
 	t.ParentTaskID = parent.String
 	t.ColumnID = columnID.String
 	t.Description = desc.String
@@ -484,6 +521,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	t.EndAt = parseTimePtr(calEnd)
 	t.AllDay = allDay != 0
 	t.Color = color.String
+	t.Recurrence = recurrence.String
 	if estS.Valid {
 		v := int(estS.Int64)
 		t.TimeEstimateS = &v
@@ -505,7 +543,7 @@ func (r *taskRepo) ListInRange(ctx context.Context, from, to time.Time, projectI
 		       status, priority, assignee_type, assignee_id, awaiting,
 		       context_md, agent_notes, due_at, started_at, claimed_at, completed_at,
 		       time_estimate_s, time_spent_s, position,
-		       start_at, end_at, all_day, color, created_at, updated_at
+		       start_at, end_at, all_day, color, recurrence, created_at, updated_at
 		FROM tasks
 		WHERE start_at IS NOT NULL AND end_at IS NOT NULL
 		  AND start_at < ? AND end_at > ?`
@@ -539,28 +577,29 @@ func (r *taskRepo) ListInRange(ctx context.Context, from, to time.Time, projectI
 func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 	var t task.Task
 	var (
-		parent, columnID               sql.NullString
+		projectID, parent, columnID    sql.NullString
 		desc, assigneeType, assigneeID sql.NullString
 		contextMD, agentNotes          sql.NullString
 		due, started, claimed, compl   sql.NullString
 		calStart, calEnd, color        sql.NullString
+		recurrence                     sql.NullString
 		allDay                         int
 		estS                           sql.NullInt64
 		status, priority, awaiting     string
 		created, updated               string
 	)
 	err := rows.Scan(
-		&t.ID, &t.ProjectID, &parent, &columnID, &t.Title, &desc,
+		&t.ID, &projectID, &parent, &columnID, &t.Title, &desc,
 		&status, &priority, &assigneeType, &assigneeID, &awaiting,
 		&contextMD, &agentNotes,
 		&due, &started, &claimed, &compl,
 		&estS, &t.TimeSpentS, &t.Position,
-		&calStart, &calEnd, &allDay, &color, &created, &updated,
+		&calStart, &calEnd, &allDay, &color, &recurrence, &created, &updated,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("task.ScanRow: %w", err)
 	}
-	t.ParentTaskID = parent.String
+	t.ProjectID = projectID.String
 	t.ColumnID = columnID.String
 	t.Description = desc.String
 	t.Status = task.Status(status)
@@ -578,6 +617,7 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 	t.EndAt = parseTimePtr(calEnd)
 	t.AllDay = allDay != 0
 	t.Color = color.String
+	t.Recurrence = recurrence.String
 	if estS.Valid {
 		v := int(estS.Int64)
 		t.TimeEstimateS = &v

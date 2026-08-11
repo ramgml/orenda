@@ -122,6 +122,38 @@ func (r *userRepo) Delete(ctx context.Context, id string) error {
 }
 
 // List returns all users ordered by created_at ASC. Used by the CLI
+// FirstNonSystem returns the first user whose role != 'system'.
+// Used by Phase 16's notifyTaskAssignee to address Inbox (project-less)
+// task notifications. Returns ErrNotFound if every user is a system
+// placeholder — which is the freshly-migrated case (no human user
+// yet), and the caller treats that as "nobody to notify".
+func (r *userRepo) FirstNonSystem(ctx context.Context) (*user.User, error) {
+	const q = `
+		SELECT id, email, password_hash, display_name, role, created_at, updated_at
+		FROM users WHERE role != 'system'
+		ORDER BY created_at ASC, id ASC LIMIT 1
+	`
+	var (
+		u    user.User
+		role string
+		cAt  string
+		uAt  string
+	)
+	err := r.db.QueryRowContext(ctx, q).Scan(
+		&u.ID, &u.Email, &u.PasswordHash, &u.DisplayName, &role, &cAt, &uAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, user.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("user.FirstNonSystem: %w", err)
+	}
+	u.Role = user.Role(role)
+	u.CreatedAt = parseTime(cAt)
+	u.UpdatedAt = parseTime(uAt)
+	return &u, nil
+}
+
 // `orenda user list` command. Returns an empty (non-nil) slice when
 // the table has no rows.
 func (r *userRepo) List(ctx context.Context) ([]*user.User, error) {
