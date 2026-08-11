@@ -2,32 +2,29 @@ import { useEffect } from 'react'
 
 /**
  * Listens for a paste of image data anywhere on the page and hands the
- * resulting File off to `onImage`. Ignores pastes while focus is inside
- * an editable element so it doesn't hijack Ctrl+V in comment boxes or
- * any other text input.
+ * resulting File off to `onImage`. Plain-text pastes are always passed
+ * through to the focused element so comment boxes still get Ctrl+V.
+ *
+ * If the clipboard contains an image, we treat it as a screenshot
+ * upload regardless of where focus is — typing in a comment box and
+ * then pasting a screenshot still drops it into the attachments. The
+ * default paste behaviour (which would drop a binary into the text
+ * field anyway) is suppressed for the image branch.
  *
  * File name defaults to `screenshot-YYYY-MM-DD-HHMMSS.png` (or the
  * clipboard's filename if it carries one).
  *
- * Caller is responsible for actually uploading the file — this hook only
- * extracts the image from the event.
+ * Caller is responsible for actually uploading the file — this hook
+ * only extracts the image from the event.
  */
 export function usePasteImage(onImage: (file: File) => void | Promise<void>): void {
   useEffect(() => {
     function onPaste(e: ClipboardEvent): void {
-      const target = e.target as HTMLElement | null
-      // Don't hijack paste inside any editable surface: the user is
-      // pasting text into a comment, a search box, etc.
-      if (target) {
-        const tag = target.tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) {
-          return
-        }
-      }
-
       const items = e.clipboardData?.items
       if (!items) return
 
+      // Look for an image in the payload first; only that branch hijacks
+      // paste regardless of focus.
       for (let i = 0; i < items.length; i++) {
         const item = items[i]
         if (item.kind !== 'file') continue
@@ -40,12 +37,21 @@ export function usePasteImage(onImage: (file: File) => void | Promise<void>): vo
           blob.name && blob.name !== 'image.png'
             ? blob.name
             : `screenshot-${stamp(new Date())}.${ext(blob.type)}`
-        // Rebuild as a File so the upload pipeline sees a real filename
-        // and the right MIME type.
         const file = new File([blob], name, { type: blob.type || 'image/png' })
         e.preventDefault()
         void onImage(file)
         return
+      }
+
+      // No image: if focus is inside an editable surface, leave the
+      // event alone so the user can paste text into a comment / search
+      // field. Otherwise there's nothing for us to do.
+      const target = e.target as HTMLElement | null
+      if (target) {
+        const tag = target.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) {
+          return
+        }
       }
     }
 
