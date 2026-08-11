@@ -1,0 +1,1134 @@
+# Orenda REST API — OpenAPI 3.1
+#
+# This file is the machine-readable contract for the Orenda API.
+# The route-coverage test (`internal/api/openapi_coverage_test.go`)
+# walks the live chi router and asserts every route appears here —
+# so a forgotten endpoint fails CI instead of shipping undocumented.
+#
+# Path templating: chi's `{id}` style. We also accept path-style
+# parameters like `/columns/{id}` and `/columns/{id}/tasks/{taskId}`.
+#
+# Auth: see Security Schemes below. Two scopes:
+#   - bearerAuth-cookie: cookie-session login (UI flows)
+#   - bearerAuth-agent:  opaque API token (agent flows)
+#
+# Conventions:
+#   - 200/201 for happy-path reads/writes
+#   - 204 for DELETE /.../{id} with no body
+#   - 400 for invalid input (validation failed)
+#   - 401 for missing/invalid auth
+#   - 403 for wrong scope (cookie vs agent)
+#   - 404 for unknown ids
+#   - 409 for state conflicts (lock_taken, dependency exists)
+#   - 422 for lifecycle violations (invalid transition, task_blocked)
+#   - 429 for rate limit (Retry-After header)
+
+openapi: 3.1.0
+info:
+  title: Orenda REST API
+  version: 0.2.0-dev
+  description: |
+    Single-binary, local-first productivity suite (tasks, calendar, wiki)
+    with AI-agents as first-class citizens. Single-owner; cookie session for
+    UI flows, opaque API tokens for external agents.
+
+    Two integration surfaces:
+      - cookie auth (`/api/v1/*`): browser session via /api/v1/auth/login
+      - bearer auth (`/api/v1/agent/*`): external agents
+
+    Schema details live in the responses; this spec covers the
+    happy-path shapes only. Field-level validation lives in the
+    domain layer (see `internal/domain/*`).
+
+servers:
+  - url: http://localhost:2137
+    description: Default local install
+
+tags:
+  - name: meta
+    description: Health/info endpoints (no auth required).
+  - name: auth
+    description: Login/logout for the UI.
+  - name: users
+    description: Owner profile.
+  - name: projects
+    description: Projects, boards, columns.
+  - name: tasks
+    description: Tasks (kanban items), comments, attachments, blockers.
+  - name: tags
+    description: Global tag catalogue.
+  - name: calendar
+    description: Events + time entries.
+  - name: inbox
+    description: Phase 16: tasks without a project.
+  - name: review-queue
+    description: Phase 19: tasks awaiting human verdict.
+  - name: today
+    description: Phase 20: daily-driver dashboard.
+  - name: courses
+    description: Phase 18: LMS courses.
+  - name: wiki
+    description: Wiki pages + FTS5 search.
+  - name: notifications
+    description: In-app notifications + bot subscriptions.
+  - name: sync
+    description: Phase 8: offline sync.
+  - name: backups
+    description: Snapshot + restore + git push.
+  - name: agents
+    description: Owner-side agent CRUD (admin).
+  - name: agent
+    description: Bearer-token agent endpoints (self).
+  - name: webhooks
+    description: Bot callbacks (VK, etc).
+  - name: stats
+    description: Phase 24: observability.
+
+# -----------------------------------------------------------------------------
+# Security
+# -----------------------------------------------------------------------------
+components:
+  securitySchemes:
+    bearerAuth-cookie:
+      type: apiKey
+      in: cookie
+      name: orenda_session
+      description: JWT session cookie set by POST /api/v1/auth/login
+    bearerAuth-agent:
+      type: http
+      scheme: bearer
+      description: Opaque API token from POST /api/v1/agents
+
+  # ---------------------------------------------------------------------------
+  # Schemas — typed bodies for the most-used endpoints. Full coverage would
+  # be a separate repo-wide effort; this set covers the entry points
+  # (auth, task CRUD, course CRUD, agent claim).
+  # ---------------------------------------------------------------------------
+  schemas:
+    Task:
+      type: object
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        title: { type: string }
+        status:
+          type: string
+          enum: [backlog, todo, in_progress, review, done]
+        priority:
+          type: string
+          enum: [low, medium, high, urgent]
+        assignee_type:
+          type: string
+          enum: [user, agent]
+        assignee_id: { type: string }
+        awaiting:
+          type: string
+          enum: [none, human, agent]
+        due_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Course:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        intent_md: { type: string }
+        status:
+          type: string
+          enum: [draft, review, active, done, archived]
+        level:
+          type: string
+          enum: [beginner, intermediate, advanced]
+        pace:
+          type: string
+          enum: [casual, regular, intensive]
+        owner_id: { type: string }
+
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+
+# -----------------------------------------------------------------------------
+# Paths
+# -----------------------------------------------------------------------------
+paths:
+
+  # ---- meta ----
+  /healthz:
+    get:
+      tags: [meta]
+      summary: Liveness probe.
+      responses:
+        '200': { description: ok }
+
+  /api/v1/info:
+    get:
+      tags: [meta]
+      summary: Server version + capabilities.
+      responses:
+        '200': { description: ok }
+
+  /api/v1/openapi.yaml:
+    get:
+      tags: [meta]
+      summary: This OpenAPI document (machine-readable contract).
+      responses:
+        '200':
+          description: yaml
+          content:
+            text/yaml:
+              schema: { type: string }
+
+  /api/v1/stats:
+    get:
+      tags: [stats]
+      summary: 'Observability snapshot: uptime + request counters + ws + db size.'
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uptime_seconds: { type: integer }
+                  requests_total: { type: integer }
+                  requests_2xx: { type: integer }
+                  requests_3xx: { type: integer }
+                  requests_4xx: { type: integer }
+                  requests_5xx: { type: integer }
+                  slow_requests: { type: integer }
+                  ws_connections: { type: integer }
+                  db_bytes: { type: integer }
+                  db_path: { type: string }
+
+  # ---- auth ----
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Email + password → JWT cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200': { description: ok, sets session cookie }
+        '401': { description: invalid credentials }
+
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Clear session cookie.
+      responses:
+        '200': { description: ok }
+
+  /api/v1/webhooks/vk:
+    post:
+      tags: [webhooks]
+      summary: VK Community Bot callback.
+      responses:
+        '200': { description: ok }
+
+  # ---- users ----
+  /api/v1/me:
+    get:
+      tags: [users]
+      summary: Current user profile.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+
+  # ---- projects ----
+  /api/v1/projects:
+    get:
+      tags: [projects]
+      summary: List projects owned by the current user.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    post:
+      tags: [projects]
+      summary: Create a project (auto-creates default board + 4 columns).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '201': { description: created } }
+
+  /api/v1/projects/{id}:
+    get:
+      tags: [projects]
+      summary: Get a project.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '404': { description: not found }
+    patch:
+      tags: [projects]
+      summary: Update project fields (name/color/description/archived).
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '404': { description: not found }
+    delete:
+      tags: [projects]
+      summary: Delete project (cascades to boards/columns/tasks).
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '204': { description: deleted }
+        '404': { description: not found }
+
+  /api/v1/projects/{id}/board:
+    get:
+      tags: [projects]
+      summary: Board + columns for a project (no tasks).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/projects/{id}/activity:
+    get:
+      tags: [projects]
+      summary: Audit log aggregated across the project's tasks.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/projects/{id}/attachments:
+    get:
+      tags: [projects]
+      summary: List every attachment in the project.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    post:
+      tags: [projects]
+      summary: Upload a project-level attachment (multipart).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '201': { description: created } }
+
+  /api/v1/projects/{id}/columns:
+    post:
+      tags: [projects]
+      summary: Append a column to the project's board.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '201': { description: created } }
+
+  /api/v1/projects/{id}/tasks:
+    get:
+      tags: [projects, tasks]
+      summary: List tasks in a project (Phase 17: enriched with counters + blocked_by_count).
+      security: [{ bearerAuth-cookie: [] }]
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: column_id
+          schema: { type: string }
+      responses: { '200': { description: ok } }
+    post:
+      tags: [projects, tasks]
+      summary: Create a task in a project.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                description: { type: string }
+                status: { $ref: '#/components/schemas/Task/properties/status' }
+                priority: { $ref: '#/components/schemas/Task/properties/priority' }
+                parent_task_id: { type: string }
+                assignee_type: { type: string }
+                assignee_id: { type: string }
+                due_at: { type: string, format: date-time }
+      responses:
+        '201': { description: created }
+        '400': { description: invalid input }
+
+  /api/v1/columns/{id}:
+    patch:
+      tags: [projects]
+      summary: Update a column (name/wip_limit/color).
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '422': { description: wip_limit_too_small }
+    delete:
+      tags: [projects]
+      summary: Delete a column (only when empty).
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '204': { description: deleted }
+        '422': { description: column_not_empty }
+
+  # ---- tasks ----
+  /api/v1/tasks/{id}:
+    get:
+      tags: [tasks]
+      summary: Get a single task.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '404': { description: not found }
+    patch:
+      tags: [tasks]
+      summary: Update task fields.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    delete:
+      tags: [tasks]
+      summary: Delete a task.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '204': { description: deleted }
+
+  /api/v1/tasks/{id}/move:
+    post:
+      tags: [tasks]
+      summary: Move a task to a different column.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '422': { description: wip_limit_exceeded }
+
+  /api/v1/tasks/{id}/claim:
+    post:
+      tags: [tasks]
+      summary: Claim a task for an agent (user-side; agent-side has the bearer equivalent).
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '409': { description: lock_taken }
+
+  /api/v1/tasks/{id}/release:
+    post:
+      tags: [tasks]
+      summary: Release a claim.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/tasks/{id}/submit:
+    post:
+      tags: [tasks]
+      summary: Mark a task ready for review (status=review, awaiting=human).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/tasks/{id}/review:
+    post:
+      tags: [tasks]
+      summary: Accept or return a task in review.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [approve, reject]
+                comment: { type: string }
+      responses: { '200': { description: ok } }
+
+  /api/v1/tasks/{id}/children:
+    get:
+      tags: [tasks]
+      summary: List direct child tasks + progress.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/tasks/{id}/blockers:
+    get:
+      tags: [tasks]
+      summary: List every blocker (open + satisfied).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/tasks/{id}/dependents:
+    get:
+      tags: [tasks]
+      summary: List tasks depending on this task (reverse lookup).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/tasks/{id}/dependencies:
+    put:
+      tags: [tasks]
+      summary: Replace the full blocker set.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [depends_on_ids]
+              properties:
+                depends_on_ids:
+                  type: array
+                  items: { type: string }
+      responses:
+        '200': { description: ok }
+        '422': { description: invalid_dependency (cycle or self-loop) }
+
+  /api/v1/tasks/{id}/tags:
+    get:
+      tags: [tasks, tags]
+      summary: List tags attached to the task.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    put:
+      tags: [tasks, tags]
+      summary: Replace the task's tag set.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/tasks/{id}/checklists:
+    get:
+      tags: [tasks]
+      summary: List checklists + items.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    post:
+      tags: [tasks]
+      summary: Add a checklist.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '201': { description: created } }
+
+  /api/v1/tasks/{id}/checklists/{clId}:
+    delete:
+      tags: [tasks]
+      summary: Delete a checklist (cascade items).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '204': { description: deleted } }
+
+  /api/v1/tasks/{id}/checklists/{clId}/items:
+    get:
+      tags: [tasks]
+      summary: List items in a checklist.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    post:
+      tags: [tasks]
+      summary: Add an item to a checklist.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '201': { description: created } }
+
+  /api/v1/tasks/{id}/checklists/{clId}/items/{itemId}:
+    patch:
+      tags: [tasks]
+      summary: Update an item (done/title).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    delete:
+      tags: [tasks]
+      summary: Delete an item.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '204': { description: deleted } }
+
+  /api/v1/tasks/{id}/comments:
+    get:
+      tags: [tasks]
+      summary: List comments on a task.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    post:
+      tags: [tasks]
+      summary: Add a comment (markdown; @user:&lt;id&gt; mentions).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '201': { description: created } }
+
+  /api/v1/tasks/{id}/attachments:
+    get:
+      tags: [tasks]
+      summary: List attachments on a task.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    post:
+      tags: [tasks]
+      summary: Upload a task attachment (multipart).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '201': { description: created } }
+
+  /api/v1/tasks/{id}/attachments/{attId}/download:
+    get:
+      tags: [tasks]
+      summary: Stream an attachment file.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '404': { description: not found }
+
+  /api/v1/tasks/{id}/activity:
+    get:
+      tags: [tasks]
+      summary: Audit log for the task.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/tasks/{id}/context:
+    get:
+      tags: [tasks]
+      summary: Full snapshot: task + comments + activity + children + checklists.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/tasks/{id}/timer/start:
+    post:
+      tags: [tasks, calendar]
+      summary: Start a timer for the task.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '409': { description: already_open }
+
+  /api/v1/tasks/{id}/timer/stop:
+    post:
+      tags: [tasks, calendar]
+      summary: Stop the active timer for the task.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/tasks/{id}/time:
+    post:
+      tags: [tasks, calendar]
+      summary: Add a manual time entry.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '201': { description: created } }
+
+  # ---- tags ----
+  /api/v1/tags:
+    get:
+      tags: [tags]
+      summary: List global tag catalogue.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    post:
+      tags: [tags]
+      summary: Create a tag.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '201': { description: created } }
+
+  /api/v1/tags/{id}:
+    patch:
+      tags: [tags]
+      summary: Update a tag (rename / recolour).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    delete:
+      tags: [tags]
+      summary: Delete a tag (cascades to task_tags).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '204': { description: deleted } }
+
+  # ---- calendar ----
+  /api/v1/events:
+    get:
+      tags: [calendar]
+      summary: List events in [from, to).
+      security: [{ bearerAuth-cookie: [] }]
+      parameters:
+        - in: query
+          name: from
+          required: true
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          required: true
+          schema: { type: string, format: date-time }
+        - in: query
+          name: project_id
+          schema: { type: string }
+      responses: { '200': { description: ok } }
+    post:
+      tags: [calendar]
+      summary: Create an event (supports RFC 5545 RRULE).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '201': { description: created } }
+
+  /api/v1/events/{id}:
+    get:
+      tags: [calendar]
+      summary: Get an event.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    patch:
+      tags: [calendar]
+      summary: Update an event.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    delete:
+      tags: [calendar]
+      summary: Delete an event.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '204': { description: deleted } }
+
+  /api/v1/attachments/{attId}/download:
+    get:
+      tags: [calendar]
+      summary: Stream a project-level attachment.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '404': { description: not found }
+
+  /api/v1/events/await:
+    post:
+      tags: [calendar]
+      summary: Long-poll for the next event.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '204': { description: timeout }
+
+  # ---- agents (admin, owner-side) ----
+  /api/v1/agents:
+    get:
+      tags: [agents]
+      summary: List registered agents.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    post:
+      tags: [agents]
+      summary: Register a new agent; returns the opaque token once.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '201': { description: created } }
+
+  /api/v1/agents/{id}:
+    get:
+      tags: [agents]
+      summary: Get an agent.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    delete:
+      tags: [agents]
+      summary: Disable an agent (revokes the token).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '204': { description: deleted } }
+
+  /api/v1/agents/{id}/heartbeat:
+    post:
+      tags: [agents]
+      summary: Refresh last_seen_at (owner-side, no token check).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  # ---- inbox ----
+  /api/v1/inbox/tasks:
+    get:
+      tags: [inbox]
+      summary: List tasks with project_id IS NULL (Phase 16 inbox).
+      security: [{ bearerAuth-cookie: [] }]
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string }
+      responses: { '200': { description: ok } }
+    post:
+      tags: [inbox]
+      summary: Create an inbox task.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                description: { type: string }
+      responses: { '201': { description: created } }
+
+  # ---- review-queue ----
+  /api/v1/review-queue:
+    get:
+      tags: [review-queue]
+      summary: List tasks awaiting human action.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/review-queue/count:
+    get:
+      tags: [review-queue]
+      summary: Cheap count for the sidebar badge.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  # ---- today ----
+  /api/v1/today:
+    get:
+      tags: [today]
+      summary: Daily-driver dashboard payload (overdue + due-today + scheduled + awaiting).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  # ---- courses ----
+  /api/v1/courses:
+    get:
+      tags: [courses]
+      summary: List courses owned by the current user.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    post:
+      tags: [courses]
+      summary: Create a course from an intent.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                intent_md: { type: string }
+      responses: { '201': { description: created } }
+
+  /api/v1/courses/{id}:
+    get:
+      tags: [courses]
+      summary: Full course tree (modules + lessons + quizzes + progress).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    delete:
+      tags: [courses]
+      summary: Delete a course (cascades to modules/lessons/quizzes).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '204': { description: deleted } }
+
+  /api/v1/courses/{id}/approve:
+    post:
+      tags: [courses]
+      summary: Approve the tutor's curriculum (review → active).
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '422': { description: invalid_transition }
+
+  /api/v1/courses/{id}/request-changes:
+    post:
+      tags: [courses]
+      summary: Send the curriculum back to draft for revision.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '422': { description: invalid_transition }
+
+  /api/v1/lessons/{id}/complete:
+    post:
+      tags: [courses]
+      summary: Mark a lesson done (unlocks the next one).
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '422': { description: lesson_not_open }
+
+  # ---- reports ----
+  /api/v1/reports/time:
+    get:
+      tags: [calendar]
+      summary: Aggregated time report (by task / by day).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  # ---- wiki + search ----
+  /api/v1/pages:
+    get:
+      tags: [wiki]
+      summary: List wiki pages (flat list).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    post:
+      tags: [wiki]
+      summary: Create or upsert a page.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '201': { description: created } }
+
+  /api/v1/pages/{slug}:
+    get:
+      tags: [wiki]
+      summary: Get a wiki page.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    put:
+      tags: [wiki]
+      summary: Upsert a wiki page.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    delete:
+      tags: [wiki]
+      summary: Delete a wiki page.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '204': { description: deleted } }
+    patch:
+      tags: [wiki]
+      summary: Move a page under a new parent (reparent).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/pages/{slug}/backlinks:
+    get:
+      tags: [wiki]
+      summary: List pages that link to this one.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/pages/{slug}/move:
+    patch:
+      tags: [wiki]
+      summary: Move a page under a new parent (reparent).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/search:
+    get:
+      tags: [wiki]
+      summary: FTS5 search across tasks/pages/comments.
+      security: [{ bearerAuth-cookie: [] }]
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+        - in: query
+          name: type
+          schema: { type: string }
+      responses: { '200': { description: ok } }
+
+  # ---- notifications ----
+  /api/v1/notifications:
+    get:
+      tags: [notifications]
+      summary: List in-app notifications for the current user.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/notifications/{id}/read:
+    post:
+      tags: [notifications]
+      summary: Mark a notification as read.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/notifications/subscriptions:
+    get:
+      tags: [notifications]
+      summary: List bot subscriptions.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    post:
+      tags: [notifications]
+      summary: Create a bot subscription.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '201': { description: created } }
+
+  /api/v1/notifications/subscriptions/{id}:
+    delete:
+      tags: [notifications]
+      summary: Delete a subscription.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '204': { description: deleted } }
+
+  # ---- sync ----
+  /api/v1/sync:
+    post:
+      tags: [sync]
+      summary: Offline sync — batch of operations, idempotent via client_id.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ops]
+              properties:
+                ops:
+                  type: array
+                  items:
+                    type: object
+                    required: [op, target, payload, client_id, created_at]
+                    properties:
+                      op: { type: string }
+                      target: { type: string }
+                      payload: { type: object, additionalProperties: true }
+                      client_id: { type: string }
+                      created_at: { type: string, format: date-time }
+      responses: { '200': { description: ok } }
+
+  # ---- backups ----
+  /api/v1/backups/settings:
+    get:
+      tags: [backups]
+      summary: Read backup settings.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    put:
+      tags: [backups]
+      summary: Update backup settings.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/backups/test:
+    post:
+      tags: [backups]
+      summary: Test the git push.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/backups/snapshot:
+    post:
+      tags: [backups]
+      summary: Trigger a snapshot now.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/backups/snapshots:
+    get:
+      tags: [backups]
+      summary: List snapshots.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/backups/restore:
+    post:
+      tags: [backups]
+      summary: Restore from snapshot (server must be stopped; returns CLI hint otherwise).
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '409': { description: server_running (returns hint) }
+
+  /api/v1/backups/log:
+    get:
+      tags: [backups]
+      summary: Recent backup log entries.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  # ---- agent (bearer) ----
+  /api/v1/agent/me:
+    get:
+      tags: [agent]
+      summary: Confirm the bearer token; return agent profile.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '401': { description: invalid_token }
+
+  /api/v1/agent/heartbeat:
+    post:
+      tags: [agent]
+      summary: Refresh last_seen_at.
+      security: [{ bearerAuth-agent: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/agent/tasks:
+    get:
+      tags: [agent]
+      summary: List claimable tasks (?ready=true filters blocked / claimed).
+      security: [{ bearerAuth-agent: [] }]
+      parameters:
+        - in: query
+          name: ready
+          schema: { type: boolean }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 100 }
+      responses: { '200': { description: ok } }
+
+  /api/v1/agent/tasks/{id}/claim:
+    post:
+      tags: [agent]
+      summary: Atomic claim (409 lock_taken / 422 task_blocked).
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '409': { description: lock_taken }
+        '422': { description: task_blocked + unfinished_blockers }
+
+  /api/v1/agent/tasks/{id}/release:
+    post:
+      tags: [agent]
+      summary: Release a claim.
+      security: [{ bearerAuth-agent: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/agent/tasks/{id}/submit:
+    post:
+      tags: [agent]
+      summary: Mark ready for human review.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note: { type: string }
+      responses: { '200': { description: ok } }
+
+  /api/v1/agent/tasks/{id}/context:
+    get:
+      tags: [agent]
+      summary: Full snapshot for resume.
+      security: [{ bearerAuth-agent: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/agent/courses:
+    get:
+      tags: [agent, courses]
+      summary: List courses (tutor's view; ?status=draft filters).
+      security: [{ bearerAuth-agent: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/agent/courses/{id}/curriculum:
+    put:
+      tags: [agent, courses]
+      summary: Replace the course's curriculum (atomic).
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [modules]
+              properties:
+                modules:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      title: { type: string }
+                      position: { type: integer }
+                      lessons:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            title: { type: string }
+                            position: { type: integer }
+      responses: { '200': { description: ok } }
+
+  # ---- SPA fallback ----
+  /{catchAll}:
+    get:
+      tags: [meta]
+      summary: Single-page-app fallback (serves index.html).
+      security: []
+      responses:
+        '200': { description: ok }

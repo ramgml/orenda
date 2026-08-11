@@ -22,6 +22,7 @@ All JSON. Errors are `{"error": "<code>"}` with a 4xx/5xx status.
 |---|---|---|
 | GET | `/healthz` | `{status, version}` |
 | GET | `/api/v1/info` | `{version, name, capabilities}` |
+| GET | `/api/v1/openapi.yaml` | OpenAPI 3.1 spec (Phase 24). Public, no auth — the spec isn't secret. Embedded at compile time. |
 | GET | `/api/v1/stats` | uptime + request counters (2xx/3xx/4xx/5xx) + slow-request count + ws subscribers + db file size (Phase 24). Public, no auth |
 | GET | `/api/v1/ws?token=<jwt>` | WebSocket upgrade |
 | POST | `/api/v1/events/await` | long-poll `{topic, timeout_s}` |
