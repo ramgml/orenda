@@ -105,6 +105,10 @@ Inline accept / return goes through the standard review endpoint (`POST /api/v1/
 | GET | `/api/v1/agent/courses?status=draft` | Phase 18: list courses the tutor can claim |
 | PUT | `/api/v1/agent/courses/{id}/curriculum` | body `{modules: [{title, position, lessons: [{title, position}]}]}` — atomic swap |
 
+The `orenda agent` CLI (Phase 25) is a thin cobra wrapper over the
+agent namespace. Source: `cmd/orenda/agent.go`. See
+`docs/skills/orenda/SKILL.md` for the etiquette + workflow.
+
 ## Calendar / Time
 
 | Method | Path | Notes |
