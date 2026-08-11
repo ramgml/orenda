@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { api, type TaskAttachment } from '@/shared/api/client'
+import { usePasteImage } from '@/features/attachments/usePasteImage'
 
 /**
  * /projects/:id/attachments — files attached directly to the
@@ -35,21 +36,37 @@ export function ProjectAttachmentsTab(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
-  async function uploadFiles(files: FileList | File[]): Promise<void> {
-    if (!id) return
-    setBusy(true)
-    setError(null)
-    try {
-      for (const f of Array.from(files)) {
-        await api.uploadProjectAttachment(id, f)
+  const uploadFiles = useCallback(
+    async (files: FileList | File[]) => {
+      if (!id) return
+      setBusy(true)
+      setError(null)
+      try {
+        for (const f of Array.from(files)) {
+          await api.uploadProjectAttachment(id, f)
+        }
+        await reload()
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
       }
-      await reload()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
+    },
+    // reload closes over id; rebuild whenever id changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [id],
+  )
+
+  // Ctrl+V anywhere on the page while this tab is mounted → drop the
+  // screenshot here. The hook skips pastes that originate inside any
+  // editable element so we don't hijack comment / search input.
+  const onPasteImage = useCallback(
+    async (file: File) => {
+      await uploadFiles([file])
+    },
+    [uploadFiles],
+  )
+  usePasteImage(onPasteImage)
 
   if (items === null && !error) {
     return <p className="text-slate-500">Loading attachments…</p>

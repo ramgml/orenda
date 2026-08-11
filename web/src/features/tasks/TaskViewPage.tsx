@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { useAuth } from '@/features/auth/AuthContext'
@@ -14,6 +14,7 @@ import {
 } from '@/shared/api/client'
 import { useWebSocketTopic } from '@/shared/ws'
 import { StartTimer } from '@/features/tasks/TimerWidget'
+import { usePasteImage } from '@/features/attachments/usePasteImage'
 
 import { CommentsList } from './CommentsList'
 import { SubtasksList } from './SubtasksList'
@@ -97,6 +98,23 @@ export function TaskViewPage(): JSX.Element {
   useWebSocketTopic('tasks', () => {
     load()
   })
+
+  // Ctrl+V anywhere on the page → drop a screenshot into this task's
+  // attachments, as long as focus is not inside an editable surface
+  // (handled inside the hook).
+  const onPasteImage = useCallback(
+    async (file: File) => {
+      if (!id) return
+      try {
+        const a = await api.uploadTaskAttachment(id, file)
+        setAttachments((cur) => [...cur, a])
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      }
+    },
+    [id],
+  )
+  usePasteImage(onPasteImage)
 
   async function onPostComment(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault()
