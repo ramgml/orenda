@@ -130,6 +130,12 @@ func (f *fakeRepo) Dependents(context.Context, string) ([]string, error) {
 	return nil, nil
 }
 
+// ListByProjectWithStats (Phase 17) — fake delegates to ListByProject
+// and leaves counters unset. The reminder path doesn't read them.
+func (f *fakeRepo) ListByProjectWithStats(ctx context.Context, fil task.Filter) ([]*task.Task, error) {
+	return f.ListByProject(ctx, fil)
+}
+
 // withStart helper — Set StartAt + EndAt on a task for the fake.
 func withStart(t *task.Task, start time.Time) *task.Task {
 	t.StartAt = &start

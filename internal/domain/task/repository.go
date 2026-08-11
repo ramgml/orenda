@@ -49,6 +49,16 @@ type Repository interface {
 	// ListByProject returns tasks matching f, ordered by column position.
 	ListByProject(ctx context.Context, f Filter) ([]*Task, error)
 
+	// ListByProjectWithStats is ListByProject plus per-task counters
+	// (Phase 17). The Counters and BlockedByCount fields are populated
+	// on each Task so the kanban card can render "comments / progress /
+	// blocked" without a per-card fetch.
+	//
+	// Used by /projects/{id}/board and /inbox/tasks list endpoints.
+	// The single-task endpoints (GET /tasks/{id}) keep using
+	// ListByProject + a separate follow-up call.
+	ListByProjectWithStats(ctx context.Context, f Filter) ([]*Task, error)
+
 	// ListChildren returns every direct child task of parentID (tasks
 	// where parent_task_id = parentID), ordered by position then
 	// creation time. Returns an empty slice when the parent has no

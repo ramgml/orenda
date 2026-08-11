@@ -56,6 +56,11 @@ type taskInput struct {
 
 // listProjectTasksHandler returns tasks for a project, optionally filtered by
 // status or column via query params.
+//
+// Phase 17: the endpoint hydrates per-task Counters (comments /
+// attachments / children / checklist_items) and BlockedByCount so the
+// kanban card renders without per-card fetches. Used by the
+// kanban board and the inbox list.
 func listProjectTasksHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		f := task.Filter{
@@ -67,7 +72,7 @@ func listProjectTasksHandler(deps Dependencies) http.HandlerFunc {
 		if c := r.URL.Query().Get("column_id"); c != "" {
 			f.ColumnID = c
 		}
-		tasks, err := deps.Tasks.ListByProject(r.Context(), f)
+		tasks, err := deps.Tasks.ListByProjectWithStats(r.Context(), f)
 		if err != nil {
 			writeError(w, err)
 			return
