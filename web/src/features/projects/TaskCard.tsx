@@ -71,6 +71,15 @@ export function TaskCard({
         isDragging ? 'opacity-40 border-orenda-500' : 'border-slate-200 dark:border-slate-700'
       }`}
     >
+      {task.parent_task_id && (
+        <span
+          className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-400 mb-1"
+          title="This is a child task"
+        >
+          <span aria-hidden="true">↳</span>
+          child
+        </span>
+      )}
       {task.title}
     </div>
   )

@@ -349,6 +349,71 @@ func TestMigrate_013SubtasksToChildren(t *testing.T) {
 	}
 }
 
+func TestMigrate_014ChildTasksInheritColumn(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "orenda.db")
+
+	db, err := Open(context.Background(), dbPath, OpenConfig{
+		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx := context.Background()
+
+	// Apply every migration up to 013 — leaves the schema with one
+	// child task whose column_id is NULL (we set it manually before
+	// 014 runs).
+	applyUpTo(t, ctx, db, "013_subtasks_to_children")
+
+	const ownerID = "u-014"
+	const projectID = "p-014"
+	const colID = "col-014"
+	const parentID = "task-parent-014"
+	const childID = "task-child-014"
+
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO users (id, email, password_hash, display_name) VALUES (?, ?, ?, ?)`,
+		ownerID, "owner@014.local", "x", "Owner")
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO projects (id, name, owner_id) VALUES (?, 'p', ?)`,
+		projectID, ownerID)
+	require.NoError(t, err)
+	// One board + one column for the parent to live in.
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO boards (id, project_id, name, position) VALUES ('b-014', ?, 'main', 0)`,
+		projectID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO columns (id, board_id, name, position) VALUES (?, 'b-014', 'todo', 0)`,
+		colID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO tasks (id, project_id, column_id, title) VALUES (?, ?, ?, 'parent')`,
+		parentID, projectID, colID)
+	require.NoError(t, err)
+	// Pre-existing child with NULL column_id (simulates a subtask
+	// row that came through migration 013 unchanged).
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO tasks (id, project_id, parent_task_id, title, column_id) VALUES (?, ?, ?, 'child', NULL)`,
+		childID, projectID, parentID)
+	require.NoError(t, err)
+
+	// Apply the rest. 014 should copy parent's column_id onto the child.
+	require.NoError(t, Migrate(ctx, db, MigrationsFS, "migrations"))
+
+	versions, err := AppliedVersions(ctx, db)
+	require.NoError(t, err)
+	assert.Contains(t, versions, "014_child_tasks_inherit_column")
+
+	var gotCol string
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT column_id FROM tasks WHERE id = ?`, childID,
+	).Scan(&gotCol))
+	assert.Equal(t, colID, gotCol, "child should inherit parent's column")
+}
+
 func TestBuildDSN(t *testing.T) {
 	dsn := buildDSN("/tmp/foo.db", OpenConfig{WALMode: true, BusyTimeoutMs: 5000})
 	assert.Contains(t, dsn, "_pragma=busy_timeout(5000)")

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   DndContext,
   DragEndEvent,
@@ -21,6 +21,19 @@ import { TaskCard } from './TaskCard'
  *
  * Tasks are loaded on mount and after every WS event; on drop we update
  * optimistically and POST to the move endpoint. On failure we revert.
+ *
+ * Child tasks (Phase 14: rows with `parent_task_id` set) live on the
+ * board alongside their parents — they aren't hidden behind the
+ * "ChildTasksList" UI anymore. By default they show up; the toggle at
+ * the top of the board lets the user hide them when the board gets
+ * crowded. Their cards carry a small "↳ child" badge so they stand
+ * out from top-level work.
+ *
+ * Tasks whose `column_id` is NULL (legacy after migration 013, or any
+ * future bug that lets one slip through) fall back to the first
+ * column instead of disappearing entirely. The backend's
+ * `createTaskHandler` also defaults new child tasks to the parent's
+ * column so this fallback should be rare in practice.
  */
 export function KanbanBoard({
   projectId,
@@ -35,6 +48,18 @@ export function KanbanBoard({
   const [cols, setCols] = useState<Column[]>(columns)
   const [activeTask, setActiveTask] = useState<Task | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Persist the toggle in localStorage so the user's choice survives
+  // navigation. Defaults to true (show) per Phase 14 UX request.
+  const [showChildren, setShowChildren] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true
+    const v = window.localStorage.getItem('orenda.kanban.showChildren')
+    return v === null ? true : v === 'true'
+  })
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('orenda.kanban.showChildren', String(showChildren))
+  }, [showChildren])
 
   // Keep local cols in sync if the parent re-fetches the board.
   useEffect(() => {
@@ -92,13 +117,24 @@ export function KanbanBoard({
     }
   }
 
-  const tasksByCol = new Map<string, Task[]>()
-  for (const t of tasks) {
-    const k = t.column_id ?? ''
-    const list = tasksByCol.get(k) ?? []
-    list.push(t)
-    tasksByCol.set(k, list)
-  }
+  // Build per-column buckets. Tasks without a column land in the first
+  // column so they're still visible (defensive — should be rare
+  // since the backend defaults child tasks to the parent's column).
+  const tasksByCol = useMemo(() => {
+    const map = new Map<string, Task[]>()
+    const fallback = cols[0]?.id
+    const visible = showChildren ? tasks : tasks.filter((t) => !t.parent_task_id)
+    for (const t of visible) {
+      const k = t.column_id ?? fallback ?? ''
+      if (!k) continue
+      const list = map.get(k) ?? []
+      list.push(t)
+      map.set(k, list)
+    }
+    return map
+  }, [tasks, cols, showChildren])
+
+  const childCount = useMemo(() => tasks.filter((t) => !!t.parent_task_id).length, [tasks])
 
   return (
     <div className="space-y-3">
@@ -107,6 +143,22 @@ export function KanbanBoard({
           {error}
         </div>
       )}
+      <div className="flex items-center justify-end">
+        <label className="flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showChildren}
+            onChange={(e) => setShowChildren(e.target.checked)}
+            className="rounded border-slate-300"
+          />
+          <span>
+            Show child tasks{' '}
+            <span className="text-slate-400">
+              ({childCount})
+            </span>
+          </span>
+        </label>
+      </div>
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
           {cols.map((col) => (

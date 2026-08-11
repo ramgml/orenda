@@ -97,6 +97,21 @@ func createTaskHandler(deps Dependencies) http.HandlerFunc {
 			tr.Position = *in.Position
 		}
 
+		// Phase 14 board UX: child tasks inherit their parent's column
+		// (or fall back to the first column of the project) so they
+		// appear on the kanban immediately. Without this, children
+		// would be created with column_id=NULL and float off-board
+		// until somebody dragged them manually. The frontend already
+		// knows the parent's column and passes it through, so this is
+		// just a safety net for API users who don't.
+		if tr.ParentTaskID != "" && tr.ColumnID == "" {
+			if parent, err := deps.Tasks.GetByID(r.Context(), tr.ParentTaskID); err == nil && parent.ColumnID != "" {
+				tr.ColumnID = parent.ColumnID
+			} else if colID, err := deps.Tasks.FirstColumnID(r.Context(), tr.ProjectID); err == nil {
+				tr.ColumnID = colID
+			}
+		}
+
 		if err := deps.Tasks.Create(r.Context(), tr); err != nil {
 			writeError(w, err)
 			return
