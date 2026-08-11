@@ -1220,6 +1220,61 @@ make build
 
 ---
 
+## Phase 25 — Agent DX: MCP server + CLI + skill *(1–1.5 недели)*
+
+**Цель:** внешний агент подключается к Orenda за минуты и сразу правильно играет делегационный цикл. Три поверхности под три способа интеграции: **MCP** (native tool-discovery для MCP-клиентов), **CLI** (скрипты и простые агенты на чём угодно), **skill** (know-how: как работать, а не только чем). Сейчас агент вынужден читать `docs/API.md` и писать HTTP-клиента руками.
+
+**Контекст (что уже есть):**
+
+- Agent REST: `/api/v1/agent/*` — `me`, `heartbeat`, `tasks/{id}/claim|release|submit|context` (Phase 3); long-poll `/api/v1/events/await`; Bearer API-токены (`RequireAgent`).
+- **Зависимости:** листинга задач для агентов нет (закрывает Phase 15) — MCP `list_available_tasks` опирается на него; `create_inbox_item` — на Phase 16. Каркас фазы (MCP endpoint, CLI, skill) этих зависимостей не ждёт.
+- Phase 24 (OpenAPI) описывает REST машинно; MCP **не** автогенерируется из него — tools проектируются вручную по workflow агента.
+- Официальный Go SDK: `github.com/modelcontextprotocol/go-sdk/mcp` (v1.4+; Streamable HTTP — актуальный транспорт спецификации). Новая зависимость, обоснование: официальный SDK вместо ручного JSON-RPC; версию пингуем ≥1.4 (ранние версии без DNS-rebinding protection для HTTP-серверов).
+
+**Ключевые решения:**
+
+- MCP встроен в `orenda serve` (single-binary философия): Streamable HTTP endpoint `/api/v1/agent/mcp` под `RequireAgent` — аутентификация тем же agent-токеном.
+- Для клиентов без remote-MCP: `orenda mcp-proxy` — stdio↔HTTP мост в том же бинаре.
+- MCP tools отражают workflow (`await → claim → work → submit → review`), а не REST 1:1.
+- CLI — сабкоманды существующего бинаря (`orenda agent ...`, cobra уже есть).
+
+### Tasks
+
+- [ ] **25.1** MCP endpoint (`internal/mcp/` или `internal/api/mcp.go` — выбрать по размеру):
+  - Server на go-sdk, Streamable HTTP, mount в router под `RequireAgent`: `/api/v1/agent/mcp`.
+  - Tools v1: `me`, `await_task` (обёртка над long-poll с таймаутом), `get_task_context`, `claim_task`, `release_task`, `submit_task`, `add_comment`; после Phase 15 — `list_available_tasks`; после Phase 16 — `create_inbox_item`.
+  - Resource `orenda://task/{id}/context` (read-only снапшот задачи).
+  - DNS-rebinding protection явно включена; SDK ≥1.4 в `go.mod`.
+- [ ] **25.2** `orenda mcp-proxy --url --token`: stdio↔Streamable-HTTP мост (клиенты, умеющие только stdio: запускают proxy как локальный процесс).
+- [ ] **25.3** CLI `orenda agent` (cmd/orenda, новый файл `agent.go`):
+  - `me`, `next` (= await + claim одной командой), `context <id>`, `claim|release|submit <id>`, `comment <id>`, `await --topic`.
+  - `--json` на всём; exit codes: `0` ok, `2` = «нет работы» (для shell-циклов `while orenda agent next; do ...; done`).
+  - Конфиг по приоритету: env (`ORENDA_URL`, `ORENDA_AGENT_TOKEN`) > флаги > `~/.config/orenda/agent.yaml`.
+- [ ] **25.4** Skill-пакет `docs/skills/orenda/SKILL.md` (+ `api-cheatsheet.md` рядом):
+  - Делегационный цикл и этикет: всегда `release` при отказе, `comment` при блокере, не держать claim без работы, submit ≠ done (жди review).
+  - Выбор поверхности: MCP vs CLI vs REST — когда что.
+  - Команда установки: `orenda skill install [--dir <skills-dir>]` — копирует пакет в skills-dir агента.
+- [ ] **25.5** Тесты:
+  - MCP: handshake/tools-list + полный `claim→submit` roundtrip через in-memory transport SDK; 401 без токена.
+  - CLI: `next/claim/submit` против httptest-сервера; exit code 2 при пустом await.
+  - Proxy: stdio-кадр доходит до HTTP-хендлера и обратно.
+- [ ] **25.6** Документация: `docs/API.md` (MCP endpoint + tools), `docs/SESSION.md`, `README.md` — секция «Для внешних агентов» (3 шага подключения).
+
+### Definition of Done
+
+- MCP-клиент (Claude Code или совместимый) подключается к `/api/v1/agent/mcp` с agent-токеном и проходит цикл claim→submit без ручного HTTP.
+- Shell-скрипт на `orenda agent` проходит тот же цикл; `next` возвращает exit 2 при отсутствии работы.
+- `orenda skill install` ставит skill; по SKILL.md агент без подсказок воспроизводит цикл (проверено ручным прогоном).
+- `make test && make lint` зелёные.
+
+### Что НЕ делаем в этой фазе
+
+- MCP prompts/subscriptions, автогенерацию tools из OpenAPI, OAuth-flow для MCP (Bearer на loopback достаточно).
+- Отдельный бинарь `orenda-agent` (всё в одном бинаре).
+- Hosted/remote MCP для внешних сетей (auth-модель и TLS — отдельная история с multi-user).
+
+---
+
 ## DB Schema (для миграции 001_init.sql)
 
 > Подробная схема появится в Phase 1. Ниже — скелет.
@@ -1559,3 +1614,4 @@ CREATE INDEX idx_backup_log_created ON backup_log(created_at);
 | 2026-08-11 | 0.7.0 | Phase 17: информативные карточки задач (референсы Weeek/Trello) |
 | 2026-08-11 | 0.8.0 | Phase 18: личные курсы, создаваемые ИИ-агентами (LMS-модель) |
 | 2026-08-11 | 0.9.0 | Phases 19–24: ревью-очередь, «Сегодня», quick capture, restore, техдолг WIP+RRULE, OpenAPI+stats; workflow rule 11 (worktree) |
+| 2026-08-11 | 0.10.0 | Phase 25: agent DX — MCP server, CLI (orenda agent), skill-пакет |
