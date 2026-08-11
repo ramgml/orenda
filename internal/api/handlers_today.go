@@ -11,7 +11,9 @@
 package api
 
 import (
+	"context"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/ramgml/orenda/internal/domain/task"
@@ -20,13 +22,28 @@ import (
 // todayResponse is the wire shape. Each list is enriched with the
 // Phase 17 counters so the Today page renders without follow-up
 // fetches.
+//
+// Phase 20.3: UpcomingWeek is a compact "next 7 days" view grouped
+// by date — the dashboard renders one row per day with the count
+// of due tasks.
 type todayResponse struct {
-	Overdue        []*task.Task `json:"overdue"`
-	DueToday       []*task.Task `json:"due_today"`
-	ScheduledToday []*task.Task `json:"scheduled_today"`
-	AwaitingCount  int          `json:"awaiting_count"`
+	Overdue        []*task.Task  `json:"overdue"`
+	DueToday       []*task.Task  `json:"due_today"`
+	ScheduledToday []*task.Task  `json:"scheduled_today"`
+	UpcomingWeek   []upcomingDay `json:"upcoming_week"`
+	AwaitingCount  int           `json:"awaiting_count"`
 	// ActiveTimer is nil when no time entry is open.
 	ActiveTimer *activeTimerView `json:"active_timer,omitempty"`
+}
+
+// upcomingDay is one row in the "next 7 days" section.
+//
+// Date is an ISO 8601 date string (YYYY-MM-DD) so the client can
+// format it in the user's locale without timezone arithmetic.
+// Count is the number of due tasks falling on that day.
+type upcomingDay struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
 }
 
 type activeTimerView struct {
@@ -41,6 +58,10 @@ func getTodayHandler(deps Dependencies) http.HandlerFunc {
 		if deps.Tasks == nil {
 			http.Error(w, "task repo not wired", http.StatusServiceUnavailable)
 			return
+		}
+		userID := ""
+		if id, ok := IdentityFrom(r.Context()); ok {
+			userID = id.UserID
 		}
 		// We anchor "today" at midnight UTC. The dashboard is for
 		// personal use; server-time-zone boundaries are documented
@@ -128,20 +149,69 @@ func getTodayHandler(deps Dependencies) http.HandlerFunc {
 			}
 		}
 
-		// Active timer (Phase 4 time_entry) — best-effort; the time
-		// service doesn't expose a single "active entry" lookup yet
-		// (Phase 4 single-active-timer invariant lives in Start()). For
-		// the Today dashboard we report it as "no active timer"; a
-		// follow-up can plumb the lookup without changing this wire
-		// shape.
+		// Active timer — look up the owner's open entry via the
+		// time-entry service. Phase 4's single-active-timer invariant
+		// is per-agent; for single-owner installs we probe by the
+		// owner id (Phase 9 will wire a proper owner→agent map).
+		var active *activeTimerView
+		if deps.TimeService != nil && userID != "" {
+			if te, err := deps.TimeService.ActiveTimer(r.Context(), userID); err == nil && te != nil {
+				active = &activeTimerView{
+					TaskID:    te.TaskID,
+					StartedAt: te.StartedAt,
+				}
+			}
+		}
+
+		// Upcoming week: due dates in (today, today+7d), bucketed by date.
+		week := upcomingWeek(r.Context(), deps, endOfDay)
 
 		writeJSON(w, http.StatusOK, todayResponse{
 			Overdue:        overdue,
 			DueToday:       dueToday,
 			ScheduledToday: scheduled,
+			UpcomingWeek:   week,
 			AwaitingCount:  awaiting,
+			ActiveTimer:    active,
 		})
 	}
+}
+
+// upcomingWeek groups tasks by their due date over the next 7
+// days (exclusive of today — today is already in due_today).
+//
+// Phase 20.3 ships a compact, flat response: one row per day with
+// the day label as YYYY-MM-DD. The client renders a one-line-per-
+// day section without timezone arithmetic.
+func upcomingWeek(ctx context.Context, deps Dependencies, endOfDay time.Time) []upcomingDay {
+	// Window: [tomorrow, today+7d).
+	windowStart := endOfDay
+	windowEnd := endOfDay.Add(7 * 24 * time.Hour)
+
+	all, err := deps.Tasks.ListByProject(ctx, task.Filter{
+		Status: task.StatusTodo,
+	})
+	if err != nil {
+		return nil
+	}
+	bucket := map[string]int{}
+	for _, t := range all {
+		if t.DueAt == nil {
+			continue
+		}
+		if t.DueAt.Before(windowStart) || !t.DueAt.Before(windowEnd) {
+			continue
+		}
+		key := t.DueAt.UTC().Format("2006-01-02")
+		bucket[key]++
+	}
+	out := make([]upcomingDay, 0, len(bucket))
+	for k, v := range bucket {
+		out = append(out, upcomingDay{Date: k, Count: v})
+	}
+	// Stable order: by date ascending.
+	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
+	return out
 }
 
 // enrichByID copies Counters/BlockedByCount from src (a list from

@@ -62,13 +62,31 @@ func (s *Service) Start(ctx context.Context, taskID, agentID string) (*timeentry
 	return got, nil
 }
 
+// findOpen is the internal helper: looks up the agent's open timer
+// and returns (nil, nil) when there isn't one. Phase 20 surfaces this
+// to /api/v1/today so the dashboard can show "you're working on X
+// (12 min)".
+func (s *Service) findOpen(ctx context.Context, agentID string) (*timeentry.TimeEntry, error) {
+	return s.Repo.FindOpen(ctx, agentID)
+}
+
+// ActiveTimer returns the agent's open timer entry, or nil when no
+// timer is running. Read-only — the dashboard uses this to display
+// elapsed time without affecting the timer.
+func (s *Service) ActiveTimer(ctx context.Context, agentID string) (*timeentry.TimeEntry, error) {
+	if agentID == "" {
+		return nil, nil
+	}
+	return s.findOpen(ctx, agentID)
+}
+
 // Stop closes the agent's open timer. Returns ErrNotFound if there is
 // no open timer.
 func (s *Service) Stop(ctx context.Context, agentID string) (*timeentry.TimeEntry, error) {
 	if agentID == "" {
 		return nil, ErrInvalid
 	}
-	open, err := s.Repo.FindOpen(ctx, agentID)
+	open, err := s.findOpen(ctx, agentID)
 	if err != nil {
 		return nil, err
 	}
