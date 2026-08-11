@@ -22,24 +22,43 @@ var recovererMiddleware = middleware.Recoverer
 //
 // We avoid chi's middleware.Logger because it writes plain-text logs that
 // conflict with the project's structured-only logging rule (AGENTS.md).
+//
+// Phase 24: every request also updates the in-process stats counters
+// (liveStats). Requests taking > 500ms emit a separate zap.Warn with
+// the same fields so a slow path is visible without grepping the
+// info stream.
 func requestLogger(logger *zap.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			next.ServeHTTP(ww, r)
-			logger.Info("http",
+			dur := time.Since(start)
+			status := ww.Status()
+			fields := []zap.Field{
 				zap.String("method", r.Method),
 				zap.String("path", r.URL.Path),
-				zap.Int("status", ww.Status()),
+				zap.Int("status", status),
 				zap.Int("bytes", ww.BytesWritten()),
 				zap.String("remote", r.RemoteAddr),
 				zap.String("request_id", middleware.GetReqID(r.Context())),
-				zap.Duration("duration", time.Since(start)),
-			)
+				zap.Duration("duration", dur),
+			}
+			if dur > slowRequestThreshold {
+				logger.Warn("http.slow", fields...)
+				liveStats.recordStats(status, true)
+			} else {
+				logger.Info("http", fields...)
+				liveStats.recordStats(status, false)
+			}
 		})
 	}
 }
+
+// slowRequestThreshold defines what counts as "slow". 500ms is a
+// rule-of-thumb for an interactive API; everything under that is
+// acceptable for a single-owner local install.
+const slowRequestThreshold = 500 * time.Millisecond
 
 // corsLoopback configures CORS for the local-first use case.
 //

@@ -501,6 +501,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		BotCallback:         botCallback,
 		WSHub:               hub,
 		CookieName:          cfg.Auth.CookieName,
+		DBPath:              cfg.ResolveDBPath("."),
 	})
 
 	// HTTP server with graceful shutdown.

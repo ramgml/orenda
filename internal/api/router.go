@@ -111,6 +111,10 @@ type Dependencies struct {
 	WSHub               ws.Hub
 	CookieName          string
 	Capabilities        Capabilities
+	// Phase 24: absolute path to the SQLite file so /api/v1/stats
+	// can report its size. Optional — left empty in tests that
+	// don't run a real DB.
+	DBPath string
 }
 
 // SyncOpsStore is the small surface the sync endpoint needs for
@@ -166,6 +170,12 @@ func NewRouter(deps Dependencies) http.Handler {
 	// Liveness probe — no DB ping in Phase 0 to keep dependencies minimal.
 	// Phase 1+ will add a /readyz that pings the database.
 	r.Get("/healthz", healthzHandler)
+
+	// Phase 24: minimal observability. /api/v1/stats returns a
+	// counter snapshot (no auth — the only sensitive bit is the DB
+	// path, which is harmless). Health checks and external monitors
+	// can hit it without a session.
+	r.Get("/api/v1/stats", getStatsHandler(deps.WSHub, deps.DBPath))
 
 	// API surface (v1).
 	r.Route("/api/v1", func(r chi.Router) {

@@ -155,6 +155,25 @@ func extractUserID(body any) (string, bool) {
 	return s, ok
 }
 
+// SubscriberCount returns the total number of active subscribers
+// across every topic. Used by /api/v1/stats (Phase 24) to surface
+// the live connection count.
+//
+// Cheap O(n) over the topic map; the hub holds tens to low hundreds
+// of subscribers in the single-owner use case.
+func (h *channelHub) SubscriberCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.closed {
+		return 0
+	}
+	n := 0
+	for _, entries := range h.subs {
+		n += len(entries)
+	}
+	return n
+}
+
 // Close drains all subscribers. Idempotent.
 func (h *channelHub) Close() {
 	h.mu.Lock()
