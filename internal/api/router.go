@@ -333,6 +333,10 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Get("/count", reviewQueueCountHandler(deps))
 			})
 
+			// Phase 20: Today screen — single round-trip with overdue,
+			// due-today, scheduled-today, awaiting count, active timer.
+			r.Get("/today", getTodayHandler(deps))
+
 			r.Get("/reports/time", reportTimeHandler(deps))
 
 			// Phase 5: wiki + FTS5 search.
