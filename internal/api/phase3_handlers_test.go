@@ -60,6 +60,10 @@ func (a attachmentTestAdapter) ListByTarget(ctx context.Context, t attachment.Ta
 	return a.inner.ListByTarget(ctx, t, targetID)
 }
 
+func (a attachmentTestAdapter) ListByProject(ctx context.Context, projectID string) ([]*attachment.ProjectAttachment, error) {
+	return a.inner.ListByProject(ctx, projectID)
+}
+
 func (a attachmentTestAdapter) Delete(ctx context.Context, id string) error {
 	return a.inner.Delete(ctx, id)
 }

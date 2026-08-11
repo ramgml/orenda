@@ -119,7 +119,14 @@ export function ProjectAttachmentsTab(): JSX.Element {
         <ul className="divide-y divide-slate-200 dark:divide-slate-800 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
           {(items ?? []).map((a) => (
             <li key={a.id} className="px-3 py-2 flex items-center gap-3 text-sm">
-              <span className="font-medium truncate flex-1">{a.filename}</span>
+              <span className="font-medium truncate flex-1">
+                {a.filename}
+                {a.target_type === 'task' && a.task_title && (
+                  <span className="ml-2 text-xs text-slate-500 dark:text-slate-400 font-normal">
+                    · from “{a.task_title}”
+                  </span>
+                )}
+              </span>
               <span className="text-xs text-slate-400 font-mono">{a.mime}</span>
               <span className="text-xs text-slate-400">{formatBytes(a.size)}</span>
               <a

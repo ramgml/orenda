@@ -36,6 +36,7 @@ type Repository interface {
 	Create(ctx context.Context, a *attachment.Attachment) error
 	GetByID(ctx context.Context, id string) (*attachment.Attachment, error)
 	ListByTarget(ctx context.Context, targetType attachment.TargetType, targetID string) ([]*attachment.Attachment, error)
+	ListByProject(ctx context.Context, projectID string) ([]*attachment.ProjectAttachment, error)
 	FindBySHA256(ctx context.Context, sha string) (*attachment.Attachment, error)
 	Delete(ctx context.Context, id string) error
 }
@@ -231,6 +232,14 @@ func (s *Service) Open(ctx context.Context, id string) (*attachment.Attachment, 
 // ListByTarget returns attachments for a target.
 func (s *Service) ListByTarget(ctx context.Context, t attachment.TargetType, targetID string) ([]*attachment.Attachment, error) {
 	return s.Repo.ListByTarget(ctx, t, targetID)
+}
+
+// ListByProject returns every attachment that belongs to a project —
+// directly attached rows plus every row attached to a task of the
+// project — newest first. Task attachments are annotated with the
+// task's title.
+func (s *Service) ListByProject(ctx context.Context, projectID string) ([]*attachment.ProjectAttachment, error) {
+	return s.Repo.ListByProject(ctx, projectID)
 }
 
 // Delete removes the attachment row + file from disk.

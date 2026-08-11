@@ -48,6 +48,9 @@ type AttachmentService interface {
 	) (*AttachmentResult, error)
 	Get(ctx context.Context, id string) (*attachment.Attachment, error)
 	ListByTarget(ctx context.Context, t attachment.TargetType, targetID string) ([]*attachment.Attachment, error)
+	// ListByProject returns every attachment in the project (project +
+	// task attachments) with the task title annotated on each row.
+	ListByProject(ctx context.Context, projectID string) ([]*attachment.ProjectAttachment, error)
 	Delete(ctx context.Context, id string) error
 	// Open returns the row and a ready-to-stream file handle. The
 	// caller closes the file. Used by the download endpoint.

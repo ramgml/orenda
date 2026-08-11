@@ -194,6 +194,10 @@ func (a attachmentAdapter) ListByTarget(ctx context.Context, t attachmentdomain.
 	return a.inner.ListByTarget(ctx, t, targetID)
 }
 
+func (a attachmentAdapter) ListByProject(ctx context.Context, projectID string) ([]*attachmentdomain.ProjectAttachment, error) {
+	return a.inner.ListByProject(ctx, projectID)
+}
+
 func (a attachmentAdapter) Delete(ctx context.Context, id string) error {
 	return a.inner.Delete(ctx, id)
 }

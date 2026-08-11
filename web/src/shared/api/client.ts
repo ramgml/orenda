@@ -782,6 +782,9 @@ export interface TaskAttachment {
   uploaded_by_id: string
   created_at: string
   sha256?: string
+  /** Only populated by GET /projects/{id}/attachments — title of the
+   * task this attachment belongs to (empty for project-level rows). */
+  task_title?: string
 }
 
 export interface Checklist {

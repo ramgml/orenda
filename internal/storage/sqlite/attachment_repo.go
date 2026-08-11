@@ -70,6 +70,50 @@ func (r *attachmentRepo) ListByTarget(ctx context.Context, targetType attachment
 	return out, rows.Err()
 }
 
+// ListByProject returns every attachment that belongs to a project —
+// both those attached directly to the project and those attached to
+// any of its tasks — newest first. Task attachments are annotated
+// with the task's title so the project attachments tab can show a
+// useful label.
+func (r *attachmentRepo) ListByProject(ctx context.Context, projectID string) ([]*attachment.ProjectAttachment, error) {
+	const q = `
+		SELECT a.id, a.target_type, a.target_id, a.filename, a.mime, a.size, a.path, a.sha256,
+		       a.uploaded_by_type, a.uploaded_by_id, a.created_at,
+		       COALESCE(t.title, '')
+		FROM attachments a
+		LEFT JOIN tasks t
+		  ON a.target_type = 'task' AND a.target_id = t.id
+		WHERE (a.target_type = 'project' AND a.target_id = ?)
+		   OR (a.target_type = 'task' AND t.project_id = ?)
+		ORDER BY a.created_at DESC
+	`
+	rows, err := r.db.QueryContext(ctx, q, projectID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("attachment.ListByProject: %w", err)
+	}
+	defer rows.Close()
+	out := make([]*attachment.ProjectAttachment, 0)
+	for rows.Next() {
+		var (
+			pa    attachment.ProjectAttachment
+			tType string
+			uType string
+			cAt   string
+		)
+		if err := rows.Scan(
+			&pa.ID, &tType, &pa.TargetID, &pa.Filename, &pa.Mime, &pa.Size, &pa.Path, &pa.SHA256,
+			&uType, &pa.UploadedByID, &cAt, &pa.TaskTitle,
+		); err != nil {
+			return nil, fmt.Errorf("attachment.ListByProject: scan: %w", err)
+		}
+		pa.TargetType = attachment.TargetType(tType)
+		pa.UploadedByType = attachment.UploaderType(uType)
+		pa.CreatedAt = parseTime(cAt)
+		out = append(out, &pa)
+	}
+	return out, rows.Err()
+}
+
 func (r *attachmentRepo) FindBySHA256(ctx context.Context, sha string) (*attachment.Attachment, error) {
 	const q = attachmentSelectColumns + " WHERE sha256 = ? ORDER BY created_at DESC LIMIT 1"
 	return scanAttachment(r.db.QueryRowContext(ctx, q, sha))

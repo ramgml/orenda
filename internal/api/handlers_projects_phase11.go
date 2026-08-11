@@ -46,9 +46,15 @@ func listProjectActivityHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-// listProjectAttachmentsHandler returns all attachments attached
-// directly to a project (not to its tasks). The handler reuses the
-// AttachmentService with the polymorphic target_type="project".
+// listProjectAttachmentsHandler returns every attachment that belongs
+// to a project: rows attached directly to the project AND rows
+// attached to any of its tasks. Each row carries its target_type so
+// the UI can label "From task Foo" vs "Project attachment", and
+// task attachments carry the task's title via task_title.
+//
+// This is the single feed the project attachments tab reads — it
+// replaces the earlier "project-only" listing so users can find any
+// file uploaded against anything in the project from one place.
 func listProjectAttachmentsHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Attachments == nil {
@@ -56,7 +62,7 @@ func listProjectAttachmentsHandler(deps Dependencies) http.HandlerFunc {
 			return
 		}
 		projectID := chi.URLParam(r, "id")
-		got, err := deps.Attachments.ListByTarget(r.Context(), attachment.TargetProject, projectID)
+		got, err := deps.Attachments.ListByProject(r.Context(), projectID)
 		if err != nil {
 			writeError(w, err)
 			return
