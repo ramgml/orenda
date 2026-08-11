@@ -7,6 +7,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/ramgml/orenda/internal/api/ws"
+	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/service/task"
 )
 
@@ -80,6 +82,79 @@ type columnInput struct {
 	Position float64 `json:"position"`
 	WIPLimit *int    `json:"wip_limit"`
 	Color    string  `json:"color"`
+}
+
+// createColumnInput is the body of POST /api/v1/projects/{id}/columns.
+//
+// Name is required (empty → 400). WIPLimit and Color are optional. The
+// board id is looked up from the project, so the caller never sends it.
+type createColumnInput struct {
+	Name     string `json:"name"`
+	Color    string `json:"color"`
+	WIPLimit *int   `json:"wip_limit"`
+}
+
+// createColumnHandler appends a new column to the project's (single)
+// board. Phase 12 made columns user-managed: previously the only way to
+// add one was to insert it directly into the SQL. Position is chosen by
+// the repository (max+1024) so the new column always lands at the end.
+//
+// 400 — empty name (or unparsable body)
+// 404 — project doesn't exist (no board either)
+// 422 — wip_limit would already be violated by existing tasks (rare on
+//
+//	create, but possible if the client supplied a small limit and
+//	the next-start position already holds tasks — kept consistent
+//	with patchColumnHandler's policy)
+//
+// 201 — the newly created column, with computed position
+func createColumnHandler(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := chi.URLParam(r, "id")
+		if projectID == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_project_id"})
+			return
+		}
+		var in createColumnInput
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		if in.Name == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name_required"})
+			return
+		}
+		if in.WIPLimit != nil && *in.WIPLimit < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "wip_limit_negative"})
+			return
+		}
+
+		col := &project.Column{
+			Name:     in.Name,
+			Color:    in.Color,
+			WIPLimit: in.WIPLimit,
+		}
+		created, err := deps.Projects.CreateColumn(r.Context(), projectID, col)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+
+		// Push to the WS topic the kanban UI already subscribes to ("tasks").
+		// Subscribers refetch on every event, which is cheap and consistent
+		// with how task.moved / task.created propagate.
+		if deps.WSHub != nil {
+			deps.WSHub.Publish(r.Context(), ws.Event{
+				Topic: "tasks",
+				Body: map[string]any{
+					"type":       "column.created",
+					"project_id": projectID,
+					"column":     created,
+				},
+			})
+		}
+		writeJSON(w, http.StatusCreated, created)
+	}
 }
 
 // patchColumnHandler updates mutable column fields.

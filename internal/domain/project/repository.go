@@ -33,6 +33,12 @@ type Repository interface {
 	// GetColumn fetches a single column by id, or ErrNotFound.
 	GetColumn(ctx context.Context, id string) (*Column, error)
 
+	// CreateColumn appends c to the (single) board of the given project.
+	// The repository computes a position = max(position)+1024 so callers
+	// don't need to know about the existing ordering. Returns
+	// ErrNotFound when the project (or its board) doesn't exist.
+	CreateColumn(ctx context.Context, projectID string, c *Column) (*Column, error)
+
 	// UpdateColumn persists mutable fields (name, position, wip_limit, color).
 	// Returns ErrNotFound when no row matches.
 	UpdateColumn(ctx context.Context, c *Column) error

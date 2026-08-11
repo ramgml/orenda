@@ -204,6 +204,9 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Patch("/", patchProjectHandler(deps))
 					r.Delete("/", deleteProjectHandler(deps))
 					r.Get("/board", getProjectBoardHandler(deps))
+					// Phase 12: user-managed columns (create + reorder +
+					// rename). Updates use PATCH /columns/:id below.
+					r.Post("/columns", createColumnHandler(deps))
 					r.Get("/tasks", listProjectTasksHandler(deps))
 					r.Post("/tasks", createTaskHandler(deps))
 					// Phase 11: project page tabs.

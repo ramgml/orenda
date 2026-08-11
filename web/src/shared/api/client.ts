@@ -218,6 +218,19 @@ class ApiClient {
     return this.http.patch<Column>(`/api/v1/columns/${columnId}`, input).then((r) => r.data)
   }
 
+  /** Append a new column to the project's board (Phase 12).
+   *  name is required; color/wip_limit are optional. The server picks
+   *  the position (max+1024, end of the board) and broadcasts a WS
+   *  event so other tabs refresh. */
+  createColumn(
+    projectId: string,
+    input: { name: string; color?: string; wip_limit?: number | null },
+  ): Promise<Column> {
+    return this.http
+      .post<Column>(`/api/v1/projects/${projectId}/columns`, input)
+      .then((r) => r.data)
+  }
+
   listProjectTasks(projectId: string, params?: { status?: string; column_id?: string }): Promise<Task[]> {
     return this.http
       .get<{ tasks: Task[] }>(`/api/v1/projects/${projectId}/tasks`, { params })

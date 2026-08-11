@@ -20,6 +20,7 @@ export function ColumnView({
   tasks,
   onCreate,
   onColumnUpdated,
+  dragHandleProps,
 }: {
   columnId: string
   name: string
@@ -27,6 +28,15 @@ export function ColumnView({
   tasks: Task[]
   onCreate: (title: string) => Promise<void>
   onColumnUpdated?: (col: Column) => void
+  /**
+   * Optional dnd-kit props for the column-as-a-whole drag handle (the
+   * header area). When present, the header becomes draggable so the
+   * user can reorder columns. Phase 12 wires this in via
+   * KanbanBoard's horizontal SortableContext; default is undefined so
+   // this component stays usable standalone (tests, future board
+   // layouts that don't support column reordering).
+   */
+  dragHandleProps?: Record<string, unknown>
 }): JSX.Element {
   const { setNodeRef, isOver } = useDroppable({ id: columnId })
   const navigate = useNavigate()
@@ -66,7 +76,16 @@ export function ColumnView({
           : 'border-slate-200 dark:border-slate-800'
       }`}
     >
-      <div className="flex items-center justify-between mb-2">
+      <div
+        className="flex items-center justify-between mb-2 cursor-grab active:cursor-grabbing select-none"
+        // Drag the whole column by its header. dnd-kit's useSortable
+        // (wired in KanbanBoard via dragHandleProps) gives us listeners;
+        // spread them on the header so the body remains free for task
+        // drops. Double-click opens the same edit modal as the ⚙ button
+        // — discoverability was the point of Phase 12.4.
+        {...(dragHandleProps ?? {})}
+        onDoubleClick={() => setEditing(true)}
+      >
         <h2 className="font-medium text-sm uppercase tracking-wide text-slate-600 dark:text-slate-300">
           {name}
         </h2>
@@ -74,7 +93,11 @@ export function ColumnView({
           <span className="text-xs text-slate-400">{tasks.length}</span>
           <button
             type="button"
-            onClick={() => setEditing(true)}
+            onClick={(e) => {
+              // Clicks on ⚙ shouldn't start a column drag.
+              e.stopPropagation()
+              setEditing(true)
+            }}
             title="Edit column"
             className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-sm leading-none"
           >

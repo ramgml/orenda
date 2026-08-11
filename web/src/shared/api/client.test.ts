@@ -68,6 +68,14 @@ describe('api client', () => {
     })
   })
 
+  it('createColumn POSTs the project-scoped endpoint and returns the column', async () => {
+    const created = { id: 'col-2', board_id: 'b', name: 'QA', position: 6144, wip_limit: null }
+    stubHttp.post.mockResolvedValue({ data: created })
+    const out = await api.createColumn('p-1', { name: 'QA' })
+    expect(out).toBe(created)
+    expect(stubHttp.post).toHaveBeenCalledWith('/api/v1/projects/p-1/columns', { name: 'QA' })
+  })
+
   it('deletePage returns void and hits the right URL', async () => {
     stubHttp.delete.mockResolvedValue({ data: undefined })
     await api.deletePage('to-delete')
