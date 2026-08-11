@@ -47,11 +47,24 @@ All JSON. Errors are `{"error": "<code>"}` with a 4xx/5xx status.
 | POST | `/api/v1/tasks/{id}/release` | |
 | POST | `/api/v1/tasks/{id}/submit` | `{agent_id, note?}` → status=review, awaiting=human |
 | POST | `/api/v1/tasks/{id}/review` | `{decision: approve\|reject, comment?}` |
-| GET/POST | `/api/v1/tasks/{id}/subtasks` | |
+| GET | `/api/v1/tasks/{id}/children` | list direct child tasks + `{progress: {total, done}}` (Phase 14) |
 | GET/POST | `/api/v1/tasks/{id}/comments` | body: `{body_md}` — `@user:<id>`/`@agent:<id>` mentions |
 | POST | `/api/v1/tasks/{id}/attachments` | multipart `file` field |
 | GET | `/api/v1/tasks/{id}/activity` | audit log |
-| GET | `/api/v1/tasks/{id}/context` | task + comments + activity + subtasks |
+| GET | `/api/v1/tasks/{id}/context` | task + comments + activity + children + checklists |
+
+### Child tasks (Phase 14)
+
+Subtasks were promoted to first-class tasks in Phase 14. To create a child, POST `/api/v1/projects/{projectID}/tasks` with `parent_task_id` set:
+
+```
+POST /api/v1/projects/{pid}/tasks
+{ "title": "first", "parent_task_id": "<parent-id>" }
+```
+
+Listing, status changes, and deletion all use the standard task endpoints. `GET /api/v1/tasks/{id}/children` returns `{tasks: [...], progress: {total, done}}` for the parent task's progress bar.
+
+Subtask-related endpoints (`/api/v1/tasks/{id}/subtasks[/{subId}]`) and the legacy `task.subtask_added` activity events are gone.
 
 ## Agents (admin, cookie auth)
 

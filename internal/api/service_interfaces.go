@@ -78,9 +78,16 @@ type TaskActivityService interface {
 //
 // Defined here (rather than in internal/domain) so the API layer stays
 // the single source of truth for the wire shape.
+//
+// Phase 14: Subtasks became full child tasks via parent_task_id, so
+// the snapshot now carries `Children`. Checklists were previously
+// invisible to agents; we expose both lists and items so an agent
+// resuming work sees the same structure the human does.
 type TaskContext struct {
-	Task     *task.Task           `json:"task"`
-	Comments []*comment.Comment   `json:"comments"`
-	Activity []*activity.Activity `json:"activity"`
-	Subtasks []task.Subtask       `json:"subtasks"`
+	Task           *task.Task                         `json:"task"`
+	Comments       []*comment.Comment                 `json:"comments"`
+	Activity       []*activity.Activity               `json:"activity"`
+	Children       []*task.Task                       `json:"children"`
+	Checklists     []task.ChecklistRow                `json:"checklists"`
+	ChecklistItems map[string][]task.ChecklistItemRow `json:"checklist_items"`
 }

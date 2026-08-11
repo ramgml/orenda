@@ -8,19 +8,27 @@ import (
 // Filter narrows ListByProject results.
 //
 // Zero value lists everything in the project.
+//
+// ParentTaskID is a tri-state pointer: nil = no filter, &"" = top-level
+// tasks only (parent_task_id IS NULL), &"abc" = direct children of
+// task "abc". Used by the kanban (default = top-level) and by
+// GET /tasks/:id/children (ParentTaskID=&parentID).
 type Filter struct {
 	ProjectID    string
 	ColumnID     string
 	Status       Status
 	AssigneeType AssigneeType
 	AssigneeID   string
+	ParentTaskID *string
 }
 
-// Repository persists and retrieves Tasks, Subtasks, Checklists and Tags.
+// Repository persists and retrieves Tasks, Checklists and Tags.
 //
 // Phase 1 implements the minimum CRUD; Phase 2 adds Move() with fractional
 // positioning; Phase 3 adds atomic Claim/Release/Submit/Review; Phase 11
-// folds the legacy events table into tasks (calendar fields below).
+// folds the legacy events table into tasks (calendar fields below);
+// Phase 14 promotes the legacy "subtasks" entity to first-class child
+// tasks via parent_task_id.
 type Repository interface {
 	// Create inserts t. Returns it with CreatedAt/UpdatedAt populated.
 	Create(ctx context.Context, t *Task) error
@@ -31,6 +39,19 @@ type Repository interface {
 	// ListByProject returns tasks matching f, ordered by column position.
 	ListByProject(ctx context.Context, f Filter) ([]*Task, error)
 
+	// ListChildren returns every direct child task of parentID (tasks
+	// where parent_task_id = parentID), ordered by position then
+	// creation time. Returns an empty slice when the parent has no
+	// children; returns ErrNotFound when the parent itself doesn't
+	// exist (so callers can distinguish "no children" from
+	// "bad parent").
+	ListChildren(ctx context.Context, parentID string) ([]*Task, error)
+
+	// ChildProgress returns the total child count and the count of
+	// children whose status is `done`. Used to render the parent
+	// task's progress bar.
+	ChildProgress(ctx context.Context, parentID string) (total, done int, err error)
+
 	// ListInRange returns every timed task (StartAt/EndAt set) whose
 	// interval overlaps [from, to]. Used by the calendar view. An empty
 	// projectID means "every project the caller has access to".
@@ -39,23 +60,9 @@ type Repository interface {
 	// Update saves changes to an existing task.
 	Update(ctx context.Context, t *Task) error
 
-	// Delete removes the task (cascading subtasks/checklists/tags).
+	// Delete removes the task. ON DELETE CASCADE on parent_task_id
+	// makes sure children disappear with the parent.
 	Delete(ctx context.Context, id string) error
-
-	// AddSubtask appends a subtask to the task.
-	AddSubtask(ctx context.Context, s *Subtask) error
-
-	// ListSubtasks returns subtasks for the task ordered by position.
-	ListSubtasks(ctx context.Context, taskID string) ([]*Subtask, error)
-
-	// UpdateSubtask persists changes to a subtask.
-	UpdateSubtask(ctx context.Context, s *Subtask) error
-
-	// DeleteSubtask removes a subtask.
-	DeleteSubtask(ctx context.Context, id string) error
-
-	// GetSubtask fetches a single subtask by id, or returns ErrNotFound.
-	GetSubtask(ctx context.Context, id string) (*Subtask, error)
 
 	// CountByColumn returns how many tasks currently live in the given
 	// column (status != 'done' if you only want active ones — Phase 2.8

@@ -35,6 +35,12 @@ func (f *fakeRepo) GetByID(_ context.Context, id string) (*task.Task, error) {
 func (f *fakeRepo) ListByProject(context.Context, task.Filter) ([]*task.Task, error) {
 	return nil, nil
 }
+func (f *fakeRepo) ListChildren(context.Context, string) ([]*task.Task, error) {
+	return nil, nil
+}
+func (f *fakeRepo) ChildProgress(context.Context, string) (int, int, error) {
+	return 0, 0, nil
+}
 func (f *fakeRepo) ListInRange(_ context.Context, from, to time.Time, _ string) ([]*task.Task, error) {
 	if f.err != nil {
 		return nil, f.err
@@ -53,14 +59,8 @@ func (f *fakeRepo) ListInRange(_ context.Context, from, to time.Time, _ string) 
 	}
 	return out, nil
 }
-func (f *fakeRepo) Update(context.Context, *task.Task) error        { return nil }
-func (f *fakeRepo) Delete(context.Context, string) error            { return nil }
-func (f *fakeRepo) AddSubtask(context.Context, *task.Subtask) error { return nil }
-func (f *fakeRepo) ListSubtasks(context.Context, string) ([]*task.Subtask, error) {
-	return nil, nil
-}
-func (f *fakeRepo) UpdateSubtask(context.Context, *task.Subtask) error    { return nil }
-func (f *fakeRepo) DeleteSubtask(context.Context, string) error           { return nil }
+func (f *fakeRepo) Update(context.Context, *task.Task) error              { return nil }
+func (f *fakeRepo) Delete(context.Context, string) error                  { return nil }
 func (f *fakeRepo) CountByColumn(context.Context, string) (int, error)    { return 0, nil }
 func (f *fakeRepo) FirstColumnID(context.Context, string) (string, error) { return "", nil }
 
@@ -83,9 +83,6 @@ func (f *fakeRepo) UpdateChecklistItem(context.Context, string, *bool, *string) 
 	return nil
 }
 func (f *fakeRepo) DeleteChecklistItem(context.Context, string) error { return nil }
-func (f *fakeRepo) GetSubtask(context.Context, string) (*task.Subtask, error) {
-	return nil, task.ErrNotFound
-}
 
 // withStart helper — Set StartAt + EndAt on a task for the fake.
 func withStart(t *task.Task, start time.Time) *task.Task {

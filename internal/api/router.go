@@ -224,12 +224,10 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Post("/release", releaseTaskHandler(deps))
 					r.Post("/submit", submitTaskHandler(deps))
 					r.Post("/review", reviewTaskHandler(deps))
-					r.Get("/subtasks", listSubtasksHandler(deps))
-					r.Post("/subtasks", addSubtaskHandler(deps))
-					r.Route("/subtasks/{subId}", func(r chi.Router) {
-						r.Patch("/", updateSubtaskHandler(deps))
-						r.Delete("/", deleteSubtaskHandler(deps))
-					})
+					// Phase 14: subtasks → child tasks via parent_task_id.
+					// Create a child through POST /api/v1/projects/:pid/tasks
+					// with `parent_task_id` set; list with GET /children.
+					r.Get("/children", listChildTasksHandler(deps))
 					r.Get("/checklists", listChecklistsHandler(deps))
 					r.Post("/checklists", addChecklistHandler(deps))
 					r.Route("/checklists/{clId}", func(r chi.Router) {

@@ -35,6 +35,16 @@ const (
 	ActionAttachmentAdd Action = "attachment_added"
 	ActionStatusChanged Action = "status_changed"
 	ActionAssigned      Action = "assigned"
+
+	// Phase 14 additions for child tasks + checklists. The names
+	// keep the task.* prefix in the public activity feed (see
+	// TaskViewBody's verb map) and make grep'ing activity rows
+	// straightforward.
+	ActionChildAdded         Action = "child_added"
+	ActionChildStatusChanged Action = "child_status_changed"
+	ActionChecklistAdded     Action = "checklist_added"
+	ActionChecklistItemAdded Action = "checklist_item_added"
+	ActionChecklistItemDone  Action = "checklist_item_done"
 )
 
 // Sentinel errors.

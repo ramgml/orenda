@@ -127,7 +127,7 @@ func TestTaskRepo_Delete(t *testing.T) {
 	assert.ErrorIs(t, err, task.ErrNotFound)
 }
 
-func TestTaskRepo_Subtasks(t *testing.T) {
+func TestTaskRepo_Children(t *testing.T) {
 	db := setupUserDB(t)
 	p, col := setupTaskProject(t, db)
 	repo := NewTaskRepository(db)
@@ -135,25 +135,79 @@ func TestTaskRepo_Subtasks(t *testing.T) {
 	parent := &task.Task{ProjectID: p.ID, ColumnID: col.ID, Title: "parent"}
 	require.NoError(t, repo.Create(context.Background(), parent))
 
-	sub1 := &task.Subtask{TaskID: parent.ID, Title: "first", Position: 0}
-	sub2 := &task.Subtask{TaskID: parent.ID, Title: "second", Position: 1}
-	require.NoError(t, repo.AddSubtask(context.Background(), sub1))
-	require.NoError(t, repo.AddSubtask(context.Background(), sub2))
-	assert.NotEmpty(t, sub1.ID)
+	// Three children, two of which are done. We expect the progress
+	// helper to reflect that and ListChildren to return all three.
+	child1 := &task.Task{ProjectID: p.ID, ParentTaskID: parent.ID, Title: "first", Position: 1, Status: task.StatusDone}
+	child2 := &task.Task{ProjectID: p.ID, ParentTaskID: parent.ID, Title: "second", Position: 2, Status: task.StatusDone}
+	child3 := &task.Task{ProjectID: p.ID, ParentTaskID: parent.ID, Title: "third", Position: 3, Status: task.StatusTodo}
+	for _, c := range []*task.Task{child1, child2, child3} {
+		require.NoError(t, repo.Create(context.Background(), c))
+	}
 
-	subs, err := repo.ListSubtasks(context.Background(), parent.ID)
+	children, err := repo.ListChildren(context.Background(), parent.ID)
 	require.NoError(t, err)
-	assert.Len(t, subs, 2)
-	assert.Equal(t, "first", subs[0].Title)
+	assert.Len(t, children, 3)
+	assert.Equal(t, "first", children[0].Title)
 
-	sub1.Done = true
-	require.NoError(t, repo.UpdateSubtask(context.Background(), sub1))
-	require.NoError(t, repo.DeleteSubtask(context.Background(), sub2.ID))
-
-	subs, err = repo.ListSubtasks(context.Background(), parent.ID)
+	total, done, err := repo.ChildProgress(context.Background(), parent.ID)
 	require.NoError(t, err)
-	assert.Len(t, subs, 1)
-	assert.True(t, subs[0].Done)
+	assert.Equal(t, 3, total)
+	assert.Equal(t, 2, done)
+
+	// Deleting the parent cascades to children (parent_task_id FK).
+	// After Delete the parent row is gone, so ListChildren returns
+	// ErrNotFound (we deliberately use ErrNotFound here, not an empty
+	// slice, so callers can distinguish "no children" from "bad id").
+	require.NoError(t, repo.Delete(context.Background(), parent.ID))
+	_, err = repo.ListChildren(context.Background(), parent.ID)
+	assert.ErrorIs(t, err, task.ErrNotFound)
+	// But the children themselves are gone too.
+	total, done, err = repo.ChildProgress(context.Background(), parent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 0, total)
+	assert.Equal(t, 0, done)
+}
+
+func TestTaskRepo_Children_ParentNotFound(t *testing.T) {
+	db := setupUserDB(t)
+	repo := NewTaskRepository(db)
+	_, err := repo.ListChildren(context.Background(), "no-such-parent")
+	assert.ErrorIs(t, err, task.ErrNotFound)
+}
+
+func TestTaskRepo_ListByProject_FilterTopLevel(t *testing.T) {
+	db := setupUserDB(t)
+	p, col := setupTaskProject(t, db)
+	repo := NewTaskRepository(db)
+
+	top := &task.Task{ProjectID: p.ID, ColumnID: col.ID, Title: "top-level"}
+	require.NoError(t, repo.Create(context.Background(), top))
+	child := &task.Task{ProjectID: p.ID, ColumnID: col.ID, ParentTaskID: top.ID, Title: "nested"}
+	require.NoError(t, repo.Create(context.Background(), child))
+
+	// No filter: both rows are returned.
+	all, err := repo.ListByProject(context.Background(), task.Filter{ProjectID: p.ID})
+	require.NoError(t, err)
+	assert.Len(t, all, 2)
+
+	// Empty pointer (top-level only): child is excluded.
+	empty := ""
+	only, err := repo.ListByProject(context.Background(), task.Filter{
+		ProjectID:    p.ID,
+		ParentTaskID: &empty,
+	})
+	require.NoError(t, err)
+	require.Len(t, only, 1)
+	assert.Equal(t, top.ID, only[0].ID)
+
+	// Specific parent id: only the nested child.
+	onlyChild, err := repo.ListByProject(context.Background(), task.Filter{
+		ProjectID:    p.ID,
+		ParentTaskID: &top.ID,
+	})
+	require.NoError(t, err)
+	require.Len(t, onlyChild, 1)
+	assert.Equal(t, child.ID, onlyChild[0].ID)
 }
 
 func TestTaskRepo_Create_InvalidStatus(t *testing.T) {

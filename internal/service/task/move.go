@@ -74,7 +74,7 @@ type Service struct {
 // MirrorWriter is the seam for the Phase 7 markdown mirror. The concrete
 // implementation is internal/mirror.Service; nil means "no mirror".
 type MirrorWriter interface {
-	WriteTask(t *task.Task, subtasks []*task.Subtask, comments []*commentdomain.Comment) (string, error)
+	WriteTask(t *task.Task, checklists []task.Checklist, itemsByList map[string][]task.ChecklistItem, comments []*commentdomain.Comment) (string, error)
 	DeleteTask(id string) error
 }
 
@@ -411,8 +411,30 @@ func (s *Service) MirrorSave(ctx context.Context, tr *task.Task) {
 	if s.Mirror == nil || tr == nil {
 		return
 	}
-	subs, _ := s.Tasks.ListSubtasks(ctx, tr.ID)
-	_, _ = s.Mirror.WriteTask(tr, subs, nil)
+	rows, _ := s.Tasks.ListChecklists(ctx, tr.ID)
+	cls := make([]task.Checklist, 0, len(rows))
+	itemsByList := map[string][]task.ChecklistItem{}
+	for _, r := range rows {
+		cls = append(cls, task.Checklist{
+			ID:       r.ID,
+			TaskID:   r.TaskID,
+			Title:    r.Title,
+			Position: r.Position,
+		})
+		its, _ := s.Tasks.ListChecklistItems(ctx, r.ID)
+		conv := make([]task.ChecklistItem, 0, len(its))
+		for _, it := range its {
+			conv = append(conv, task.ChecklistItem{
+				ID:          it.ID,
+				ChecklistID: it.ChecklistID,
+				Title:       it.Title,
+				Done:        it.Done,
+				Position:    it.Position,
+			})
+		}
+		itemsByList[r.ID] = conv
+	}
+	_, _ = s.Mirror.WriteTask(tr, cls, itemsByList, nil)
 }
 
 // mirrorSave is the internal alias kept for service-internal callers.
@@ -427,6 +449,18 @@ func (s *Service) MirrorDelete(id string) {
 		return
 	}
 	_ = s.Mirror.DeleteTask(id)
+}
+
+// RecordActivity writes a single task_activity row. Phase 14 entry
+// point so handlers can emit child-task / checklist events through
+// the service without needing the activity repo injected directly.
+// Best-effort: errors are swallowed so audit glitches never block
+// the user-facing write.
+func (s *Service) RecordActivity(ctx context.Context, taskID, actorID string, action activity.Action, payload string) {
+	if s.Recorder == nil || taskID == "" {
+		return
+	}
+	_ = s.Recorder.Record(ctx, taskID, activity.ActorUser, actorID, action, payload)
 }
 
 // ----------------------------------------------------------------------------

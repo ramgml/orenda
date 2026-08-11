@@ -35,9 +35,14 @@ func New(dir string) *Service {
 	return &Service{Dir: dir}
 }
 
-// Task renders a task with its subtasks and comments (if any are
-// provided) as an Obsidian-style markdown file.
-func (s *Service) WriteTask(t *task.Task, subtasks []*task.Subtask, comments []*comment.Comment) (string, error) {
+// WriteTask renders a task as an Obsidian-style markdown file.
+//
+// Phase 14 swap: child tasks are first-class tasks and get their own
+// mirror files (the caller is responsible for invoking WriteTask for
+// each one). This entry point therefore only embeds the task's own
+// checklists — local quick-checkbox primitives that live and die with
+// the parent and have no representation in git elsewhere.
+func (s *Service) WriteTask(t *task.Task, checklists []task.Checklist, itemsByList map[string][]task.ChecklistItem, comments []*comment.Comment) (string, error) {
 	if t == nil {
 		return "", fmt.Errorf("mirror: task is nil")
 	}
@@ -48,18 +53,14 @@ func (s *Service) WriteTask(t *task.Task, subtasks []*task.Subtask, comments []*
 		"priority": string(t.Priority),
 		"updated":  formatRFC3339(t.UpdatedAt),
 	})
-	if len(subtasks) > 0 {
-		tags := make([]string, 0, len(subtasks))
-		for _, st := range subtasks {
-			tags = append(tags, st.Title)
-		}
+	if t.ParentTaskID != "" {
 		fm = frontmatter(map[string]any{
-			"id":       t.ID,
-			"type":     "task",
-			"status":   string(t.Status),
-			"priority": string(t.Priority),
-			"subtasks": tags,
-			"updated":  formatRFC3339(t.UpdatedAt),
+			"id":             t.ID,
+			"type":           "task",
+			"status":         string(t.Status),
+			"priority":       string(t.Priority),
+			"parent_task_id": t.ParentTaskID,
+			"updated":        formatRFC3339(t.UpdatedAt),
 		})
 	}
 
@@ -82,16 +83,24 @@ func (s *Service) WriteTask(t *task.Task, subtasks []*task.Subtask, comments []*
 		b.WriteString(t.AgentNotes)
 		b.WriteString("\n\n")
 	}
-	if len(subtasks) > 0 {
-		b.WriteString("## Subtasks\n\n")
-		for _, st := range subtasks {
-			mark := "[ ]"
-			if st.Done {
-				mark = "[x]"
+	if len(checklists) > 0 {
+		b.WriteString("## Checklists\n\n")
+		for _, cl := range checklists {
+			b.WriteString("### " + cl.Title + "\n\n")
+			items := itemsByList[cl.ID]
+			if len(items) == 0 {
+				b.WriteString("_(empty)_\n\n")
+				continue
 			}
-			b.WriteString("- " + mark + " " + st.Title + "\n")
+			for _, it := range items {
+				mark := "[ ]"
+				if it.Done {
+					mark = "[x]"
+				}
+				b.WriteString("- " + mark + " " + it.Title + "\n")
+			}
+			b.WriteString("\n")
 		}
-		b.WriteString("\n")
 	}
 	if len(comments) > 0 {
 		b.WriteString("## Comments\n\n")

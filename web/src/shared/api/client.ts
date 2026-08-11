@@ -242,34 +242,40 @@ class ApiClient {
       .then((r) => r.data)
   }
 
-  // ---- Subtasks ----
+  // ---- Child tasks (Phase 14: subtasks → child tasks) ----
 
-  listSubtasks(taskId: string): Promise<{ subtasks: Subtask[] }> {
-    return this.http
-      .get<{ subtasks: Subtask[] }>(`/api/v1/tasks/${taskId}/subtasks`)
-      .then((r) => r.data)
-  }
-
-  addSubtask(taskId: string, input: { title: string; position?: number }): Promise<Subtask> {
-    return this.http
-      .post<Subtask>(`/api/v1/tasks/${taskId}/subtasks`, input)
-      .then((r) => r.data)
-  }
-
-  updateSubtask(
+  listChildTasks(
     taskId: string,
-    subtaskId: string,
-    input: Partial<{ title: string; done: boolean; position: number }>,
-  ): Promise<Subtask> {
+  ): Promise<{ tasks: Task[]; progress: ChildTaskProgress }> {
     return this.http
-      .patch<Subtask>(`/api/v1/tasks/${taskId}/subtasks/${subtaskId}`, input)
+      .get<{ tasks: Task[]; progress: ChildTaskProgress }>(
+        `/api/v1/tasks/${taskId}/children`,
+      )
       .then((r) => r.data)
   }
 
-  deleteSubtask(taskId: string, subtaskId: string): Promise<void> {
+  createChildTask(
+    projectId: string,
+    input: {
+      title: string
+      parent_task_id: string
+      status?: string
+      priority?: string
+    },
+  ): Promise<Task> {
     return this.http
-      .delete<void>(`/api/v1/tasks/${taskId}/subtasks/${subtaskId}`)
-      .then(() => undefined)
+      .post<Task>(`/api/v1/projects/${projectId}/tasks`, input)
+      .then((r) => r.data)
+  }
+
+  updateChildTaskStatus(id: string, status: string): Promise<Task> {
+    return this.http
+      .patch<Task>(`/api/v1/tasks/${id}`, { status })
+      .then((r) => r.data)
+  }
+
+  deleteChildTask(id: string): Promise<void> {
+    return this.http.delete<void>(`/api/v1/tasks/${id}`).then(() => undefined)
   }
 
   // ---- Attachments ----
@@ -763,12 +769,9 @@ export interface TimeReport {
   total_sec: number
 }
 
-export interface Subtask {
-  id: string
-  task_id: string
-  title: string
-  done: boolean
-  position: number
+export interface ChildTaskProgress {
+  total: number
+  done: number
 }
 
 export interface TaskAttachment {

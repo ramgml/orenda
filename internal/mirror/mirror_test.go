@@ -28,9 +28,14 @@ func TestMirror_WriteTask(t *testing.T) {
 		Priority:    task.PriorityHigh,
 		UpdatedAt:   time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC),
 	}
-	subtasks := []*task.Subtask{
-		{ID: "s1", TaskID: "t-1", Title: "Set up", Done: true},
-		{ID: "s2", TaskID: "t-1", Title: "Run them", Done: false},
+	checklists := []task.Checklist{
+		{ID: "cl-1", TaskID: "t-1", Title: "Pre-flight"},
+	}
+	itemsByList := map[string][]task.ChecklistItem{
+		"cl-1": {
+			{ID: "i-1", ChecklistID: "cl-1", Title: "Set up", Done: true},
+			{ID: "i-2", ChecklistID: "cl-1", Title: "Run them", Done: false},
+		},
 	}
 	comments := []*comment.Comment{
 		{
@@ -39,7 +44,7 @@ func TestMirror_WriteTask(t *testing.T) {
 		},
 	}
 
-	path, err := svc.WriteTask(tr, subtasks, comments)
+	path, err := svc.WriteTask(tr, checklists, itemsByList, comments)
 	require.NoError(t, err)
 	assert.FileExists(t, path)
 
@@ -51,6 +56,8 @@ func TestMirror_WriteTask(t *testing.T) {
 	assert.Contains(t, text, `status: "in_progress"`)
 	assert.Contains(t, text, `# Write tests`)
 	assert.Contains(t, text, "Cover the mirror with tests.")
+	assert.Contains(t, text, "## Checklists")
+	assert.Contains(t, text, "### Pre-flight")
 	assert.Contains(t, text, "- [x] Set up")
 	assert.Contains(t, text, "- [ ] Run them")
 	assert.Contains(t, text, "Looks good.")
@@ -89,7 +96,7 @@ func TestMirror_WriteTask_FilenameIsID(t *testing.T) {
 	svc := mirror.New(dir)
 	path, err := svc.WriteTask(&task.Task{
 		ID: "abc", Title: "x",
-	}, nil, nil)
+	}, nil, nil, nil)
 	require.NoError(t, err)
 	assert.True(t, strings.HasSuffix(path, filepath.Join("tasks", "abc.md")))
 }

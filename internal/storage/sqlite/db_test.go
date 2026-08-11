@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -262,6 +263,92 @@ func TestMigrate_010BackupsAddsIndexes(t *testing.T) {
 	assertIndexExists(t, db, "idx_backup_log_type_created")
 }
 
+func TestMigrate_013SubtasksToChildren(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "orenda.db")
+
+	db, err := Open(context.Background(), dbPath, OpenConfig{
+		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx := context.Background()
+
+	// 1. Apply every migration up to 012, then seed two subtasks that
+	//    reference a real parent task. This simulates a pre-Phase-14 DB.
+	applyUpTo(t, ctx, db, "012_events_to_tasks")
+
+	const projectID = "p-013"
+	const parentID = "task-parent-013"
+	const childA = "task-child-a-013"
+	const childB = "task-child-b-013"
+
+	// Seed owner, project, parent task, and two subtasks (one done).
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO users (id, email, password_hash, display_name) VALUES (?, ?, ?, ?)`,
+		"u-013", "owner@013.local", "x", "Owner")
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO projects (id, name, owner_id) VALUES (?, 'p', 'u-013')`,
+		projectID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO tasks (id, project_id, title) VALUES (?, ?, 'parent')`,
+		parentID, projectID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO subtasks (id, task_id, title, done, position) VALUES
+		    (?, ?, 'first',  0, 0),
+		    (?, ?, 'second', 1, 1)
+	`, childA, parentID, childB, parentID)
+	require.NoError(t, err)
+
+	// 2. Apply the rest of the migrations. 013 will fold subtasks into tasks.
+	require.NoError(t, Migrate(ctx, db, MigrationsFS, "migrations"))
+
+	versions, err := AppliedVersions(ctx, db)
+	require.NoError(t, err)
+	assert.Contains(t, versions, "013_subtasks_to_children")
+
+	// 3. The subtasks table is gone.
+	assertTableNotExists(t, db, "subtasks")
+	assertIndexNotExists(t, db, "idx_subtasks_task")
+
+	// 4. The two rows now live under `tasks` with parent_task_id set.
+	rows, err := db.QueryContext(ctx, `
+		SELECT title, status, parent_task_id, project_id
+		FROM tasks
+		WHERE parent_task_id = ?
+		ORDER BY position
+	`, parentID)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	type child struct {
+		title   string
+		status  string
+		parent  string
+		project string
+	}
+	var got []child
+	for rows.Next() {
+		var c child
+		require.NoError(t, rows.Scan(&c.title, &c.status, &c.parent, &c.project))
+		got = append(got, c)
+	}
+	require.NoError(t, rows.Err())
+	require.Len(t, got, 2)
+	assert.Equal(t, "first", got[0].title)
+	assert.Equal(t, "todo", got[0].status)
+	assert.Equal(t, "second", got[1].title)
+	assert.Equal(t, "done", got[1].status)
+	for _, c := range got {
+		assert.Equal(t, parentID, c.parent)
+		assert.Equal(t, projectID, c.project)
+	}
+}
+
 func TestBuildDSN(t *testing.T) {
 	dsn := buildDSN("/tmp/foo.db", OpenConfig{WALMode: true, BusyTimeoutMs: 5000})
 	assert.Contains(t, dsn, "_pragma=busy_timeout(5000)")
@@ -309,6 +396,60 @@ func assertIndexExists(t *testing.T, db *sql.DB, name string) {
 		`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?`, name).Scan(&n)
 	require.NoError(t, err)
 	assert.Equal(t, 1, n, "index %s should exist", name)
+}
+
+func assertTableNotExists(t *testing.T, db *sql.DB, name string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var n int
+	err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, name).Scan(&n)
+	require.NoError(t, err)
+	assert.Equal(t, 0, n, "table %s should not exist", name)
+}
+
+func assertIndexNotExists(t *testing.T, db *sql.DB, name string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var n int
+	err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?`, name).Scan(&n)
+	require.NoError(t, err)
+	assert.Equal(t, 0, n, "index %s should not exist", name)
+}
+
+// applyUpTo applies every migration whose name sorts <= target and
+// records them in schema_migrations so the next Migrate() call picks
+// up at the next version.
+func applyUpTo(t *testing.T, ctx context.Context, db *sql.DB, target string) {
+	t.Helper()
+	_, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+		    version TEXT PRIMARY KEY,
+		    applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+	`)
+	require.NoError(t, err)
+	entries, err := fs.ReadDir(MigrationsFS, "migrations")
+	require.NoError(t, err)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		name := strings.TrimSuffix(e.Name(), ".sql")
+		if name > target {
+			continue
+		}
+		body, err := MigrationsFS.ReadFile("migrations/" + e.Name())
+		require.NoError(t, err)
+		_, err = db.ExecContext(ctx, string(body))
+		require.NoError(t, err, "migration %s", name)
+		_, err = db.ExecContext(ctx,
+			`INSERT OR IGNORE INTO schema_migrations(version) VALUES (?)`, name)
+		require.NoError(t, err)
+	}
 }
 
 func assertTriggerExists(t *testing.T, db *sql.DB, name string) {

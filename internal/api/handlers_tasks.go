@@ -3,10 +3,12 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/task"
 )
 
@@ -101,6 +103,20 @@ func createTaskHandler(deps Dependencies) http.HandlerFunc {
 		}
 		if deps.TaskService != nil {
 			deps.TaskService.MirrorSave(r.Context(), tr)
+		}
+		// Phase 14: when the new task is a child of an existing parent,
+		// record the creation against the parent's activity log so the
+		// parent task's timeline shows the child being added.
+		if tr.ParentTaskID != "" && deps.TaskService != nil {
+			actorID := ""
+			if id, ok := IdentityFrom(r.Context()); ok && id != nil {
+				actorID = id.UserID
+			}
+			deps.TaskService.RecordActivity(
+				r.Context(), tr.ParentTaskID, actorID,
+				activity.ActionChildAdded,
+				fmt.Sprintf(`{"child_id":%q,"title":%q}`, tr.ID, tr.Title),
+			)
 		}
 		writeJSON(w, http.StatusCreated, tr)
 	}
@@ -217,44 +233,35 @@ func deleteTaskHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-// listSubtasksHandler returns subtasks for a task.
-func listSubtasksHandler(deps Dependencies) http.HandlerFunc {
+// listChildTasksHandler returns the direct children of a parent task
+// together with a {total, done} progress snapshot used by the
+// ChildTasksList UI to draw the progress bar.
+//
+// Phase 14 replacement for listSubtasksHandler: subtasks are now
+// first-class tasks via parent_task_id, so the UI shows them as
+// cards (with status / assignee / click-to-open) rather than flat
+// checkboxes.
+func listChildTasksHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		subs, err := deps.Tasks.ListSubtasks(r.Context(), chi.URLParam(r, "id"))
+		ctx := r.Context()
+		parentID := chi.URLParam(r, "id")
+		children, err := deps.Tasks.ListChildren(ctx, parentID)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"subtasks": subs})
-	}
-}
-
-// addSubtaskHandler appends a subtask to a task.
-func addSubtaskHandler(deps Dependencies) http.HandlerFunc {
-	type subtaskInput struct {
-		Title    string `json:"title"`
-		Position int    `json:"position"`
-	}
-	return func(w http.ResponseWriter, r *http.Request) {
-		var in subtaskInput
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
-			return
-		}
-		if in.Title == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_title"})
-			return
-		}
-		s := &task.Subtask{
-			TaskID:   chi.URLParam(r, "id"),
-			Title:    in.Title,
-			Position: in.Position,
-		}
-		if err := deps.Tasks.AddSubtask(r.Context(), s); err != nil {
+		total, done, err := deps.Tasks.ChildProgress(ctx, parentID)
+		if err != nil {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, s)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"tasks": children,
+			"progress": map[string]int{
+				"total": total,
+				"done":  done,
+			},
+		})
 	}
 }
 
@@ -288,10 +295,24 @@ func addChecklistHandler(deps Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_title"})
 			return
 		}
-		row, err := deps.Tasks.AddChecklist(r.Context(), chi.URLParam(r, "id"), body.Title)
+		taskID := chi.URLParam(r, "id")
+		row, err := deps.Tasks.AddChecklist(r.Context(), taskID, body.Title)
 		if err != nil {
 			writeError(w, err)
 			return
+		}
+		// Phase 14: log checklist creation on the parent task's activity
+		// stream so the timeline is informative without polling.
+		if deps.TaskService != nil {
+			actorID := ""
+			if id, ok := IdentityFrom(r.Context()); ok && id != nil {
+				actorID = id.UserID
+			}
+			deps.TaskService.RecordActivity(
+				r.Context(), taskID, actorID,
+				activity.ActionChecklistAdded,
+				fmt.Sprintf(`{"checklist_id":%q,"title":%q}`, row.ID, row.Title),
+			)
 		}
 		writeJSON(w, http.StatusCreated, row)
 	}
@@ -333,10 +354,25 @@ func addChecklistItemHandler(deps Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_title"})
 			return
 		}
-		row, err := deps.Tasks.AddChecklistItem(r.Context(), chi.URLParam(r, "clId"), body.Title)
+		taskID := chi.URLParam(r, "id")
+		listID := chi.URLParam(r, "clId")
+		row, err := deps.Tasks.AddChecklistItem(r.Context(), listID, body.Title)
 		if err != nil {
 			writeError(w, err)
 			return
+		}
+		// Phase 14: emit item_added against the parent task so the
+		// activity log shows checklist work without per-row polling.
+		if deps.TaskService != nil {
+			actorID := ""
+			if id, ok := IdentityFrom(r.Context()); ok && id != nil {
+				actorID = id.UserID
+			}
+			deps.TaskService.RecordActivity(
+				r.Context(), taskID, actorID,
+				activity.ActionChecklistItemAdded,
+				fmt.Sprintf(`{"checklist_id":%q,"item_id":%q,"title":%q}`, listID, row.ID, row.Title),
+			)
 		}
 		writeJSON(w, http.StatusCreated, row)
 	}
@@ -354,9 +390,25 @@ func updateChecklistItemHandler(deps Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		if err := deps.Tasks.UpdateChecklistItem(r.Context(), chi.URLParam(r, "itemId"), body.Done, body.Title); err != nil {
+		itemID := chi.URLParam(r, "itemId")
+		taskID := chi.URLParam(r, "id")
+		if err := deps.Tasks.UpdateChecklistItem(r.Context(), itemID, body.Done, body.Title); err != nil {
 			writeError(w, err)
 			return
+		}
+		// Phase 14: emit checklist_item_done only when toggling done
+		// (not on title-only edits). The activity stream then doubles
+		// as a lightweight "what got checked off" feed.
+		if body.Done != nil && *body.Done && deps.TaskService != nil {
+			actorID := ""
+			if id, ok := IdentityFrom(r.Context()); ok && id != nil {
+				actorID = id.UserID
+			}
+			deps.TaskService.RecordActivity(
+				r.Context(), taskID, actorID,
+				activity.ActionChecklistItemDone,
+				fmt.Sprintf(`{"item_id":%q,"done":true}`, itemID),
+			)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -372,51 +424,8 @@ func deleteChecklistItemHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-// updateSubtaskHandler PATCHes a subtask by id. The repo's
-// UpdateSubtask takes the full Subtask, so we look the row up first
-// and apply the supplied fields on top.
-func updateSubtaskHandler(deps Dependencies) http.HandlerFunc {
-	type in struct {
-		Title    *string `json:"title"`
-		Done     *bool   `json:"done"`
-		Position *int    `json:"position"`
-	}
-	return func(w http.ResponseWriter, r *http.Request) {
-		var body in
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
-			return
-		}
-		subID := chi.URLParam(r, "subId")
-		s, err := deps.Tasks.GetSubtask(r.Context(), subID)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		if body.Title != nil {
-			s.Title = *body.Title
-		}
-		if body.Done != nil {
-			s.Done = *body.Done
-		}
-		if body.Position != nil {
-			s.Position = *body.Position
-		}
-		if err := deps.Tasks.UpdateSubtask(r.Context(), s); err != nil {
-			writeError(w, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}
-}
+// updateSubtaskHandler removed in Phase 14 — child tasks are full
+// tasks; use PATCH /api/v1/tasks/{id} instead.
 
-// deleteSubtaskHandler removes a subtask.
-func deleteSubtaskHandler(deps Dependencies) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if err := deps.Tasks.DeleteSubtask(r.Context(), chi.URLParam(r, "subId")); err != nil {
-			writeError(w, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	}
-}
+// deleteSubtaskHandler removed in Phase 14 — child tasks are full
+// tasks; use DELETE /api/v1/tasks/{id} instead.

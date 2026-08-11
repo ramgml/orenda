@@ -568,6 +568,194 @@ make build
 
 ---
 
+## Phase 12 — Кастомные колонки канбана *(2–3 дня)*
+
+**Цель:** пользователь управляет колонками доски проекта: добавляет свои, меняет порядок drag-and-drop, переименовывает. Сейчас колонки фиксированы: 5 дефолтных (`backlog … done`) сидируются при создании проекта, создания через API нет (тесты вставляют колонки напрямую в SQL), reorder-UX нет.
+
+> Phase 11 (project tabs: Kanban/Activity/Attachments/Settings) выполнена вне плана — см. коммиты `phase(11.*)`; нумерация продолжается с 12.
+
+**Контекст (что уже есть):**
+
+- `PATCH /api/v1/columns/{id}` — name, position, wip_limit, color (`patchColumnHandler`, `handlers_kanban.go`).
+- UI переименования уже существует: кнопка ⚙ в заголовке колонки → `EditColumnModal` (`ColumnView.tsx`). Задача фазы — сделать его обнаружимым (double-click по заголовку).
+- `columns.position REAL` — fractional positions, как у задач; reorder не требует новых полей и миграций.
+- `tasks.status` от колонки не зависит (меняется только через claim/submit/review), поэтому кастомные колонки не ломают workflow агентов.
+
+### Tasks
+
+- [ ] **12.1** Backend: создание колонки
+  - Repo: `project.Repository.CreateColumn(ctx, col)`
+  - Handler `createColumnHandler` в `handlers_kanban.go`: `POST /api/v1/projects/{id}/columns {name, color?, wip_limit?}` → 201
+  - `position = max(position) + 1024` (в конец доски); пустое `name` → 400; несуществующий проект → 404
+  - Route в `router.go` рядом с существующим `PATCH /columns/{id}`
+  - WS-событие в topic `tasks` (`column.created`), чтобы вторая вкладка обновилась
+- [ ] **12.2** Frontend: «+ Add column»
+  - Кнопка в конце доски (`KanbanBoard.tsx`) → inline-форма (name, color) → POST → optimistic append
+  - `api.createColumn()` в `client.ts`
+- [ ] **12.3** Frontend: drag-and-drop reorder колонок
+  - `@dnd-kit` `SortableContext` (horizontal) для колонок в `KanbanBoard.tsx`
+  - On drop: `api.updateColumn(id, {position})` — midpoint между соседями, optimistic + revert при ошибке (тот же паттерн, что у task dnd)
+- [ ] **12.4** Frontend: discoverability переименования
+  - Double-click по заголовку колонки открывает существующий `EditColumnModal`; кнопка ⚙ остаётся
+- [ ] **12.5** Тесты:
+  - Backend: create → 201, колонка появляется в `GET /board`; пустое name → 400; PATCH position сохраняет порядок после повторного GET
+  - Frontend: форма add-column вызывает API и рендерит новую колонку
+- [ ] **12.6** *(опционально)* Удаление колонки: `DELETE /api/v1/columns/{id}` — только пустую, иначе 422; кнопка в `EditColumnModal`
+
+### Definition of Done
+
+- Колонка создаётся из UI и видна без перезагрузки (и во второй вкладке по WS).
+- Колонки перетаскиваются, порядок сохраняется после refresh.
+- Переименование доступно по double-click и через ⚙, сохраняется.
+- `curl -X POST /api/v1/projects/:id/columns -d '{"name":"QA"}'` → 201.
+- `make test && make lint` зелёные.
+
+---
+
+## Phase 13 — Теги и цветовые метки задач *(3–4 дня)*
+
+**Цель:** задачи помечаются тегами (с цветом) и цветовой меткой; теги видны чипами на канбан-карточках и на странице задачи. Сейчас тегов нет вообще: таблицы есть, а весь слой поверх — нет.
+
+**Контекст (что уже есть):**
+
+- Таблицы `tags(id, name UNIQUE, color)` и `task_tags(task_id, tag_id)` существуют с `001_init.sql` — миграция для тегов **не нужна**.
+- Всё остальное отсутствует: в `task_repo.go` нет ни одного метода по тегам, handlers/routes нет, в `web/src` ноль упоминаний тегов.
+- Цветовой метки задачи в схеме нет → миграция `013_task_color.sql`: `ALTER TABLE tasks ADD COLUMN color TEXT` (аддитивно, правило «миграции аддитивны»).
+- Mirror frontmatter уже декларирует поле `tags` (`internal/mirror/mirror.go`, PLAN#7.2) — подключить реальные теги.
+- Offline: sync-операции `task.create`/`task.update` (`handlers_sync.go`) — расширить payload тегами и цветом, иначе оффлайн-редактирование их потеряет.
+
+### Tasks
+
+- [ ] **13.1** Миграция `013_task_color.sql` — `tasks.color TEXT NULL` (+ `.down.sql`)
+- [ ] **13.2** Domain + repo:
+  - `task.Tag{ID, Name, Color}`; поле `Color` в `task.Task`
+  - Методы: `ListTags(ctx)`, `CreateTag(ctx, name, color)`, `SetTaskTags(ctx, taskID, tagIDs)` (replace в транзакции), `TagsForTasks(ctx, taskIDs)` — batch без N+1 для канбана
+- [ ] **13.3** Handlers + routes:
+  - `GET/POST /api/v1/tags`, `PATCH/DELETE /api/v1/tags/{id}`
+  - `PUT /api/v1/tasks/{id}/tags {tag_ids}` — replace-семантика
+  - `color` принимается в PATCH задачи
+  - `GET /board` и `GET /tasks` включают `tags` + `color` в ответ
+  - WS-событие в topic `tasks` при смене тегов/цвета
+- [ ] **13.4** Sync: теги и color в payload ops `task.create`/`task.update`
+- [ ] **13.5** Frontend:
+  - `TaskCard.tsx` — цветные чипы тегов + полоска цветовой метки
+  - Страница задачи — редактор тегов (multi-select с созданием нового тега и выбором цвета) и выбор цветовой метки
+  - `client.ts` — тип `Tag`, методы `listTags/createTag/setTaskTags`
+- [ ] **13.6** *(опционально)* Фильтр канбана по тегу (chips-переключатели над доской)
+- [ ] **13.7** Mirror: реальные теги в frontmatter задачи
+- [ ] **13.8** Тесты:
+  - Repo: set/get roundtrip, replace-семантика `SetTaskTags`
+  - API: `PUT /tasks/:id/tags` → 200/404, `PATCH` color → 200
+  - Frontend: чип тега рендерится на карточке
+
+### Definition of Done
+
+- Тег создаётся, назначается задаче, виден чипом на канбане и на странице задачи, переживает refresh.
+- Цветовая метка ставится на задачу, видна полосой на карточке.
+- Теги попадают в mirror frontmatter и не теряются при оффлайн-редактировании (sync).
+- `make test && make lint` зелёные.
+
+---
+
+## Phase 14 — Разделение subtasks/checklists по смыслу (Weeek-style) *(3–5 дней)*
+
+**Цель:** устранить дублирование двух параллельных «чекбокс под задачей» моделей. Сейчас и `subtasks`, и `checklists` существуют как два разных API с одинаковым UI-смыслом — пользователь не понимает, куда писать. Делаем чёткое разделение по модели Weeek/Asana:
+
+- **Subtasks → Child tasks** (полноценные задачи через существующее `tasks.parent_task_id`): свой статус, assignee, due date, могут быть заclaim'аты агентом, считаются в прогрессе родителя. Появляются на канбан-доске как обычные карточки или вложенным списком.
+- **Checklists** остаются локальными чекбоксами под задачей (как сейчас), но получают то, чего им не хватало: activity log и mirror в git.
+
+**Контекст (что уже есть):**
+
+- `tasks.parent_task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE` уже в схеме (`001_init.sql:102`, индекс `idx_tasks_parent`); пробрасывается через `taskInput.ParentTaskID` в handlers (`handlers_tasks.go:23,68,167-168`); поддержан в `task_repo.go:35-143` и `task_repo.go:461-591`. **Но никто из UI/агентов это поле не заполняет.**
+- Таблица `subtasks` (`001_init.sql:141`) дублирует `checklist_items` по семантике.
+- `task.Subtask` тип определён в `internal/domain/task/model.go:153-159`; `AddSubtask/ListSubtasks/UpdateSubtask/DeleteSubtask/GetSubtask` — в `task_repo.go:188-281`; HTTP `/api/v1/tasks/{id}/subtasks[/{subId}]` — в `handlers_tasks.go:220-258`, route в `router.go:227-229`.
+- Subtasks пишутся в markdown mirror (`mirror.go:51-87`) и в activity log (`task.subtask_added`/`task.subtask_done`), checklists — нет (баг, чиним заодно).
+- `getTaskContextHandler` (`handlers_phase3.go:372-395`) возвращает агенту только `subtasks` — `checklists` агент не видит. Чиним.
+
+### Tasks
+
+- [ ] **14.1** Миграция `013_subtasks_to_children.sql` + `.down.sql`:
+  - Перелить каждую строку `subtasks` в `tasks` с новым UUIDv7, `parent_task_id = subtasks.task_id`, `status = done|todo`, `column_id = NULL` (не показываем на канбан-доске родителя, чтобы не загромождать; показываем вложенно в `TaskViewBody`).
+  - Поле `project_id` берём из родительской задачи (`SELECT project_id FROM tasks WHERE id = subtasks.task_id`).
+  - В новых child tasks `assignee_type/assignee_id/due_at/started_at/claimed_at/completed_at/time_estimate_s/time_spent_s/context_md/agent_notes/awaiting` = дефолты; `priority='medium'`.
+  - Дропнуть таблицу `subtasks` и индекс `idx_subtasks_task`.
+- [ ] **14.2** Domain (`internal/domain/task/`):
+  - Удалить `task.Subtask` тип.
+  - В `Repository`:
+    - Убрать `AddSubtask/ListSubtasks/UpdateSubtask/DeleteSubtask/GetSubtask`.
+    - Добавить `ListChildren(ctx, parentID) ([]*Task, error)` — возвращает задачи где `parent_task_id = parentID`, отсортированные по `position, created_at`.
+    - Добавить `ChildProgress(ctx, parentID) (total, done int, err error)` — для прогресс-бара родителя.
+  - В `task.Filter`: добавить `ParentTaskID` (пустое = не фильтровать, конкретное = только direct children; можно расширить до `*string` для top-level задач).
+- [ ] **14.3** SQLite repo (`internal/storage/sqlite/task_repo.go`):
+  - Удалить реализацию методов `AddSubtask/ListSubtasks/UpdateSubtask/DeleteSubtask/GetSubtask` (~95 строк).
+  - Реализовать `ListChildren`: `SELECT * FROM tasks WHERE parent_task_id = ? ORDER BY position, created_at`.
+  - Реализовать `ChildProgress`: `SELECT COUNT(*), SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) FROM tasks WHERE parent_task_id = ?`.
+  - В `ListByProject`: добавить поддержку `Filter.ParentTaskID` (по умолчанию `nil` — фильтр не применяется; явное `""` — только top-level, где `parent_task_id IS NULL`).
+  - Сделать `Delete` каскадным уже (через FK `parent_task_id` ON DELETE CASCADE).
+- [ ] **14.4** Handlers (`internal/api/handlers_tasks.go`):
+  - Удалить `listSubtasksHandler/addSubtaskHandler/updateSubtaskHandler/deleteSubtaskHandler`.
+  - Добавить `listChildTasksHandler`: `GET /api/v1/tasks/{id}/children` → `TaskContext`-style ответ `{tasks: [...], progress: {total, done}}`.
+  - В `createTaskHandler` уже принимается `parent_task_id` — добавить валидацию (родитель должен существовать; `project_id` родителя и ребёнка должны совпадать).
+- [ ] **14.5** Routers (`internal/api/router.go`):
+  - Убрать маршруты `/tasks/{id}/subtasks[/{subId}]` (4 маршрута).
+  - Добавить `GET /tasks/{id}/children`.
+- [ ] **14.6** Activity log (`internal/service/activity/` и `handlers_tasks.go` создание):
+  - При создании child task записать `task.child_added` с payload `{child_id, title}`.
+  - При изменении статуса child (PATCH /tasks/{id} где parent непустой) → `task.child_status_changed` с payload `{child_id, old, new}`.
+  - При создании checklist → `task.checklist_added`. При добавлении item → `task.checklist_item_added`. При toggle done → `task.checklist_item_done`. При удалении → не пишем (это шум).
+  - Обновить маппинг в `TaskViewBody.tsx::ActivityLog` (добавить новые глаголы).
+- [ ] **14.7** Mirror (`internal/mirror/mirror.go`):
+  - В `WriteTask` кроме subtasks писать checklists: YAML-секция `checklists:` с `{title, items: [{title, done}]}`.
+  - Параметр `checklists` прокинуть в сигнатуру `WriteTask` или сделать отдельный метод `WriteChecklists`. Решить в процессе.
+- [ ] **14.8** `task_context` для агента (`handlers_phase3.go`):
+  - Расширить `TaskContext`: добавить `Children []*task.Task` и `Checklists []*ChecklistRow` + `ChecklistItems map[string][]*ChecklistItemRow`.
+  - Заменить `out.Subtasks` на эти поля.
+  - Удалить `Subtasks` из `TaskContext` (маппинг в `service_interfaces.go` тоже).
+- [ ] **14.9** Frontend — заменить SubtasksList:
+  - `web/src/features/tasks/SubtasksList.tsx` → `ChildTasksList.tsx`:
+    - Рендерит карточки с `title`, `status` (бейдж), `assignee` (аватар/ник).
+    - Кнопки: «+ Add child task» (открывает мини-форму с title, status, assignee), «Open» (ведёт на `/tasks/:childId`), «Delete» (с подтверждением).
+    - Прогресс-бар сверху: `done / total`.
+    - Клик по строке открывает задачу; нет inline-edit (как у настоящих задач).
+  - `web/src/features/tasks/TaskViewBody.tsx` — заменить `<SubtasksList>` на `<ChildTasksList>`. Передавать `taskId`, `parentTaskID`, `projectID` для create.
+- [ ] **14.10** Frontend — ChecklistsList без изменений по сути, но:
+  - Опционально: отображать checklist item с drag-and-drop reorder (low priority).
+- [ ] **14.11** Frontend — API client (`web/src/shared/api/client.ts`):
+  - Удалить `Subtask` тип, `listSubtasks/addSubtask/updateSubtask/deleteSubtask` методы.
+  - Добавить `ChildTaskProgress { total: number, done: number }`.
+  - Добавить `listChildTasks(taskId): Promise<{tasks, progress}>`, `createChildTask(parentId, {title, ...})`, `updateChildTaskStatus(id, status)`, `deleteChildTask(id)`.
+- [ ] **14.12** Обновить существующие тесты:
+  - `internal/storage/sqlite/task_repo_test.go::TestTaskRepo_Subtasks` — удалить, заменить на `TestTaskRepo_Children`.
+  - `internal/api/scope_integration_test.go` — строки 142-155 (`POST /subtasks`, `GET /subtasks`) → `POST /tasks` с `parent_task_id`, `GET /tasks/{id}/children`.
+  - Пройтись по всем тестам и убрать упоминания `Subtask`.
+- [ ] **14.13** Новые тесты:
+  - Миграция: seed `subtasks` строки → миграция → проверить что они стали `tasks` с правильным `parent_task_id`.
+  - Repo: `ListChildren` возвращает прямых детей; `ChildProgress` корректно считает `done`; `Delete` родителя каскадирует на детей.
+  - API: `GET /tasks/:id/children` → 200 с tasks+progress; `POST /tasks` с `parent_task_id` другого проекта → 400/422.
+  - Frontend: `ChildTasksList` рендерит карточки с бейджем статуса.
+- [ ] **14.14** Обновить `docs/API.md` — убрать `/subtasks`, добавить `/children`.
+- [ ] **14.15** Обновить `docs/SESSION.md` (новые ключевые решения: subtasks→child tasks; checklists с activity+mirror).
+
+### Definition of Done
+
+- В UI на странице задачи есть два **визуально разных** блока:
+  - «Подзадачи» — карточки с status/assignee, кликабельные (открывают свою задачу), есть прогресс-бар.
+  - «Чек-лист» — простые чекбоксы, сгруппированные по именованным спискам.
+- Агент через `GET /api/v1/tasks/:id/context` получает и `children`, и `checklists` (не только одно из двух).
+- Существующая БД с `subtasks` мигрируется без потерь: после `orenda migrate up` все subtasks становятся child-tasks, фронт их видит без ручного вмешательства.
+- `make test && make lint` зелёные.
+- `docs/API.md` отражает новое API.
+
+### Что НЕ делаем в этой фазе
+
+- Не делаем drag-and-drop reorder для child tasks (можно в Phase 15+).
+- Не показываем child tasks отдельной колонкой на канбан-доске (можно в Phase 15+).
+- Не добавляем subtask-templates / checklist-templates.
+
+---
+
+
+
 ## DB Schema (для миграции 001_init.sql)
 
 > Подробная схема появится в Phase 1. Ниже — скелет.
@@ -898,3 +1086,6 @@ CREATE INDEX idx_backup_log_created ON backup_log(created_at);
 | Дата | Версия | Изменения |
 |------|--------|-----------|
 | 2026-08-08 | 0.1.0 | Начальная версия |
+| 2026-08-11 | 0.2.0 | Phase 12: кастомные колонки канбана (create/reorder/rename UX) |
+| 2026-08-11 | 0.3.0 | Phase 13: теги и цветовые метки задач |
+| 2026-08-11 | 0.4.0 | Phase 14: разделение subtasks/checklists по смыслу (Weeek-style) |

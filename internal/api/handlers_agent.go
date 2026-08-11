@@ -179,9 +179,16 @@ func agentTaskContextHandler(deps Dependencies) http.HandlerFunc {
 		if deps.Activities != nil {
 			out.Activity, _ = deps.Activities.ListByTask(ctx, taskID)
 		}
-		if subs, err := deps.Tasks.ListSubtasks(ctx, taskID); err == nil {
-			for _, s := range subs {
-				out.Subtasks = append(out.Subtasks, *s)
+		if children, err := deps.Tasks.ListChildren(ctx, taskID); err == nil {
+			out.Children = children
+		}
+		if cls, err := deps.Tasks.ListChecklists(ctx, taskID); err == nil {
+			out.Checklists = cls
+			out.ChecklistItems = map[string][]task.ChecklistItemRow{}
+			for _, cl := range cls {
+				if its, err := deps.Tasks.ListChecklistItems(ctx, cl.ID); err == nil {
+					out.ChecklistItems[cl.ID] = its
+				}
 			}
 		}
 		writeJSON(w, http.StatusOK, out)

@@ -103,6 +103,17 @@ func (r *taskRepo) ListByProject(ctx context.Context, f task.Filter) ([]*task.Ta
 		clauses = append(clauses, "assignee_id = ?")
 		args = append(args, f.AssigneeID)
 	}
+	// ParentTaskID is tri-state. nil = no filter; &"" = top-level only;
+	// &"abc" = direct children of task "abc". The kanban uses &"" so it
+	// never shows nested children on the board.
+	if f.ParentTaskID != nil {
+		if *f.ParentTaskID == "" {
+			clauses = append(clauses, "parent_task_id IS NULL")
+		} else {
+			clauses = append(clauses, "parent_task_id = ?")
+			args = append(args, *f.ParentTaskID)
+		}
+	}
 
 	q := selectTaskColumns +
 		" WHERE " + strings.Join(clauses, " AND ") +
@@ -185,97 +196,58 @@ func (r *taskRepo) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *taskRepo) AddSubtask(ctx context.Context, s *task.Subtask) error {
-	if s.ID == "" {
-		s.ID = newUUID()
+// ListChildren returns every direct child of parentID, ordered by
+// position then created_at. Returns an empty slice when the parent
+// has no children, ErrNotFound when the parent itself doesn't exist
+// (so callers can distinguish "no children" from "bad parent id").
+func (r *taskRepo) ListChildren(ctx context.Context, parentID string) ([]*task.Task, error) {
+	// Confirm the parent exists first so we can return ErrNotFound
+	// instead of a silently-empty slice when callers typo an id.
+	var exists int
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT 1 FROM tasks WHERE id = ?`, parentID,
+	).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, task.ErrNotFound
+		}
+		return nil, fmt.Errorf("task.ListChildren: parent lookup: %w", err)
 	}
-	if s.Title == "" {
-		return task.ErrInvalidInput
-	}
-	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO subtasks (id, task_id, title, done, position) VALUES (?, ?, ?, ?, ?)`,
-		s.ID, s.TaskID, s.Title, boolToInt(s.Done), s.Position,
-	)
-	if err != nil {
-		return fmt.Errorf("task.AddSubtask: %w", err)
-	}
-	return nil
-}
 
-func (r *taskRepo) ListSubtasks(ctx context.Context, taskID string) ([]*task.Subtask, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, task_id, title, done, position FROM subtasks WHERE task_id = ? ORDER BY position ASC`,
-		taskID)
+		selectTaskColumns+`
+		WHERE parent_task_id = ?
+		ORDER BY position ASC, created_at ASC`,
+		parentID)
 	if err != nil {
-		return nil, fmt.Errorf("task.ListSubtasks: %w", err)
+		return nil, fmt.Errorf("task.ListChildren: %w", err)
 	}
 	defer rows.Close()
-
-	out := make([]*task.Subtask, 0)
+	out := make([]*task.Task, 0)
 	for rows.Next() {
-		var (
-			s task.Subtask
-			d int
-		)
-		if err := rows.Scan(&s.ID, &s.TaskID, &s.Title, &d, &s.Position); err != nil {
+		tr, err := scanTaskRow(rows)
+		if err != nil {
 			return nil, err
 		}
-		s.Done = d != 0
-		out = append(out, &s)
+		out = append(out, tr)
 	}
 	return out, rows.Err()
 }
 
-func (r *taskRepo) UpdateSubtask(ctx context.Context, s *task.Subtask) error {
-	res, err := r.db.ExecContext(ctx,
-		`UPDATE subtasks SET title = ?, done = ?, position = ? WHERE id = ?`,
-		s.Title, boolToInt(s.Done), s.Position, s.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("task.UpdateSubtask: %w", err)
+// ChildProgress returns the total number of children of parentID
+// and how many of those have status='done'. Used to render a
+// progress bar on the parent task view.
+func (r *taskRepo) ChildProgress(ctx context.Context, parentID string) (total, done int, err error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT
+		    COUNT(*),
+		    COALESCE(SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0)
+		FROM tasks
+		WHERE parent_task_id = ?
+	`, parentID)
+	if err := row.Scan(&total, &done); err != nil {
+		return 0, 0, fmt.Errorf("task.ChildProgress: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return task.ErrNotFound
-	}
-	return nil
-}
-
-func (r *taskRepo) DeleteSubtask(ctx context.Context, id string) error {
-	res, err := r.db.ExecContext(ctx, `DELETE FROM subtasks WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("task.DeleteSubtask: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return task.ErrNotFound
-	}
-	return nil
-}
-
-// GetSubtask fetches one subtask row.
-func (r *taskRepo) GetSubtask(ctx context.Context, id string) (*task.Subtask, error) {
-	var (
-		s       task.Subtask
-		doneInt int
-	)
-	err := r.db.QueryRowContext(ctx,
-		`SELECT id, task_id, title, done, position FROM subtasks WHERE id = ?`, id,
-	).Scan(&s.ID, &s.TaskID, &s.Title, &doneInt, &s.Position)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, task.ErrNotFound
-		}
-		return nil, fmt.Errorf("task.GetSubtask: %w", err)
-	}
-	s.Done = doneInt != 0
-	return &s, nil
+	return total, done, nil
 }
 
 // ---------------------------------------------------------------------------

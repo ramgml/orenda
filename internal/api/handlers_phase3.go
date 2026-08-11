@@ -16,6 +16,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/attachment"
 	"github.com/ramgml/orenda/internal/domain/comment"
+	"github.com/ramgml/orenda/internal/domain/task"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 )
@@ -368,7 +369,8 @@ func listTaskActivityHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // getTaskContextHandler returns a snapshot suitable for an agent
-// resuming work: the task, its comments, activity, and subtasks.
+// resuming work: the task, its comments, activity, child tasks and
+// checklists.
 func getTaskContextHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -385,9 +387,19 @@ func getTaskContextHandler(deps Dependencies) http.HandlerFunc {
 		if deps.Activities != nil {
 			out.Activity, _ = deps.Activities.ListByTask(ctx, taskID)
 		}
-		if subs, err := deps.Tasks.ListSubtasks(ctx, taskID); err == nil {
-			for _, s := range subs {
-				out.Subtasks = append(out.Subtasks, *s)
+		// Children (Phase 14: subtasks are now first-class tasks via
+		// parent_task_id) and checklists so the agent sees the same
+		// structure the human does.
+		if children, err := deps.Tasks.ListChildren(ctx, taskID); err == nil {
+			out.Children = children
+		}
+		if cls, err := deps.Tasks.ListChecklists(ctx, taskID); err == nil {
+			out.Checklists = cls
+			out.ChecklistItems = map[string][]task.ChecklistItemRow{}
+			for _, cl := range cls {
+				if its, err := deps.Tasks.ListChecklistItems(ctx, cl.ID); err == nil {
+					out.ChecklistItems[cl.ID] = its
+				}
 			}
 		}
 		writeJSON(w, http.StatusOK, out)

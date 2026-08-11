@@ -87,7 +87,7 @@ func TestOwnerScopesIncludeAllExpected(t *testing.T) {
 	assert.Contains(t, me.Scopes, "projects:write")
 }
 
-func TestIntegration_SubtaskCRUD(t *testing.T) {
+func TestIntegration_ChildTasksCRUD(t *testing.T) {
 	deps, _ := fullDeps(t)
 	router := api.NewRouter(deps)
 
@@ -139,24 +139,36 @@ func TestIntegration_SubtaskCRUD(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &t1))
 
-	// Add subtasks.
-	rr = authed(http.MethodPost, "/api/v1/tasks/"+t1.ID+"/subtasks", map[string]any{"title": "first"})
+	// Add child tasks via parent_task_id (Phase 14 — subtasks were
+	// promoted to first-class tasks).
+	rr = authed(http.MethodPost, "/api/v1/projects/"+p.ID+"/tasks", map[string]any{
+		"title":          "first",
+		"parent_task_id": t1.ID,
+	})
 	require.Equal(t, http.StatusCreated, rr.Code)
-	rr = authed(http.MethodPost, "/api/v1/tasks/"+t1.ID+"/subtasks", map[string]any{"title": "second"})
+	rr = authed(http.MethodPost, "/api/v1/projects/"+p.ID+"/tasks", map[string]any{
+		"title":          "second",
+		"parent_task_id": t1.ID,
+	})
 	require.Equal(t, http.StatusCreated, rr.Code)
 
-	// List subtasks.
-	rr = authed(http.MethodGet, "/api/v1/tasks/"+t1.ID+"/subtasks", nil)
+	// List child tasks.
+	rr = authed(http.MethodGet, "/api/v1/tasks/"+t1.ID+"/children", nil)
 	require.Equal(t, http.StatusOK, rr.Code)
-	var subs struct {
-		Subtasks []struct {
+	var children struct {
+		Tasks []struct {
 			Title string `json:"title"`
-			Done  bool   `json:"done"`
-		} `json:"subtasks"`
+		} `json:"tasks"`
+		Progress struct {
+			Total int `json:"total"`
+			Done  int `json:"done"`
+		} `json:"progress"`
 	}
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &subs))
-	assert.Len(t, subs.Subtasks, 2)
-	assert.Equal(t, "first", subs.Subtasks[0].Title)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &children))
+	assert.Len(t, children.Tasks, 2)
+	assert.Equal(t, "first", children.Tasks[0].Title)
+	assert.Equal(t, 2, children.Progress.Total)
+	assert.Equal(t, 0, children.Progress.Done)
 }
 
 func TestIntegration_ProjectCRUD(t *testing.T) {
