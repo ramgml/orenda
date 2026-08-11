@@ -30,6 +30,14 @@ type Unsubscribe func()
 type Hub interface {
 	Publish(ctx context.Context, e Event)
 	Subscribe(userID, topic string) (<-chan Event, Unsubscribe)
+	// Close drains every active subscriber. Used by maintenance mode
+	// (Phase 22.3) when the operator is restoring from a snapshot —
+	// we close every WS so the clients reconnect and pick up the
+	// restored DB.
+	//
+	// Note: implementations may make the hub unusable after Close;
+	// callers should not expect Publish/Subscribe to work afterward.
+	Close()
 }
 
 // channelHub is the default implementation. Each subscriber gets its own
@@ -196,6 +204,9 @@ type NopHub struct{}
 
 // Publish implements Hub.
 func (NopHub) Publish(context.Context, Event) {}
+
+// Close is a no-op for NopHub (Phase 22.3: required by Hub interface).
+func (NopHub) Close() {}
 
 // Subscribe implements Hub — channel that closes immediately.
 func (NopHub) Subscribe(string, string) (<-chan Event, Unsubscribe) {

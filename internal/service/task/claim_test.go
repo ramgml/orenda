@@ -36,6 +36,9 @@ func (h *claimHub) Publish(_ context.Context, e ws.Event) {
 	h.mu.Unlock()
 }
 
+// Close implements ws.Hub (Phase 22.3).
+func (h *claimHub) Close() {}
+
 func (h *claimHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 	ch := make(chan ws.Event, 1)
 	return ch, func() { close(ch) }

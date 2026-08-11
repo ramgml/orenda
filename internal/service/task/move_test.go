@@ -31,6 +31,9 @@ func (h *recordingHub) Publish(_ context.Context, ev ws.Event) {
 	h.events = append(h.events, recordedEvent{topic: ev.Topic, body: ev.Body})
 }
 
+// Close implements ws.Hub (Phase 22.3).
+func (h *recordingHub) Close() {}
+
 func (h *recordingHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 	ch := make(chan ws.Event, 4)
 	return ch, func() { close(ch) }

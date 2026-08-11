@@ -112,6 +112,7 @@ func (b *recordingBot) Send(_ context.Context, target string, msg bot.Message) e
 type noopHub struct{}
 
 func (noopHub) Publish(context.Context, ws.Event) {}
+func (noopHub) Close()                            {}
 func (noopHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 	ch := make(chan ws.Event, 1)
 	return ch, func() { close(ch) }

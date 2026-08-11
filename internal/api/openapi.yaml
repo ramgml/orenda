@@ -1018,6 +1018,56 @@ paths:
       security: [{ bearerAuth-cookie: [] }]
       responses: { '200': { description: ok } }
 
+  # ---- maintenance mode (Phase 22.3) ----
+  #
+  # The toggle endpoints are NOT gated by the maintenance middleware,
+  # so the operator can always flip the flag from inside maintenance
+  # (the only escape hatch).
+  /api/v1/maintenance:
+    get:
+      tags: [meta]
+      summary: Read the current maintenance flag.
+      security: []
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  maintenance: { type: boolean }
+  /api/v1/maintenance/on:
+    post:
+      tags: [meta]
+      summary: Enter maintenance mode (writes blocked; WS drained on restore).
+      security: []
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  maintenance: { type: boolean }
+                  was_already: { type: boolean }
+  /api/v1/maintenance/off:
+    post:
+      tags: [meta]
+      summary: Exit maintenance mode (writes resume).
+      security: []
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  maintenance: { type: boolean }
+                  was_already: { type: boolean }
+
   # ---- agent (bearer) ----
   /api/v1/agent/me:
     get:

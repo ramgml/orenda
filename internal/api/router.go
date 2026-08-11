@@ -151,6 +151,12 @@ func NewRouter(deps Dependencies) http.Handler {
 	r.Use(realIP())
 	r.Use(requestLogger(logger))
 	r.Use(recoverer())
+	// Phase 22.3: maintenance mode is checked on every request; it
+	// rejects non-safe methods when the operator has flipped the
+	// flag on. The toggle endpoints (POST /api/v1/maintenance/on|off)
+	// are mounted AFTER the middleware so the operator can always
+	// turn maintenance off again.
+	r.Use(maintenanceMiddleware)
 	r.Use(corsLoopback())
 	r.Use(securityHeaders())
 	r.Use(rateLimit(rateLimitOptions{
@@ -410,6 +416,17 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Get("/snapshots", listBackupSnapshotsHandler(deps))
 				r.Post("/restore", restoreBackupHandler(deps))
 				r.Get("/log", listBackupLogHandler(deps))
+			})
+
+			// Phase 22.3: maintenance mode toggle. The maintenance
+			// middleware special-cases these paths so the operator
+			// can always flip the flag (even from maintenance).
+			r.Post("/maintenance/on", maintenanceToggleHandler("on"))
+			r.Post("/maintenance/off", maintenanceToggleHandler("off"))
+			r.Get("/maintenance", func(w http.ResponseWriter, _ *http.Request) {
+				writeJSON(w, http.StatusOK, map[string]any{
+					"maintenance": IsMaintenanceOn(),
+				})
 			})
 		})
 
