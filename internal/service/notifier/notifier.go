@@ -113,6 +113,11 @@ type SubscriptionRepository interface {
 
 	// ListForUser returns every subscription for the user.
 	ListForUser(ctx context.Context, userID string) ([]*Subscription, error)
+
+	// ListByBotType returns every enabled subscription whose target
+	// is for the given bot type. Used by Phase 21 to map an
+	// inbound Telegram chat_id back to the user.
+	ListByBotType(ctx context.Context, botType string) ([]*Subscription, error)
 }
 
 // Service is the dependency holder.

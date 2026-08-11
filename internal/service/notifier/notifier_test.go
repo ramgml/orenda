@@ -69,6 +69,16 @@ type memSubs struct {
 	subs []*notifier.Subscription
 }
 
+func (m *memSubs) ListByBotType(_ context.Context, bt string) ([]*notifier.Subscription, error) {
+	var out []*notifier.Subscription
+	for _, s := range m.subs {
+		if s.BotType == bt {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+
 func (m *memSubs) ListForUserEvent(_ context.Context, userID, t string) ([]*notifier.Subscription, error) {
 	var out []*notifier.Subscription
 	for _, s := range m.subs {

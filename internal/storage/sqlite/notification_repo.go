@@ -177,6 +177,39 @@ func (r *botSubRepo) ListForUser(ctx context.Context, userID string) ([]*notifie
 	return out, rows.Err()
 }
 
+func (r *botSubRepo) ListByBotType(ctx context.Context, botType string) ([]*notifier.Subscription, error) {
+	const q = `
+	SELECT id, user_id, bot_type, target_address, events, enabled, created_at
+	FROM bot_subscriptions
+	WHERE bot_type = ? AND enabled = 1
+	ORDER BY created_at ASC
+	`
+	rows, err := r.db.QueryContext(ctx, q, botType)
+	if err != nil {
+		return nil, fmt.Errorf("subs.ListByBotType: %w", err)
+	}
+	defer rows.Close()
+	out := make([]*notifier.Subscription, 0)
+	for rows.Next() {
+		var (
+			s       notifier.Subscription
+			events  string
+			enabled int
+			cAt     string
+		)
+		if err := rows.Scan(&s.ID, &s.UserID, &s.BotType, &s.TargetAddress, &events, &enabled, &cAt); err != nil {
+			return nil, fmt.Errorf("subs.Scan: %w", err)
+		}
+		s.Enabled = enabled != 0
+		s.CreatedAt = parseTime(cAt)
+		if events != "" {
+			_ = json.Unmarshal([]byte(events), &s.Events)
+		}
+		out = append(out, &s)
+	}
+	return out, rows.Err()
+}
+
 // SubscriptionWriter adds write methods the handlers need.
 type SubscriptionWriter interface {
 	Create(ctx context.Context, s *notifier.Subscription) error
