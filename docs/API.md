@@ -48,6 +48,9 @@ All JSON. Errors are `{"error": "<code>"}` with a 4xx/5xx status.
 | POST | `/api/v1/tasks/{id}/submit` | `{agent_id, note?}` → status=review, awaiting=human |
 | POST | `/api/v1/tasks/{id}/review` | `{decision: approve\|reject, comment?}` |
 | GET | `/api/v1/tasks/{id}/children` | list direct child tasks + `{progress: {total, done}}` (Phase 14) |
+| GET | `/api/v1/tasks/{id}/blockers` | all blockers (open + satisfied), Phase 15 |
+| GET | `/api/v1/tasks/{id}/dependents` | reverse lookup, Phase 15 |
+| PUT | `/api/v1/tasks/{id}/dependencies` | `{depends_on_ids: [...]}` — replace; cycles/self-loops → 422 |
 | GET/POST | `/api/v1/tasks/{id}/comments` | body: `{body_md}` — `@user:<id>`/`@agent:<id>` mentions |
 | POST | `/api/v1/tasks/{id}/attachments` | multipart `file` field |
 | GET | `/api/v1/tasks/{id}/activity` | audit log |
@@ -91,7 +94,8 @@ Inline accept / return goes through the standard review endpoint (`POST /api/v1/
 |---|---|---|
 | GET | `/api/v1/agent/me` | the bound agent |
 | POST | `/api/v1/agent/heartbeat` | marks online |
-| POST | `/api/v1/agent/tasks/{id}/claim` | agent_id from token |
+| GET | `/api/v1/agent/tasks?ready=true&limit=N` | list work surface (Phase 15); `ready` filters out blocked + claimed |
+| POST | `/api/v1/agent/tasks/{id}/claim` | atomic claim; 409 `lock_taken`; 422 `task_blocked` + `unfinished_blockers` (Phase 15) |
 | POST | `/api/v1/agent/tasks/{id}/release` | |
 | POST | `/api/v1/agent/tasks/{id}/submit` | |
 | GET | `/api/v1/agent/tasks/{id}/context` | 403 if not assigned |

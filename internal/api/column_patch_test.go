@@ -36,6 +36,11 @@ type colFixtures struct {
 	tasks     interface {
 		Create(ctx context.Context, t *task.Task) error
 	}
+	// taskRepo gives direct repo access (Phase 15 dependency tests
+	// need to call Blockers/AddDependency that aren't on the narrow
+	// interface above). nil when not wired — callers should prefer
+	// the narrow `tasks` for seeding.
+	taskRepo task.Repository
 }
 
 func columnDeps(t *testing.T) colFixtures {
@@ -95,6 +100,7 @@ func columnDeps(t *testing.T) colFixtures {
 		projectID: p.ID,
 		cols:      cols,
 		tasks:     repo,
+		taskRepo:  repo,
 	}
 }
 

@@ -72,8 +72,11 @@ const (
 
 // Sentinel errors returned by task repository implementations.
 var (
-	ErrNotFound     = errors.New("task: not found")
-	ErrInvalidInput = errors.New("task: invalid input")
+	ErrNotFound         = errors.New("task: not found")
+	ErrInvalidInput     = errors.New("task: invalid input")
+	ErrSelfDependency   = errors.New("task: task cannot depend on itself")
+	ErrDependencyCycle  = errors.New("task: dependency cycle")
+	ErrDependencyExists = errors.New("task: dependency already exists")
 )
 
 // Task is the canonical task entity.

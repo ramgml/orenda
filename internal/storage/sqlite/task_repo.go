@@ -598,6 +598,160 @@ func (r *taskRepo) TagsForTasks(ctx context.Context, taskIDs []string) (map[stri
 }
 
 // ---------------------------------------------------------------------------
+// Task dependencies (Phase 15)
+// ---------------------------------------------------------------------------
+//
+// The dependency graph lives in `task_dependencies(task_id, depends_on)`.
+// We do the cycle check at the service layer (DFS over the existing graph);
+// the repo just owns the SQL.
+
+func (r *taskRepo) AddDependency(ctx context.Context, taskID, dependsOnID string) error {
+	if taskID == "" || dependsOnID == "" {
+		return task.ErrInvalidInput
+	}
+	if taskID == dependsOnID {
+		return task.ErrSelfDependency
+	}
+	// Make sure both rows exist; we want a clean ErrNotFound, not a
+	// silent FK violation.
+	for _, id := range []string{taskID, dependsOnID} {
+		var exists int
+		if err := r.db.QueryRowContext(ctx,
+			`SELECT 1 FROM tasks WHERE id = ?`, id,
+		).Scan(&exists); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return task.ErrNotFound
+			}
+			return fmt.Errorf("task.AddDependency: lookup %s: %w", id, err)
+		}
+	}
+	if _, err := r.db.ExecContext(ctx,
+		`INSERT INTO task_dependencies(task_id, depends_on_task_id) VALUES (?, ?)`,
+		taskID, dependsOnID,
+	); err != nil {
+		// Idempotent: a duplicate INSERT fails with UNIQUE constraint.
+		// Detect that case and report ErrDependencyExists so the
+		// service can stay quiet about it.
+		if isUniqueViolation(err) {
+			return task.ErrDependencyExists
+		}
+		return fmt.Errorf("task.AddDependency: %w", err)
+	}
+	return nil
+}
+
+// RemoveDependency deletes one edge. Missing edges are a no-op
+// (DELETE returns 0 rows; we treat that as success so the service
+// can be idempotent).
+func (r *taskRepo) RemoveDependency(ctx context.Context, taskID, dependsOnID string) error {
+	if taskID == "" || dependsOnID == "" {
+		return task.ErrInvalidInput
+	}
+	res, err := r.db.ExecContext(ctx,
+		`DELETE FROM task_dependencies WHERE task_id = ? AND depends_on_task_id = ?`,
+		taskID, dependsOnID,
+	)
+	if err != nil {
+		return fmt.Errorf("task.RemoveDependency: %w", err)
+	}
+	_, _ = res.RowsAffected() // 0 is fine
+	return nil
+}
+
+// SetTaskDependencies replaces the task's full blocker set
+// transactionally (DELETE then INSERT). Empty input clears every edge.
+//
+// IMPORTANT: we don't run the cycle check here — that belongs to the
+// service. The service builds the proposed target set, runs DFS, and
+// only then calls this method. Using SetTaskDependencies in a
+// different order (e.g. directly from a handler) would open the door
+// to cycles.
+func (r *taskRepo) SetTaskDependencies(ctx context.Context, taskID string, dependsOnIDs []string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("task.SetTaskDependencies: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM task_dependencies WHERE task_id = ?`, taskID,
+	); err != nil {
+		return fmt.Errorf("task.SetTaskDependencies: delete: %w", err)
+	}
+	for _, dep := range dependsOnIDs {
+		if dep == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO task_dependencies(task_id, depends_on_task_id) VALUES (?, ?)`,
+			taskID, dep,
+		); err != nil {
+			return fmt.Errorf("task.SetTaskDependencies: insert %s: %w", dep, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// Blockers returns the edges pointing INTO taskID (i.e. tasks taskID
+// depends on). All edges, including edges to done tasks — the caller
+// filters when it cares about "still open".
+func (r *taskRepo) Blockers(ctx context.Context, taskID string) ([]task.BlockerRow, error) {
+	const q = `
+		SELECT dep.id, dep.title, dep.status, dep.completed_at
+		FROM task_dependencies d
+		JOIN tasks dep ON dep.id = d.depends_on_task_id
+		WHERE d.task_id = ?
+		ORDER BY dep.title ASC`
+	rows, err := r.db.QueryContext(ctx, q, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("task.Blockers: %w", err)
+	}
+	defer rows.Close()
+	out := make([]task.BlockerRow, 0)
+	for rows.Next() {
+		var (
+			b         task.BlockerRow
+			completed sql.NullString
+		)
+		if err := rows.Scan(&b.BlockerID, &b.Title, &b.Status, &completed); err != nil {
+			return nil, fmt.Errorf("task.Blockers: scan: %w", err)
+		}
+		// status='done' OR a non-null completed_at ⇒ satisfied.
+		if b.Status == task.StatusDone || completed.Valid {
+			b.Done = true
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// Dependents returns the ids of tasks that depend on taskID
+// (reverse lookup). Returns []string of just the IDs — the caller
+// can hydrate the rows via GetByID if it needs titles.
+func (r *taskRepo) Dependents(ctx context.Context, taskID string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT task_id FROM task_dependencies WHERE depends_on_task_id = ? ORDER BY task_id ASC`,
+		taskID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("task.Dependents: %w", err)
+	}
+	defer rows.Close()
+	out := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("task.Dependents: scan: %w", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// (isUniqueViolation lives in helpers.go — modernc doesn't expose a
+// typed error for UNIQUE failures, so the helper just does a substring
+// match. We reuse it from the AddDependency dedupe path.)
+
+// ---------------------------------------------------------------------------
 // Checklists
 // ---------------------------------------------------------------------------
 

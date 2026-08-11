@@ -112,6 +112,24 @@ func (f *fakeRepo) ListAwaitingReview(context.Context) ([]task.ReviewQueueItem, 
 	return nil, nil
 }
 
+// Phase 15: dependency methods on the fake (reminder path doesn't
+// touch them; the empty implementation just keeps the contract).
+func (f *fakeRepo) AddDependency(context.Context, string, string) error {
+	return nil
+}
+func (f *fakeRepo) RemoveDependency(context.Context, string, string) error {
+	return nil
+}
+func (f *fakeRepo) SetTaskDependencies(context.Context, string, []string) error {
+	return nil
+}
+func (f *fakeRepo) Blockers(context.Context, string) ([]task.BlockerRow, error) {
+	return nil, nil
+}
+func (f *fakeRepo) Dependents(context.Context, string) ([]string, error) {
+	return nil, nil
+}
+
 // withStart helper — Set StartAt + EndAt on a task for the fake.
 func withStart(t *task.Task, start time.Time) *task.Task {
 	t.StartAt = &start

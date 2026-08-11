@@ -83,7 +83,21 @@ func agentClaimTaskHandler(deps Dependencies) http.HandlerFunc {
 		tr, err := deps.TaskService.Claim(r.Context(), chi.URLParam(r, "id"), id.AgentID)
 		if err != nil {
 			if errors.Is(err, taskservice.ErrLockTaken) {
+				// Phase 15.3: extend 409 with the current holder
+				// when the repo supports lookup. We surface a plain
+				// "lock_taken" if the lookup path isn't wired — the
+				// bare 409 keeps the API backward-compatible.
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "lock_taken"})
+				return
+			}
+			// Phase 15.3: 422 with the unfinished blockers list so
+			// the agent knows exactly what's still outstanding.
+			var blocked *taskservice.BlockedError
+			if errors.As(err, &blocked) {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+					"error":               "task_blocked",
+					"unfinished_blockers": blocked.BlockerIDs,
+				})
 				return
 			}
 			if errors.Is(err, taskservice.ErrNotFound) {

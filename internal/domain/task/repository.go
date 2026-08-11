@@ -121,6 +121,36 @@ type Repository interface {
 	SetTaskTags(ctx context.Context, taskID string, tagIDs []string) error
 	TagsForTasks(ctx context.Context, taskIDs []string) (map[string][]Tag, error)
 
+	// ---- Task dependencies (Phase 15) ----
+	//
+	// A "dependency" means "this task can't be claimed until the
+	// listed ones are done". Blockers are queried from the "depends
+	// on" side (deps of task X = blockers of X); dependents is the
+	// reverse lookup, useful when finishing a task to know what just
+	// got unblocked.
+	//
+	// AddDependency returns ErrDependencyCycle when adding the edge
+	// would create a cycle in the dependency graph (A→B plus B→A);
+	// ErrSelfDependency when task_id == depends_on_task_id. The
+	// service does a DFS walk to enforce cycle-freeness before the
+	// repository inserts.
+	AddDependency(ctx context.Context, taskID, dependsOnID string) error
+	// RemoveDependency deletes one edge. Idempotent: deleting a
+	// non-existent edge is a no-op (no error).
+	RemoveDependency(ctx context.Context, taskID, dependsOnID string) error
+	// SetTaskDependencies replaces the task's full blocker set in a
+	// single tx (DELETE then INSERT). Empty slice = clear all.
+	SetTaskDependencies(ctx context.Context, taskID string, dependsOnIDs []string) error
+	// Blockers returns the tasks that block taskID (i.e. tasks that
+	// taskID depends on and that are not yet 'done'). Includes the
+	// dependency list itself (every edge), the implementor filters
+	// by status; we keep this method returning ALL blockers (every
+	// edge, regardless of status) and let the caller filter — that
+	// way the UI can render "blocked by N (M still open)".
+	Blockers(ctx context.Context, taskID string) ([]BlockerRow, error)
+	// Dependents returns tasks that depend on taskID (reverse lookup).
+	Dependents(ctx context.Context, taskID string) ([]string, error)
+
 	// ---- Review queue (Phase 19) ----
 	//
 	// ListAwaitingReview returns every task awaiting human action,
@@ -145,6 +175,20 @@ type ReviewQueueItem struct {
 	Task         *Task  `json:"task"`
 	ProjectName  string `json:"project_name"`
 	ProjectColor string `json:"project_color"`
+}
+
+// BlockerRow is one blocker of a task in the dependency graph.
+//
+// `Done` lets the caller decide whether the blocker still actively
+// blocks (Done=false) or has been satisfied (Done=true — the task is
+// no longer waiting on this edge). The set returned by Blockers is
+// ALL edges regardless of status; filtering is left to the caller so
+// the UI can show "blocked by 3 (1 still open)".
+type BlockerRow struct {
+	BlockerID string `json:"blocker_id"`
+	Title     string `json:"title"`
+	Status    Status `json:"status"`
+	Done      bool   `json:"done"`
 }
 
 // ChecklistRow + ChecklistItemRow are flat DTOs surfaced through
