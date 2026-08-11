@@ -247,6 +247,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newMigrateCmd())
 	root.AddCommand(newBackupCmd())
 	root.AddCommand(newUserCmd())
+	root.AddCommand(newAgentCmd())
 
 	return root
 }
