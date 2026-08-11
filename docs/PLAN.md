@@ -1585,6 +1585,59 @@ CREATE INDEX idx_backup_log_created ON backup_log(created_at);
 
 ---
 
+## Параллельное выполнение фаз (волновой план, 2026-08-11)
+
+Фазы 13–25 могут исполняться несколькими агентами параллельно, но не в произвольном порядке: есть точки сериализации (нумерация миграций, общие файлы) и жёсткие зависимости по данным.
+
+### Назначение номеров миграций (заранее, во избежание коллизий)
+
+| Миграция | Фаза | Файл |
+|---|---|---|
+| 014 | Phase 14 follow-up | `014_child_tasks_inherit_column.sql` (занят) |
+| 015 | Phase 16 | `015_inbox_no_project.sql` |
+| 016 | Phase 15 | `016_task_dependencies.sql` (в тексте фазы — `014_*`, перенумеровать при реализации) |
+| 017 | Phase 18 | `017_courses.sql` |
+| 018 | Phase 13 | `018_task_color.sql` (в тексте фазы — `013_*`, перенумеровать) |
+
+### Горячие файлы и контракты владения
+
+- `internal/api/router.go`, `web/src/shared/api/client.ts` — трогают почти все фазы, но добавления идут в разные hunk'и: merge разрешается автоматически. Правило: только append-only добавления маршрутов/методов, без рефакторинга соседних блоков.
+- `web/src/features/projects/TaskCard.tsx` — **владелец: Phase 17**. Phases 13 (теги) и 15 (blocked-бейдж) НЕ правят TaskCard; они отдают данные и глупые чип-компоненты (`TaskTagChip`, `TaskBlockedBadge`), а 17 встраивает их за флаги. Контракт данных: `Task.tags: {id,name,color}[]`, `Task.blocked_by_count: number` (optional).
+- `internal/storage/sqlite/task_repo.go`, `internal/service/task/move.go` — владелец Wave 0 (Phase 16+23); остальные фазы только добавляют методы, не меняя существующие.
+- `web/src/App.tsx` — маршруты добавляются append-only.
+
+### Волны
+
+```text
+Wave 0 (1 агент — точка сериализации):
+  Phase 16 + Phase 23 одной веткой (phase-16-23-inbox-techdebt).
+  Они делят move.go / ListByProject / calendar handlers; 23 дёшево.
+  └─► всё остальное ребейзится на merge этой волны.
+
+Wave 1 (до 5 агентов параллельно, после merge Wave 0):
+  A. Phase 17 (карточки)      — владелец TaskCard, агрегаты в list payload
+  B. Phase 13 (теги)          — без TaskCard; данные + редактор на странице задачи
+  C. Phase 15 (зависимости)   — миграция 016; без TaskCard; agent listing
+  D. Phase 22 (restore)       — полностью ортогональна
+  E. Phase 19 (review queue)  — новые файлы; router append-only
+  (опционально F. Phase 18 (courses) — крупная, новые файлы, миграция 017)
+
+Wave 2 (после Wave 1):
+  G. Phase 20 + 21 одним агентом (Сегодня + quick capture; 21 зависит от Inbox)
+  H. Phase 25 (agent DX)      — нужен agent listing из Phase 15
+  I. Phase 24 (OpenAPI+stats) — ПОСЛЕДНЕЙ: route-coverage тест требует
+     устоявшейся API-поверхности.
+```
+
+### Правила волн
+
+- Каждый агент — отдельный worktree (AGENTS.md, «Worktree per task»), ветка от **текущего** `dev` на момент старта волны.
+- Merge в `dev` по готовности без ожидания других; при конфликте в горячем файле — ребейз/merge `dev` в свою ветку и повторная проверка `make test`.
+- Запрещено в параллельных ветках: редактировать чужие миграции, менять подписи экспортируемых функций из чужой территории, рефакторить общие файлы сверх своих hunk'ов.
+- Wave-граница = все ветки волны смержены и `make test && npx vitest` зелёные на `dev`.
+
+---
+
 ## Workflow для AI-агентов
 
 Этот файл используется AI-агентами, которые пишут код Orenda. Рекомендации:
@@ -1615,3 +1668,4 @@ CREATE INDEX idx_backup_log_created ON backup_log(created_at);
 | 2026-08-11 | 0.8.0 | Phase 18: личные курсы, создаваемые ИИ-агентами (LMS-модель) |
 | 2026-08-11 | 0.9.0 | Phases 19–24: ревью-очередь, «Сегодня», quick capture, restore, техдолг WIP+RRULE, OpenAPI+stats; workflow rule 11 (worktree) |
 | 2026-08-11 | 0.10.0 | Phase 25: agent DX — MCP server, CLI (orenda agent), skill-пакет |
+| 2026-08-11 | 0.11.0 | Волновой план параллельного выполнения фаз 13–25 (миграции, горячие файлы, волны) |
