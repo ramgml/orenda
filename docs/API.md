@@ -136,6 +136,7 @@ Inline accept / return goes through the standard review endpoint (`POST /api/v1/
 | POST | `/api/v1/backups/test` | git push of mirror |
 | POST | `/api/v1/backups/snapshot` | write snapshot now |
 | GET | `/api/v1/backups/snapshots` | list |
+| POST | `/api/v1/backups/restore` | body `{path}`; refuses when the server is up and returns a hint pointing at the CLI (`orenda backup restore --from <path> --yes`). The CLI command (Phase 22) writes a safety-copy to `<dest>.pre-restore-<ts>`, runs migrations, and verifies with `integrity_check` + `foreign_key_check` |
 | GET | `/api/v1/backups/log` | recent log |
 
 ## Offline sync

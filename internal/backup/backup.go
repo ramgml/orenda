@@ -393,6 +393,21 @@ func (s *Service) Restore(_ context.Context, snapshotPath, destPath string) erro
 	return nil
 }
 
+// SafetyCopyPath returns the path the CLI writes a "pre-restore" copy
+// of the live database to. The suffix carries a Unix timestamp so
+// multiple restores don't clobber each other's safety copies.
+//
+// We never overwrite an existing safety copy (restoring twice in the
+// same second is the operator's problem to manage); a timestamp
+// granularity of one second is good enough for the install's recovery
+// workflow.
+func SafetyCopyPath(destPath string, t time.Time) string {
+	if destPath == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s.pre-restore-%d", destPath, t.Unix())
+}
+
 // IsServerRunning returns true when the orenda server is listening on
 // host:port. Used by the CLI to refuse in-place restore while the live
 // database is open.
