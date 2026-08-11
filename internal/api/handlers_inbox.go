@@ -30,6 +30,10 @@ import (
 //
 // Ordering: by created_at DESC (newest first) — the natural reading
 // order for a capture log.
+//
+// Phase 17: hydrates the same per-task counters as the project board
+// so the inbox page renders the lightweight TaskCard without a
+// round-trip per card.
 func listInboxTasksHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		f := task.Filter{NoProject: true}
@@ -39,7 +43,7 @@ func listInboxTasksHandler(deps Dependencies) http.HandlerFunc {
 		// We don't filter by ColumnID here — inbox tasks have column_id
 		// IS NULL, and asking for one explicitly would yield an empty
 		// list (useful as a sentinel but not for the inbox UI).
-		tasks, err := deps.Tasks.ListByProject(r.Context(), f)
+		tasks, err := deps.Tasks.ListByProjectWithStats(r.Context(), f)
 		if err != nil {
 			writeError(w, err)
 			return

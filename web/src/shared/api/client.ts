@@ -110,6 +110,14 @@ export interface Task {
    * wire that enrichment; until then the field stays undefined on
    * list responses and the UI falls back to []). */
   tags?: Tag[]
+  /** Phase 17: per-task counters populated by GET /projects/{id}/tasks
+   * and /inbox/tasks (the list endpoints). Always undefined on the
+   * single-task endpoint — the card UI treats absence as "0". */
+  counters?: TaskCounters
+  /** Phase 17: number of unfinished blockers (Phase 15 graph). Populated
+   * by the list endpoints; undefined when the field isn't set. The
+   * blocked badge renders only when this is > 0. */
+  blocked_by_count?: number
   due_at?: string
   started_at?: string
   claimed_at?: string
@@ -149,6 +157,21 @@ export interface BlockerRow {
   title: string
   status: string
   done: boolean
+}
+
+/**
+ * Phase 17: bundle of per-task counters attached to the list
+ * endpoints. Comments/attachments are direct row counts; children
+ * and checklist carry done/total so the card can render a progress
+ * fraction.
+ */
+export interface TaskCounters {
+  comments: number
+  attachments: number
+  children_total: number
+  children_done: number
+  checklist_total: number
+  checklist_done: number
 }
 
 export interface Agent {

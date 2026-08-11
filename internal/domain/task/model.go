@@ -126,8 +126,33 @@ type Task struct {
 	// recurrence and the master renders as a single occurrence.
 	Recurrence string `json:"recurrence,omitempty"`
 
+	// Phase 17: aggregate counters populated by the list endpoint
+	// so the kanban card can render "comments / attachments /
+	// progress" without a per-card fetch. Always optional — GET
+	// /tasks/{id} doesn't set them; the handlers that wrap
+	// ListByProject do. The card UI treats absent values as "0".
+	Counters *TaskCounters `json:"counters,omitempty"`
+
+	// Phase 15: number of unfinished blockers. Same optional
+	// lifecycle — only set by list endpoints that join with
+	// task_dependencies. The card uses it to render the "blocked"
+	// badge; absent ⇒ not blocked.
+	BlockedByCount int `json:"blocked_by_count,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// TaskCounters is the bundle of per-task counts the kanban card
+// renders. Phase 17 aggregates them in a single SQL query so the
+// card render doesn't fan out into per-row fetches.
+type TaskCounters struct {
+	Comments       int `json:"comments"`
+	Attachments    int `json:"attachments"`
+	ChildrenTotal  int `json:"children_total"`
+	ChildrenDone   int `json:"children_done"`
+	ChecklistTotal int `json:"checklist_total"`
+	ChecklistDone  int `json:"checklist_done"`
 }
 
 // Validate returns an error if the Task fields are inconsistent.

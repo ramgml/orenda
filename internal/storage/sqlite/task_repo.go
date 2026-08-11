@@ -159,6 +159,187 @@ func (r *taskRepo) ListByProject(ctx context.Context, f task.Filter) ([]*task.Ta
 	return out, rows.Err()
 }
 
+// ListByProjectWithStats returns tasks from ListByProject with the
+// per-task Counters (comments/attachments/children/checklist_items)
+// and BlockedByCount populated in a single round-trip per metric.
+//
+// The implementation runs four aggregate queries keyed by the result
+// set's task IDs rather than N+1 per-task queries. For a kanban
+// board with 100 cards the per-render cost is bounded to ~5 SQL
+// queries instead of ~100.
+//
+// Used by the /projects/{id}/board and /inbox/tasks endpoints
+// (Phase 17).
+func (r *taskRepo) ListByProjectWithStats(ctx context.Context, f task.Filter) ([]*task.Task, error) {
+	tasks, err := r.ListByProject(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	if len(tasks) == 0 {
+		return tasks, nil
+	}
+	ids := make([]string, len(tasks))
+	for i, t := range tasks {
+		ids[i] = t.ID
+	}
+	counters, err := r.aggregateCounters(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	blockers, err := r.aggregateBlockers(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range tasks {
+		if c, ok := counters[t.ID]; ok {
+			t.Counters = &c
+		}
+		t.BlockedByCount = blockers[t.ID]
+	}
+	return tasks, nil
+}
+
+// aggregateCounters returns counts[comments/attachments/children/
+// checklist_items] for each task id. Tasks with no activity get
+// zero-valued counters (not missing keys).
+func (r *taskRepo) aggregateCounters(ctx context.Context, ids []string) (map[string]task.TaskCounters, error) {
+	out := make(map[string]task.TaskCounters, len(ids))
+	for _, id := range ids {
+		out[id] = task.TaskCounters{}
+	}
+	placeholders := strings.Repeat("?, ", len(ids)-1) + "?"
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+
+	// comments: target_type='task' AND target_id IN (...)
+	q := `SELECT target_id, COUNT(*) FROM comments
+	      WHERE target_type = 'task' AND target_id IN (` + placeholders + `)
+	      GROUP BY target_id`
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("aggregateCounters.comments: %w", err)
+	}
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		c := out[id]
+		c.Comments = n
+		out[id] = c
+	}
+	rows.Close()
+
+	// attachments
+	q = `SELECT target_id, COUNT(*) FROM attachments
+	      WHERE target_type = 'task' AND target_id IN (` + placeholders + `)
+	      GROUP BY target_id`
+	rows, err = r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("aggregateCounters.attachments: %w", err)
+	}
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		c := out[id]
+		c.Attachments = n
+		out[id] = c
+	}
+	rows.Close()
+
+	// children (parent_task_id)
+	q = `SELECT parent_task_id,
+	             COUNT(*),
+	             SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END)
+	      FROM tasks WHERE parent_task_id IN (` + placeholders + `)
+	      GROUP BY parent_task_id`
+	rows, err = r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("aggregateCounters.children: %w", err)
+	}
+	for rows.Next() {
+		var id string
+		var total, done int
+		if err := rows.Scan(&id, &total, &done); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		c := out[id]
+		c.ChildrenTotal = total
+		c.ChildrenDone = done
+		out[id] = c
+	}
+	rows.Close()
+
+	// checklist items: join through checklists to find items for each task.
+	q = `SELECT c.task_id, COUNT(ci.id), SUM(CASE WHEN ci.done = 1 THEN 1 ELSE 0 END)
+	      FROM checklists c
+	      LEFT JOIN checklist_items ci ON ci.checklist_id = c.id
+	      WHERE c.task_id IN (` + placeholders + `)
+	      GROUP BY c.task_id`
+	rows, err = r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("aggregateCounters.checklist: %w", err)
+	}
+	for rows.Next() {
+		var id string
+		var total, done int
+		if err := rows.Scan(&id, &total, &done); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		c := out[id]
+		c.ChecklistTotal = total
+		c.ChecklistDone = done
+		out[id] = c
+	}
+	rows.Close()
+
+	return out, nil
+}
+
+// aggregateBlockers returns the open-blocker count per task id.
+// "Open" means the blocker is not yet done.
+func (r *taskRepo) aggregateBlockers(ctx context.Context, ids []string) (map[string]int, error) {
+	out := make(map[string]int, len(ids))
+	for _, id := range ids {
+		out[id] = 0
+	}
+	placeholders := strings.Repeat("?, ", len(ids)-1) + "?"
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	q := `SELECT d.task_id, COUNT(*)
+	      FROM task_dependencies d
+	      JOIN tasks dep ON dep.id = d.depends_on_task_id
+	      WHERE d.task_id IN (` + placeholders + `)
+	        AND dep.status != 'done' AND dep.completed_at IS NULL
+	      GROUP BY d.task_id`
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("aggregateBlockers: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		out[id] = n
+	}
+	return out, nil
+}
+
 func (r *taskRepo) Update(ctx context.Context, t *task.Task) error {
 	if err := t.Validate(); err != nil {
 		return err

@@ -143,7 +143,9 @@ describe('TaskCard', () => {
       </MemoryRouter>,
     )
     const cardColored = getCardRoot(withColor.container)
-    expect(cardColored.style.borderLeftWidth).toBe('3px')
+    // Phase 17: the stripe comes from the inline `borderLeftColor` (the
+    // width is now a Tailwind class `border-l-4`, so the inline style
+    // only covers the colour). The colour is the one the user picked.
     expect(cardColored.style.borderLeftColor).toBe('rgb(14, 165, 233)')
   })
 

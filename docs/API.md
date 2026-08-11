@@ -31,8 +31,8 @@ All JSON. Errors are `{"error": "<code>"}` with a 4xx/5xx status.
 |---|---|---|
 | GET/POST | `/api/v1/projects` | list / create (auto-creates board + 5 columns) |
 | GET/PATCH/DELETE | `/api/v1/projects/{id}` | |
-| GET | `/api/v1/projects/{id}/board` | board + columns |
-| GET/POST | `/api/v1/projects/{id}/tasks` | filter: `?status=`, `?column_id=` |
+| GET | `/api/v1/projects/{id}/board` | board + columns; tasks carry `counters` + `blocked_by_count` (Phase 17) |
+| GET/POST | `/api/v1/projects/{id}/tasks` | filter: `?status=`, `?column_id=`. Listing endpoints populate `counters` + `blocked_by_count` (Phase 17) |
 | PATCH | `/api/v1/columns/{id}` | name, position, wip_limit |
 
 ## Tasks
