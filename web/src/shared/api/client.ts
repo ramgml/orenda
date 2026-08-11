@@ -139,6 +139,18 @@ export interface ReviewQueueItem {
   project_color: string
 }
 
+/**
+ * Phase 15: one blocker in a task's dependency graph. `done` is true
+ * when the blocker has reached status='done' (or has completed_at set);
+ * the UI uses it to grey out satisfied dependencies on the task page.
+ */
+export interface BlockerRow {
+  blocker_id: string
+  title: string
+  status: string
+  done: boolean
+}
+
 export interface Agent {
   id: string
   name: string
@@ -624,6 +636,26 @@ class ApiClient {
 
   getReviewQueueCount(): Promise<{ count: number }> {
     return this.http.get<{ count: number }>(`/api/v1/review-queue/count`).then((r) => r.data)
+  }
+
+  // ---- Task dependencies (Phase 15) ----
+  //
+  // PUT replaces the full blocker set in one shot — empty array clears.
+  // GET returns ALL blockers (open + satisfied) so the UI can show
+  // "blocked by N (M still open)" without an extra round-trip.
+
+  listTaskBlockers(taskId: string): Promise<{ blockers: BlockerRow[] }> {
+    return this.http
+      .get<{ blockers: BlockerRow[] }>(`/api/v1/tasks/${taskId}/blockers`)
+      .then((r) => r.data)
+  }
+
+  setTaskDependencies(taskId: string, dependsOnIds: string[]): Promise<{ blockers: BlockerRow[] }> {
+    return this.http
+      .put<{ blockers: BlockerRow[] }>(`/api/v1/tasks/${taskId}/dependencies`, {
+        depends_on_ids: dependsOnIds,
+      })
+      .then((r) => r.data)
   }
 
   // ---- Events (Phase 4) ----

@@ -233,6 +233,10 @@ func NewRouter(deps Dependencies) http.Handler {
 					// Create a child through POST /api/v1/projects/:pid/tasks
 					// with `parent_task_id` set; list with GET /children.
 					r.Get("/children", listChildTasksHandler(deps))
+					// Phase 15: dependencies (user-side, cookie auth).
+					r.Get("/blockers", getTaskBlockersHandler(deps))
+					r.Get("/dependents", getTaskDependentsHandler(deps))
+					r.Put("/dependencies", putTaskDependenciesHandler(deps))
 					// Phase 13: per-task tag assignment.
 					r.Get("/tags", listTaskTagsHandler(deps))
 					r.Put("/tags", setTaskTagsHandler(deps))
@@ -381,6 +385,10 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Get("/agent/me", agentMeHandler(deps))
 				r.Post("/agent/heartbeat", agentHeartbeatHandler(deps))
 				r.Route("/agent/tasks", func(r chi.Router) {
+					// Phase 15: list tasks the agent could act on.
+					// Supports ?ready=true to filter out blocked or
+					// already-claimed tasks — the agent's "inbox".
+					r.Get("/", listAgentTasksHandler(deps))
 					r.Route("/{id}", func(r chi.Router) {
 						r.Post("/claim", agentClaimTaskHandler(deps))
 						r.Post("/release", agentReleaseTaskHandler(deps))

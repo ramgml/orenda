@@ -21,6 +21,7 @@ import { ChildTasksList } from './ChildTasksList'
 import { AttachmentsList } from './AttachmentsList'
 import { ChecklistsList } from './ChecklistsList'
 import { TagsList } from './TagsList'
+import { BlockedByList } from './BlockedByList'
 import { TaskLink } from './TaskModal'
 
 /**
@@ -381,6 +382,7 @@ export function TaskViewBody({
         {task.due_at && <SidebarField label="Due" value={task.due_at} />}
         <ColorPicker value={task.color} onSave={onSaveColor} busy={busy} />
         <TagsList taskId={taskId} initial={tags} />
+        <BlockedByList taskId={taskId} projectId={task.project_id || ''} />
         <div className="rounded border border-slate-200 dark:border-slate-800 p-3">
           <p className="text-xs text-slate-500 mb-1">Time tracking</p>
           <p className="font-mono mb-2">{(task.time_spent_s / 60).toFixed(1)} min</p>

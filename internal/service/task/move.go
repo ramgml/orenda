@@ -20,10 +20,32 @@ import (
 // Sentinel errors returned by Service. Handlers translate these into HTTP
 // status codes (mirrors api.writeError semantics).
 var (
-	ErrNotFound     = errors.New("task service: not found")
-	ErrColumnFull   = errors.New("task service: column WIP limit reached")
-	ErrInvalidInput = errors.New("task service: invalid input")
+	ErrNotFound         = errors.New("task service: not found")
+	ErrColumnFull       = errors.New("task service: column WIP limit reached")
+	ErrInvalidInput     = errors.New("task service: invalid input")
+	ErrTaskBlocked      = errors.New("task service: task is blocked by unfinished dependencies")
+	ErrDependencyCycle  = errors.New("task service: dependency cycle")
+	ErrSelfDependency   = errors.New("task service: task cannot depend on itself")
+	ErrDependencyExists = errors.New("task service: dependency already exists")
 )
+
+// BlockedError is returned by Claim when the task has unfinished
+// dependencies. It carries the list of open blocker IDs so the
+// caller can render "still blocked by these" instead of a generic
+// 422 message.
+type BlockedError struct {
+	BlockerIDs []string
+}
+
+func (e *BlockedError) Error() string {
+	return fmt.Sprintf("task service: task is blocked by %d unfinished dependencies", len(e.BlockerIDs))
+}
+
+// Is implements the errors.Is contract: a BlockedError matches
+// ErrTaskBlocked so callers can `errors.Is(err, ErrTaskBlocked)`.
+func (e *BlockedError) Is(target error) bool {
+	return target == ErrTaskBlocked
+}
 
 // MoveOptions captures how a task should be placed inside the target column.
 //
@@ -268,6 +290,29 @@ func (s *Service) Claim(ctx context.Context, taskID, agentID string) (*task.Task
 		return nil, errors.New("task service: Claim requires a Locks backend")
 	}
 
+	// Phase 15: refuse to claim a task whose dependencies aren't all
+	// 'done'. We check this BEFORE acquiring the lock so a denied
+	// claim doesn't leave a stale lock row behind. The list of
+	// unfinished blockers goes onto the error so the agent can show
+	// the user "still blocked by these".
+	blockers, err := s.Tasks.Blockers(ctx, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("task service: Claim: blockers: %w", err)
+	}
+	var openBlockers []task.BlockerRow
+	for _, b := range blockers {
+		if !b.Done {
+			openBlockers = append(openBlockers, b)
+		}
+	}
+	if len(openBlockers) > 0 {
+		ids := make([]string, len(openBlockers))
+		for i, b := range openBlockers {
+			ids[i] = b.BlockerID
+		}
+		return nil, &BlockedError{BlockerIDs: ids}
+	}
+
 	if err := s.Locks.Acquire(ctx, taskID, agentID); err != nil {
 		if errors.Is(err, sqlite.ErrLockTaken) {
 			return nil, ErrLockTaken
@@ -335,6 +380,147 @@ func (s *Service) Release(ctx context.Context, taskID, agentID string) (*task.Ta
 
 	s.publishTask(ctx, "task.released", tr, agentID, map[string]any{"agent_id": agentID})
 	return tr, nil
+}
+
+// SetTaskDependencies replaces a task's full blocker set.
+//
+// We run a DFS-based cycle check before the swap: a cycle would mean
+// a task transitively depends on itself, which Claim() can't enforce
+// (the cycle may only surface after the new edges are in). The DFS
+// treats dependsOnIDs as the new outgoing edges from `taskID` and
+// asks: does any of them reach back to taskID through the existing
+// graph plus the new edges?
+//
+// Empty dependsOnIDs clears every blocker (use case: split a task —
+// once split, the orphan blockers should disappear).
+func (s *Service) SetTaskDependencies(ctx context.Context, taskID string, dependsOnIDs []string) error {
+	if taskID == "" {
+		return ErrInvalidInput
+	}
+	// Reject direct self-loops early.
+	for _, dep := range dependsOnIDs {
+		if dep == "" {
+			continue
+		}
+		if dep == taskID {
+			return ErrSelfDependency
+		}
+	}
+	// De-dupe (the caller may pass the same id twice; we don't
+	// care but the DFS would loop).
+	seen := make(map[string]struct{}, len(dependsOnIDs))
+	cleaned := make([]string, 0, len(dependsOnIDs))
+	for _, dep := range dependsOnIDs {
+		if dep == "" {
+			continue
+		}
+		if _, dup := seen[dep]; dup {
+			continue
+		}
+		seen[dep] = struct{}{}
+		cleaned = append(cleaned, dep)
+	}
+
+	// Confirm the target task exists. If not, every depends-on id check
+	// below returns false anyway; we want a clean ErrNotFound up front.
+	if _, err := s.Tasks.GetByID(ctx, taskID); err != nil {
+		if errors.Is(err, task.ErrNotFound) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	// Cycle check: build an adjacency map of "current graph + new edges"
+	// (capped to nodes we actually care about — the deps of deps), then
+	// DFS from each new edge looking for taskID.
+	if err := s.checkDependencyCycles(ctx, taskID, cleaned); err != nil {
+		return err
+	}
+
+	if err := s.Tasks.SetTaskDependencies(ctx, taskID, cleaned); err != nil {
+		// Translate domain sentinels so the handler only deals with
+		// service-level errors.
+		if errors.Is(err, task.ErrSelfDependency) {
+			return ErrSelfDependency
+		}
+		return err
+	}
+	// Fire WS event so other tabs refresh their badge/blockers view.
+	if s.Hub != nil {
+		s.Hub.Publish(ctx, ws.Event{Topic: "tasks", Body: map[string]any{
+			"type":       "task.deps_changed",
+			"task_id":    taskID,
+			"depends_on": cleaned,
+		}})
+	}
+	return nil
+}
+
+// checkDependencyCycles walks the dependency graph (starting from
+// each proposed edge) and returns ErrDependencyCycle if any path
+// leads back to taskID.
+//
+// We only fetch the edges once and reuse — the graph is small in
+// practice (single user, focused projects). For pathological cases
+// we'd bound the visit count.
+func (s *Service) checkDependencyCycles(ctx context.Context, taskID string, proposedEdges []string) error {
+	if len(proposedEdges) == 0 {
+		return nil
+	}
+	// Gather every task id we'll need to look up edges for: the
+	// proposed nodes plus whatever they transitively depend on.
+	seeds := append([]string{}, proposedEdges...)
+	visited := make(map[string]bool)
+	edges := make(map[string][]string) // from -> [to]
+
+	queue := append([]string{}, seeds...)
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if visited[cur] {
+			continue
+		}
+		visited[cur] = true
+		// Direct edges from cur.
+		blockers, err := s.Tasks.Blockers(ctx, cur)
+		if err != nil {
+			return fmt.Errorf("checkDependencyCycles: blockers of %s: %w", cur, err)
+		}
+		var next []string
+		for _, b := range blockers {
+			next = append(next, b.BlockerID)
+		}
+		edges[cur] = next
+		queue = append(queue, next...)
+	}
+
+	// DFS from each proposed edge: if we ever land on taskID, cycle.
+	const maxSteps = 1024
+	for _, start := range proposedEdges {
+		stack := []string{start}
+		seen := make(map[string]bool)
+		steps := 0
+		for len(stack) > 0 {
+			steps++
+			if steps > maxSteps {
+				// Cycle-ish: bail rather than spin.
+				return ErrDependencyCycle
+			}
+			cur := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if cur == taskID {
+				return ErrDependencyCycle
+			}
+			if seen[cur] {
+				continue
+			}
+			seen[cur] = true
+			for _, next := range edges[cur] {
+				stack = append(stack, next)
+			}
+		}
+	}
+	return nil
 }
 
 // Submit marks a task as ready for human review (status=review,
