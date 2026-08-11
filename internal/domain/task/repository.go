@@ -120,6 +120,31 @@ type Repository interface {
 	ListTagsForTask(ctx context.Context, taskID string) ([]Tag, error)
 	SetTaskTags(ctx context.Context, taskID string, tagIDs []string) error
 	TagsForTasks(ctx context.Context, taskIDs []string) (map[string][]Tag, error)
+
+	// ---- Review queue (Phase 19) ----
+	//
+	// ListAwaitingReview returns every task awaiting human action,
+	// newest-first. "Awaiting" is the union of two signals:
+	//
+	//   - awaiting='human'   — agent submitted, awaiting owner verdict
+	//   - status='review'    — same logical state; we accept both for
+	//                          safety (legacy code path may set status
+	//                          without setting awaiting, or vice-versa)
+	//
+	// Inbox tasks (project_id IS NULL after Phase 16) are included;
+	// the joined project name + colour come back as empty strings.
+	ListAwaitingReview(ctx context.Context) ([]ReviewQueueItem, error)
+}
+
+// ReviewQueueItem is a task awaiting review, denormalised with its
+// project name + colour so the /review page can render a header line
+// without an extra round-trip.
+//
+// Project fields are empty strings for Inbox tasks (project_id IS NULL).
+type ReviewQueueItem struct {
+	Task         *Task  `json:"task"`
+	ProjectName  string `json:"project_name"`
+	ProjectColor string `json:"project_color"`
 }
 
 // ChecklistRow + ChecklistItemRow are flat DTOs surfaced through

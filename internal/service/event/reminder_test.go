@@ -106,6 +106,12 @@ func (f *fakeRepo) TagsForTasks(context.Context, []string) (map[string][]task.Ta
 	return map[string][]task.Tag{}, nil
 }
 
+// ListAwaitingReview is unused by the reminder path; Phase 19 added
+// it to the interface and the fake has to satisfy the contract.
+func (f *fakeRepo) ListAwaitingReview(context.Context) ([]task.ReviewQueueItem, error) {
+	return nil, nil
+}
+
 // withStart helper — Set StartAt + EndAt on a task for the fake.
 func withStart(t *task.Task, start time.Time) *task.Task {
 	t.StartAt = &start

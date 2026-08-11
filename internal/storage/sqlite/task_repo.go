@@ -282,6 +282,110 @@ func (r *taskRepo) ChildProgress(ctx context.Context, parentID string) (total, d
 }
 
 // ---------------------------------------------------------------------------
+// Review queue (Phase 19)
+// ---------------------------------------------------------------------------
+//
+// One query: tasks where awaiting='human' OR status='review',
+// LEFT JOIN'd with projects (NULL-safe after Phase 16 dropped the
+// system Inbox). Ordered by updated_at DESC so the most recently
+// submitted work shows at the top of the queue.
+//
+// The handler may call this on every WS event for the badge counter
+// (cheap query, idx_tasks_status covers the WHERE clause).
+
+func (r *taskRepo) ListAwaitingReview(ctx context.Context) ([]task.ReviewQueueItem, error) {
+	const q = `
+		SELECT t.id, t.project_id, t.parent_task_id, t.column_id, t.title, t.description,
+		       t.status, t.priority, t.assignee_type, t.assignee_id, t.awaiting,
+		       t.context_md, t.agent_notes, t.due_at, t.started_at, t.claimed_at, t.completed_at,
+		       t.time_estimate_s, t.time_spent_s, t.position,
+		       t.start_at, t.end_at, t.all_day, t.color, t.recurrence, t.created_at, t.updated_at,
+		       COALESCE(p.name, '')  AS project_name,
+		       COALESCE(p.color, '') AS project_color
+		FROM tasks t
+		LEFT JOIN projects p ON p.id = t.project_id
+		WHERE t.awaiting = 'human' OR t.status = 'review'
+		ORDER BY t.updated_at DESC, t.created_at DESC
+	`
+	rows, err := r.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("task.ListAwaitingReview: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]task.ReviewQueueItem, 0)
+	for rows.Next() {
+		var (
+			item        task.ReviewQueueItem
+			projectName string
+			projectCol  string
+		)
+		// item.Task is *Task; the address-of fields below would NPE
+		// without an explicit backing struct.
+		item.Task = &task.Task{}
+		// scanTaskRow reads the task columns; the extra two strings are
+		// tail-position so we read them after the task fields. We can't
+		// share scanTaskRow directly because of the column ordering;
+		// inline-scan keeps the JOIN narrow and obvious.
+		var (
+			projectID, parent, columnID    sql.NullString
+			desc, assigneeType, assigneeID sql.NullString
+			contextMD, agentNotes          sql.NullString
+			due, started, claimed, compl   sql.NullString
+			calStart, calEnd, color        sql.NullString
+			recurrence                     sql.NullString
+			allDay                         int
+			estS                           sql.NullInt64
+			status, priority, awaiting     string
+			created, updated               string
+		)
+		if err := rows.Scan(
+			&item.Task.ID, &projectID, &parent, &columnID, &item.Task.Title, &desc,
+			&status, &priority, &assigneeType, &assigneeID, &awaiting,
+			&contextMD, &agentNotes,
+			&due, &started, &claimed, &compl,
+			&estS, &item.Task.TimeSpentS, &item.Task.Position,
+			&calStart, &calEnd, &allDay, &color, &recurrence, &created, &updated,
+			&projectName, &projectCol,
+		); err != nil {
+			return nil, fmt.Errorf("task.ListAwaitingReview: scan: %w", err)
+		}
+		t := item.Task
+		t.ProjectID = projectID.String
+		t.ParentTaskID = parent.String
+		t.ColumnID = columnID.String
+		t.Description = desc.String
+		t.Status = task.Status(status)
+		t.Priority = task.Priority(priority)
+		t.AssigneeType = task.AssigneeType(assigneeType.String)
+		t.AssigneeID = assigneeID.String
+		t.Awaiting = task.Awaiting(awaiting)
+		t.ContextMD = contextMD.String
+		t.AgentNotes = agentNotes.String
+		t.DueAt = parseTimePtr(due)
+		t.StartedAt = parseTimePtr(started)
+		t.ClaimedAt = parseTimePtr(claimed)
+		t.CompletedAt = parseTimePtr(compl)
+		t.StartAt = parseTimePtr(calStart)
+		t.EndAt = parseTimePtr(calEnd)
+		t.AllDay = allDay != 0
+		t.Color = color.String
+		t.Recurrence = recurrence.String
+		if estS.Valid {
+			v := int(estS.Int64)
+			t.TimeEstimateS = &v
+		}
+		t.CreatedAt = parseTime(created)
+		t.UpdatedAt = parseTime(updated)
+		item.Task = t
+		item.ProjectName = projectName
+		item.ProjectColor = projectCol
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+// ---------------------------------------------------------------------------
 // Tags (Phase 13)
 // ---------------------------------------------------------------------------
 //

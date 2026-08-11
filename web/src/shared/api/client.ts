@@ -128,6 +128,17 @@ export interface Tag {
   color?: string
 }
 
+/**
+ * Phase 19: a task awaiting human action, joined with its project name
+ * and colour so the /review page can render a single-row layout without
+ * extra fetches. Project fields are empty strings for Inbox tasks.
+ */
+export interface ReviewQueueItem {
+  task: Task
+  project_name: string
+  project_color: string
+}
+
 export interface Agent {
   id: string
   name: string
@@ -597,6 +608,22 @@ class ApiClient {
     return this.http
       .post<Task>(`/api/v1/tasks/${taskId}/review`, { decision, comment: comment ?? '' })
       .then((r) => r.data)
+  }
+
+  // ---- Review queue (Phase 19) ----
+  //
+  // One endpoint surfaces the union of "awaiting=human" and
+  // "status=review" tasks, joined with their project name + colour.
+  // The same handler powers the /review page and the sidebar badge.
+
+  listReviewQueue(): Promise<{ tasks: ReviewQueueItem[]; count: number }> {
+    return this.http
+      .get<{ tasks: ReviewQueueItem[]; count: number }>(`/api/v1/review-queue`)
+      .then((r) => r.data)
+  }
+
+  getReviewQueueCount(): Promise<{ count: number }> {
+    return this.http.get<{ count: number }>(`/api/v1/review-queue/count`).then((r) => r.data)
   }
 
   // ---- Events (Phase 4) ----

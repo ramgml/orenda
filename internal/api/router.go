@@ -321,6 +321,14 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Post("/tasks", createInboxTaskHandler(deps))
 			})
 
+			// Phase 19: review queue — tasks awaiting human action.
+			// One screen with everything waiting on the owner's verdict;
+			// actions are POST /api/v1/tasks/:id/review (Phase 3).
+			r.Route("/review-queue", func(r chi.Router) {
+				r.Get("/", listReviewQueueHandler(deps))
+				r.Get("/count", reviewQueueCountHandler(deps))
+			})
+
 			r.Get("/reports/time", reportTimeHandler(deps))
 
 			// Phase 5: wiki + FTS5 search.
