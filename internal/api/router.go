@@ -42,10 +42,12 @@ import (
 	"github.com/ramgml/orenda/internal/backup"
 	"github.com/ramgml/orenda/internal/bot"
 	"github.com/ramgml/orenda/internal/domain/agent"
+	"github.com/ramgml/orenda/internal/domain/course"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
+	coursesvc "github.com/ramgml/orenda/internal/service/course"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
@@ -115,6 +117,9 @@ type Dependencies struct {
 	// can report its size. Optional — left empty in tests that
 	// don't run a real DB.
 	DBPath string
+	// Phase 18: course repository + service.
+	Courses       course.Repository
+	CourseService *coursesvc.Service
 }
 
 // SyncOpsStore is the small surface the sync endpoint needs for
@@ -347,6 +352,21 @@ func NewRouter(deps Dependencies) http.Handler {
 			// due-today, scheduled-today, awaiting count, active timer.
 			r.Get("/today", getTodayHandler(deps))
 
+			// Phase 18: courses (LMS). User side — full CRUD, approve,
+			// request-changes, complete lesson. The agent side is
+			// mounted under RequireAgent further below.
+			r.Route("/courses", func(r chi.Router) {
+				r.Get("/", listCoursesHandler(deps))
+				r.Post("/", createCourseHandler(deps))
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", getCourseHandler(deps))
+					r.Delete("/", deleteCourseHandler(deps))
+					r.Post("/approve", approveCourseHandler(deps))
+					r.Post("/request-changes", requestChangesCourseHandler(deps))
+				})
+			})
+			r.Post("/lessons/{id}/complete", completeLessonHandler(deps))
+
 			r.Get("/reports/time", reportTimeHandler(deps))
 
 			// Phase 5: wiki + FTS5 search.
@@ -409,6 +429,11 @@ func NewRouter(deps Dependencies) http.Handler {
 						r.Post("/submit", agentSubmitTaskHandler(deps))
 						r.Get("/context", agentTaskContextHandler(deps))
 					})
+				})
+				// Phase 18: courses for the tutor agent.
+				r.Route("/agent/courses", func(r chi.Router) {
+					r.Get("/", listCoursesHandlerAgent(deps))
+					r.Put("/{id}/curriculum", submitCurriculumHandlerAgent(deps))
 				})
 			})
 		}
