@@ -302,6 +302,44 @@ func (r *projectRepo) UpdateColumn(ctx context.Context, c *project.Column) error
 	return nil
 }
 
+// DeleteColumn removes a column by id. Returns ErrNotFound when no
+// row matches and ErrColumnNotEmpty when at least one task still
+// references the column via tasks.column_id.
+//
+// We check the task count BEFORE issuing the DELETE because the FK
+// tasks.column_id is declared as ON DELETE SET NULL — silently
+// unlinking tasks from their column would lose board context without
+// the user noticing. Rejecting with 422 forces the caller (UI or API
+// client) to move tasks out first.
+func (r *projectRepo) DeleteColumn(ctx context.Context, id string) error {
+	if id == "" {
+		return project.ErrInvalidInput
+	}
+
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM tasks WHERE column_id = ?`, id).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("project.DeleteColumn: count tasks: %w", err)
+	}
+	if count > 0 {
+		return project.ErrColumnNotEmpty
+	}
+
+	res, err := r.db.ExecContext(ctx, `DELETE FROM columns WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("project.DeleteColumn: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("project.DeleteColumn: rows: %w", err)
+	}
+	if n == 0 {
+		return project.ErrNotFound
+	}
+	return nil
+}
+
 // GetColumn fetches a single column by id, returning ErrNotFound when missing.
 func (r *projectRepo) GetColumn(ctx context.Context, id string) (*project.Column, error) {
 	const q = `

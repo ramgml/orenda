@@ -30,6 +30,8 @@ func SetAPILogger(l *zap.Logger) { apiLogger = l }
 // Use this from every handler so the wire format stays consistent.
 func writeError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, project.ErrColumnNotEmpty):
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "column_not_empty"})
 	case errors.Is(err, user.ErrNotFound),
 		errors.Is(err, project.ErrNotFound),
 		errors.Is(err, task.ErrNotFound),

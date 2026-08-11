@@ -13,8 +13,9 @@ import (
 
 // Sentinel errors returned by project repository implementations.
 var (
-	ErrNotFound     = errors.New("project: not found")
-	ErrInvalidInput = errors.New("project: invalid input")
+	ErrNotFound       = errors.New("project: not found")
+	ErrInvalidInput   = errors.New("project: invalid input")
+	ErrColumnNotEmpty = errors.New("project: column has tasks")
 )
 
 // Project is the canonical project entity.

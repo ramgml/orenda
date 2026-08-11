@@ -255,6 +255,13 @@ export function KanbanBoard({
                 onColumnUpdated={(updated) =>
                   setCols((cur) => cur.map((c) => (c.id === updated.id ? updated : c)))
                 }
+                onColumnDeleted={(colId) => {
+                  // Phase 12.6: drop the column locally so the UI
+                  // updates immediately; the WS broadcast does the
+                  // same on every other tab.
+                  setCols((cur) => cur.filter((c) => c.id !== colId))
+                  setTasks((cur) => cur.filter((t) => t.column_id !== colId))
+                }}
               />
             ))}
             <AddColumnTile projectId={projectId} onCreated={(c) => setCols((cur) => [...cur, c])} />
@@ -281,12 +288,14 @@ function SortableColumnView({
   tasks,
   onCreate,
   onColumnUpdated,
+  onColumnDeleted,
 }: {
   column: Column
   projectId: string
   tasks: Task[]
   onCreate: (title: string) => Promise<void>
   onColumnUpdated: (col: Column) => void
+  onColumnDeleted: (colId: string) => void
 }): JSX.Element {
   const {
     attributes,
@@ -310,6 +319,7 @@ function SortableColumnView({
         tasks={tasks}
         onCreate={onCreate}
         onColumnUpdated={onColumnUpdated}
+        onColumnDeleted={onColumnDeleted}
         dragHandleProps={listeners}
       />
     </div>
