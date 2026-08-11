@@ -667,14 +667,18 @@ class ApiClient {
     overdue: Task[]
     due_today: Task[]
     scheduled_today: Task[]
+    upcoming_week: { date: string; count: number }[]
     awaiting_count: number
+    active_timer?: { task_id: string; started_at: string }
   }> {
     return this.http
       .get<{
         overdue: Task[]
         due_today: Task[]
         scheduled_today: Task[]
+        upcoming_week: { date: string; count: number }[]
         awaiting_count: number
+        active_timer?: { task_id: string; started_at: string }
       }>(`/api/v1/today`)
       .then((r) => r.data)
   }
