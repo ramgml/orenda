@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 
 import { api, type Project, type Task } from '@/shared/api/client'
+import { TaskCard } from '@/features/projects/TaskCard'
 import { openTaskModal } from '@/features/tasks/TaskModal'
+import { queueUpdateTask } from '@/shared/offline/outbox'
 
 /**
  * Inbox — flat list of unfiled tasks.
@@ -16,6 +17,11 @@ import { openTaskModal } from '@/features/tasks/TaskModal'
  * Sorting: newest first (matches ListInBox ordering).
  * Quick-add: a textarea + button at the top; submits to the inbox
  * endpoint. Empty title = no-op.
+ *
+ * Phase Wave 4 PR 2: cards now reuse the shared TaskCard component
+ * (priority border, due badge, counters, etc.) instead of the old
+ * minimal InboxRow. The file-project dropdown and delete button live
+ * alongside as sibling actions.
  */
 export function InboxPage(): JSX.Element {
   const [tasks, setTasks] = useState<Task[]>([])
@@ -61,6 +67,19 @@ export function InboxPage(): JSX.Element {
   async function onFile(taskId: string, projectId: string): Promise<void> {
     setError(null)
     try {
+      // Phase Wave 4 PR 2: file-under-project goes through the
+      // outbox when the client is offline. The dedicated
+      // update_task path is better than the bare PATCH because
+      // it carries an idempotency key.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        await queueUpdateTask(taskId, { project_id: projectId || '' })
+        // Optimistic removal from the inbox list — the task is
+        // no longer in the inbox on the server.
+        if (projectId !== '') {
+          setTasks((cur) => cur.filter((t) => t.id !== taskId))
+        }
+        return
+      }
       await api.patchTask(taskId, { project_id: projectId || '' })
       // If filing under a project, drop the card; if filing back to
       // "" (would happen only via an explicit empty value), keep it
@@ -155,49 +174,27 @@ function InboxRow({
   onFile: (id: string, projectId: string) => Promise<void>
   onDelete: (id: string) => Promise<void>
 }): JSX.Element {
-  const handleOpen = (): void => {
-    // Modal on top of the current page; the inbox list keeps scroll
-    // position and the form draft behind the overlay.
-    void openTaskModal(
-      // We don't have navigate/location here; pull from window
-      // location is heavy. TaskModal handles both modal-only and
-      // navigate-and-modal flows — the simpler path is to use
-      // window.history + window.location directly.
-      // The TaskModal signature requires NavigateFunction; fall back
-      // to a plain navigation via window.location as a safety net.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ((path: string) => { window.location.href = path }) as unknown as never,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      window.location as unknown as never,
-      task.id,
-    )
-  }
-
+  // Phase Wave 4 PR 2: delegate rendering to the shared TaskCard
+  // (priority border, due badge, counters, awaiting/blocked/child
+  // counts). The file/delete controls live in a sibling column so
+  // they don't fight with the card's own click target.
+  //
+  // We pass `onOpen` so the card routes to the modal overlay (same
+  // path as the kanban). Without `onOpen`, the card would use
+  // the global modal helper, which is fine too — but the explicit
+  // hook here keeps the inbox inline with the rest of the app.
   return (
-    <li className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-3 flex gap-3 items-start">
-      <Link
-        to={`/tasks/${task.id}`}
-        onClick={(e) => {
-          // Prefer the modal overlay; only fall through to navigation
-          // if the modal isn't available (e.g. tests).
-          e.preventDefault()
-          handleOpen()
-        }}
-        className="flex-1 min-w-0"
-      >
-        <p className="text-slate-800 dark:text-slate-100">{task.title}</p>
-        {task.description && (
-          <p className="text-xs text-slate-500 mt-1 line-clamp-2">
-            {task.description}
-          </p>
-        )}
-        <div className="flex gap-3 text-[10px] text-slate-400 mt-1 font-mono">
-          <span>{task.status}</span>
-          <span>{task.priority}</span>
-          <span>{new Date(task.created_at).toLocaleDateString()}</span>
-        </div>
-      </Link>
-      <div className="flex flex-col gap-1 items-end shrink-0">
+    <li className="flex gap-3 items-start">
+      <div className="flex-1 min-w-0">
+        <TaskCard task={task} onOpen={() => void openTaskModal(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ((path: string) => { window.location.href = path }) as unknown as never,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          window.location as unknown as never,
+          task.id,
+        )} />
+      </div>
+      <div className="flex flex-col gap-1 items-end shrink-0 pt-2">
         <label className="text-[10px] text-slate-500">File under</label>
         <select
           value=""

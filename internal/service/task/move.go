@@ -90,8 +90,14 @@ type Service struct {
 	Locks    Locks
 	Recorder Recorder
 	Comments CommentAdder
-	Hub      Hub
-	Mirror   MirrorWriter
+	// CommentLister is the seam MirrorSave uses to fetch the
+	// task's current comment thread for the markdown mirror. The
+	// concrete implementation is *comment.Service; nil means
+	// "no comments in the mirror" (no behaviour change for
+	// installs that don't wire it).
+	CommentLister CommentLister
+	Hub           Hub
+	Mirror        MirrorWriter
 	// Columns exposes the project columns repository — used by
 	// Move() to (a) check WIP limits (Phase 23.1) and (b) resolve
 	// the project that owns the target column so an Inbox card
@@ -639,6 +645,11 @@ func (s *Service) publishTask(ctx context.Context, eventType string, tr *task.Ta
 // Phase 13: fetches the task's current tags and threads them into the
 // mirror frontmatter. Each tag fetch failure is swallowed — the next
 // push run will re-fetch and pick up the latest set.
+//
+// Phase Wave 4 PR 2: also fetches the task's comment thread so the
+// markdown mirror carries the discussion. Without this the audit's
+// "mirror не пишет комментарии" gap stays open. Nil CommentLister
+// is OK — the section is just omitted.
 func (s *Service) MirrorSave(ctx context.Context, tr *task.Task) {
 	if s.Mirror == nil || tr == nil {
 		return
@@ -667,7 +678,14 @@ func (s *Service) MirrorSave(ctx context.Context, tr *task.Task) {
 		itemsByList[r.ID] = conv
 	}
 	tags, _ := s.Tasks.ListTagsForTask(ctx, tr.ID)
-	_, _ = s.Mirror.WriteTask(tr, cls, itemsByList, nil, tags)
+	// Phase Wave 4 PR 2: pull the comment thread so the mirror
+	// shows the discussion. A failure to fetch is non-fatal — the
+	// next push re-tries.
+	var comments []*commentdomain.Comment
+	if s.CommentLister != nil {
+		comments, _ = s.CommentLister.ListByTarget(ctx, commentdomain.TargetTask, tr.ID)
+	}
+	_, _ = s.Mirror.WriteTask(tr, cls, itemsByList, comments, tags)
 }
 
 // mirrorSave is the internal alias kept for service-internal callers.
@@ -718,6 +736,13 @@ const (
 // comment. *comment.Service satisfies it.
 type CommentAdder interface {
 	Add(ctx context.Context, in *CommentInput) (string, error)
+}
+
+// CommentLister is the tiny surface MirrorSave uses to fetch
+// the task's comments. *comment.Service satisfies it; nil is
+// OK (the mirror omits the section).
+type CommentLister interface {
+	ListByTarget(ctx context.Context, targetType commentdomain.TargetType, targetID string) ([]*commentdomain.Comment, error)
 }
 
 // Sentinel errors returned by Claim/Release/Submit/Review.

@@ -150,6 +150,33 @@ func (r *agentRepo) SweepOffline(ctx context.Context, ttl time.Duration) (int64,
 	return res.RowsAffected()
 }
 
+// ListStaleOnlineAgents returns the agents that the next sweep will
+// flip to offline. Phase Wave 4 PR 2: callers (notifier) use this
+// to emit `agent.offline` events per-agent before the UPDATE runs.
+// We don't have a single round-trip SELECT-then-UPDATE because the
+// race window is the SweepTTL (2 min) and the events are
+// best-effort — duplicate notifications are fine.
+func (r *agentRepo) ListStaleOnlineAgents(ctx context.Context, ttl time.Duration) ([]*agent.Agent, error) {
+	cutoff := formatTime(time.Now().Add(-ttl))
+	q := agentSelectColumns +
+		` WHERE status = ? AND (last_seen_at IS NULL OR last_seen_at < ?)
+		  ORDER BY last_seen_at IS NULL DESC, last_seen_at ASC`
+	rows, err := r.db.QueryContext(ctx, q, string(agent.StatusOnline), cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("agent.ListStaleOnlineAgents: %w", err)
+	}
+	defer rows.Close()
+	out := make([]*agent.Agent, 0)
+	for rows.Next() {
+		a, err := scanAgentRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 // SQL constants — kept here so all agent queries are in one place.
 const agentSelectColumns = `
 SELECT id, name, type, description, token_id, last_seen_at, status, max_concurrent, created_at

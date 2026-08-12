@@ -19,6 +19,7 @@ import (
 	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/user"
+	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 )
 
 // Sentinel errors.
@@ -53,6 +54,35 @@ func (f RecorderFunc) Record(ctx context.Context, agentID, action, payload strin
 	return f(ctx, agentID, action, payload)
 }
 
+// NotifierEmitter is the slim surface agent.Service needs from
+// the notifier package. The concrete *notifier.Service satisfies
+// it; the field is optional (nil disables the `agent.offline`
+// event).
+//
+// We accept the notifier's own Event type so the JSON tags and
+// field validation stay in one place. This pulls in a thin
+// dependency on the notifier package — acceptable because
+// notifier → bot is the only cycle, and we're not on that path.
+type NotifierEmitter interface {
+	Notify(ctx context.Context, e notifierservice.Event) error
+}
+
+// notifierEventFor builds the offline-event shape for a single
+// agent. Title/Body match the templates' "agent X went offline"
+// voice; the dedup key is type+target so the next sweep (every
+// 30s) doesn't re-emit for the same agent until it comes back
+// online and goes offline again.
+func notifierEventFor(a *agent.Agent) notifierservice.Event {
+	return notifierservice.Event{
+		Type:       "agent.offline",
+		TargetType: "agent",
+		TargetID:   a.ID,
+		Title:      a.Name + " went offline",
+		Body:       "No heartbeat in the last 2 minutes.",
+		DedupKey:   "agent.offline:" + a.ID,
+	}
+}
+
 // TokenMinter is the small surface Service.Register needs from the
 // api_tokens storage. We pass a closure rather than a full Repo so the
 // service stays decoupled from sqlite.StoredToken.
@@ -67,6 +97,12 @@ type Service struct {
 	Tokens   TokenMinter
 	Hub      Hub
 	Recorder Recorder
+
+	// Phase Wave 4 PR 2: notifier used to fan out
+	// `agent.offline` events from the SweepOffline path. nil is
+	// OK (events are best-effort; the production server wires
+	// this).
+	Notifier NotifierEmitter
 
 	// SweepInterval is the period between background sweeps. cmd/orenda
 	// wires a ticker that calls SweepOffline.
@@ -230,7 +266,18 @@ func (s *Service) Heartbeat(ctx context.Context, agentID string) (*agent.Agent, 
 // SweepOffline flips stale agents to offline and returns the number of
 // rows updated. Called by the StatusCalculator background ticker in
 // cmd/orenda (Phase 3.5).
+//
+// Phase Wave 4 PR 2: when a Notifier is wired, also emits
+// `agent.offline` per affected agent. The events are best-effort
+// (errors are logged) and dedup'd on the receiver side via
+// (type, target_id) so the next sweep doesn't re-emit.
 func (s *Service) SweepOffline(ctx context.Context) (int64, error) {
+	if s.Notifier != nil {
+		stale, _ := s.Agents.ListStaleOnlineAgents(ctx, s.SweepTTL)
+		for _, a := range stale {
+			_ = s.Notifier.Notify(ctx, notifierEventFor(a))
+		}
+	}
 	return s.Agents.SweepOffline(ctx, s.SweepTTL)
 }
 

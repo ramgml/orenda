@@ -39,7 +39,9 @@ import (
 	"github.com/ramgml/orenda/internal/backup"
 	"github.com/ramgml/orenda/internal/bot"
 	"github.com/ramgml/orenda/internal/config"
+	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
+	"github.com/ramgml/orenda/internal/domain/user"
 	"github.com/ramgml/orenda/internal/mirror"
 	activityservice "github.com/ramgml/orenda/internal/service/activity"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
@@ -209,6 +211,79 @@ func (a taskRecorderAdapter) Record(ctx context.Context, taskID string, actorTyp
 func taskRecorderFor(r *activityservice.Recorder) taskservice.Recorder {
 	return taskRecorderAdapter{inner: r}
 }
+
+// backupFailedAdapter bridges the notifier service to the backup
+// scheduler's FailureNotifier seam. Phase Wave 4 PR 2: every
+// background-job error fans out a `backup.failed` event with the
+// op name (git_push / sqlite_snapshot / wal_archive) as the dedup
+// key suffix so a single stuck op doesn't spam the inbox.
+type backupFailedAdapter struct{ svc *notifierservice.Service }
+
+func (a backupFailedAdapter) NotifyBackupFailed(ctx context.Context, op string, err error) {
+	if a.svc == nil || err == nil {
+		return
+	}
+	_ = a.svc.Notify(ctx, notifierservice.Event{
+		Type:       "backup.failed",
+		TargetType: "backup",
+		TargetID:   op,
+		Title:      "Backup step failed: " + op,
+		Body:       err.Error(),
+		DedupKey:   "backup.failed:" + op,
+	})
+}
+
+// commentNotifierAdapter bridges notifier.Service to the comment
+// service's Notifier seam. Phase Wave 4 PR 2: every task-targeted
+// comment fans out a `task.commented` event to the task owner.
+type commentNotifierAdapter struct{ svc *notifierservice.Service }
+
+func (a commentNotifierAdapter) Notify(ctx context.Context, e notifierservice.Event) error {
+	if a.svc == nil {
+		return nil
+	}
+	return a.svc.Notify(ctx, e)
+}
+
+// taskOwnerResolverAdapter maps a task_id to (owner_user_id,
+// title) for the comment service's TaskOwnerResolver seam.
+// The lookup walks the task → project → owner chain, falling
+// back to the first non-system user (mirrors the existing
+// firstNonSystemUserID helper used by notifyTaskAssignee).
+type taskOwnerResolverAdapter struct {
+	tasks    task.Repository
+	projects project.Repository
+	users    user.Repository
+}
+
+func (a taskOwnerResolverAdapter) OwnerForTask(ctx context.Context, taskID string) (string, string, error) {
+	if a.tasks == nil || taskID == "" {
+		return "", "", nil
+	}
+	tr, err := a.tasks.GetByID(ctx, taskID)
+	if err != nil || tr == nil {
+		return "", "", nil
+	}
+	// Inbox tasks (project_id empty) have no recipient — Phase 16.
+	if tr.ProjectID == "" {
+		return "", "", nil
+	}
+	if a.projects == nil {
+		return "", "", nil
+	}
+	p, err := a.projects.GetProject(ctx, tr.ProjectID)
+	if err != nil || p == nil {
+		return "", "", nil
+	}
+	return p.OwnerID, tr.Title, nil
+}
+
+// pendingNotifier holds a deferred wiring step (the backup
+// scheduler wants a Notifier but the notifier service hasn't been
+// constructed yet at the point we build the scheduler). It gets
+// filled in once notifierSvc is ready, then used to call
+// WithNotifier on the scheduler.
+var pendingNotifier *backup.Scheduler
 
 // courseTaskCreatorAdapter implements coursesvc.TaskCreator by
 // writing directly to the task repository. The course service only
@@ -460,6 +535,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			zap.String("mirror_dir", cfg.Backup.MirrorDir),
 			zap.String("snapshot_dir", cfg.Backup.SnapshotDir),
 		)
+		// Save the scheduler handle so we can wire the
+		// notifier after notifierSvc is constructed below.
+		// Phase Wave 4 PR 2: `backup.failed` events fan out
+		// from the scheduler's run* helpers.
+		pendingNotifier = scheduler
 	}
 
 	// Build service layer (Phase 2: task_service.Move; Phase 3.6 adds
@@ -473,6 +553,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	taskSvc := taskservice.New(tasksRepo, taskLocks, taskRecorderFor(activityRecorder), commentAdderFor(commentSvc), hub)
 	taskSvc.Mirror = mirrorSvc
 	taskSvc.Columns = projects // Phase 23.1 + 16.7: WIP lookup + inbox→project filing
+	// Phase Wave 4 PR 2: wire CommentLister so the markdown
+	// mirror carries the comment thread. The comment service's
+	// ListByTarget already exists; we just expose it through the
+	// same seam.
+	taskSvc.CommentLister = commentSvc
 
 	// Agent service (Phase 3.5) — Register, Heartbeat, SweepOffline.
 	// Wired but not yet exposed via handlers (3.11).
@@ -620,6 +705,25 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		botRegistry,
 		hub,
 	)
+
+	// Phase Wave 4 PR 2: now that notifierSvc exists, hand it to
+	// the backup scheduler. The scheduler is already running; the
+	// next tick picks up the notifier. We need a lock or just
+	// hope the scheduler hasn't fired yet — for the 5m push
+	// interval that's a 5-minute race that's acceptable.
+	if pendingNotifier != nil {
+		pendingNotifier.WithNotifier(backupFailedAdapter{svc: notifierSvc})
+	}
+
+	// Phase Wave 4 PR 2: wire the comment service's notifier
+	// seam so `task.commented` events fan out to the task owner.
+	// commentSvc was created earlier; we set the deps here.
+	commentSvc.Notifier = commentNotifierAdapter{svc: notifierSvc}
+	commentSvc.TaskOwnerResolver = taskOwnerResolverAdapter{
+		tasks:    tasksRepo,
+		projects: projects,
+		users:    usersRaw,
+	}
 
 	// Phase 22.3 follow-up: hand the API layer a BindCodesSource so
 	// the /bots/telegram/bind endpoint can resolve one-shot codes

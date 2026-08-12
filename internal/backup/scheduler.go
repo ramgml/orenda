@@ -17,12 +17,22 @@ import (
 	"time"
 )
 
+// FailureNotifier is the slim seam the scheduler uses to emit
+// `backup.failed` events when a background job errors. nil is OK
+// (events are best-effort). Phase Wave 4 PR 2 closes the audit
+// gap "Notifier не эмитит backup.failed".
+type FailureNotifier interface {
+	NotifyBackupFailed(ctx context.Context, op string, err error)
+}
+
 // Scheduler drives the periodic backup jobs.
 type Scheduler struct {
 	svc          *Service
 	pushInterval time.Duration
 	snapInterval time.Duration
 	walInterval  time.Duration
+	// Phase Wave 4 PR 2: optional notifier for failure events.
+	Notifier FailureNotifier
 }
 
 // NewScheduler returns a Scheduler with default intervals.
@@ -48,6 +58,14 @@ func (s *Scheduler) WithIntervals(push, snap, wal time.Duration) *Scheduler {
 	if wal > 0 {
 		s.walInterval = wal
 	}
+	return s
+}
+
+// WithNotifier wires a FailureNotifier. Phase Wave 4 PR 2:
+// `backup.failed` events fire on every scheduled-job error when
+// this is set; nil is fine (events are best-effort).
+func (s *Scheduler) WithNotifier(n FailureNotifier) *Scheduler {
+	s.Notifier = n
 	return s
 }
 
@@ -81,6 +99,9 @@ func (s *Scheduler) runPush(ctx context.Context) {
 	if err != nil {
 		status = "failed"
 		msg = err.Error()
+		if s.Notifier != nil {
+			s.Notifier.NotifyBackupFailed(ctx, "git_push", err)
+		}
 	}
 	_ = s.svc.RecordLog(ctx, "git_push", status, msg, "")
 }
@@ -92,6 +113,9 @@ func (s *Scheduler) runSnapshot(ctx context.Context) {
 	if err != nil {
 		status = "failed"
 		msg = err.Error()
+		if s.Notifier != nil {
+			s.Notifier.NotifyBackupFailed(ctx, "sqlite_snapshot", err)
+		}
 	}
 	_ = s.svc.RecordLog(ctx, "sqlite_snapshot", status, msg, path)
 }
@@ -105,6 +129,9 @@ func (s *Scheduler) runWAL(ctx context.Context) {
 	if err != nil {
 		status = "failed"
 		msg = err.Error()
+		if s.Notifier != nil {
+			s.Notifier.NotifyBackupFailed(ctx, "wal_archive", err)
+		}
 	}
 	_ = s.svc.RecordLog(ctx, "wal_archive", status, msg, "")
 }

@@ -12,6 +12,7 @@ import {
   type TaskActivity,
   type TaskAttachment,
 } from '@/shared/api/client'
+import { queueUpdateTask } from '@/shared/offline/outbox'
 import { useWebSocketTopic } from '@/shared/ws'
 import { StartTimer } from '@/features/tasks/TimerWidget'
 import { usePasteImage } from '@/features/attachments/usePasteImage'
@@ -38,6 +39,28 @@ import { TaskLink } from './TaskModal'
  * after a destructive action without needing the body to know about
  * react-router.
  */
+/**
+ * patchTaskOrQueue sends a PATCH through the offline outbox when the
+ * client is disconnected, and falls back to the regular axios call
+ * otherwise. Phase Wave 4 PR 2 closes the audit gap "PWA outbox:
+ * only create-task" — updates, moves, and comments now share the
+ * same offline-safe path as the original create.
+ *
+ * The shape mirrors api.patchTask; we return the fresh Task so the
+ * caller can update local state. On the queue path we can't return
+ * the canonical server-side row (the sync hasn't happened yet) — we
+ * return the optimistic merged task the caller can render until
+ * the next fetch lands.
+ */
+async function patchTaskOrQueue(taskId: string, patch: Record<string, unknown>): Promise<Task> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    await queueUpdateTask(taskId, patch)
+    // Optimistic local merge — the queue will replace it on sync.
+    return { ...(patch as unknown as Task), id: taskId } as Task
+  }
+  return api.patchTask(taskId, patch)
+}
+
 export function TaskViewBody({
   taskId,
   onClose,
@@ -178,7 +201,7 @@ export function TaskViewBody({
   const onSaveDescription = async (description: string): Promise<void> => {
     setBusy(true)
     try {
-      const t = await api.patchTask(taskId, { description })
+      const t = await patchTaskOrQueue(taskId, { description })
       setTask(t)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -192,7 +215,7 @@ export function TaskViewBody({
     if (!title.trim()) return
     setBusy(true)
     try {
-      const t = await api.patchTask(taskId, { title: title.trim() })
+      const t = await patchTaskOrQueue(taskId, { title: title.trim() })
       setTask(t)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -208,7 +231,7 @@ export function TaskViewBody({
   const onSaveColor = async (color: string): Promise<void> => {
     setBusy(true)
     try {
-      const t = await api.patchTask(taskId, { color })
+      const t = await patchTaskOrQueue(taskId, { color })
       setTask(t)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
