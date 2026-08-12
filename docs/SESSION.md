@@ -1,4 +1,4 @@
-# Session Snapshot — 2026-08-12 (Phase 27.1 зафиксирован; Wave 1 в работе)
+# Session Snapshot — 2026-08-12 (Phase 27 вся смержена: D1–D3 закрыты, Phase 18 close-out, Wave 4 done)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.

@@ -19,17 +19,16 @@ status: pre-alpha
 > 1. ✅ **Фронтенд WS никогда не подключался** → **закрыт 2026-08-12 в Phase 27.2 / PR 1.2** (cookie-based upgrade, см. секцию ниже). Realtime UI работает end-to-end.
 > 2. ✅ **`make build` не передавал `-tags=web_dist`** → **закрыт 2026-08-12 в Phase 27.1 / PR 1.1** (см. секцию ниже). Бинарь self-contained через `//go:embed all:dist`.
 > 3. ✅ **Теги не попадали в list-payload** → **закрыт 2026-08-12 в Phase 27.3 / PR 1.3** (см. секцию ниже). Чипы на канбане видны.
-> 3. **Теги не попадают в list-payload**: `ListByProjectWithStats` не вызывает `TagsForTasks`, у Go-типа `Task` нет поля `Tags` → чипы тегов на канбане невидимы (Phase 13).  ➜ **Phase 27.3 / PR 1.3.**
 >
 > Миграции: `.down.sql` отсутствуют глобально; нумерация съехала относительно текста фаз (wiki=008, notifications=009, backups=010, sync=011, events_to_tasks=012, courses=019; миграции 018 нет; `tasks.color` добавлен в 012).  ➜ **Wave 4 / PR 4.1.** **✅ закрыт `phase-down-migrations`** — runner с маркером `-- orenda:irreversible` + 18 парных файлов.
 >
-> Приоритет фиксов: WS-токен → `web_dist` → теги в payload → Phase 18 → Phase 26.
+> Приоритет фиксов — все выполнены 2026-08-12: WS-токен (27.2), `web_dist` (27.1), теги в payload (27.3), Phase 18 (27.4), Phase 26 (26.A–F).
 
 ---
 
 ## Phase 0 — Инициализация *(1–2 дня)*
 
-> **Аудит 2026-08-12:** 🟡 — `migrate down` — заглушка («not implemented» в `runMigrate`); `make build` без `-tags=web_dist`; Prettier не настроен. Остальное на месте (cobra, chi, /healthz, /api/v1/info, config, WAL, embed placeholder, vite proxy).
+> **Аудит 2026-08-12 (обновлено):** ✅ почти — `migrate down` реализован (Wave 4 PR 1: 18 парных `.down.sql`, маркер `-- orenda:irreversible`, 17 тестов); SPA встраивается в бинарь без build-тега (27.1: `//go:embed all:dist` + `embed-dists` в Makefile). Остался только Prettier (не настроен).
 
 **Цель:** пустой репозиторий превращается в работающий dev-окружение с health-check.
 
@@ -155,7 +154,7 @@ make build
 
 ## Phase 2 — Канбан *(1 неделя)*
 
-> **Аудит 2026-08-12:** 🟡 — **реалтайм в UI не работает** (WS-клиент никогда не получает токен, см. аудит в шапке); нет `POST /api/v1/boards`; дефолтных колонок 5, а не 4 (план сам противоречит Phase 12, где 5 — норма). Backend: Move с fractional positions, WIP-422, WS-hub, события `task.*`, dnd на @dnd-kit — есть и покрыто тестами.
+> **Аудит 2026-08-12 (обновлено):** ✅ почти — реалтайм в UI работает (27.2: cookie-based WS upgrade, E2E `ws-live.spec.ts` ловит реальный push без reload). Остаются: нет `POST /api/v1/boards`; дефолтных колонок 5, а не 4 (план сам противоречит Phase 12, где 5 — норма). Backend: Move с fractional positions, WIP-422, WS-hub, события `task.*`, dnd на @dnd-kit — покрыто тестами.
 
 **Цель:** boards, columns, drag-and-drop, WebSocket синхронизация.
 
@@ -652,7 +651,7 @@ make build
 
 ## Phase 13 — Теги и цветовые метки задач *(3–4 дня)*
 
-> **Аудит 2026-08-12:** 🟡 — CRUD тегов, `tasks.color`, PUT replace, sync-payload, mirror frontmatter, редактор на странице задачи — есть. **Теги не входят в list-payload** (`ListByProjectWithStats` без `TagsForTasks`) → чипы на канбане невидимы; нет WS-событий при смене тегов/цвета; фильтр по тегу (13.6, опц.) не сделан. Миграция `tasks.color` живёт в `012_events_to_tasks.sql`, не в отдельной 013/018.
+> **Аудит 2026-08-12 (обновлено):** ✅ почти — теги входят в list-payload (27.3: `Task.Tags []Tag`, +1 batch-запрос `TagsForTasks`, без N+1; E2E `kanban.spec.ts` проверяет цветные чипы после reload). Остаются: нет WS-событий при смене тегов/цвета; фильтр по тегу (13.6, опц.) не сделан. Миграция `tasks.color` живёт в `012_events_to_tasks.sql`.
 
 **Цель:** задачи помечаются тегами (с цветом) и цветовой меткой; теги видны чипами на канбан-карточках и на странице задачи. Сейчас тегов нет вообще: таблицы есть, а весь слой поверх — нет.
 
@@ -1028,7 +1027,7 @@ make build
 
 ## Phase 18 — Личные курсы, создаваемые ИИ-агентами *(1–1.5 недели)*
 
-> **Аудит 2026-08-12:** ❌ — MVP-скелет есть (миграция 019, createWithIntent/submitCurriculum/approve/requestChanges/completeLesson, agent list/put curriculum, CoursesPage + CourseDetailPage). Не реализовано: MaterializeLesson, AnswerQuiz, страница `/lessons/:id` (ссылка из CourseDetailPage битая), завершение курса и cross-module CompleteLesson, тесты доменных переходов/API. DoD не достижим.
+> **Аудит 2026-08-12 (обновлено после 27.4.A/B):** ✅ — LMS-цикл закрыт end-to-end: MaterializeLesson (locked→open), AnswerQuiz (exact с нормализацией; open → review-задача тьютору), GeneratorTask wire, страница `/lessons/:id` (LessonPage), endpoints user+agent, 14 service-тестов + LessonPage vitest, E2E `course.spec.ts` happy-path зелёный.
 
 **Цель:** пользователь формулирует намерение («выучить Rust за месяц, 3 раза в неделю по часу»), внешний ИИ-агент-тьютор строит программу курса, материализует уроки и упражнения и проверяет ответы. Курс — first-class LMS-сущность (программа → модули → уроки → вопросы), а упражнения остаются обычными задачами, чтобы переиспользовать claim/submit/review-flow агентов.
 
@@ -1203,7 +1202,7 @@ make build
 
 ## Phase 22 — Restore-from-snapshot *(2–3 дня)*
 
-> **Аудит 2026-08-12:** ✅ — CLI restore pipeline (guard → safety-copy → atomic swap → migrate → integrity/foreign_key check), maintenance mode (atomic.Bool, non-GET блокируется), in-process restore handler, тесты — есть. Оговорка: UI-кнопка в Settings→Backups показывает только CLI hint; in-process restore из UI не замкнут.
+> **Аудит 2026-08-12 (обновлено):** ✅ — CLI restore pipeline (guard → safety-copy → atomic swap → migrate → integrity/foreign_key check), maintenance mode (atomic.Bool), in-process restore handler, тесты — есть. UI restore замкнут (22.3): кнопка в Settings→Backups делает in-process restore через maintenance mode.
 
 **Цель:** бэкап-контур Phase 7 замыкается: восстановление из sqlite-снапшота через CLI и UI, с safety-copy и post-restore миграциями. Бэкап без проверенного restore — не бэкап.
 
@@ -1341,7 +1340,7 @@ make build
 
 ## Phase 26 — Верификация фронтенда: E2E smoke + component coverage *(3–4 дня)*
 
-> **Аудит 2026-08-12 (обновлено после merge 26.A–F):** ✅ — 6 Playwright spec-файлов / 8 тестов (auth, today, quick-capture, kanban, review, ws-live) против реального бинаря на порту 21371; 188 vitest-тестов покрывают все 17 feature-директорий; `make test` включает vitest; есть `make test-e2e`. Побочные прод-изменения 26.E: env-конфиг rate limit (`ORENDA_RATELIMIT_*`).
+> **Аудит 2026-08-12 (обновлено после merge 26.A–F + 27.x):** ✅ — 7 Playwright spec-файлов / 10 тестов (auth, today, quick-capture, kanban + tag-chips, review, ws-live, course happy-path) против реального бинаря на порту 21371, прогон 2026-08-12: 10/10 зелёный; 199 vitest-тестов покрывают все 17 feature-директорий; `make test` включает vitest; есть `make test-e2e`.
 
 **Цель:** регрессии фронтенда ловятся тестами, а не глазами при dogfooding. Два слоя: **vitest** — логика страниц и компонентов (инфраструктура уже есть), **Playwright** — критические потоки целиком против реального бинаря (роутинг + REST + WS + auth). Отменяет зафиксированное ранее решение пропустить E2E (SESSION.md 2026-08-08, «Что можно дальше»).
 
