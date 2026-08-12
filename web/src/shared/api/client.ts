@@ -804,14 +804,50 @@ class ApiClient {
   getCourse(id: string): Promise<{
     course: Course
     modules: { id: string; course_id: string; title: string; description?: string; position: number }[]
-    lessons: { id: string; module_id: string; title: string; position: number; status: string }[]
+    lessons: {
+      id: string
+      module_id: string
+      title: string
+      position: number
+      status: string
+      // Phase 27.4: lesson body and exercise link. The backend
+      // emits these on every tree response (listLessonsInCourse
+      // scans `content_md` and `task_id`), so the frontend can
+      // resolve a single lesson without an extra round-trip.
+      content_md?: string
+      task_id?: string
+    }[]
+    quizzes?: {
+      id: string
+      lesson_id: string
+      position: number
+      question_md: string
+      expected_md?: string
+      kind: 'open' | 'exact'
+    }[]
     progress: { lessons_total: number; lessons_done: number }
   }> {
     return this.http
       .get<{
         course: Course
         modules: { id: string; course_id: string; title: string; description?: string; position: number }[]
-        lessons: { id: string; module_id: string; title: string; position: number; status: string }[]
+        lessons: {
+          id: string
+          module_id: string
+          title: string
+          position: number
+          status: string
+          content_md?: string
+          task_id?: string
+        }[]
+        quizzes?: {
+          id: string
+          lesson_id: string
+          position: number
+          question_md: string
+          expected_md?: string
+          kind: 'open' | 'exact'
+        }[]
         progress: { lessons_total: number; lessons_done: number }
       }>(`/api/v1/courses/${id}`)
       .then((r) => r.data)
@@ -829,6 +865,22 @@ class ApiClient {
 
   completeLesson(id: string): Promise<unknown> {
     return this.http.post<unknown>(`/api/v1/lessons/${id}/complete`, {}).then((r) => r.data)
+  }
+
+  // Phase 27.4: submit a quiz answer. Returns the grading result:
+  // exact quizzes come back with `correct` set; open quizzes come
+  // back with `review_task_id` for the tutor agent to claim.
+  answerQuiz(
+    lessonId: string,
+    quizId: string,
+    answer: string,
+  ): Promise<{ correct: boolean; feedback_md?: string; review_task_id?: string }> {
+    return this.http
+      .post<{ correct: boolean; feedback_md?: string; review_task_id?: string }>(
+        `/api/v1/lessons/${lessonId}/quizzes/${quizId}/answer`,
+        { answer },
+      )
+      .then((r) => r.data)
   }
 
   // ---- Wiki (Phase 5) ----

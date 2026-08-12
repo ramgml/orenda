@@ -275,7 +275,7 @@ func (r *courseRepo) UpdateLesson(ctx context.Context, l *course.Lesson) error {
 // interpreted as NULL (clears the link).
 func (r *courseRepo) UpdateLessonContent(ctx context.Context, lessonID, contentMD string, status course.LessonStatus, taskID string) error {
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE course_lessons SET content_md=?, status=?, task_id=?, updated_at=datetime('now')
+		`UPDATE course_lessons SET content_md=?, status=?, task_id=?
 		 WHERE id = ?`,
 		contentMD, string(status), nullString(taskID), lessonID,
 	)
