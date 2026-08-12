@@ -74,6 +74,10 @@ export function QuickCapture() {
       const created = await api.createInboxTask({ title: t })
       setCreated(created)
       setTitle('')
+    } catch {
+      // Swallow: the modal stays open so the user can retry. The
+      // create-inbox-task endpoint shouldn't fail in practice (it
+      // only requires a title); a future phase may surface this.
     } finally {
       setBusy(false)
     }
