@@ -621,6 +621,16 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		hub,
 	)
 
+	// Phase 22.3 follow-up: hand the API layer a BindCodesSource so
+	// the /bots/telegram/bind endpoint can resolve one-shot codes
+	// minted by the bot on /start. The bot may not be running
+	// (token unset), in which case we pass nil — the API returns
+	// 503 with a hint and the UI shows the offline state.
+	var bindCodes api.BindCodesSource
+	if tg, ok := botRegistry.Get("telegram").(*bot.Telegram); ok && tg != nil {
+		bindCodes = tg.BindCodes
+	}
+
 	// Phase 8 follow-up: recurring-event reminder scheduler.
 	// Scans the [now+Lead, now+Lead+Window] band every Tick and fires
 	// event.upcoming_1h notifications for the project owner. PRD F-C-4.
@@ -683,6 +693,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		BackupRemoteAuthSet: cfg.Backup.RemoteAuth != "",
 		SyncOps:             sqlite.NewSyncOpsRepository(db),
 		BotCallback:         botCallback,
+		BotBindCodes:        bindCodes,
 		WSHub:               hub,
 		CookieName:          cfg.Auth.CookieName,
 		DBPath:              cfg.ResolveDBPath("."),

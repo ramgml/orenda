@@ -966,6 +966,44 @@ paths:
       security: [{ bearerAuth-cookie: [] }]
       responses: { '201': { description: created } }
 
+  /api/v1/bots/telegram/bind:
+    post:
+      tags: [notifications, bots]
+      summary: Bind a Telegram chat to the current user (Phase 22.3 follow-up).
+      description: |
+        Resolves the one-shot onboarding code the bot issued on
+        `/start` into a chat id and creates a default subscription
+        with the standard event set (task.review_needed,
+        task.assigned_to_me, mention.created, task.commented).
+        Codes are 6 hex chars, expire after 10 minutes, and are
+        consumed atomically — a double-click from the UI returns
+        404 the second time.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, description: '6-char hex from /start reply' }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chat_id: { type: integer }
+                  username: { type: string }
+                  subscription_id: { type: string }
+        '400': { description: invalid_json / missing_code }
+        '404': { description: code_unknown }
+        '410': { description: code_expired }
+        '503': { description: telegram_bot_not_running }
+
   /api/v1/notifications/subscriptions/{id}:
     delete:
       tags: [notifications]
