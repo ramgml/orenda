@@ -155,6 +155,114 @@ export async function createTag(
   return resp.json()
 }
 
+// ---------------------------------------------------------------------------
+// Course fixtures (Phase 27.4 E2E).
+// ---------------------------------------------------------------------------
+
+export interface CourseResp {
+  id: string
+  title: string
+  intent_md: string
+  level: string
+  pace: string
+  status: string
+  owner_id: string
+  generator_task_id: string
+  created_at: string
+  updated_at: string
+}
+
+/** Create a draft course on the user side. */
+export async function createCourse(
+  ctx: APIRequestContext,
+  input: { title: string; intent_md?: string },
+): Promise<CourseResp> {
+  const resp = await ctx.post('/api/v1/courses', { data: input })
+  expect(resp.status(), `createCourse: ${await resp.text()}`).toBe(201)
+  return resp.json()
+}
+
+/** Approve a course submitted by the tutor (review → active). */
+export async function approveCourse(ctx: APIRequestContext, courseId: string): Promise<CourseResp> {
+  const resp = await ctx.post(`/api/v1/courses/${courseId}/approve`, {})
+  expect(resp.status(), `approveCourse: ${await resp.text()}`).toBe(200)
+  return resp.json()
+}
+
+/** Submit a draft curriculum (agent-side). The course is the tutor's
+ * job, so the caller must be an agent with a Bearer token. Use
+ * `loginAsAgent(plainToken)` to mint the context.
+ */
+export async function submitCurriculum(
+  ctx: APIRequestContext,
+  courseId: string,
+  modules: { title: string; position: number; lessons: { title: string; position: number }[] }[],
+): Promise<void> {
+  const resp = await ctx.put(`/api/v1/agent/courses/${courseId}/curriculum`, {
+    data: {
+      modules: modules.map((m) => ({
+        title: m.title,
+        position: m.position,
+        lessons: m.lessons.map((l) => ({
+          title: l.title,
+          position: l.position,
+        })),
+      })),
+    },
+  })
+  expect(resp.status(), `submitCurriculum: ${await resp.text()}`).toBe(200)
+}
+
+/** Fetch the full course tree (course + modules + lessons + quizzes). */
+export async function getCourseTree(
+  ctx: APIRequestContext,
+  courseId: string,
+): Promise<{
+  course: CourseResp
+  modules: { id: string; course_id: string; title: string; position: number }[]
+  lessons: { id: string; module_id: string; title: string; position: number; status: string; content_md: string; task_id: string }[]
+  quizzes: { id: string; lesson_id: string; question_md: string; expected_md: string; kind: string; position: number }[]
+  progress: { lessons_total: number; lessons_done: number }
+}> {
+  const resp = await ctx.get(`/api/v1/courses/${courseId}`)
+  expect(resp.status(), `getCourseTree: ${await resp.text()}`).toBe(200)
+  return resp.json()
+}
+
+/** Tutor-side: write content_md + flip a lesson from locked → open.
+ * Bearer-auth (agent) context required.
+ */
+export async function materializeLesson(
+  ctx: APIRequestContext,
+  lessonId: string,
+  contentMd: string,
+): Promise<void> {
+  const resp = await ctx.post(`/api/v1/agent/lessons/${lessonId}/materialize`, {
+    data: { content_md: contentMd },
+  })
+  expect(resp.status(), `materializeLesson: ${await resp.text()}`).toBe(200)
+}
+
+/** Student-side: submit a quiz answer. */
+export async function answerQuiz(
+  ctx: APIRequestContext,
+  lessonId: string,
+  quizId: string,
+  answer: string,
+): Promise<{ correct: boolean; feedback_md?: string; review_task_id?: string }> {
+  const resp = await ctx.post(`/api/v1/lessons/${lessonId}/quizzes/${quizId}/answer`, {
+    data: { answer },
+  })
+  expect(resp.status(), `answerQuiz: ${await resp.text()}`).toBe(200)
+  return resp.json()
+}
+
+/** Student-side: mark a lesson done (unlocks the next). */
+export async function completeLesson(ctx: APIRequestContext, lessonId: string): Promise<void> {
+  const resp = await ctx.post(`/api/v1/lessons/${lessonId}/complete`, {})
+  expect(resp.status(), `completeLesson: ${await resp.text()}`).toBe(200)
+}
+
 /**
  * Attach a list of tags to a task (replace semantics, Phase 13).
  * The endpoint accepts tag_ids; ordering follows the API contract.

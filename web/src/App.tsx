@@ -25,6 +25,7 @@ import { ReviewPage } from '@/features/review/ReviewPage'
 import { TodayPage } from '@/features/today/TodayPage'
 import { CoursesPage } from '@/features/courses/CoursesPage'
 import { CourseDetailPage } from '@/features/courses/CourseDetailPage'
+import { LessonPage } from '@/features/courses/LessonPage'
 import { api, type InfoResponse } from '@/shared/api/client'
 
 import { AppLayout } from '@/features/layout/AppLayout'
@@ -88,6 +89,7 @@ function Shell(): JSX.Element {
           <Route path="/review" element={<ReviewPage />} />
           <Route path="/courses" element={<CoursesPage />} />
           <Route path="/courses/:id" element={<CourseDetailPage />} />
+          <Route path="/lessons/:id" element={<LessonPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:id" element={<ProjectDetailPage />}>
             <Route index element={<ProjectKanbanTab />} />
