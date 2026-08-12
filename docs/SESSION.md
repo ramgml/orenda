@@ -12,7 +12,7 @@
 - ✅ **D2 закрыт (2026-08-12, Phase 27.1):** `make build` теперь встраивает SPA через `//go:embed all:dist`. Бинарь self-contained — `/` отдаёт 661B index.html без `web/dist/` на диске. Verify: `strings bin/orenda | grep '<div id="root"'` → 1.
 - ✅ **D3 закрыт (2026-08-12, Phase 27.3):** `Task.Tags []Tag` в `ListByProjectWithStats`, +1 batch-запрос `TagsForTasks`. Чипы на канбан-карточке видны (через `task.tags`) одним round-trip; vitest 189/189; E2E `kanban.spec.ts` создаёт тег через REST, привязывает, проверяет чип.
 - **DoD провалены (частично):** Phase 18 (нет MaterializeLesson/AnswerQuiz/страницы урока/завершения курса) — закрытие не вошло в 26.A–F. **Phase 27.4 (отдельная фаза) — после Wave 1.** **27.4.A (backend) ✅ в worktree `phase-27-4-courses-backend` — MaterializeLesson + AnswerQuiz + GeneratorTask. 27.4.B (frontend) ✅ в worktree `phase-27-4-courses-frontend` — LessonPage + E2E happy-path.**
-- **Частично (🟡):** фазы 0, 1, 2, 6, 7, 8, 9, 10, 13, 15, 17 — пробелы перечислены в PLAN.md под каждым заголовком. Wave 4 (down-миграции + мелкие 🟡).
+- **Частично (🟡):** фазы 0, 1, 2, 6, 7, 8, 9, 10, 13, 15, 17 — пробелы перечислены в PLAN.md под каждым заголовком. **Wave 4 PR 2 (mirror + notifier + PWA outbox + InboxPage) ✅ в worktree `phase-mirror-minor`.** Wave 4 down-миграции ✅.
 
 ## Wave 1 (D2 → D1 → D3) — план, согласован 2026-08-12
 
