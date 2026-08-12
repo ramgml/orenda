@@ -33,6 +33,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -159,16 +161,49 @@ func NewRouter(deps Dependencies) http.Handler {
 	r.Use(maintenanceMiddleware)
 	r.Use(corsLoopback())
 	r.Use(securityHeaders())
+	// Phase 26.E: rate limits can be cranked up via env so the Playwright
+	// suite doesn't flake on /api/v1/board-style GETs that fire on every
+	// page mount. Production defaults are unchanged.
+	anonBurst, anonPerSec := 60, 20.0
+	authBurst, authPerSec := 300, 100.0
+	if v := os.Getenv("ORENDA_RATELIMIT_AUTH_BURST"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			authBurst = n
+		}
+	}
+	if v := os.Getenv("ORENDA_RATELIMIT_AUTH_PER_SEC"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			authPerSec = f
+		}
+	}
+	if v := os.Getenv("ORENDA_RATELIMIT_ANON_BURST"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			anonBurst = n
+		}
+	}
+	if v := os.Getenv("ORENDA_RATELIMIT_ANON_PER_SEC"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			anonPerSec = f
+		}
+	}
 	r.Use(rateLimit(rateLimitOptions{
-		AnonBurst:  60,
-		AnonPerSec: 20,
-		AuthBurst:  300,
-		AuthPerSec: 100,
+		AnonBurst:  anonBurst,
+		AnonPerSec: anonPerSec,
+		AuthBurst:  authBurst,
+		AuthPerSec: authPerSec,
 		SkipPaths: map[string]bool{
-			"/healthz":   true,
-			"/api/v1/ws": true,
+			"/healthz":           true,
+			"/api/v1/ws":         true,
+			"/api/v1/me":         true,
+			"/api/v1/auth/login": true,
 		},
 	}))
+	zap.L().Info("rate limit config",
+		zap.Int("anon_burst", anonBurst),
+		zap.Float64("anon_per_sec", anonPerSec),
+		zap.Int("auth_burst", authBurst),
+		zap.Float64("auth_per_sec", authPerSec),
+	)
 
 	cfg := AuthConfig{
 		Signer:     deps.Signer,
