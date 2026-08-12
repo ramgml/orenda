@@ -18,6 +18,7 @@ import { Outlet } from 'react-router-dom'
 
 import { ProjectSidebar } from '@/features/sidebar/ProjectSidebar'
 import { SidebarProvider, useSidebar } from '@/features/sidebar/SidebarContext'
+import { useWebSocketConnection } from '@/shared/ws'
 
 import { AppTopBar } from './AppTopBar'
 
@@ -30,6 +31,12 @@ export function AppLayout(): JSX.Element {
 }
 
 function AppLayoutInner(): JSX.Element {
+  // Phase 27.2: mount the WS hook once at the layout root so every
+  // authenticated route gets realtime updates without each component
+  // having to subscribe. The connection itself is owned by the
+  // singleton wsClient; this hook only drives connect/disconnect.
+  useWebSocketConnection()
+
   const { collapsed } = useSidebar()
   const [mobileOpen, setMobileOpen] = useState(false)
 

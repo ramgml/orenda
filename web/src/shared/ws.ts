@@ -1,13 +1,13 @@
 /**
  * Singleton WebSocket client with reconnect.
  *
- * Connects to /api/v1/ws?token=<jwt>, dispatches incoming Events to
- * registered listeners by topic. Auto-reconnects with exponential backoff
- * (1s → 2s → 4s, capped at 30s) on disconnect.
+ * Connects to /api/v1/ws (same origin), the browser sends the
+ * orenda_session cookie automatically. Auto-reconnects with
+ * exponential backoff (1s → 2s → 4s, capped at 30s) on disconnect.
  *
- * Listeners receive events synchronously; the WSClient returns immediately
- * to its caller and dispatches on a goroutine-style microtask via
- * Promise.resolve().then.
+ * Listeners receive events synchronously; dispatch happens inside
+ * the WS onmessage handler so subscribers don't pay a round-trip
+ * cost.
  */
 
 import { useEffect } from 'react'
@@ -26,16 +26,15 @@ class WSClient {
   private listeners = new Map<string, Set<Listener>>()
   private retryDelay = 1000
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  private token: string | null = null
   private closed = false
 
   /**
-   * Connect (or reconnect) with a fresh JWT. The token is captured at
-   * connect time so a subsequent login doesn't break the existing socket.
+   * Connect (or reconnect) to /api/v1/ws. Phase 27.2: no token
+   * parameter — authentication rides on the same-origin cookie that
+   * the browser sends automatically with the WS upgrade handshake.
    */
-  connect(token: string): void {
+  connect(): void {
     this.closed = false
-    this.token = token
     this.openSocket()
   }
 
@@ -66,9 +65,9 @@ class WSClient {
   }
 
   private openSocket(): void {
-    if (!this.token || this.closed) return
+    if (this.closed) return
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const url = `${proto}://${window.location.host}/api/v1/ws?token=${encodeURIComponent(this.token)}`
+    const url = `${proto}://${window.location.host}/api/v1/ws`
     const ws = new WebSocket(url)
     this.ws = ws
 
@@ -111,9 +110,7 @@ class WSClient {
     if (this.reconnectTimer || this.closed) return
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
-      // Token might have expired; refresh from the api client.
-      const tok = this.token
-      if (tok) {
+      if (!this.closed) {
         this.openSocket()
         this.retryDelay = Math.min(this.retryDelay * 2, 30_000)
       }
@@ -138,20 +135,21 @@ export function useWebSocketTopic(topic: string, fn: Listener): void {
 /**
  * Hook that connects/disconnects the WS whenever the user is authenticated.
  *
- * Uses the JWT captured at /auth/login time (Phase 2). Phase 3 will
- * introduce a dedicated /auth/ws-token endpoint that issues short-lived
- * tokens tied to the cookie session.
+ * Phase 27.2: no token juggling. The hook opens the socket whenever
+ * status flips to 'authenticated' and closes it on logout or unmount.
+ * The WS upgrade is authenticated via the same-origin orenda_session
+ * cookie.
  */
 export function useWebSocketConnection(): void {
-  const { status, token } = useAuth()
+  const { status } = useAuth()
   useEffect(() => {
-    if (status !== 'authenticated' || !token) {
+    if (status !== 'authenticated') {
       wsClient.disconnect()
       return
     }
-    wsClient.connect(token)
+    wsClient.connect()
     return () => {
       wsClient.disconnect()
     }
-  }, [status, token])
+  }, [status])
 }

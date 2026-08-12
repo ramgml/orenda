@@ -6,13 +6,18 @@ import { api, type UserProfile } from '@/shared/api/client'
  * Auth state and actions exposed via React context.
  *
  * The provider calls GET /api/v1/me on mount to determine whether the user
- * already has a valid cookie session. `login`/`logout` drive the same state.
+ * already has a valid cookie session. `login`/`logout` drive the same
+ * state.
+ *
+ * Phase 27.2: there is no separate JWT to keep in memory — the session
+ * lives in the HttpOnly `orenda_session` cookie that's sent automatically
+ * on the WebSocket upgrade and on every API call. UI-side token storage
+ * has been removed (it was never populated in the first place, see
+ * SESSION.md 2026-08-12 audit).
  */
 interface AuthContextValue {
   user: UserProfile | null
   status: 'loading' | 'authenticated' | 'anonymous'
-  /** JWT from the most recent /auth/login; used by the WS client. */
-  token: string | null
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
   refresh: () => Promise<void>
@@ -22,7 +27,6 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
   const [user, setUser] = useState<UserProfile | null>(null)
-  const [token, setToken] = useState<string | null>(null)
   const [status, setStatus] = useState<'loading' | 'authenticated' | 'anonymous'>('loading')
 
   const refresh = useCallback(async () => {
@@ -30,12 +34,8 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       const profile = await api.me()
       setUser(profile)
       setStatus('authenticated')
-      // Cookie-only sessions have no JWT in memory; WS uses cookie via
-      // the /auth/ws-token endpoint in Phase 3, so leaving token=null is
-      // fine.
     } catch {
       setUser(null)
-      setToken(null)
       setStatus('anonymous')
     }
   }, [])
@@ -49,9 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       role: resp.role,
       scopes: resp.scopes,
     })
-    // Token comes from the cookie (Set-Cookie: orenda_session); the
-    // body is just user info. We don't have a separate JWT to store
-    // here — cookies carry the session.
+    // The session JWT is set by the server via Set-Cookie: orenda_session;
+    // we don't (and can't — it's HttpOnly) keep it in JS memory.
     setStatus('authenticated')
   }, [])
 
@@ -60,7 +59,6 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       await api.logout()
     } finally {
       setUser(null)
-      setToken(null)
       setStatus('anonymous')
     }
   }, [])
@@ -73,14 +71,13 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
   useEffect(() => {
     api.onAuthFailure(() => {
       setUser(null)
-      setToken(null)
       setStatus('anonymous')
     })
   }, [])
 
   const value = useMemo<AuthContextValue>(
-    () => ({ user, status, token, login, logout, refresh }),
-    [user, status, token, login, logout, refresh],
+    () => ({ user, status, login, logout, refresh }),
+    [user, status, login, logout, refresh],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
