@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -57,6 +58,7 @@ import (
 	activitydomain "github.com/ramgml/orenda/internal/domain/activity"
 	attachmentdomain "github.com/ramgml/orenda/internal/domain/attachment"
 	commentdomain "github.com/ramgml/orenda/internal/domain/comment"
+	taskdomain "github.com/ramgml/orenda/internal/domain/task"
 )
 
 // apiAttachmentResult aliases api.AttachmentResult so the adapter below
@@ -206,6 +208,78 @@ func (a taskRecorderAdapter) Record(ctx context.Context, taskID string, actorTyp
 
 func taskRecorderFor(r *activityservice.Recorder) taskservice.Recorder {
 	return taskRecorderAdapter{inner: r}
+}
+
+// courseTaskCreatorAdapter implements coursesvc.TaskCreator by
+// writing directly to the task repository. The course service only
+// needs to create rows; the rest of the task pipeline (WS events,
+// activity log) is intentionally not wired here — those would
+// duplicate the createTask handler. The generator task is a
+// stand-alone "look at this course" marker; the review task is a
+// stand-alone "score this answer" marker. Both are claimable
+// through the regular agent flow.
+//
+// Phase 27.4: the course service stays free of the task service
+// dependency graph. The adapter lives in main.go where the
+// dependency wiring already lives.
+type courseTaskCreatorAdapter struct {
+	tasksRepo taskdomain.Repository
+	db        *sql.DB
+}
+
+func (a courseTaskCreatorAdapter) CreateGeneratorTask(ctx context.Context, ownerID, courseID, title, intentMD string) (string, error) {
+	t := &taskdomain.Task{
+		Title:     fmt.Sprintf("Build curriculum for: %s", title),
+		ContextMD: fmt.Sprintf("course_id=%s\nintent=%s\n", courseID, intentMD),
+		Status:    taskdomain.StatusTodo,
+		Priority:  taskdomain.PriorityMedium,
+		Awaiting:  taskdomain.AwaitingAgent,
+		// ProjectID left empty — Phase 16 inbox cards float until
+		// the agent (or the user) files them under a project.
+		AssigneeType: taskdomain.AssigneeType("user"),
+		AssigneeID:   ownerID,
+	}
+	if err := a.tasksRepo.Create(ctx, t); err != nil {
+		return "", err
+	}
+	return t.ID, nil
+}
+
+func (a courseTaskCreatorAdapter) CreateQuizReviewTask(ctx context.Context, ownerID, quizID, lessonID, answer string) (string, error) {
+	// Look up the quiz + lesson for a useful title — the tutor
+	// agent needs to know which lesson they're reviewing without
+	// a separate API call.
+	quizTitle, lessonTitle, err := a.lookupQuizContext(ctx, quizID, lessonID)
+	if err != nil {
+		return "", err
+	}
+	t := &taskdomain.Task{
+		Title:        fmt.Sprintf("Review quiz answer: %s / %s", lessonTitle, quizTitle),
+		ContextMD:    fmt.Sprintf("quiz_id=%s\nlesson_id=%s\nanswer=%s\n", quizID, lessonID, answer),
+		Status:       taskdomain.StatusTodo,
+		Priority:     taskdomain.PriorityMedium,
+		Awaiting:     taskdomain.AwaitingAgent,
+		AssigneeType: taskdomain.AssigneeType("user"),
+		AssigneeID:   ownerID,
+	}
+	if err := a.tasksRepo.Create(ctx, t); err != nil {
+		return "", err
+	}
+	return t.ID, nil
+}
+
+func (a courseTaskCreatorAdapter) lookupQuizContext(ctx context.Context, quizID, lessonID string) (quizTitle, lessonTitle string, err error) {
+	const q = `SELECT q.question_md, l.title FROM course_quizzes q
+		JOIN course_lessons l ON l.id = q.lesson_id
+		WHERE q.id = ? AND l.id = ?`
+	row := a.db.QueryRowContext(ctx, q, quizID, lessonID)
+	if err := row.Scan(&quizTitle, &lessonTitle); err != nil {
+		if err == sql.ErrNoRows {
+			return "", "", fmt.Errorf("course: quiz or lesson not found")
+		}
+		return "", "", err
+	}
+	return quizTitle, lessonTitle, nil
 }
 
 // attachmentAdapter bridges attachment.Service (returns *attachment.StoreResult)
@@ -426,6 +500,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Phase 18: courses (LMS).
 	courseRepo := sqlite.NewCourseRepository(db)
 	courseSvc := courseservice.New(courseRepo)
+	// Phase 27.4: wire the TaskCreator so CreateWithIntent actually
+	// spawns a "build the curriculum" task and AnswerQuiz (open)
+	// spawns a review task. The adapter keeps the course service
+	// from depending on the task service directly — clean seam.
+	courseSvc = courseSvc.WithTaskCreator(courseTaskCreatorAdapter{
+		tasksRepo: tasksRepo,
+		db:        db,
+	})
 
 	// Notifier (Phase 6): registry + console bot (always available) + WS
 	// hub publish. External transports land in Phase 10.

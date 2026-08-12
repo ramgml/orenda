@@ -31,6 +31,20 @@ type Repository interface {
 	// CompleteLesson path which has to walk to the next sibling.
 	GetLesson(ctx context.Context, id string) (*Lesson, error)
 	UpdateLesson(ctx context.Context, l *Lesson) error
+	// UpdateLessonContent writes the lesson's content_md/status/task_id
+	// without touching title/position. Used by MaterializeLesson.
+	// status is opaque to the repo (the service enforces the lifecycle);
+	// taskID is empty to clear the link.
+	UpdateLessonContent(ctx context.Context, lessonID, contentMD string, status LessonStatus, taskID string) error
+
+	// GetQuiz fetches a single quiz by id. Used by AnswerQuiz.
+	GetQuiz(ctx context.Context, id string) (*Quiz, error)
+
+	// ModuleCourseOwner returns the owner_id of the course that
+	// owns a given module. Used by AnswerQuiz to stamp the
+	// generated review task with the right owner — keeps the
+	// caller from having to know the module→course→owner chain.
+	ModuleCourseOwner(ctx context.Context, moduleID string) (string, error)
 
 	// ---- Quizzes ----
 	CreateQuiz(ctx context.Context, q *Quiz) error

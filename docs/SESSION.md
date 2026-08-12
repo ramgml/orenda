@@ -11,7 +11,7 @@
 - ✅ **D1 закрыт (2026-08-12, Phase 27.2):** WS-апгрейд через cookie — `AuthContext` больше не хранит JWT (и не должен), `useWebSocketConnection` подключён в `AppLayout`, фронт реально открывает `/api/v1/ws` после login. `ws-live.spec.ts` ловит настоящий WS-фрейм без `page.reload()`. 5 прогонов подряд без флейков.
 - ✅ **D2 закрыт (2026-08-12, Phase 27.1):** `make build` теперь встраивает SPA через `//go:embed all:dist`. Бинарь self-contained — `/` отдаёт 661B index.html без `web/dist/` на диске. Verify: `strings bin/orenda | grep '<div id="root"'` → 1.
 - ✅ **D3 закрыт (2026-08-12, Phase 27.3):** `Task.Tags []Tag` в `ListByProjectWithStats`, +1 batch-запрос `TagsForTasks`. Чипы на канбан-карточке видны (через `task.tags`) одним round-trip; vitest 189/189; E2E `kanban.spec.ts` создаёт тег через REST, привязывает, проверяет чип.
-- **DoD провалены (частично):** Phase 18 (нет MaterializeLesson/AnswerQuiz/страницы урока/завершения курса) — закрытие не вошло в 26.A–F. **Phase 27.4 (отдельная фаза) — после Wave 1.**
+- **DoD провалены (частично):** Phase 18 (нет MaterializeLesson/AnswerQuiz/страницы урока/завершения курса) — закрытие не вошло в 26.A–F. **Phase 27.4 (отдельная фаза) — после Wave 1.** **27.4.A (backend) ✅ в worktree `phase-27-4-courses-backend` — MaterializeLesson + AnswerQuiz + GeneratorTask. 27.4.B (frontend) — следующая сессия.**
 - **Частично (🟡):** фазы 0, 1, 2, 6, 7, 8, 9, 10, 13, 15, 17 — пробелы перечислены в PLAN.md под каждым заголовком. Wave 4 (down-миграции + мелкие 🟡).
 
 ## Wave 1 (D2 → D1 → D3) — план, согласован 2026-08-12
@@ -78,6 +78,7 @@
 | **27.1** | **web_dist embed** — `//go:embed all:dist` + Makefile `embed-dists` target; бинарь self-contained (index.html внутри), 6 тестов `internal/embed/web/embed_test.go`. |
 | **27.2** | **WS cookie auth** — handler читает `orenda_session` cookie first, потом `Authorization: Bearer`, потом `?token=` (deprecated). `useWebSocketConnection` подключён в `AppLayout`. `AuthContext` больше не хранит `token`. `ws-live.spec.ts` ловит реальный WS-фрейм без `page.reload()`. 5 прогонов E2E без флейков. |
 | **27.3** | **Tags in list-payload** — `Task.Tags []Tag`, `ListByProjectWithStats` зовёт `TagsForTasks` (5-й aggregate запрос, без N+1). `getTaskHandler` тоже подгружает теги через `ListTagsForTask` (консистентность single-task ↔ list). Чипы на канбане видны одним round-trip; vitest 189/189 (+1 цвет-бейдж тест); E2E `kanban.spec.ts` «Phase 27.3: kanban card renders coloured tag chips from list-payload». 4 прогона подряд без флейков. |
+| **27.4.A** | **Course close-out backend** — `MaterializeLesson(lessonID, contentMD, taskID)` (locked→open), `AnswerQuiz(quizID, answer)` (exact+open), `CreateWithIntent` wire'ит `GeneratorTaskID` через `TaskCreator` адаптер. Endpoints: `POST /lessons/{id}/quizzes/{qid}/answer` (user), `POST /agent/lessons/{id}/materialize`, `PUT /agent/lessons/{id}/content` (agent). 14 service-тестов. |
 
 ## Ключевые решения (не забыть)
 

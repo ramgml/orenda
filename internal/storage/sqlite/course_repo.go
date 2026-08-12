@@ -268,6 +268,64 @@ func (r *courseRepo) UpdateLesson(ctx context.Context, l *course.Lesson) error {
 	return nil
 }
 
+// UpdateLessonContent writes content_md / status / task_id without
+// touching the immutable fields (title, position). Phase 27.4 uses
+// this from MaterializeLesson so the tutor agent can patch a lesson
+// in place without re-submitting the whole curriculum. task_id="" is
+// interpreted as NULL (clears the link).
+func (r *courseRepo) UpdateLessonContent(ctx context.Context, lessonID, contentMD string, status course.LessonStatus, taskID string) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE course_lessons SET content_md=?, status=?, task_id=?, updated_at=datetime('now')
+		 WHERE id = ?`,
+		contentMD, string(status), nullString(taskID), lessonID,
+	)
+	if err != nil {
+		return fmt.Errorf("course.UpdateLessonContent: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return course.ErrNotFound
+	}
+	return nil
+}
+
+// GetQuiz loads a single quiz by id. Phase 27.4 uses it from
+// AnswerQuiz so the service can read the expected_md and kind without
+// a list traversal.
+func (r *courseRepo) GetQuiz(ctx context.Context, id string) (*course.Quiz, error) {
+	const q = `SELECT id, lesson_id, position, question_md, expected_md, kind
+		FROM course_quizzes WHERE id = ?`
+	row := r.db.QueryRowContext(ctx, q, id)
+	var z course.Quiz
+	var kind string
+	if err := row.Scan(&z.ID, &z.LessonID, &z.Position, &z.QuestionMD, &z.ExpectedMD, &kind); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, course.ErrNotFound
+		}
+		return nil, fmt.Errorf("course.GetQuiz: %w", err)
+	}
+	z.Kind = course.QuizKind(kind)
+	return &z, nil
+}
+
+// ModuleCourseOwner walks the module → course → owner chain in a
+// single SQL hop. Phase 27.4 uses it from AnswerQuiz to find the
+// course owner for the open-quiz review task without expanding the
+// repo interface with a dedicated CourseByModule lookup.
+func (r *courseRepo) ModuleCourseOwner(ctx context.Context, moduleID string) (string, error) {
+	const q = `SELECT c.owner_id FROM course_modules m
+		JOIN courses c ON c.id = m.course_id
+		WHERE m.id = ?`
+	var owner string
+	if err := r.db.QueryRowContext(ctx, q, moduleID).Scan(&owner); err != nil {
+		if err == sql.ErrNoRows {
+			return "", course.ErrNotFound
+		}
+		return "", fmt.Errorf("course.ModuleCourseOwner: %w", err)
+	}
+	return owner, nil
+}
+
 func (r *courseRepo) CreateQuiz(ctx context.Context, q *course.Quiz) error {
 	if q.ID == "" {
 		q.ID = newUUID()
