@@ -35,7 +35,7 @@ export interface UserProfile {
   scopes?: string[]
 }
 
-export interface LoginResponse extends UserProfile {}
+export type LoginResponse = UserProfile
 
 /**
  * Phase 18: Course mirrors the server's Course entity. Top-level
