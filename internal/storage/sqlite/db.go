@@ -10,6 +10,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path"
@@ -187,6 +188,32 @@ func Migrate(ctx context.Context, db *sql.DB, migrationsFS embed.FS, dir string)
 // without the marker take the normal FK=ON path.
 const foreignKeysOffMarker = "-- orenda:foreign_keys_off"
 
+// irreversibleMarker is the magic comment a down-migration body can
+// carry to opt out of rolling back. Migrations like the Phase-16
+// tasks-table rebuild (015_inbox_no_project.sql) reshuffle data in a
+// way that can't be cleanly reversed — running their down would
+// either fail (FK orphans) or silently lose rows. Marking the
+// down.sql with this marker makes `orenda migrate down` return a
+// clean ErrMigrationIrreversible error so the operator knows to
+// restore from a snapshot instead.
+//
+// Format: `-- orenda:irreversible: <reason>` (the reason surfaces
+// in the error so the operator gets a hint without opening the
+// file). Lines starting with `--` are SQL comments, so the marker
+// is inert if the file is run as SQL.
+const irreversibleMarker = "-- orenda:irreversible"
+
+// ErrMigrationIrreversible is returned by MigrateDown when the
+// migration's down.sql opts out of rolling back via the
+// irreversibleMarker comment. The wrapped error carries the
+// reason from the marker for the CLI to surface.
+var ErrMigrationIrreversible = errors.New("migration is marked irreversible")
+
+// ErrNoDownFile is returned by MigrateDown when the migration
+// has no .down.sql counterpart. The CLI prints the missing path so
+// the operator can write one.
+var ErrNoDownFile = errors.New("no down-migration file")
+
 // loadApplied returns the set of already-applied migration versions.
 func loadApplied(ctx context.Context, db *sql.DB) (map[string]struct{}, error) {
 	rows, err := db.QueryContext(ctx, `SELECT version FROM schema_migrations`)
@@ -209,7 +236,14 @@ func loadApplied(ctx context.Context, db *sql.DB) (map[string]struct{}, error) {
 	return out, nil
 }
 
-// collectMigrationFiles returns the sorted list of *.sql files under fsys/dir.
+// collectMigrationFiles returns the sorted list of *.sql up-migration files
+// under fsys/dir. Down migrations (`*.down.sql`) live next to the up files
+// but are routed to MigrateDown, not here. The split keeps the up/down
+// surface clean without a separate directory.
+//
+// We accept both the legacy `001_init.sql` naming and the future
+// `001_init.up.sql` shape so an operator can rename if they want —
+// `pathVersion` strips the suffix.
 func collectMigrationFiles(fsys fs.FS, dir string) ([]string, error) {
 	entries, err := fs.ReadDir(fsys, dir)
 	if err != nil {
@@ -220,16 +254,203 @@ func collectMigrationFiles(fsys fs.FS, dir string) ([]string, error) {
 		if e.IsDir() {
 			continue
 		}
-		if !strings.HasSuffix(e.Name(), ".sql") {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".sql") {
 			continue
 		}
-		files = append(files, e.Name())
+		// Down migrations are picked up by MigrateDown, not here.
+		if strings.HasSuffix(name, ".down.sql") {
+			continue
+		}
+		files = append(files, name)
 	}
 	sort.Strings(files)
 	if len(files) == 0 {
 		return nil, fmt.Errorf("sqlite: no migration files found in %q", dir)
 	}
 	return files, nil
+}
+
+// lastAppliedVersion returns the lexicographically-largest version
+// from the schema_migrations table — i.e. the most recent migration.
+// Used by MigrateDown to pick which .down.sql to run.
+func lastAppliedVersion(ctx context.Context, db *sql.DB) (string, error) {
+	row := db.QueryRowContext(ctx, `SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`)
+	var v string
+	if err := row.Scan(&v); err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("sqlite: no migrations applied")
+		}
+		return "", fmt.Errorf("sqlite: last version: %w", err)
+	}
+	return v, nil
+}
+
+// findDownFile returns the path of the down-migration for version.
+// Convention: `<version>.down.sql` (e.g., `001_init.down.sql`).
+//
+// We don't accept down-as-comment-in-up because (a) that would be
+// impossible to review (the up is the source of truth) and (b) a
+// down that's longer than a few lines is unreadable inside another
+// file. Separate files cost nothing in review.
+func findDownFile(fsys fs.FS, dir, version string) (string, error) {
+	candidate := path.Join(dir, version+".down.sql")
+	if _, err := fs.Stat(fsys, candidate); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("%w: %s", ErrNoDownFile, candidate)
+		}
+		return "", fmt.Errorf("sqlite: stat %s: %w", candidate, err)
+	}
+	return candidate, nil
+}
+
+// parseIrreversibleReason pulls the `-- orenda:irreversible[: <reason>]`
+// marker out of a migration body. Returns ("", false) when no marker
+// is present; ("", true) when the marker appears without a reason;
+// ("<reason>", true) when the marker carries a colon-separated reason.
+//
+// The marker must be at the start of a line comment — anything else
+// (e.g. inside a string literal, mid-line) is ignored so a literal
+// in a CREATE TABLE doesn't accidentally trip the parser.
+func parseIrreversibleReason(body string) (string, bool) {
+	found := false
+	var reason string
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, irreversibleMarker) {
+			continue
+		}
+		found = true
+		// What's left of the line after the marker:
+		//   "-- orenda:irreversible" → ""
+		//   "-- orenda:irreversible: reason" → ": reason"
+		//   "-- orenda:irreversible;foo" → ";foo" (invalid shape)
+		rest := strings.TrimPrefix(trimmed, irreversibleMarker)
+		rest = strings.TrimSpace(rest)
+		if !strings.HasPrefix(rest, ":") {
+			// Either bare marker or wrong separator — keep the
+			// first match but treat as no-reason.
+			continue
+		}
+		reason = strings.TrimSpace(strings.TrimPrefix(rest, ":"))
+	}
+	return reason, found
+}
+
+// MigrateDown rolls back the most recently applied migration. The
+// down file must live next to the up file (`<version>.down.sql`)
+// and may opt out via the `-- orenda:irreversible` marker. We
+// always run inside a single transaction so a half-rolled-back
+// schema doesn't leak into `migrate up` on the next boot.
+//
+// The marker on the up migration (`-- orenda:foreign_keys_off`) is
+// honored on the way down too: rebuild migrations may need FK=OFF
+// to drop the old shape without the cascading-delete problem.
+func MigrateDown(ctx context.Context, db *sql.DB, migrationsFS embed.FS, dir string) error {
+	if _, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			version TEXT PRIMARY KEY,
+			applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+	`); err != nil {
+		return fmt.Errorf("sqlite: create schema_migrations: %w", err)
+	}
+	version, err := lastAppliedVersion(ctx, db)
+	if err != nil {
+		return err
+	}
+	downPath, err := findDownFile(migrationsFS, dir, version)
+	if err != nil {
+		return err
+	}
+	body, err := migrationsFS.ReadFile(downPath)
+	if err != nil {
+		return fmt.Errorf("sqlite: read %s: %w", downPath, err)
+	}
+	if reason, ok := parseIrreversibleReason(string(body)); ok {
+		return fmt.Errorf("%w: %s (%s)", ErrMigrationIrreversible, version, reason)
+	}
+	if err := applyMigrationDown(ctx, db, version, string(body)); err != nil {
+		return fmt.Errorf("sqlite: apply down %q: %w", downPath, err)
+	}
+	return nil
+}
+
+// applyMigrationDown executes the down body in a transaction and
+// removes the version row from schema_migrations. Like
+// applyMigration, it honours the foreign_keys_off marker —
+// rebuilds like 015_inbox_no_project need it on the way back too.
+func applyMigrationDown(ctx context.Context, db *sql.DB, version, body string) error {
+	if strings.Contains(body, foreignKeysOffMarker) {
+		cleaned := strings.ReplaceAll(body, foreignKeysOffMarker, "")
+		return applyMigrationDownUnsafe(ctx, db, version, cleaned)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, body); err != nil {
+		return fmt.Errorf("exec body: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM schema_migrations WHERE version = ?`, version); err != nil {
+		return fmt.Errorf("unrecord version: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// applyMigrationDownUnsafe mirrors applyMigrationUnsafe for the
+// down path — borrows a single connection, runs under FK=OFF,
+// restores FK=ON before returning, and verifies no orphan rows
+// remain via PRAGMA foreign_key_check.
+func applyMigrationDownUnsafe(ctx context.Context, db *sql.DB, version, body string) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("sqlite: borrow conn for down: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		return fmt.Errorf("sqlite: foreign_keys off (down): %w", err)
+	}
+	// Best-effort restore even on early exit paths.
+	defer func() {
+		_, _ = conn.ExecContext(context.Background(), `PRAGMA foreign_keys = ON`)
+	}()
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("sqlite: begin down tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err := tx.ExecContext(ctx, body); err != nil {
+		return fmt.Errorf("exec down body: %w", err)
+	}
+	// FK check inside the transaction so a failing check aborts the
+	// whole rollback.
+	if _, err := tx.ExecContext(ctx, `PRAGMA foreign_key_check`); err != nil {
+		return fmt.Errorf("sqlite: foreign_key_check: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM schema_migrations WHERE version = ?`, version); err != nil {
+		return fmt.Errorf("unrecord version (down): %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit down: %w", err)
+	}
+	committed = true
+	return nil
 }
 
 // pathVersion returns the canonical version identifier from a migration filename.

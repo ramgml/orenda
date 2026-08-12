@@ -839,10 +839,19 @@ func runMigrate(cmd *cobra.Command, action migrateAction) error {
 		logger.Info("migrate up complete", zap.Strings("applied", versions))
 		fmt.Println("applied:", versions)
 	case migrateDown:
-		// Phase 1+ will track down-migrations explicitly.
-		// For now we just record that the operator wanted a rollback.
-		logger.Warn("migrate down is not yet implemented (Phase 1+); no changes made")
-		fmt.Println("migrate down: not implemented (Phase 1+)")
+		// Phase Wave 4 (down-migrations PR): actually roll back
+		// the most recent migration via its .down.sql companion.
+		// The runner handles the irreversible marker — those
+		// migrations surface ErrMigrationIrreversible instead.
+		if err := sqlite.MigrateDown(cmd.Context(), db, sqlite.MigrationsFS, "migrations"); err != nil {
+			if errors.Is(err, sqlite.ErrMigrationIrreversible) {
+				logger.Warn("migrate down refused", zap.String("reason", err.Error()))
+			} else if errors.Is(err, sqlite.ErrNoDownFile) {
+				logger.Warn("migrate down: no .down.sql written yet", zap.String("hint", err.Error()))
+			}
+			return fmt.Errorf("migrate down: %w", err)
+		}
+		logger.Info("migrate down complete", zap.String("rolled_back", "last migration"))
 	case migrateStatus:
 		// Need a migrations table to query status; create it lazily.
 		if _, err := db.ExecContext(cmd.Context(), `CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))`); err != nil {
