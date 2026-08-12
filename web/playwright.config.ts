@@ -59,6 +59,10 @@ export default defineConfig({
       ORENDA_STORAGE__DB_PATH: DB_PATH,
       ORENDA_AUTH__COOKIE_SECURE: 'false',
       ORENDA_LOGGING__LEVEL: 'warn',
+      // Phase 26.E: bump rate limits so the suite doesn't flake on
+      // auth'd GETs that fire on every page mount.
+      ORENDA_RATELIMIT_AUTH_BURST: '5000',
+      ORENDA_RATELIMIT_AUTH_PER_SEC: '1000',
     },
     stdout: 'pipe',
     stderr: 'pipe',

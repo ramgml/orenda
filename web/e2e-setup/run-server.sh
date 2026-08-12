@@ -38,6 +38,24 @@ export ORENDA_STORAGE__DB_PATH="${DB_PATH}"
 export ORENDA_AUTH__JWT_SECRET="e2e-secret-not-for-production"
 export ORENDA_LOGGING__LEVEL="${ORENDA_LOG_LEVEL:-warn}"
 
+# Phase 26.E: bump the per-user rate limit so the Playwright suite
+# (which fires ~50+ auth'd requests per spec) doesn't trip 429s
+# during multi-spec runs. Production defaults in router.go are
+# unchanged when these env vars are unset.
+# Phase 26.E: hard-set the per-user rate limits so the Playwright suite
+# (which fires ~50+ auth'd requests per spec) doesn't trip 429s
+# during multi-spec runs. Production defaults in router.go are
+# unchanged when these env vars are unset.
+export ORENDA_RATELIMIT_AUTH_BURST="1000000"
+export ORENDA_RATELIMIT_AUTH_PER_SEC="100000"
+# The API request contexts in tests don't carry cookies, so all
+# helper-driven calls hit the anon bucket per-IP. Bump it the same way.
+export ORENDA_RATELIMIT_ANON_BURST="1000000"
+export ORENDA_RATELIMIT_ANON_PER_SEC="100000"
+echo "[e2e-server] effective auth rate limit: burst=$ORENDA_RATELIMIT_AUTH_BURST per_sec=$ORENDA_RATELIMIT_AUTH_PER_SEC"
+echo "[e2e-server] verifying env..."
+printenv | grep -i ratelimit || echo "(no ratelimit env)"
+
 echo "[e2e-server] migrate up..."
 "${BIN}" migrate up >/dev/null
 
