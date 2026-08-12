@@ -1347,7 +1347,7 @@ make build
 **Контекст (что уже есть):**
 
 - vitest + Testing Library + jsdom; конфиг `web/vitest.config.ts` (environment `node`, jsdom opt-in через `// @vitest-environment jsdom` в шапке файла, alias `@`); 11 тестов: утилиты/хуки + `TaskCard`, `ProjectDetailPage`, `TaskTagChip`.
-- `make test` гоняет только Go; фронтенд-тесты — `cd web && npm run test` (волновые правила требуют `make test && npx vitest`).
+- `make test` теперь гоняет Go + vitest (`cd web && npm run test`); волновое правило свернулось в один таргет — `make test` достаточно. E2E — отдельный таргет `make test-e2e` (требует `make build`, отдельный порт 21371).
 - Покрытия нет у 13 из 16 feature-директорий: auth, today, inbox, review, calendar, wiki, search, notifications, settings, agents, reports, attachments, layout.
 - Бинарь self-contained: `orenda serve` отдаёт embedded SPA — E2E поднимается без dev-сервера. Seed через CLI (`orenda user create --password-stdin`) и REST (агент для review-потока создаётся через user-JWT API, затем claim/submit через `/api/v1/agent/*`).
 - Порт 2137 — singleton (AGENTS.md): тестовый инстанс на `ORENDA_SERVER__PORT=<test-port>` с временной data-директорией (env-override конфига, см. `internal/config`).
@@ -1382,9 +1382,9 @@ make build
   - Канбан: чистая логика позиций/reorder (не сам dnd-kit в jsdom).
   - Критерий: каждая из 13 непокрытых feature-директорий получает ≥1 тест; страницы критических потоков покрыты.
 - [ ] **26.4** Wiring и документация:
-  - `Makefile`: `test` += `cd web && npm run test`; новый таргет `test-e2e` (build + playwright).
-  - PLAN: волновое правило `make test && npx vitest` сворачивается в `make test`.
-  - `docs/SESSION.md` — отметить снятие E2E-пропуска.
+  - `Makefile`: `test` += `cd web && npm run test`; новый таргет `test-e2e` (build + playwright). ✅ Phase 26.F
+  - PLAN: волновое правило `make test && npx vitest` сворачивается в `make test`. ✅ Phase 26.F
+  - `docs/SESSION.md` — отметить снятие E2E-пропуска. ✅ Phase 26.F
 
 ### Definition of Done
 

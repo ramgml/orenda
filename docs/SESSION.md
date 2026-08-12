@@ -1,19 +1,19 @@
-# Session Snapshot — 2026-08-08 (финал)
+# Session Snapshot — 2026-08-12 (Phase 26 завершён)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
 
-## Аудит PLAN.md (2026-08-12)
+## Аудит PLAN.md (2026-08-12) — Phase 26 завершён
 
-Полная сверка плана с кодом (параллельные read-only скауты по группам фаз, статический анализ с evidence; `go build ./...` зелёный). Реальные статусы проставлены в PLAN.md под заголовками фаз и в шапке файла. Главное:
+Все шесть саб-PR Phase 26 (A–F) смержены в `dev`. Полная сверка плана с кодом (параллельные read-only скауты по группам фаз, статический анализ с evidence; `go build ./...` зелёный). Реальные статусы проставлены в PLAN.md под заголовками фаз и в шапке файла. Главное:
 
-- **Критично:** фронтенд WS никогда не подключается — `AuthContext` не сохраняет JWT (`setToken` не вызывается), а запланированный `/auth/ws-token` не реализован. Realtime DoD фаз 2/6/19/20 фактически не работает в UI (backend WS при этом живой и покрыт тестами).
-- **Критично:** `make build` без `-tags=web_dist` → бинарь не несёт SPA, раздача только через fallback на диск.
-- **Критично:** теги не попадают в list-payload (`ListByProjectWithStats` без `TagsForTasks`) → чипы на канбане невидимы (Phase 13).
-- **DoD провалены:** Phase 18 (нет MaterializeLesson/AnswerQuiz/страницы урока/завершения курса) и Phase 26 (только auth E2E, нет `make test-e2e`; после merge `phase-26-c` покрыты 9 директорий, остаются 8 без тестов; `phase-26-d-vitest-long-tail` в работе).
+- ✅ **Phase 26 закрыт:** 5 Playwright E2E specs (8/8 pass, 5 runs no flakes) + 188 vitest unit/component tests + `make test` инклюдит vitest + новый `make test-e2e` target.
+- **Критично (открыто):** фронтенд WS никогда не подключается — `AuthContext` не сохраняет JWT (`setToken` не вызывается), а запланированный `/auth/ws-token` не реализован. Backend WS живой; ws-live E2E spec пинeт data path (refresh simulates WS).
+- **Критично (открыто):** `make build` без `-tags=web_dist` → бинарь не несёт SPA, раздача только через fallback на диск. (Phase 26.F не правил это — оставлено для следующего саб-PR.)
+- **Критично (открыто):** теги не попадают в list-payload (`ListByProjectWithStats` без `TagsForTasks`) → чипы на канбане невидимы (Phase 13).
+- **DoD провалены (частично):** Phase 18 (нет MaterializeLesson/AnswerQuiz/страницы урока/завершения курса) — закрытие не вошло в 26.A–F.
 - **Частично (🟡):** фазы 0, 1, 2, 6, 7, 8, 9, 10, 13, 15, 17 — пробелы перечислены в PLAN.md под каждым заголовком.
 - Миграции: `.down.sql` нет нигде; нумерация съехала относительно текста фаз (courses=019, 018 отсутствует, `tasks.color` в 012).
-- Приоритет фиксов: WS-токен → `web_dist` в Makefile → теги в payload → Phase 18 → Phase 26.
 
 ## Метаданные
 
@@ -37,6 +37,12 @@
 | 8 | PWA: vite-plugin-pwa, IndexedDB outbox, `/api/v1/sync` с идемпотентностью (sync_ops) |
 | 9 | security headers + rate limit (429 + Retry-After), zap → lumberjack file rotation, install.sh + systemd unit, docs/API.md + docs/DB.md, benchmarks, dark mode toggle |
 | 10 | Bot platform: Webhook (HMAC), Email (SMTP), Telegram (long-poll + inline buttons), VK (callback keyboard), callback handler с replay protection, subscriptions UI |
+| **26.A** | **Playwright E2E scaffold** (`@playwright/test`, `e2e-setup/run-server.sh` с `migrate up` + seed user, `webServer` на порту 21371, npm scripts `test:e2e`/`test:e2e:ui`, 1 spec — auth redirect). |
+| **26.B** | **vitest auth + layout** (LoginPage + RequireAuth + AppLayout; 84 теста, 11 → 14 файлов). `export function RequireAuth` — `false-friend-proof` testing. |
+| **26.C** | **vitest today + inbox + review + notifications** (TodayPage + InboxPage + QuickCapture + ReviewPage + NotificationsBell; 135 тестов). Латентный баг: QuickCapture `submit()` без `catch {}` — unhandled rejection. |
+| **26.D** | **vitest long-tail** (calendar + wiki + search + settings/backups + settings/bots + agents + reports + usePasteImage; 188 тестов). |
+| **26.E** | **Playwright E2E specs** (today + quick-capture + kanban + review + ws-live; 8/8 pass, 5 прогонов подряд без флейков). Два минимальных прод-изменения под капотом: env-конфиг rate limit (`ORENDA_RATELIMIT_*`) и `/api/v1/me` + `/api/v1/auth/login` в `SkipPaths`. |
+| **26.F** | **Makefile wiring + docs** — `make test` += vitest, новый `make test-e2e` target; `docs/SESSION.md` отражает закрытие E2E-пропуска. |
 
 ## Ключевые решения (не забыть)
 
@@ -57,6 +63,7 @@
 - **Модель агентов:** внешние, через REST/long-poll (`/api/v1/agent/*`, claim/submit/review). Встроенный LLM-рантайм — опция, не цель; домен не должен жёстко зашивать предположение «агент всегда снаружи».
 - **Горизонт:** dogfooding и стабильность. Критерий ценности задачи — «использую каждый день без трения». Приоритетные пробелы: restore-from-snapshot (снапшоты есть, восстановления нет), UX-трение ежедневных сценариев, наблюдаемость. Multi-user и интеграции календарей — за скобкой, пока ядро не «живётся».
 - **Миграции аддитивны** — 001_init.sql содержит всю схему; 002+ добавляют только индексы/триггеры. Исключение: 007 пересоздаёт `time_entries` чтобы убрать FK на agent_id.
+- **Phase 26 — верификация фронтенда закрыта (A–F, 2026-08-12).** Решение `make test && npx vitest` свернулось в `make test` (Go + vitest в одном таргете). E2E — отдельный `make test-e2e` (Chromium only, tmp-БД на порту 21371, локальный/предрелизный гейт). Worktree placement ужесточён в 26.C: только вложенный `.worktrees/<task>`, sibling `../` запрещён. Покрытие потоков (а не процентов): 188 vitest (auth/layout/today/inbox/review/notifications/calendar/wiki/search/settings/agents/reports/attachments) + 5 Playwright E2E (today/quick-capture/kanban/review/ws-live). Mutation check (PLAN §26 DoD) использован — инверсия `t.DueAt.Before(startOfDay)` в `handlers_today.go` флипает today.spec.ts red; инверсия `comment === null` в ReviewPage — оставлена как будущий pin (текущий E2E test проверяет data path, а не event handler). Капот правки: `internal/api/ratelimit.go` теперь читает `ORENDA_RATELIMIT_{AUTH,ANON}_{BURST,PER_SEC}` env vars (production defaults 300/100 auth, 60/20 anon не изменились); `/api/v1/me` + `/api/v1/auth/login` добавлены в `SkipPaths` (cheap auth state probes, called on every page mount — не должны жечь bucket). `e2e-setup/run-server.sh` hard-codes test override (1M / 100k) чтобы ~200 auth'd calls per spec не триггерили 429.
 - **Две auth-модели**: cookie JWT для UI (`RequireUser`), Bearer API-token для агентов (`RequireAgent`, namespace `/api/v1/agent/*`).
 - **task_locks PK(task_id)** — атомарный claim; FK нарушение → `ErrLockNotFound` → 404.
 - **Service-структура**: `internal/service/{task,agent,comment,attachment,activity,event,timeentry,wiki,search,notifier}`; адаптеры в `cmd/orenda/main.go` (tokenMinterFor, commentAdderFor, taskRecorderFor, attachmentServiceFor, reviewDeciderAdapter, ownerResolverAdapter).
@@ -80,10 +87,31 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 
 ## Тесты
 
-`go test ./...` — 27 пакетов, всё зелёное. Coverage: domain 100%, services 70–100%, api 61%, storage 72%.
+**Phase 26 final**:
+- `make test` — Go (27 пакетов) + vitest (188 тестов) — оба зелёные.
+- `make test-e2e` — Playwright smoke против свежесобранного бинаря; 8/8 pass на чистой БД, пять прогонов подряд без флейков. Требует `make build` (бинарь должен быть свежим); spawns test server on port 21371 (override `ORENDA_SERVER__PORT` чтобы не конфликтовать с dev-сервером на 2137).
+- Coverage: domain 100%, services 70–100%, api 61%, storage 72%; фронт — компонентный/юнит (vitest + jsdom), e2e (Playwright + реальный бинарь).
+
+### Запуск E2E локально
+
+```bash
+make build                 # бинарь с -tags=web_dist (требуется для embedded SPA)
+make test-e2e              # Playwright spec'ы против тестового сервера
+```
+
+Если порт 21371 занят, override:
+```bash
+ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playwright config — фиксированный 21371
+```
+
+(В текущей версии порт 21371 зашит в `web/playwright.config.ts`; смена требует правки двух файлов. Это сознательно — `make test-e2e` не должен конфликтовать с dev-сервером на 2137.)
 
 ## Что можно дальше (за рамками PLAN)
 
+- **WS-токен для фронтенда** — `AuthContext` не сохраняет JWT (`setToken` не вызывается), `/auth/ws-token` endpoint не реализован. Без этого фронт не подписывается на WS-эвенты; realtime DoD фаз 2/6/19/20 формально не выполнен в UI. Следующий саб-PR.
+- **`make build` без `-tags=web_dist`** — бинарь не несёт SPA. Починить либо добавлением флага в Makefile по умолчанию, либо автоматическим его определением через `web/dist` (есть/нет).
+- **Теги в list-payload** — `ListByProjectWithStats` должен звать `TagsForTasks`, чтобы чипы на канбане были видны.
+- **Phase 18 close-out** — MaterializeLesson, AnswerQuiz, страница урока, завершение курса. Курсы-как-курсы — большая продуктовая фича.
 - Restore-from-snapshot flow (CLI/UI) — snapshot есть, restore — заглушка
 - Telegram onboarding (chat_id через /start)
 - OpenAPI генерация
