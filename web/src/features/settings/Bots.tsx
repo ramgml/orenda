@@ -25,6 +25,12 @@ const EVENT_TYPES = [
  *
  * The bot credentials themselves live in config.yaml; this page manages
  * which user/channel receives which events.
+ *
+ * Phase 22.3 follow-up: Telegram has a one-click "bind via /start"
+ * path — the user DMs the bot, gets a 6-char code, and pastes it
+ * here. The server resolves the code → chat id and creates the
+ * subscription with a sensible default event set (same as the
+ * manual form below).
  */
 export function BotsSettingsPage(): JSX.Element {
   const [subs, setSubs] = useState<Subscription[] | null>(null)
@@ -34,6 +40,9 @@ export function BotsSettingsPage(): JSX.Element {
   const [botType, setBotType] = useState('webhook')
   const [target, setTarget] = useState('')
   const [selectedEvents, setSelectedEvents] = useState<string[]>(['task.review_needed'])
+  // Phase 22.3 follow-up: Telegram bind form state.
+  const [bindCode, setBindCode] = useState('')
+  const [binding, setBinding] = useState(false)
 
   async function load(): Promise<void> {
     try {
@@ -84,6 +93,41 @@ export function BotsSettingsPage(): JSX.Element {
     }
   }
 
+  // Phase 22.3 follow-up: Telegram bind. We POST the code to
+  // /bots/telegram/bind; the server resolves it to a chat id and
+  // creates a default subscription. On success we surface the
+  // resolved chat id (and username if the bot captured one) so
+  // the user has immediate confirmation, then refresh the list.
+  async function onBindTelegram(e: FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault()
+    if (binding || bindCode.length === 0) return
+    setBinding(true)
+    setError(null)
+    setInfo(null)
+    try {
+      const r = await api.bindTelegram({ code: bindCode })
+      setBindCode('')
+      const who = r.username ? ` (@${r.username})` : ''
+      setInfo(`Telegram bound to chat ${r.chat_id}${who}. Default event set active.`)
+      await load()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      // The server returns a friendly hint on 503. Surface that
+      // instead of the raw JSON to the user.
+      if (msg.includes('telegram_bot_not_running')) {
+        setError('Telegram bot is not running. Set the token in data/config.yaml and restart the server.')
+      } else if (msg.includes('code_expired')) {
+        setError('That code expired. Send /start to your bot again to get a fresh code.')
+      } else if (msg.includes('code_unknown')) {
+        setError('Code not recognised. Double-check the message from your bot, or send /start again.')
+      } else {
+        setError(msg)
+      }
+    } finally {
+      setBinding(false)
+    }
+  }
+
   return (
     <section className="space-y-4">
       <header className="flex items-center justify-between">
@@ -102,6 +146,45 @@ export function BotsSettingsPage(): JSX.Element {
           {creating ? 'Cancel' : 'Add subscription'}
         </button>
       </header>
+
+      {/* Phase 22.3 follow-up: Telegram bind handshake. The bot
+       * sends a one-shot code on /start; the user pastes it here
+       * and the server resolves it to a chat id. */}
+      <section
+        data-testid="telegram-bind"
+        className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950 space-y-2"
+      >
+        <h2 className="font-semibold">Telegram</h2>
+        <p className="text-sm text-slate-500">
+          Open your Telegram app and message your bot the command{' '}
+          <code className="px-1 bg-slate-100 dark:bg-slate-800 rounded">/start</code>.
+          The bot replies with a 6-character code; paste it below and hit
+          Bind.
+        </p>
+        <form
+          onSubmit={onBindTelegram}
+          className="flex gap-2 items-center"
+        >
+          <input
+            type="text"
+            data-testid="telegram-bind-input"
+            value={bindCode}
+            onChange={(e) => setBindCode(e.target.value.toUpperCase().trim())}
+            placeholder="ABC123"
+            maxLength={6}
+            className="font-mono uppercase tracking-widest px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent w-32 text-center"
+            disabled={binding}
+          />
+          <button
+            type="submit"
+            data-testid="telegram-bind-submit"
+            disabled={binding || bindCode.length === 0}
+            className="px-3 py-2 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
+          >
+            {binding ? 'Binding…' : 'Bind'}
+          </button>
+        </form>
+      </section>
 
       {error && (
         <div className="rounded border border-red-300 bg-red-50 text-red-800 px-3 py-2 text-sm">

@@ -1021,6 +1021,24 @@ class ApiClient {
   deleteSubscription(id: string): Promise<void> {
     return this.http.delete<void>(`/api/v1/notifications/subscriptions/${id}`).then(() => undefined)
   }
+
+  // Phase 22.3 follow-up: resolve a `/start`-issued Telegram bind
+  // code into a chat id and create the default subscription
+  // server-side. Returns the resolved chat id + the new
+  // subscription id so the UI can show a success banner and
+  // refresh the list.
+  bindTelegram(input: { code: string }): Promise<{
+    chat_id: number
+    username?: string
+    subscription_id: string
+  }> {
+    return this.http
+      .post<{ chat_id: number; username?: string; subscription_id: string }>(
+        '/api/v1/bots/telegram/bind',
+        input,
+      )
+      .then((r) => r.data)
+  }
 }
 
 export interface BotSubscription {

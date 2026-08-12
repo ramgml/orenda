@@ -186,4 +186,89 @@ describe('BotsSettingsPage', () => {
 
     expect(await screen.findByText('boom')).toBeTruthy()
   })
+
+  // ---- Phase 22.3 follow-up: Telegram bind handshake ----
+
+  it('Telegram bind: success surfaces the chat id and refreshes the list', async () => {
+    stubSubs([])
+    // First POST is /bots/telegram/bind (success); subsequent POSTs
+    // are /notifications/subscriptions for the refresh — those are
+    // list-only so we just let them return the seed.
+    stubHttp.post.mockImplementation((url: string) => {
+      if (url === '/api/v1/bots/telegram/bind') {
+        return Promise.resolve({
+          data: { chat_id: 12345, username: 'alice', subscription_id: 's-bind' },
+        })
+      }
+      return Promise.resolve({ data: { subscriptions: [] } })
+    })
+
+    render(<BotsSettingsPage />)
+    fireEvent.change(await screen.findByTestId('telegram-bind-input'), {
+      target: { value: 'abc123' },
+    })
+    fireEvent.click(screen.getByTestId('telegram-bind-submit'))
+
+    await waitFor(() => {
+      expect(stubHttp.post).toHaveBeenCalledWith('/api/v1/bots/telegram/bind', {
+        code: 'ABC123',
+      })
+    })
+    expect(await screen.findByText(/Telegram bound to chat 12345/)).toBeTruthy()
+    expect(screen.getByText(/@alice/)).toBeTruthy()
+  })
+
+  it('Telegram bind: maps server hints to readable inline errors', async () => {
+    stubSubs([])
+    stubHttp.post.mockImplementation((url: string) => {
+      if (url === '/api/v1/bots/telegram/bind') {
+        return Promise.reject(new Error('{"error":"code_expired"}'))
+      }
+      return Promise.resolve({ data: { subscriptions: [] } })
+    })
+
+    render(<BotsSettingsPage />)
+    fireEvent.change(await screen.findByTestId('telegram-bind-input'), {
+      target: { value: 'X1' },
+    })
+    fireEvent.click(screen.getByTestId('telegram-bind-submit'))
+
+    expect(await screen.findByText(/That code expired/)).toBeTruthy()
+  })
+
+  it('Telegram bind: surfaces telegram_bot_not_running hint when the bot is offline', async () => {
+    stubSubs([])
+    stubHttp.post.mockImplementation((url: string) => {
+      if (url === '/api/v1/bots/telegram/bind') {
+        return Promise.reject(new Error('{"error":"telegram_bot_not_running","hint":"set the token"}'))
+      }
+      return Promise.resolve({ data: { subscriptions: [] } })
+    })
+
+    render(<BotsSettingsPage />)
+    fireEvent.change(await screen.findByTestId('telegram-bind-input'), {
+      target: { value: 'X1' },
+    })
+    fireEvent.click(screen.getByTestId('telegram-bind-submit'))
+
+    expect(await screen.findByText(/Telegram bot is not running/)).toBeTruthy()
+  })
+
+  it('Telegram bind: input uppercases the code so the user can paste in any case', async () => {
+    stubSubs([])
+    stubHttp.post.mockResolvedValueOnce({
+      data: { chat_id: 7, subscription_id: 's' },
+    })
+
+    render(<BotsSettingsPage />)
+    const input = await screen.findByTestId('telegram-bind-input')
+    fireEvent.change(input, { target: { value: 'abc123' } })
+    fireEvent.click(screen.getByTestId('telegram-bind-submit'))
+
+    await waitFor(() => {
+      expect(stubHttp.post).toHaveBeenCalledWith('/api/v1/bots/telegram/bind', {
+        code: 'ABC123',
+      })
+    })
+  })
 })

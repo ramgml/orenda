@@ -7,9 +7,12 @@ package bot
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -24,6 +27,11 @@ type Telegram struct {
 
 	api    *tgbotapi.BotAPI
 	stopCh chan struct{}
+
+	// BindCodes holds one-shot onboarding tokens (Phase 22.3
+	// follow-up). Initialised in NewTelegram; tests can swap it
+	// out before Start().
+	BindCodes *bindCodes
 
 	// OnCallback is invoked for every incoming callback_query. The
 	// callback handler in callback.go wires this to task actions.
@@ -48,6 +56,81 @@ type InboxMessage struct {
 	UserID    int64 // sender (may differ from chatID for groups)
 	Text      string
 }
+
+// BindCode is the one-shot token Telegram sends in response to
+// `/start`. The user pastes it into Settings → Bots → Telegram to
+// link a chat_id to their owner row (Phase 22.3 follow-up).
+//
+// Codes expire so a leaked screenshot doesn't permanently bind a
+// stranger's chat. 10 minutes is long enough to read the message
+// and switch windows, short enough that a forgotten tab can't be
+// exploited tomorrow.
+type BindCode struct {
+	Code     string
+	ChatID   int64
+	Username string // for a friendly greeting; optional
+	Expires  time.Time
+}
+
+// BindCodeTTL is how long a freshly-issued code stays valid.
+const BindCodeTTL = 10 * time.Minute
+
+// bindCodes holds every active code. The mutex keeps concurrent
+// /start handlers from clobbering each other; map values carry
+// their own expiry so a lazy cleanup on each Consume() keeps the
+// map small without a separate timer goroutine.
+type bindCodes struct {
+	mu    sync.Mutex
+	codes map[string]BindCode
+}
+
+// newBindCodes returns an empty in-memory store.
+func newBindCodes() *bindCodes {
+	return &bindCodes{codes: map[string]BindCode{}}
+}
+
+// Issue creates a new code for chatID. The code is 6 hex chars
+// (24 bits) — enough entropy for a single-user install and easy
+// enough to type from a phone.
+func (b *bindCodes) Issue(chatID int64, username string) BindCode {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	raw := make([]byte, 3)
+	_, _ = rand.Read(raw)
+	c := BindCode{
+		Code:     strings.ToUpper(hex.EncodeToString(raw)),
+		ChatID:   chatID,
+		Username: username,
+		Expires:  time.Now().Add(BindCodeTTL),
+	}
+	b.codes[c.Code] = c
+	return c
+}
+
+// Consume looks up a code and removes it atomically. Returns the
+// (now-removed) entry or ErrBindCodeUnknown if the code wasn't
+// issued or already used. Expired codes are also evicted here so
+// we don't need a background timer.
+func (b *bindCodes) Consume(code string) (BindCode, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	c, ok := b.codes[code]
+	if !ok {
+		return BindCode{}, ErrBindCodeUnknown
+	}
+	delete(b.codes, code)
+	if time.Now().After(c.Expires) {
+		return BindCode{}, ErrBindCodeExpired
+	}
+	return c, nil
+}
+
+// ErrBindCodeUnknown / ErrBindCodeExpired are returned by
+// Consume() so the API layer can surface a clean 404 vs a 410.
+var (
+	ErrBindCodeUnknown = fmt.Errorf("bot: bind code not found")
+	ErrBindCodeExpired = fmt.Errorf("bot: bind code expired")
+)
 
 // SendReply is a tiny helper to reply to the chat from inside the
 // OnMessage handler. It doesn't depend on any extra wiring — the
@@ -82,6 +165,7 @@ func NewTelegram(token string) *Telegram {
 		Token:       token,
 		PollTimeout: 30 * time.Second,
 		stopCh:      make(chan struct{}),
+		BindCodes:   newBindCodes(),
 	}
 }
 
@@ -189,6 +273,34 @@ func actionsToTelegram(msg Message) []tgbotapi.InlineKeyboardButton {
 	return row
 }
 
+// handleStart generates a fresh bind code for the chat that sent
+// /start and replies with it. The user copies the code into the
+// UI to link this Telegram chat to their owner row.
+//
+// We always reply even if the bot is mid-restart so the user
+// sees a single coherent message ("here's your code"); a failed
+// reply is swallowed — there's no recovery action the user can
+// take from inside Telegram.
+func (t *Telegram) handleStart(ctx context.Context, m *tgbotapi.Message) {
+	username := ""
+	if m.From != nil {
+		username = m.From.UserName
+	}
+	c := t.BindCodes.Issue(m.Chat.ID, username)
+	text := fmt.Sprintf(
+		"Welcome to Orenda.\n\nYour one-time binding code is:\n\n  %s\n\n"+
+			"Open Settings → Bots → Telegram in the app and paste the code there. "+
+			"The code expires in %s and can only be used once.",
+		c.Code, BindCodeTTL,
+	)
+	if err := t.SendReply(ctx, m.Chat.ID, text); err != nil {
+		// No logger wired into the bot; main.go is responsible for
+		// surfacing errors. The chat just won't see a reply — they
+		// can retry /start.
+		_ = err
+	}
+}
+
 // poll runs the long-polling loop.
 func (t *Telegram) poll(ctx context.Context) {
 	u := tgbotapi.NewUpdate(0)
@@ -228,6 +340,14 @@ func (t *Telegram) poll(ctx context.Context) {
 			if upd.Message != nil && t.OnMessage != nil {
 				m := upd.Message
 				if m.Chat.Type == "private" && strings.TrimSpace(m.Text) != "" {
+					// /start is the bind handshake. Reply with a
+					// fresh one-shot code so the user can paste it
+					// into Settings → Bots → Telegram and link this
+					// chat to their owner row.
+					if strings.HasPrefix(strings.TrimSpace(m.Text), "/start") {
+						t.handleStart(ctx, m)
+						continue
+					}
 					userID := int64(0)
 					if m.From != nil {
 						userID = m.From.ID

@@ -110,11 +110,16 @@ type Dependencies struct {
 	BackupRemoteAuthSet bool
 	SyncOps             SyncOpsStore
 	BotCallback         *bot.CallbackHandler
-	VKSecret            string
-	VKConfirmation      string
-	WSHub               ws.Hub
-	CookieName          string
-	Capabilities        Capabilities
+	// BotBindCodes is the (optional) bind-code store. Wired only when
+	// the Telegram bot is running; nil-safe — the API returns 503
+	// with a friendly hint when the user tries to bind while the
+	// bot is offline.
+	BotBindCodes   BindCodesSource
+	VKSecret       string
+	VKConfirmation string
+	WSHub          ws.Hub
+	CookieName     string
+	Capabilities   Capabilities
 	// Phase 24: absolute path to the SQLite file so /api/v1/stats
 	// can report its size. Optional — left empty in tests that
 	// don't run a real DB.
@@ -442,6 +447,10 @@ func NewRouter(deps Dependencies) http.Handler {
 			r.Get("/notifications/subscriptions", listSubscriptionsHandler(deps))
 			r.Post("/notifications/subscriptions", createSubscriptionHandler(deps))
 			r.Delete("/notifications/subscriptions/{id}", deleteSubscriptionHandler(deps))
+			// Phase 22.3 follow-up: Telegram bind handshake.
+			r.Route("/bots/telegram", func(r chi.Router) {
+				r.Post("/bind", telegramBindHandler(deps))
+			})
 
 			// Phase 8: offline sync.
 			r.Post("/sync", syncHandler(deps))
