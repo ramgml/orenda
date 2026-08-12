@@ -10,7 +10,7 @@
 - **Критично:** фронтенд WS никогда не подключается — `AuthContext` не сохраняет JWT (`setToken` не вызывается), а запланированный `/auth/ws-token` не реализован. Realtime DoD фаз 2/6/19/20 фактически не работает в UI (backend WS при этом живой и покрыт тестами).
 - **Критично:** `make build` без `-tags=web_dist` → бинарь не несёт SPA, раздача только через fallback на диск.
 - **Критично:** теги не попадают в list-payload (`ListByProjectWithStats` без `TagsForTasks`) → чипы на канбане невидимы (Phase 13).
-- **DoD провалены:** Phase 18 (нет MaterializeLesson/AnswerQuiz/страницы урока/завершения курса) и Phase 26 (только auth E2E, нет `make test-e2e`, 12 из 17 feature-директорий без тестов).
+- **DoD провалены:** Phase 18 (нет MaterializeLesson/AnswerQuiz/страницы урока/завершения курса) и Phase 26 (только auth E2E, нет `make test-e2e`; после merge `phase-26-c` покрыты 9 директорий, остаются 8 без тестов; `phase-26-d-vitest-long-tail` в работе).
 - **Частично (🟡):** фазы 0, 1, 2, 6, 7, 8, 9, 10, 13, 15, 17 — пробелы перечислены в PLAN.md под каждым заголовком.
 - Миграции: `.down.sql` нет нигде; нумерация съехала относительно текста фаз (courses=019, 018 отсутствует, `tasks.color` в 012).
 - Приоритет фиксов: WS-токен → `web_dist` в Makefile → теги в payload → Phase 18 → Phase 26.
