@@ -8,7 +8,7 @@
 Все шесть саб-PR Phase 26 (A–F) смержены в `dev`. Полная сверка плана с кодом (параллельные read-only скауты по группам фаз, статический анализ с evidence; `go build ./...` зелёный). Реальные статусы проставлены в PLAN.md под заголовками фаз и в шапке файла. Главное:
 
 - ✅ **Phase 26 закрыт:** 5 Playwright E2E specs (8/8 pass, 5 runs no flakes) + 188 vitest unit/component tests + `make test` инклюдит vitest + новый `make test-e2e` target.
-- **Критично (открыто):** фронтенд WS никогда не подключается — `AuthContext` не сохраняет JWT (`setToken` не вызывается), а запланированный `/auth/ws-token` не реализован. Backend WS живой; ws-live E2E spec пинeт data path (refresh simulates WS).
+- ✅ **D1 закрыт (2026-08-12, Phase 27.2):** WS-апгрейд через cookie — `AuthContext` больше не хранит JWT (и не должен), `useWebSocketConnection` подключён в `AppLayout`, фронт реально открывает `/api/v1/ws` после login. `ws-live.spec.ts` ловит настоящий WS-фрейм без `page.reload()`. 5 прогонов подряд без флейков.
 - ✅ **D2 закрыт (2026-08-12, Phase 27.1):** `make build` теперь встраивает SPA через `//go:embed all:dist`. Бинарь self-contained — `/` отдаёт 661B index.html без `web/dist/` на диске. Verify: `strings bin/orenda | grep '<div id="root"'` → 1.
 - **Критично (открыто):** теги не попадают в list-payload (`ListByProjectWithStats` без `TagsForTasks`) → чипы на канбане невидимы (Phase 13). **PR 1.3 (Phase 27.3) — следующий.**
 - **DoD провалены (частично):** Phase 18 (нет MaterializeLesson/AnswerQuiz/страницы урока/завершения курса) — закрытие не вошло в 26.A–F. **Phase 27.4 (отдельная фаза) — после Wave 1.**
@@ -19,7 +19,7 @@
 Саб-PR закрываются по одному за сессию, в том же порядке:
 
 - **PR 1.1 / Phase 27.1 — D2 (web_dist).** ✅ Готово в worktree `phase-27-1-web-dist-embed`. См. ниже.
-- **PR 1.2 / Phase 27.2 — D1 (WS-токен).** Архитектурное решение: WS-upgrade через cookie (без отдельного `/auth/ws-token`), `gorilla/websocket.Upgrader` читает cookie из request. AuthContext упрощается, `useWebSocketConnection` больше не проверяет `token`. На очереди.
+- **PR 1.2 / Phase 27.2 — D1 (WS-cookie).** ✅ Готово в worktree `phase-27-2-ws-cookie`. См. ниже.
 - **PR 1.3 / Phase 27.3 — D3 (теги в payload).** `Task.Tags []Tag`, `ListByProjectWithStats` зовёт `TagsForTasks`, чипы на `TaskCard`. На очереди.
 
 ## Phase 27.1 (D2) — web_dist embed, детали реализации
@@ -28,6 +28,14 @@
 - Makefile: новый таргет `embed-dists` (rsync `web/dist/` → `internal/embed/web/dist/`); `build` теперь имеет зависимость `web-build embed-dists`. `clean` восстанавливает gitkeep-only состояние.
 - 6 тестов в `internal/embed/web/embed_test.go`: embed-compiles, embedded-or-empty, placeholder, valid-FS, disk fallback, embedded-precedence.
 - Verify smoke: `bin/orenda serve` в `/tmp/orenda-embed-test` (нет `web/dist/`); `/`, `/healthz`, `/api/v1/{info,openapi.yaml}`, `/assets/*.css` — все 200.
+
+## Phase 27.2 (D1) — WS cookie upgrade, детали реализации
+
+- Backend: `internal/api/ws/client.go::Handler` принимает `cookieName` и в `extractWSToken` пробует cookie → `Authorization: Bearer` → `?token=` (precedence такая же, как в `RequireUser`). `internal/api/router.go` пробрасывает `deps.CookieName` (стандартный дефолт `orenda_session`).
+- 6 новых тестов `client_test.go` покрывают precedence, пустой cookie, кастомное имя, missing-token.
+- Frontend: `AuthContext.tsx` убирает поле `token` (было always null). `ws.ts::WSClient.connect()` — без аргументов, URL `/api/v1/ws` без query. `useWebSocketConnection` срабатывает на `status === 'authenticated'` без проверки токена. Mounted в `AppLayout.tsx::AppLayoutInner` так, что каждый авторизованный route получает WS автоматически.
+- E2E `ws-live.spec.ts` — `page.waitForEvent('websocket')` подписывается до login, ловит `framereceived` с topic `tasks`, проверяет, что `/today`-баннер меняется без `page.reload()`.
+- Manual smoke с реальным бинарём: cookie → 101 Switching Protocols; без cookie → 401; `?token=` всё ещё работает (back-compat для curl/внешних клиентов).
 - Миграции: `.down.sql` нет нигде; нумерация съехала относительно текста фаз (courses=019, 018 отсутствует, `tasks.color` в 012).
 
 ## Метаданные
@@ -58,6 +66,8 @@
 | **26.D** | **vitest long-tail** (calendar + wiki + search + settings/backups + settings/bots + agents + reports + usePasteImage; 188 тестов). |
 | **26.E** | **Playwright E2E specs** (today + quick-capture + kanban + review + ws-live; 8/8 pass, 5 прогонов подряд без флейков). Два минимальных прод-изменения под капотом: env-конфиг rate limit (`ORENDA_RATELIMIT_*`) и `/api/v1/me` + `/api/v1/auth/login` в `SkipPaths`. |
 | **26.F** | **Makefile wiring + docs** — `make test` += vitest, новый `make test-e2e` target; `docs/SESSION.md` отражает закрытие E2E-пропуска. |
+| **27.1** | **web_dist embed** — `//go:embed all:dist` + Makefile `embed-dists` target; бинарь self-contained (index.html внутри), 6 тестов `internal/embed/web/embed_test.go`. |
+| **27.2** | **WS cookie auth** — handler читает `orenda_session` cookie first, потом `Authorization: Bearer`, потом `?token=` (deprecated). `useWebSocketConnection` подключён в `AppLayout`. `AuthContext` больше не хранит `token`. `ws-live.spec.ts` ловит реальный WS-фрейм без `page.reload()`. 5 прогонов E2E без флейков. |
 
 ## Ключевые решения (не забыть)
 
