@@ -21,6 +21,8 @@ import (
 //   - tasks with no activity → zero counters (not missing keys)
 //   - tasks with mixed activity → each metric counted correctly
 //   - blockers count: open blockers counted, satisfied ones ignored
+//   - Phase 27.3: tags populated via the batch TagsForTasks join,
+//     no N+1 per-card fetches
 func TestTaskRepo_ListByProjectWithStats(t *testing.T) {
 	db := setupUserDB(t)
 	p, col := setupTaskProject(t, db)
@@ -56,6 +58,15 @@ func TestTaskRepo_ListByProjectWithStats(t *testing.T) {
 	// Blocker: B blocks A. B is not done → A.BlockedByCount = 1.
 	require.NoError(t, repo.AddDependency(ctx, a.ID, b.ID))
 
+	// Phase 27.3: tag A with two tags ("bug" + "urgent"), leave B
+	// untagged. The list endpoint must surface A.Tags without
+	// touching B's row.
+	tagBug := &task.Tag{Name: "bug", Color: "#dc2626"}
+	tagUrgent := &task.Tag{Name: "urgent", Color: "#f59e0b"}
+	require.NoError(t, repo.CreateTag(ctx, tagBug))
+	require.NoError(t, repo.CreateTag(ctx, tagUrgent))
+	require.NoError(t, repo.SetTaskTags(ctx, a.ID, []string{tagBug.ID, tagUrgent.ID}))
+
 	// Filter to top-level only — children are counted via the
 	// aggregate but don't appear in the list (the kanban shows
 	// top-level cards).
@@ -84,12 +95,24 @@ func TestTaskRepo_ListByProjectWithStats(t *testing.T) {
 	assert.Equal(t, 1, c.ChecklistDone)
 	assert.Equal(t, 1, aGot.BlockedByCount, "A blocked by B (open)")
 
+	// A's tags: both sorted by name alphabetically; B has none.
+	aTags := aGot.Tags
+	require.Len(t, aTags, 2, "Phase 27.3: tag set should hydrate from the batch join")
+	assert.Equal(t, "bug", aTags[0].Name, "TagsForTasks orders by t.name ASC")
+	assert.Equal(t, "#dc2626", aTags[0].Color)
+	assert.Equal(t, "urgent", aTags[1].Name)
+
 	// B has no activity but still gets a zero-valued (not nil) Counters
 	// so the UI can render without nil-checks.
 	bGot := byID[b.ID]
 	require.NotNil(t, bGot.Counters)
 	assert.Equal(t, 0, bGot.Counters.Comments)
 	assert.Equal(t, 0, bGot.BlockedByCount, "B has no blockers")
+	// B's Tags slice must also be non-nil and empty (TagsForTasks
+	// pre-populates every input id). The omitempty on the JSON tag
+	// then renders it as absent on the wire — which is what we want.
+	assert.NotNil(t, bGot.Tags, "untagged tasks still get an empty slice (pre-populated)")
+	assert.Empty(t, bGot.Tags)
 
 	// Mark B done; A's blocked-by should drop to 0 on next call.
 	b.Status = task.StatusDone

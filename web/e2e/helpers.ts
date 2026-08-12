@@ -138,6 +138,38 @@ export async function patchTask(
   return resp.json()
 }
 
+/** Tag payload as the API returns it (id + name + optional color). */
+export interface TagResp {
+  id: string
+  name: string
+  color?: string
+}
+
+/** Create a tag with a hex colour (Phase 13 endpoint, used by E2E setup). */
+export async function createTag(
+  ctx: APIRequestContext,
+  input: { name: string; color: string },
+): Promise<TagResp> {
+  const resp = await ctx.post('/api/v1/tags', { data: input })
+  expect(resp.status(), `createTag: ${await resp.text()}`).toBeLessThan(400)
+  return resp.json()
+}
+
+/**
+ * Attach a list of tags to a task (replace semantics, Phase 13).
+ * The endpoint accepts tag_ids; ordering follows the API contract.
+ */
+export async function setTaskTags(
+  ctx: APIRequestContext,
+  taskId: string,
+  tagIds: string[],
+): Promise<void> {
+  const resp = await ctx.put(`/api/v1/tasks/${taskId}/tags`, {
+    data: { tag_ids: tagIds },
+  })
+  expect(resp.status(), `setTaskTags: ${await resp.text()}`).toBe(200)
+}
+
 /**
  * Create a task in the Inbox (project_id IS NULL). The endpoint
  * accepts title + a few optional fields.

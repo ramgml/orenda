@@ -139,6 +139,14 @@ type Task struct {
 	// badge; absent ⇒ not blocked.
 	BlockedByCount int `json:"blocked_by_count,omitempty"`
 
+	// Phase 27.3: tags attached to this task. Populated by the list
+	// endpoints (single batch query in ListByProjectWithStats via
+	// TagsForTasks), and on GET /tasks/{id} for symmetry. Always
+	// nil/empty for tasks with no tags; the omitempty keeps single-
+	// task JSON responses compact and saves every list consumer from
+	// having to default an empty array.
+	Tags []Tag `json:"tags,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

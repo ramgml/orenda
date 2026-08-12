@@ -180,12 +180,24 @@ func createTaskHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // getTaskHandler returns one task.
+//
+// Phase 27.3: also populates the Tags slice so the task view and the
+// inbox/sidebar reader see the same tag set the kanban card renders
+// (chips on the side panel stay consistent with chips on the card).
 func getTaskHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tr, err := deps.Tasks.GetByID(r.Context(), chi.URLParam(r, "id"))
 		if err != nil {
 			writeError(w, err)
 			return
+		}
+		// Tags don't live on the task row; we'd need a separate read.
+		// Phase 27.3 pins this: a single-task GET returns the tags
+		// the user sees in the card. Nil-check guarded — empty tag
+		// sets render as `tags: []`, the absence we promise via
+		// `omitempty` only kicks in for truly unmarshalled fields.
+		if tags, terr := deps.Tasks.ListTagsForTask(r.Context(), tr.ID); terr == nil {
+			tr.Tags = tags
 		}
 		writeJSON(w, http.StatusOK, tr)
 	}

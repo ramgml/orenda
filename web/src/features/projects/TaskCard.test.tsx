@@ -170,6 +170,36 @@ describe('TaskCard', () => {
     expect(container.textContent).toContain('backend')
   })
 
+  // Phase 27.3: the backend now populates task.tags on list payloads.
+  // The chip's background colour must come from the tag's colour, not
+  // the slate fallback — otherwise the enrichment is silently broken
+  // even when the chip renders.
+  it('applies tag colours to chip backgrounds (Phase 27.3 enrichment)', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <DndContext>
+          <TaskCard
+            task={{
+              ...makeTask(),
+              tags: [
+                { id: 't-1', name: 'frontend', color: '#22c55e' },
+                { id: 't-2', name: 'backend', color: '#2563eb' },
+              ],
+            }}
+          />
+        </DndContext>
+      </MemoryRouter>,
+    )
+    const chips = container.querySelectorAll(
+      'span.inline-flex.items-center.px-1\\.5.py-0\\.5',
+    )
+    expect(chips.length).toBeGreaterThanOrEqual(2)
+    // Each chip should pick up the colour from its tag.
+    const colors = Array.from(chips).map((c) => (c as HTMLElement).style.backgroundColor)
+    expect(colors).toContain('rgb(34, 197, 94)') // #22c55e
+    expect(colors).toContain('rgb(37, 99, 235)') // #2563eb
+  })
+
   it('omits tag chips when the task has no tags', () => {
     const { container } = render(
       <MemoryRouter>
