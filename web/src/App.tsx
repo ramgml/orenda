@@ -140,7 +140,7 @@ function Shell(): JSX.Element {
  * Gate a route on authenticated status. Redirects to /login on miss,
  * preserving the requested path so the user lands back where they started.
  */
-function RequireAuth({ children }: { children: ReactNode }): JSX.Element {
+export function RequireAuth({ children }: { children: ReactNode }): JSX.Element {
   const { status } = useAuth()
   // While /me is in flight, render a placeholder so react-router doesn't
   // bounce the user to /login (and then back to / from LoginPage) on every
