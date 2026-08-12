@@ -11,6 +11,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BackupsSettingsPage } from '@/features/settings/Backups'
 
+// Stub `window.location.reload` so the reload trigger doesn't throw
+// in jsdom. The reload is the last step of the in-process restore
+// path; tests only need the call to be issued (not actually fire).
+const reloadSpy = vi.fn()
+// We use a fresh stub object so the spread doesn't clobber our spy
+// (TypeScript flags the second 'reload' key as a duplicate).
+const stubLocation: Pick<Location, 'reload'> & Partial<Location> = {
+  reload: reloadSpy,
+}
+Object.defineProperty(window, 'location', {
+  configurable: true,
+  value: stubLocation,
+  writable: true,
+})
+
 const { stubHttp } = vi.hoisted(() => ({
   stubHttp: {
     get: vi.fn(),
@@ -36,6 +51,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  reloadSpy.mockReset()
 })
 
 function stubDefaults(overrides: {
@@ -177,5 +193,114 @@ describe('BackupsSettingsPage', () => {
 
     expect(await screen.findByText(/Restore from snapshot/)).toBeTruthy()
     expect(screen.getByText(/orenda backup restore --from \/data\/snapshots\/x\.db/)).toBeTruthy()
+  })
+
+  // ---- Phase 22 close-out: in-process restore ----
+  //
+  // The inline-restore button drives a three-step sequence: turn
+  // maintenance on, restore with force, reload the SPA. We pin the
+  // call order so a future refactor doesn't break the contract.
+
+  it('Restore in this window: maintenance on → force restore → reload', async () => {
+    stubDefaults({
+      snapshots: [
+        {
+          path: '/data/snapshots/2026-08-12.db',
+          size: 1024,
+          mod_time: '2026-08-12T10:00:00Z',
+        },
+      ],
+    })
+    // First POST: probe restore (force=false) → 409 with hint.
+    // Second POST: maintenance on → 200.
+    // Third POST: restore (force=true) → 200.
+    // After 1.5s timer, window.location.reload() is invoked.
+    stubHttp.post.mockImplementation((url: string, body: unknown) => {
+      if (url === '/api/v1/backups/restore') {
+        const b = body as { force?: boolean }
+        if (!b.force) {
+          return Promise.reject({
+            message: '{"hint":"orenda backup restore --from /data/snapshots/2026-08-12.db --yes"}',
+          })
+        }
+        return Promise.resolve({ data: { status: 'restored', snapshot: '/data/snapshots/2026-08-12.db' } })
+      }
+      if (url === '/api/v1/maintenance/on') {
+        return Promise.resolve({ data: { maintenance: true } })
+      }
+      return Promise.reject(new Error(`unexpected POST ${url}`))
+    })
+
+    render(<BackupsSettingsPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /restore/i }))
+    expect(await screen.findByText(/Restore from snapshot/)).toBeTruthy()
+    fireEvent.click(await screen.findByTestId('restore-inline'))
+
+    // The three POSTs land in the right order.
+    await waitFor(() => {
+      expect(stubHttp.post).toHaveBeenCalledWith(
+        '/api/v1/backups/restore',
+        expect.objectContaining({ force: false }),
+      )
+    })
+    await waitFor(() => {
+      expect(stubHttp.post).toHaveBeenCalledWith('/api/v1/maintenance/on', {})
+    })
+    await waitFor(() => {
+      expect(stubHttp.post).toHaveBeenCalledWith(
+        '/api/v1/backups/restore',
+        expect.objectContaining({ force: true }),
+      )
+    })
+
+    // Success banner shows up; the SPA will reload shortly after.
+    expect(await screen.findByText(/Restore complete/)).toBeTruthy()
+    // Force the timer to fire deterministically (jsdom timers).
+    await new Promise((resolve) => setTimeout(resolve, 1700))
+    expect(reloadSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('Restore in this window: failed restore rolls maintenance off', async () => {
+    stubDefaults({
+      snapshots: [
+        {
+          path: '/data/snapshots/2026-08-12.db',
+          size: 1024,
+          mod_time: '2026-08-12T10:00:00Z',
+        },
+      ],
+    })
+    let restoreCallCount = 0
+    stubHttp.post.mockImplementation((url: string, body: unknown) => {
+      if (url === '/api/v1/backups/restore') {
+        restoreCallCount++
+        const b = body as { force?: boolean }
+        if (!b.force) {
+          return Promise.reject({
+            message: '{"hint":"orenda backup restore --from /data/snapshots/2026-08-12.db --yes"}',
+          })
+        }
+        return Promise.reject(new Error('integrity check failed'))
+      }
+      if (url === '/api/v1/maintenance/on') {
+        return Promise.resolve({ data: { maintenance: true } })
+      }
+      if (url === '/api/v1/maintenance/off') {
+        return Promise.resolve({ data: { maintenance: false } })
+      }
+      return Promise.reject(new Error(`unexpected POST ${url}`))
+    })
+
+    render(<BackupsSettingsPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /restore/i }))
+    fireEvent.click(await screen.findByTestId('restore-inline'))
+
+    // The error path surfaces the failure and calls maintenance off.
+    expect(await screen.findByText(/Restore failed/)).toBeTruthy()
+    await waitFor(() => {
+      expect(stubHttp.post).toHaveBeenCalledWith('/api/v1/maintenance/off', {})
+    })
+    // The probe + force calls happened (two restores total).
+    expect(restoreCallCount).toBe(2)
   })
 })

@@ -965,12 +965,38 @@ class ApiClient {
     return this.http.get<{ log: BackupLogEntry[] }>('/api/v1/backups/log', { params }).then((r) => r.data)
   }
 
-  /** Trigger a restore from a snapshot. The server refuses while running
-   * (409) and returns a structured hint with the CLI command. */
-  restoreBackup(path: string): Promise<{ snapshot: string; hint: string }> {
+  /** Trigger a restore from a snapshot. Phase 22.3 added the
+   * `force=true` path that, combined with maintenance mode, runs
+   * the swap in-process. The default call (no `force`) still
+   * returns the CLI hint for backward compat.
+   *
+   * The UI wraps this with maintenance-mode on/off so the
+   * in-process path stays one click away. */
+  restoreBackup(path: string, opts?: { force?: boolean }): Promise<{ snapshot: string; hint?: string; status?: string }> {
     return this.http
-      .post<{ snapshot: string; hint: string }>('/api/v1/backups/restore', { path })
+      .post<{ snapshot: string; hint?: string; status?: string }>(
+        '/api/v1/backups/restore',
+        { path, force: !!opts?.force },
+      )
       .then((r) => r.data)
+  }
+
+  // ---- Maintenance mode (Phase 22.3) ----
+  //
+  // While maintenance is on the API blocks non-GET methods
+  // (except /maintenance/off itself). The UI flips it on before
+  // a restore and off once the operator is ready.
+
+  maintenanceOn(): Promise<{ maintenance: true }> {
+    return this.http.post<{ maintenance: true }>('/api/v1/maintenance/on', {}).then((r) => r.data)
+  }
+
+  maintenanceOff(): Promise<{ maintenance: false }> {
+    return this.http.post<{ maintenance: false }>('/api/v1/maintenance/off', {}).then((r) => r.data)
+  }
+
+  maintenanceStatus(): Promise<{ maintenance: boolean }> {
+    return this.http.get<{ maintenance: boolean }>('/api/v1/maintenance').then((r) => r.data)
   }
 
   // ---- Bot subscriptions (Phase 10) ----
