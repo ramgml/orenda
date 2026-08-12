@@ -95,7 +95,7 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 ### Запуск E2E локально
 
 ```bash
-make build                 # бинарь с -tags=web_dist (требуется для embedded SPA)
+make build                 # ВНИМАНИЕ: пока БЕЗ -tags=web_dist (дефект из аудита) — SPA идёт с диска, не из embed
 make test-e2e              # Playwright spec'ы против тестового сервера
 ```
 

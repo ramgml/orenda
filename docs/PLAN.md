@@ -1340,7 +1340,7 @@ make build
 
 ## Phase 26 — Верификация фронтенда: E2E smoke + component coverage *(3–4 дня)*
 
-> **Аудит 2026-08-12:** ❌→🟡 (идёт закрытие) — Playwright scaffold есть (Chromium, tmp-БД, порт 21371), но спеков только `auth.spec.ts` (3 теста). Нет `make test-e2e`; `make test` не включает vitest. Component-тесты после merge `phase-26-c` (2026-08-12): 9 директорий покрыты (auth, inbox, layout, notifications, projects, review, sidebar, tasks, today); без тестов остаются 8: agents, attachments, calendar, courses, reports, search, settings, wiki. Ветка `phase-26-d-vitest-long-tail` в работе.
+> **Аудит 2026-08-12 (обновлено после merge 26.A–F):** ✅ — 6 Playwright spec-файлов / 8 тестов (auth, today, quick-capture, kanban, review, ws-live) против реального бинаря на порту 21371; 188 vitest-тестов покрывают все 17 feature-директорий; `make test` включает vitest; есть `make test-e2e`. Побочные прод-изменения 26.E: env-конфиг rate limit (`ORENDA_RATELIMIT_*`).
 
 **Цель:** регрессии фронтенда ловятся тестами, а не глазами при dogfooding. Два слоя: **vitest** — логика страниц и компонентов (инфраструктура уже есть), **Playwright** — критические потоки целиком против реального бинаря (роутинг + REST + WS + auth). Отменяет зафиксированное ранее решение пропустить E2E (SESSION.md 2026-08-08, «Что можно дальше»).
 
