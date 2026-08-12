@@ -13,7 +13,22 @@ status: pre-alpha
 
 ---
 
+> **Аудит реализации 2026-08-12** (сверка плана с кодом, не с чекбоксами): backend-ядро фаз 0–17, 19–25 реализовано; ни одна фаза не закрыта на 100%. Статусы под заголовками фаз: ✅ реализовано · 🟡 частично · ❌ минимально.
+>
+> Критичные дефекты:
+> 1. **Фронтенд WS никогда не подключается**: `AuthContext` не сохраняет JWT (`setToken` не вызывается), а запланированный endpoint `/auth/ws-token` не реализован → realtime DoD фаз 2, 6, 19, 20 фактически не работает в UI.
+> 2. **`make build` не передаёт `-tags=web_dist`** → SPA не встраивается в бинарь (раздача только через fallback на диск `web/dist`).
+> 3. **Теги не попадают в list-payload**: `ListByProjectWithStats` не вызывает `TagsForTasks`, у Go-типа `Task` нет поля `Tags` → чипы тегов на канбане невидимы (Phase 13).
+>
+> Миграции: `.down.sql` отсутствуют глобально; нумерация съехала относительно текста фаз (wiki=008, notifications=009, backups=010, sync=011, events_to_tasks=012, courses=019; миграции 018 нет; `tasks.color` добавлен в 012).
+>
+> Приоритет фиксов: WS-токен → `web_dist` → теги в payload → Phase 18 → Phase 26.
+
+---
+
 ## Phase 0 — Инициализация *(1–2 дня)*
+
+> **Аудит 2026-08-12:** 🟡 — `migrate down` — заглушка («not implemented» в `runMigrate`); `make build` без `-tags=web_dist`; Prettier не настроен. Остальное на месте (cobra, chi, /healthz, /api/v1/info, config, WAL, embed placeholder, vite proxy).
 
 **Цель:** пустой репозиторий превращается в работающий dev-окружение с health-check.
 
@@ -80,6 +95,8 @@ make build
 
 ## Phase 1 — Ядро *(1–2 недели)*
 
+> **Аудит 2026-08-12:** 🟡 — JWT TTL 168h вместо 24h (`config.DefaultConfig`); cookie без `Secure`; нет маршрута `/projects/:id/tasks`; таблицы users/projects/tasks созданы в `001_init.sql` (файлы 002/003 — только индексы). Auth, CRUD, CLI `user create`, фронт-shell, тесты — есть.
+
 **Цель:** users + api_tokens + projects + tasks CRUD, JWT и opaque-token auth, базовый UI со списком.
 
 ### Tasks
@@ -137,6 +154,8 @@ make build
 
 ## Phase 2 — Канбан *(1 неделя)*
 
+> **Аудит 2026-08-12:** 🟡 — **реалтайм в UI не работает** (WS-клиент никогда не получает токен, см. аудит в шапке); нет `POST /api/v1/boards`; дефолтных колонок 5, а не 4 (план сам противоречит Phase 12, где 5 — норма). Backend: Move с fractional positions, WIP-422, WS-hub, события `task.*`, dnd на @dnd-kit — есть и покрыто тестами.
+
 **Цель:** boards, columns, drag-and-drop, WebSocket синхронизация.
 
 ### Tasks
@@ -180,6 +199,8 @@ make build
 ---
 
 ## Phase 3 — Агенты + Human↔Agent коллаборация *(2 недели)*
+
+> **Аудит 2026-08-12:** ✅ — backend полный (agents, claim/release/submit/review, comments+mentions, attachments с sha256-dedup, activity, long-poll `/events/await`, тесты incl. concurrent claim). Оговорки: composer — plain input (не markdown-редактор), нет autocomplete `@mentions`, синтаксис упоминаний `@user:<id>` вместо `@user`.
 
 **Цель:** агенты регистрируются, claim'ят задачи, общаются с владельцем через комментарии и упоминания.
 
@@ -260,6 +281,8 @@ make build
 
 ## Phase 4 — Календарь + Тайм-трекинг *(1 неделя)*
 
+> **Аудит 2026-08-12:** ✅ — recurrence (DAILY/WEEKLY/MONTHLY), single-active timer, ручной ввод, `/reports/time`, floating timer widget — есть с тестами. Оговорка: календарь не подгружает задачи с `due_at` (только timed-события, которые после Phase 11 живут в `tasks`).
+
 **Цель:** события и задачи на едином календаре, таймер + ручной ввод time.
 
 ### Tasks
@@ -303,6 +326,8 @@ make build
 ---
 
 ## Phase 5 — База знаний + поиск *(1–2 недели)*
+
+> **Аудит 2026-08-12:** ✅ — wiki (`[[slug]]`-парсинг, backlinks, tree), FTS5 BM25 с unicode61/diacritics, кириллица, snippet-подсветка, Cmd+K — есть с тестами. Оговорка: нет `[[` autocomplete в редакторе.
 
 **Цель:** wiki с markdown, wiki-links, FTS5.
 
@@ -348,6 +373,8 @@ make build
 
 ## Phase 6 — Уведомления (фасад над bot) *(3–4 дня)*
 
+> **Аудит 2026-08-12:** 🟡 — notifier с dedup/retry/backoff, bell UI с бейджем, тесты — есть. Не эмитятся `task.commented`, `agent.offline`, `backup.failed` (только шаблоны); файла `settings/Notifications.tsx` нет (подписки живут в `Bots.tsx` по `/settings/bots`); в интерфейсе `Bot` нет `FormatMessage`.
+
 **Цель:** реальный notifier-фасад, in-app через WS, дедупликация.
 
 ### Tasks
@@ -392,6 +419,8 @@ make build
 ---
 
 ## Phase 7 — Бэкапы *(3–4 дня)*
+
+> **Аудит 2026-08-12:** 🟡 — VACUUM INTO snapshot + ротация, git push, scheduler, CLI (push/snapshot/status/restore), UI — есть. Mirror не пишет комментарии (`nil` в `MirrorSave`); git client без `Status`/`TestConnection`; snapshot по тикеру 24h, не cron 03:00; `PUT /backups/settings` → 501 («config.yaml is the source of truth»); UI настроек read-only.
 
 **Цель:** markdown-зеркало + git push + sqlite snapshot + UI.
 
@@ -448,6 +477,8 @@ make build
 
 ## Phase 8 — PWA + Offline *(1 неделя)*
 
+> **Аудит 2026-08-12:** 🟡 — vite-plugin-pwa, Workbox SW, IndexedDB outbox+cache, `POST /api/v1/sync` с идемпотентностью (`sync_ops`) — есть. LWW декларирован, но `updated_at` реально не сравнивается; outbox подключён только к create task (update/move/comment висят мёртвым кодом); Background Sync API не используется.
+
 **Цель:** работа в оффлайне, синхронизация при онлайне.
 
 ### Tasks
@@ -480,6 +511,8 @@ make build
 ---
 
 ## Phase 9 — Полировка *(ongoing)*
+
+> **Аудит 2026-08-12:** 🟡 — бенчмарки, security headers, rate limit (429+Retry-After), zap+lumberjack, install.sh/systemd/uninstall, dark mode — есть. Нет `docs/ARCHITECTURE.md`, pprof endpoint, Prometheus metrics, govulncheck; README без скриншотов.
 
 ### Tasks
 
@@ -517,6 +550,8 @@ make build
 ---
 
 ## Phase 10 — Бот-платформа *(1 неделя)*
+
+> **Аудит 2026-08-12:** 🟡 — registry, config-driven запуск, Console/Telegram/VK/Email/Webhook боты, callback handler с replay protection, тесты — есть. Email без HTML-шаблонов (plain text); VK только Callback API (Long Poll не реализован); нет «Test send» в UI; нет weekly digest (DoD); `Bot.Stop()` не вызывается при shutdown.
 
 **Цель:** реальные боты по интерфейсу Bot.
 
@@ -570,6 +605,8 @@ make build
 
 ## Phase 12 — Кастомные колонки канбана *(2–3 дня)*
 
+> **Аудит 2026-08-12:** ✅ — всё, включая опциональное удаление пустой колонки (12.6): create 201/400/404, position max+1024, WS `column.created`/`column.deleted`, dnd reorder, double-click rename, тесты.
+
 **Цель:** пользователь управляет колонками доски проекта: добавляет свои, меняет порядок drag-and-drop, переименовывает. Сейчас колонки фиксированы: 5 дефолтных (`backlog … done`) сидируются при создании проекта, создания через API нет (тесты вставляют колонки напрямую в SQL), reorder-UX нет.
 
 > Phase 11 (project tabs: Kanban/Activity/Attachments/Settings) выполнена вне плана — см. коммиты `phase(11.*)`; нумерация продолжается с 12.
@@ -613,6 +650,8 @@ make build
 ---
 
 ## Phase 13 — Теги и цветовые метки задач *(3–4 дня)*
+
+> **Аудит 2026-08-12:** 🟡 — CRUD тегов, `tasks.color`, PUT replace, sync-payload, mirror frontmatter, редактор на странице задачи — есть. **Теги не входят в list-payload** (`ListByProjectWithStats` без `TagsForTasks`) → чипы на канбане невидимы; нет WS-событий при смене тегов/цвета; фильтр по тегу (13.6, опц.) не сделан. Миграция `tasks.color` живёт в `012_events_to_tasks.sql`, не в отдельной 013/018.
 
 **Цель:** задачи помечаются тегами (с цветом) и цветовой меткой; теги видны чипами на канбан-карточках и на странице задачи. Сейчас тегов нет вообще: таблицы есть, а весь слой поверх — нет.
 
@@ -658,6 +697,8 @@ make build
 ---
 
 ## Phase 14 — Разделение subtasks/checklists по смыслу (Weeek-style) *(3–5 дней)*
+
+> **Аудит 2026-08-12:** ✅ — миграция 013, ListChildren/ChildProgress, `/tasks/{id}/children`, activity, mirror checklists, TaskContext с Children+Checklists, ChildTasksList с прогресс-баром, тесты — есть. Оговорки: нет валидации `parent_task_id` (существование родителя / совпадение проекта); не эмитится `task.child_status_changed`.
 
 **Цель:** устранить дублирование двух параллельных «чекбокс под задачей» моделей. Сейчас и `subtasks`, и `checklists` существуют как два разных API с одинаковым UI-смыслом — пользователь не понимает, куда писать. Делаем чёткое разделение по модели Weeek/Asana:
 
@@ -756,6 +797,8 @@ make build
 
 ## Phase 15 — Зависимости задач и видимость занятости для агентов *(3–4 дня)*
 
+> **Аудит 2026-08-12:** 🟡 — миграция 016, DFS-циклы, claim заблокированной → 422 с `unfinished_blockers`, `GET /agent/tasks?ready=true`, WS `task.deps_changed`, UI-бейджи и редактор — есть. 409 `lock_taken` без holder-полей (`taskLockRepo.Holder` написан, не используется); agent context без `blocked_by`/держателя лока; `ready=true` включает задачи, занятые самим агентом.
+
 **Цель:** задачи могут блокировать друг друга; агенты видят, какие задачи готовы к параллельной работе, а какие заблокированы или уже выполняются другим агентом. Сейчас зависимостей нет вовсе, а занятость задачи агент узнаёт только попыткой claim → голый 409.
 
 **Контекст (что уже есть):**
@@ -802,6 +845,8 @@ make build
 ---
 
 ## Phase 16 — Inbox: карточки без проекта, а не системный проект *(2–3 дня)*
+
+> **Аудит 2026-08-12:** ✅ — FK-off migration runner, миграция 015 (rebuild tasks, rowid, FTS rebuild, удаление `...cafe` и system-user), inbox endpoints, PATCH project_id, `/inbox` страница, статичный сайдбар-пункт с бейджем — есть. Оговорки: нет dedicated теста миграции 015; `docs/API.md` не описывает `/inbox/tasks`; InboxPage не переиспользует TaskCard.
 
 **Цель:** Inbox перестаёт быть системным проектом с магическим id. Inbox — это просто набор карточек (задач), у которых ещё нет проекта: `tasks.project_id IS NULL`. Системный проект `00000000-0000-0000-0000-00000000cafe` и его placeholder-пользователь удаляются миграцией.
 
@@ -904,6 +949,8 @@ make build
 
 ## Phase 17 — Карточки задач: информативная лицевая сторона (референсы: Weeek, Trello) *(3–4 дня)*
 
+> **Аудит 2026-08-12:** 🟡 — `ListByProjectWithStats` с агрегатами, приоритет-кромка, due-бейдж, счётчики, AssigneeChip с 🤖, pure-функции `taskCardBadges.ts` с тестами — есть. Нет UI-тоггла плотности (флаг читается из localStorage, переключателя нет); нет бейджей времени (estimate/spent) и таймера; inbox не reuse карточку; имя агента — срез `assignee_id`.
+
 **Цель:** канбан-карточка отвечает на вопросы «что горит, кто занят, что внутри» без открытия задачи. Сейчас лицевая сторона — только title + бейдж `↳ child` (`web/src/features/projects/TaskCard.tsx`), при этом payload задачи уже несёт priority/due_at/assignee/awaiting, а бэкенд хранит checklists, children, комментарии, вложения и теги.
 
 **Анализ текущего состояния (2026-08-11):**
@@ -979,6 +1026,8 @@ make build
 ---
 
 ## Phase 18 — Личные курсы, создаваемые ИИ-агентами *(1–1.5 недели)*
+
+> **Аудит 2026-08-12:** ❌ — MVP-скелет есть (миграция 019, createWithIntent/submitCurriculum/approve/requestChanges/completeLesson, agent list/put curriculum, CoursesPage + CourseDetailPage). Не реализовано: MaterializeLesson, AnswerQuiz, страница `/lessons/:id` (ссылка из CourseDetailPage битая), завершение курса и cross-module CompleteLesson, тесты доменных переходов/API. DoD не достижим.
 
 **Цель:** пользователь формулирует намерение («выучить Rust за месяц, 3 раза в неделю по часу»), внешний ИИ-агент-тьютор строит программу курса, материализует уроки и упражнения и проверяет ответы. Курс — first-class LMS-сущность (программа → модули → уроки → вопросы), а упражнения остаются обычными задачами, чтобы переиспользовать claim/submit/review-flow агентов.
 
@@ -1063,6 +1112,8 @@ make build
 
 ## Phase 19 — Ревью-очередь: замыкание цикла агент→человек *(2–3 дня)*
 
+> **Аудит 2026-08-12:** ✅ — `GET /review-queue` (+ `/count`), `/review` страница с inline Accept/Return, сайдбар-бейдж с WS-обновлением, тесты — есть. Оговорка: backend не форсирует обязательный `comment` при reject (фронт подсказывает, но пустая строка проходит).
+
 **Цель:** у человека есть один экран со всем, что ждёт его решения: задачи с `awaiting='human'` и в статусе `review`. Сейчас петля делегирования асимметрична: человек→агент работает (назначил, агент claim'ит), агент→человек — только notification, который легко потерять.
 
 **Контекст (что уже есть):**
@@ -1093,6 +1144,8 @@ make build
 
 ## Phase 20 — Экран «Сегодня» (daily driver) *(2–3 дня)*
 
+> **Аудит 2026-08-12:** ✅ — `GET /api/v1/today` одним round-trip (overdue/due_today/scheduled_today/upcoming_week/awaiting_count/active_timer), TodayPage с секциями, TZ-тесты — есть. Оговорки: нет quick-complete чекбокса; пункт сайдбара всё ещё подписан «Dashboard».
+
 **Цель:** домашняя страница отвечает «что у меня сегодня»: просроченное, due сегодня, запланированное по времени, ожидающие меня (ссылка в Phase 19), активный таймер. Сейчас `/` — только статистика-счётчики.
 
 **Контекст (что уже есть):**
@@ -1118,6 +1171,8 @@ make build
 ---
 
 ## Phase 21 — Quick capture в Inbox *(1–2 дня)*
+
+> **Аудит 2026-08-12:** ✅ — модалка через Portal, хоткеи `q`/`Cmd+K`, `Cmd+Enter` submit, кнопка `+`, toast «Open task», Telegram auto-capture с обрезкой >200 — есть. Оговорка: нет optional due-поля в модалке.
 
 **Цель:** захват мысли ≤ 1 хоткей / 2 клика из любого экрана + приём сообщений из Telegram сразу в Inbox. GTD-capture без трения.
 
@@ -1147,6 +1202,8 @@ make build
 
 ## Phase 22 — Restore-from-snapshot *(2–3 дня)*
 
+> **Аудит 2026-08-12:** ✅ — CLI restore pipeline (guard → safety-copy → atomic swap → migrate → integrity/foreign_key check), maintenance mode (atomic.Bool, non-GET блокируется), in-process restore handler, тесты — есть. Оговорка: UI-кнопка в Settings→Backups показывает только CLI hint; in-process restore из UI не замкнут.
+
 **Цель:** бэкап-контур Phase 7 замыкается: восстановление из sqlite-снапшота через CLI и UI, с safety-copy и post-restore миграциями. Бэкап без проверенного restore — не бэкап.
 
 **Контекст (что уже есть):**
@@ -1172,6 +1229,8 @@ make build
 ---
 
 ## Phase 23 — Техдолг: WIP limits + recurring events *(1–2 дня)*
+
+> **Аудит 2026-08-12:** ✅ — WIP реально блокирует move (`lookupWIPLimit` → `ErrColumnFull` → 422), RRULE DAILY/WEEKLY/MONTHLY + INTERVAL/COUNT/UNTIL разворачивается, тесты на оба. Оговорка: нет UI-обратной связи (toast «N из M», подсветка переполненной колонки).
 
 **Цель:** закрыть две полу-проведённые фичи, найденные аудитом 2026-08-11. Обе — «честный долг»: дёшево доделать, дорого тащить дальше.
 
@@ -1199,6 +1258,8 @@ make build
 
 ## Phase 24 — OpenAPI + наблюдаемость *(2–3 дня)*
 
+> **Аудит 2026-08-12:** ✅ — `docs/openapi.yaml` + embed endpoint `/api/v1/openapi.yaml` (публичный), route-coverage тест, `/api/v1/stats`, slow-request log >500ms — есть. Оговорки: `/stats` не заполняет `last_backup_unix` и очередь notifier; coverage-тест обходит не production-роутер целиком, а user-часть (agent/backup роуты вне проверки).
+
 **Цель:** машиночитаемый контракт для внешних агентов (генерация клиентов) + минимальная наблюдаемость self-hosted инстанса.
 
 ### Tasks
@@ -1221,6 +1282,8 @@ make build
 ---
 
 ## Phase 25 — Agent DX: MCP server + CLI + skill *(1–1.5 недели)*
+
+> **Аудит 2026-08-12:** ✅ — stdio JSON-RPC MCP (zero deps, 7 инструментов `orenda_*`), `orenda mcp-proxy`, CLI `orenda agent` (8 сабкоманд, флаги>env>yaml, exit 2 = no work), `docs/skills/orenda/SKILL.md` — есть. Оговорки: нет `orenda skill install` и `api-cheatsheet.md`; тесты CLI/MCP частичные (нет roundtrip claim→submit, exit code 2 не покрыт).
 
 **Цель:** внешний агент подключается к Orenda за минуты и сразу правильно играет делегационный цикл. Три поверхности под три способа интеграции: **MCP** (native tool-discovery для MCP-клиентов), **CLI** (скрипты и простые агенты на чём угодно), **skill** (know-how: как работать, а не только чем). Сейчас агент вынужден читать `docs/API.md` и писать HTTP-клиента руками.
 
@@ -1276,6 +1339,8 @@ make build
 ---
 
 ## Phase 26 — Верификация фронтенда: E2E smoke + component coverage *(3–4 дня)*
+
+> **Аудит 2026-08-12:** ❌ — Playwright scaffold есть (Chromium, tmp-БД, порт 21371), но спеков только `auth.spec.ts` (3 теста). Нет `make test-e2e`; `make test` не включает vitest. Component-тесты есть лишь в 5 директориях (auth, layout, projects, tasks, sidebar); без единого теста: agents, attachments, calendar, courses, inbox, notifications, reports, review, search, settings, today, wiki (12 из 17). DoD не достижим.
 
 **Цель:** регрессии фронтенда ловятся тестами, а не глазами при dogfooding. Два слоя: **vitest** — логика страниц и компонентов (инфраструктура уже есть), **Playwright** — критические потоки целиком против реального бинаря (роутинг + REST + WS + auth). Отменяет зафиксированное ранее решение пропустить E2E (SESSION.md 2026-08-08, «Что можно дальше»).
 
@@ -1755,3 +1820,4 @@ Wave 2 (после Wave 1):
 | 2026-08-11 | 0.11.0 | Волновой план параллельного выполнения фаз 13–25 (миграции, горячие файлы, волны) |
 | 2026-08-11 | 0.12.0 | Приоритеты фаз P0/P1/P2 (видение, dogfooding, надёжность) |
 | 2026-08-11 | 0.13.0 | Phase 26: верификация фронтенда — Playwright E2E smoke + vitest component coverage (отмена решения «E2E пропускаем») |
+| 2026-08-12 | 0.14.0 | Аудит реализации: статусы фаз под заголовками (✅/🟡/❌), критичные дефекты (WS-токен, `web_dist`, теги в payload), расхождения миграций |
