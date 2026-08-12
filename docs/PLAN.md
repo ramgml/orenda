@@ -1465,16 +1465,16 @@ make build
 
 **Контекст:** Phase 18 пришёл только в виде MVP-скелета. `Service.CreateWithIntent` не wire'ит `GeneratorTaskID`, нет `MaterializeLesson`, нет `AnswerQuiz` endpoint'ов, `/lessons/:id` страницы нет, тестов `internal/service/course/` — 0.
 
-**Задачи (backend, 27.4.A):**
+**27.4.A (backend) — ✅ в worktree `phase-27-4-courses-backend`:**
 
-1. `internal/service/course/course.go::MaterializeLesson(lessonID, contentMD, taskID)`: создать/обновить `content_md`, проверить переход `locked → open` (если урок теперь к прохождению), создать/слинковать exercise task.
-2. `AnswerQuiz(quizID, answer)`: `exact` — нормализация + сравнение, 1/0. `open` — review-задача тьютору с ответом в `context_md`.
-3. Wire `GeneratorTaskID`: `CreateWithIntent` создаёт `tasks` со ссылкой на `course_id` (Phase 16 inbox — без проекта).
-4. Endpoints: `PUT /api/v1/agent/lessons/{id}/content`, `POST /api/v1/lessons/{id}/quizzes/{qid}/answer`, `POST /api/v1/agent/lessons/{id}/materialize`.
-5. Migration `020_course_attempts.sql` (таблица `quiz_attempts` для exact-quiz статистики).
-6. **Tests:** 70% покрытия сервиса.
+1. `internal/service/course/course.go::MaterializeLesson`: создать/обновить `content_md`, переход `locked → open` на первой материализации; open/done сохраняются. Пустой content rejected. 14 service-тестов.
+2. `AnswerQuiz`: `exact` — нормализация (trim + lowercase + collapse whitespace + strip common Latin diacritics) + сравнение. `open` — review-задача тьютору с ответом в `context_md`. Без `TaskCreator` → error.
+3. Wire `GeneratorTaskID`: `CreateWithIntent` создаёт `tasks` через `TaskCreator` адаптер (запись в `tasks` repo + простановка `generator_task_id` на course). Inbox-floating (без `project_id`).
+4. Endpoints: `POST /api/v1/lessons/{id}/quizzes/{qid}/answer` (user), `POST /api/v1/agent/lessons/{id}/materialize`, `PUT /api/v1/agent/lessons/{id}/content` (agent).
+5. Migration `020_course_attempts.sql` — **отложена**: в MVP exact-quiz scores computed on the fly (no history); open-quiz answers tracked через review task.
+6. **Tests:** 14 service-тестов на generator / materialize / answer / exact-normalisation / open-spawn-review / error-bubbling.
 
-**Задачи (frontend, 27.4.B):**
+**27.4.B (frontend) — следующая сессия:**
 
 1. `web/src/features/courses/LessonPage.tsx`: markdown-renderer (как в Wiki), quiz-формы inline, кнопка «Завершить урок».
 2. `CourseDetailPage.tsx`: ссылка на текущий open-урок.
