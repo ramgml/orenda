@@ -49,6 +49,34 @@ const (
 	QuizExact QuizKind = "exact" // server-side string compare
 )
 
+// QuizAnswer is the wire shape for the answer a learner submits
+// against a quiz. The CourseService.AnswerQuiz method accepts this
+// alongside the quiz id and returns a QuizResult.
+//
+// `Answer` is the raw text the student typed. For exact-quiz matches
+// the service normalises whitespace and case before comparing against
+// `Quiz.ExpectedMD`. For open quizzes the answer is forwarded to a
+// tutor agent as a review task (Phase 27.4).
+type QuizAnswer struct {
+	Answer string `json:"answer"`
+}
+
+// QuizResult is the outcome of Lesson.AnswerQuiz. Two paths:
+//
+//   - Exact quizzes: Correct is true/false based on the normalised
+//     comparison. FeedbackMD echoes the expected answer so the UI
+//     can render "you wrote X / expected Y" hints.
+//   - Open quizzes: Correct is always false (we cannot know yet); a
+//     review task id is created and the tutor will mark it accepted
+//     through the regular /api/v1/agent/{claim,submit} flow.
+//
+// ReviewTaskID is empty for exact quizzes.
+type QuizResult struct {
+	Correct      bool   `json:"correct"`
+	FeedbackMD   string `json:"feedback_md,omitempty"`
+	ReviewTaskID string `json:"review_task_id,omitempty"`
+}
+
 // Sentinel errors. Handlers translate these to HTTP status codes.
 var (
 	ErrNotFound     = errors.New("course: not found")

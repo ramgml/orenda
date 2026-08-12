@@ -11,11 +11,14 @@
 //	POST   /api/v1/courses/{id}/approve     review → active
 //	POST   /api/v1/courses/{id}/request-changes   review → draft
 //	POST   /api/v1/lessons/{id}/complete
+//	POST   /api/v1/lessons/{id}/quizzes/{qid}/answer
 //
 // Agent-side surface (RequireAgent, /api/v1/agent/*):
 //
 //	GET   /api/v1/agent/courses?status=draft
 //	PUT   /api/v1/agent/courses/{id}/curriculum
+//	POST  /api/v1/agent/lessons/{id}/materialize
+//	PUT   /api/v1/agent/lessons/{id}/content
 //
 // The agent side is intentionally narrow — the tutor's job is to
 // build the curriculum, owner decides accept/reject.
@@ -320,6 +323,103 @@ func userIDFromCtx(r *http.Request) string {
 		return id.UserID
 	}
 	return ""
+}
+
+// ---------------------------------------------------------------------------
+// Phase 27.4: lesson materialization + quiz answer endpoints.
+// ---------------------------------------------------------------------------
+
+// materializeLessonRequest is the body of POST /agent/lessons/{id}/materialize
+// and PUT /agent/lessons/{id}/content (the two routes share the same shape).
+type materializeLessonRequest struct {
+	ContentMD string `json:"content_md"`
+	TaskID    string `json:"task_id,omitempty"`
+}
+
+// materializeLessonHandlerAgent is the tutor-side endpoint: the
+// agent writes the lesson body and links an exercise task. The
+// service flips the lesson from locked → open.
+func materializeLessonHandlerAgent(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.CourseService == nil {
+			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		var req materializeLessonRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		if req.ContentMD == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_content_md"})
+			return
+		}
+		lesson, err := deps.CourseService.MaterializeLesson(
+			r.Context(),
+			chi.URLParam(r, "id"),
+			req.ContentMD,
+			req.TaskID,
+		)
+		if err != nil {
+			if errors.Is(err, coursesvc.ErrNotFound) {
+				http.Error(w, "lesson not found", http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, coursesvc.ErrInvalidInput) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
+				return
+			}
+			if errors.Is(err, coursesvc.ErrTransition) {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_transition"})
+				return
+			}
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, lesson)
+	}
+}
+
+// answerQuizRequest is the body of POST /lessons/{id}/quizzes/{qid}/answer.
+type answerQuizRequest struct {
+	Answer string `json:"answer"`
+}
+
+// answerQuizHandler submits the student's quiz answer and returns
+// the graded result. For exact quizzes the function scores
+// immediately; for open quizzes it spawns a review task and returns
+// the task id so the UI can show "pending review".
+func answerQuizHandler(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.CourseService == nil {
+			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		var req answerQuizRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		quizID := chi.URLParam(r, "qid")
+		result, err := deps.CourseService.AnswerQuiz(
+			r.Context(),
+			quizID,
+			course.QuizAnswer{Answer: req.Answer},
+		)
+		if err != nil {
+			if errors.Is(err, coursesvc.ErrNotFound) {
+				http.Error(w, "quiz not found", http.StatusNotFound)
+				return
+			}
+			if errors.Is(err, coursesvc.ErrInvalidInput) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
+				return
+			}
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	}
 }
 
 // uuidLite is a tiny inline helper for IDs the agent service passes

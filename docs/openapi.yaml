@@ -835,6 +835,38 @@ paths:
         '200': { description: ok }
         '422': { description: lesson_not_open }
 
+  /api/v1/lessons/{id}/quizzes/{qid}/answer:
+    post:
+      tags: [courses]
+      summary: Submit a quiz answer (Phase 27.4).
+      description: |
+        Graded server-side for `exact` quizzes (normalised string
+        compare). For `open` quizzes the service spawns a review
+        task on the tutor agent and returns its id; the tutor
+        accepts/rejects via the standard agent flow.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answer]
+              properties:
+                answer: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  correct: { type: boolean }
+                  feedback_md: { type: string }
+                  review_task_id: { type: string }
+        '404': { description: quiz not found }
+
   # ---- reports ----
   /api/v1/reports/time:
     get:
@@ -1173,6 +1205,51 @@ paths:
                             title: { type: string }
                             position: { type: integer }
       responses: { '200': { description: ok } }
+
+  /api/v1/agent/lessons/{id}/materialize:
+    post:
+      tags: [agent, courses]
+      summary: Materialize a lesson (Phase 27.4) — write content_md and link the exercise task.
+      description: |
+        The tutor writes the lesson body. The service flips the
+        lesson from `locked` to `open` so the student can read
+        it. Idempotent — re-running with the same content keeps
+        the existing task_id and status.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content_md]
+              properties:
+                content_md: { type: string }
+                task_id: { type: string }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: lesson not found }
+
+  /api/v1/agent/lessons/{id}/content:
+    put:
+      tags: [agent, courses]
+      summary: PUT alias of /materialize (Phase 27.4). Identical body and response.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content_md]
+              properties:
+                content_md: { type: string }
+                task_id: { type: string }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: lesson not found }
 
   # ---- SPA fallback ----
   /{catchAll}:

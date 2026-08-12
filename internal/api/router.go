@@ -414,6 +414,8 @@ func NewRouter(deps Dependencies) http.Handler {
 				})
 			})
 			r.Post("/lessons/{id}/complete", completeLessonHandler(deps))
+			// Phase 27.4: quiz answer (user-side).
+			r.Post("/lessons/{id}/quizzes/{qid}/answer", answerQuizHandler(deps))
 
 			r.Get("/reports/time", reportTimeHandler(deps))
 
@@ -493,6 +495,13 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Route("/agent/courses", func(r chi.Router) {
 					r.Get("/", listCoursesHandlerAgent(deps))
 					r.Put("/{id}/curriculum", submitCurriculumHandlerAgent(deps))
+				})
+				// Phase 27.4: lesson materialization. The tutor writes
+				// the lesson body and links an exercise task; the
+				// lesson flips from locked → open.
+				r.Route("/agent/lessons", func(r chi.Router) {
+					r.Post("/{id}/materialize", materializeLessonHandlerAgent(deps))
+					r.Put("/{id}/content", materializeLessonHandlerAgent(deps))
 				})
 			})
 		}
