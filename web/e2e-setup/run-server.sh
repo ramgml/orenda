@@ -8,11 +8,11 @@
 #   tmp dir, migrate up, seed user) into the server boot itself.
 #
 # Why we cd to the project root:
-#   The default Go build embeds an empty placeholder FS; the SPA handler
-#   falls back to `web/dist` on disk, which is only resolvable when the
-#   binary's CWD is the project root. (`make build -tags=web_dist` is the
-#   other way to embed the assets, but that requires touching the Makefile
-#   which is out of scope here.)
+#   Phase 27.1: the production binary embeds the SPA via `//go:embed all:dist`
+#   (see internal/embed/web/embed.go), so the CWD does not strictly need to
+#   be the project root for static files to resolve. We keep the explicit
+#   `cd` because the mirror/snapshot paths (data/ subdirs) and `web/dist`
+#   fallback in DistSubFS() are still relative to the binary's CWD.
 #
 # Exit code is whatever orenda serve returns — Playwright's readiness probe
 # waits on /healthz and reports failure with the server's stderr.
