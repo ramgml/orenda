@@ -15,6 +15,12 @@ DB_PATH    := $(DATA_DIR)/orenda.db
 WEB_DIR    := web
 WEB_DIST   := $(WEB_DIR)/dist
 
+# Where the Go embed.web.FS looks for files. `make build` copies web/dist
+# into here right before `go build` so //go:embed all:dist picks up the
+# SPA. The directory itself is committed (with .gitkeep) so the embed
+# compiles in a fresh checkout.
+EMBED_DIST := internal/embed/web/dist
+
 # Version
 VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.1.0")
 LDFLAGS    := -ldflags "-s -w -X main.version=$(VERSION)"
@@ -22,7 +28,7 @@ LDFLAGS    := -ldflags "-s -w -X main.version=$(VERSION)"
 .PHONY: all dev build test lint clean migrate-up migrate-down \
         backup backup-push backup-snapshot backup-status \
         web-install web-dev web-build web-test test-e2e \
-        run version help
+        embed-dists run version help
 
 all: build
 
@@ -39,10 +45,31 @@ dev:
 	  $(AIR)
 
 ## build: Build production binary with embedded web/dist
-build: web-build
+##
+## Phase 27.1: web/dist is now embedded via `//go:embed all:dist` in
+## internal/embed/web/embed.go (no build tag needed). The Makefile
+## copies web/dist/* into internal/embed/web/dist/ right before `go build`
+## so the SPA lands inside the binary. The dist/ directory ships with a
+## .gitkeep, so a fresh checkout (no npm install / no npm run build) still
+## compiles — the resulting FS is just empty and DistSubFS falls back to
+## the on-disk web/dist/ during dev.
+build: web-build embed-dists
 	@mkdir -p $(BIN_DIR)
 	CGO_ENABLED=0 $(GO) build $(LDFLAGS) -o $(BINARY) ./cmd/orenda
 	@echo "Built $(BINARY)"
+
+## embed-dists: copy the freshly built web/dist/* into the embed drop.
+## Preserves .gitkeep so the directory stays under .gitignore tracking.
+embed-dists:
+	@mkdir -p $(EMBED_DIST)
+	@# Keep .gitkeep (always), refresh everything else from web/dist.
+	@touch $(EMBED_DIST)/.gitkeep
+	@if [ -d "$(WEB_DIST)" ]; then \
+		rsync -a --delete --exclude='.gitkeep' $(WEB_DIST)/ $(EMBED_DIST)/ ; \
+		echo "Embedded $(WEB_DIST) → $(EMBED_DIST)" ; \
+	else \
+		echo "WARNING: $(WEB_DIST) not present; embed will be empty" ; \
+	fi
 
 ## run: Run the production binary
 run: build
@@ -73,6 +100,8 @@ test-e2e: build
 ## clean: Remove build artifacts
 clean:
 	rm -rf $(BIN_DIR) $(WEB_DIST)
+	@# Restore the embed'd dist to its gitkeep-only state.
+	@find $(EMBED_DIST) -mindepth 1 -not -name '.gitkeep' -delete 2>/dev/null || true
 	$(GO) clean -cache -testcache
 
 ## migrate-up: Apply all pending migrations

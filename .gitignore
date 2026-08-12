@@ -21,6 +21,15 @@ web/test-results/
 web/blob-report/
 web/playwright/.cache/
 
+# --- Embedded SPA build drop (Makefile copies web/dist → here before go build) ---
+# The directory itself must exist with .gitkeep so that //go:embed all:dist
+# compiles even when no production build has been produced yet (dev / vet).
+# We need to negate BOTH the directory (covered by the generic `dist/` rule
+# above) and the .gitkeep file inside it.
+!internal/embed/web/dist/
+internal/embed/web/dist/*
+!internal/embed/web/dist/.gitkeep
+
 # --- Go ---
 *.test
 *.out
