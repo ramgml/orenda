@@ -21,7 +21,8 @@ LDFLAGS    := -ldflags "-s -w -X main.version=$(VERSION)"
 
 .PHONY: all dev build test lint clean migrate-up migrate-down \
         backup backup-push backup-snapshot backup-status \
-        web-install web-dev web-build run version help
+        web-install web-dev web-build web-test test-e2e \
+        run version help
 
 all: build
 
@@ -47,15 +48,27 @@ build: web-build
 run: build
 	./$(BINARY) serve --config $(CONFIG)
 
-## test: Run all tests
+## test: Run all tests (Go + vitest)
+## Phase 26.F: vitest is part of the pre-commit / pre-push gate now
+## (no longer a separate "wave rule"). E2E stays separate — it requires
+## Chromium and a built binary; see test-e2e.
 test:
 	$(GO) test ./... -race -count=1
+	cd $(WEB_DIR) && $(NPM) run test
 
 ## lint: Run linters (golangci-lint + eslint)
 lint:
 	@command -v golangci-lint >/dev/null 2>&1 || echo "install: https://golangci-lint.run/usage/install/"
 	golangci-lint run ./...
 	cd $(WEB_DIR) && $(NPM) run lint
+
+## test-e2e: Playwright E2E smoke suite.
+## Requires a built binary (make build). Spawns its own test server
+## on ORENDA_SERVER__PORT=21371 (override to avoid clashing with
+## the real dev server on 2137). The webServer.config in
+## web/playwright.config.ts already points at 21371.
+test-e2e: build
+	cd $(WEB_DIR) && $(NPM) run test:e2e
 
 ## clean: Remove build artifacts
 clean:
@@ -97,6 +110,10 @@ web-dev:
 ## web-build: Build React SPA
 web-build:
 	cd $(WEB_DIR) && $(NPM) run build
+
+## web-test: Run the vitest suite (component / unit / hook tests)
+web-test:
+	cd $(WEB_DIR) && $(NPM) run test
 
 ## version: Print version
 version:
