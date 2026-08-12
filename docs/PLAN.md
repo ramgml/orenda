@@ -16,11 +16,11 @@ status: pre-alpha
 > **Аудит реализации 2026-08-12** (сверка плана с кодом, не с чекбоксами): backend-ядро фаз 0–17, 19–25 реализовано; ни одна фаза не закрыта на 100%. Статусы под заголовками фаз: ✅ реализовано · 🟡 частично · ❌ минимально.
 >
 > Критичные дефекты:
-> 1. **Фронтенд WS никогда не подключается**: `AuthContext` не сохраняет JWT (`setToken` не вызывается), а запланированный endpoint `/auth/ws-token` не реализован → realtime DoD фаз 2, 6, 19, 20 фактически не работает в UI.
-> 2. **`make build` не передаёт `-tags=web_dist`** → SPA не встраивается в бинарь (раздача только через fallback на диск `web/dist`).
-> 3. **Теги не попадают в list-payload**: `ListByProjectWithStats` не вызывает `TagsForTasks`, у Go-типа `Task` нет поля `Tags` → чипы тегов на канбане невидимы (Phase 13).
+> 1. **Фронтенд WS никогда не подключается**: `AuthContext` не сохраняет JWT (`setToken` не вызывается), а запланированный endpoint `/auth/ws-token` не реализован → realtime DoD фаз 2, 6, 19, 20 фактически не работает в UI.  ➜ **Phase 27.2 / PR 1.2 (cookie-based WS upgrade).**
+> 2. ✅ **`make build` не передаёт `-tags=web_dist`** → **закрыт 2026-08-12 в Phase 27.1 / PR 1.1** (см. секцию ниже). Бинарь self-contained через `//go:embed all:dist`.
+> 3. **Теги не попадают в list-payload**: `ListByProjectWithStats` не вызывает `TagsForTasks`, у Go-типа `Task` нет поля `Tags` → чипы тегов на канбане невидимы (Phase 13).  ➜ **Phase 27.3 / PR 1.3.**
 >
-> Миграции: `.down.sql` отсутствуют глобально; нумерация съехала относительно текста фаз (wiki=008, notifications=009, backups=010, sync=011, events_to_tasks=012, courses=019; миграции 018 нет; `tasks.color` добавлен в 012).
+> Миграции: `.down.sql` отсутствуют глобально; нумерация съехала относительно текста фаз (wiki=008, notifications=009, backups=010, sync=011, events_to_tasks=012, courses=019; миграции 018 нет; `tasks.color` добавлен в 012).  ➜ **Wave 4 / PR 4.1.**
 >
 > Приоритет фиксов: WS-токен → `web_dist` → теги в payload → Phase 18 → Phase 26.
 
@@ -1402,6 +1402,103 @@ make build
 
 ---
 
+## Phase 27 — Закрытие аудит-дефектов и Phase 18 close-out *(1.5–2 недели)*
+
+> **Аудит реализации 2026-08-12** — три критичных дефекта оставались открытыми после Phase 26. Они блокируют dogfooding: realtime UI не работает в браузере, production-бинарь не содержит SPA, чипы тегов на канбане невидимы. Плюс Phase 18 (LMS) пришёл только в виде MVP-скелета. Делаем Phase 27 — фикс трёх D-дефектов + закрытие Phase 18.
+
+> **Саб-PR (5 штук): 27.1–27.5**, по одному за сессию, сериализованно.
+
+### 27.1 — Фикс D2: web_dist embed *(✅ закрыт в worktree `phase-27-1-web-dist-embed`)*
+
+**Цель:** `make build` → бинарь содержит SPA; production-deploy не зависит от `web/dist` на диске.
+
+**Механика:**
+
+- `//go:embed all:dist` + `//go:embed placeholder.txt` в `internal/embed/web/embed.go`. `dist/.gitkeep` гарантирует, что embed-директория существует в чистом checkout → `go test`/`go vet`/`make dev` компилируются.
+- Makefile: новый таргет `embed-dists` (rsync `web/dist/` → `internal/embed/web/dist/`); `build` зависит от `web-build embed-dists`. `clean` восстанавливает gitkeep-only состояние.
+- `DistSubFS()` переписан: 1) embedded `dist/` с `index.html` (post-`make build`), 2) on-disk `web/dist/index.html` (dev), 3) placeholder FS (API-only). CWD больше не критичен.
+
+**DoD:**
+
+- `bin/orenda serve` в `/tmp/test` (нет `web/dist/`) → `/` 200, `index.html` 661B, `/assets/*.css` 200 OK.
+- `go test ./internal/embed/...` 6/6 pass.
+- `make test && make lint && make test-e2e` зелёные.
+
+### 27.2 — Фикс D1: cookie-based WebSocket upgrade *(next session)*
+
+**Цель:** realtime-обновления UI (kanban, review-бейдж, today) работают в браузере.
+
+**Архитектурное решение:** cookie-based WS upgrade. `gorilla/websocket.Upgrader` читает `orenda_session` cookie из request — отдельный `/auth/ws-token` endpoint не нужен. Снимает: TTL-проблему, дополнительный round-trip, выделенный JWT.
+
+**Задачи:**
+
+1. `internal/api/ws/hub.go`: middleware понимает cookie-сессию (стандартный `AuthMiddleware.RequireUser`-обёртку). `?token=` остаётся deprecated-путём.
+2. `web/src/features/auth/AuthContext.tsx`: убрать `token` из state (не нужен при cookie-апгрейде). `useWebSocketConnection` коннектится по `status === 'authenticated'` без проверки токена.
+3. `web/src/shared/ws.ts::useWebSocketConnection`: cookie-based `ws(s)` URL, без query.
+4. E2E `ws-live.spec.ts`: реально открыть WS, поймать `task.created` event (Playwright `page.waitForEvent('console')` + WebSocket-маркер).
+
+**DoD:** E2E `ws-live.spec.ts` больше не симулирует refresh, ловит настоящий WS-эвент. 5 прогонов подряд — без флейков.
+
+### 27.3 — Фикс D3: теги в list-payload + чипы на карточке
+
+**Цель:** чипы тегов на канбан-карточках и в inbox/search-results видны.
+
+**Задачи:**
+
+1. `internal/domain/task/model.go`: `Tags []Tag` (`omitempty`, обратная совместимость).
+2. `internal/storage/sqlite/task_repo.go::ListByProjectWithStats`: +1 batch-запрос `TagsForTasks` (уже реализован в строке 740), заполнить `t.Tags`.
+3. `web/src/features/projects/TaskCard.tsx`: рендерить чипы (Phase 17.7 оставил место).
+4. `web/src/shared/api/client.ts`: TS-тип `Task.tags`.
+5. **Tests:** Repo `TestTaskRepo_ListByProjectWithStats_TagsIncluded` (batch, no N+1); frontend снэпшот карточки; E2E `kanban.spec.ts` — создать тег через REST, привязать, чип на канбане.
+
+**DoD:** Чипы видны; payload одним round-trip; чип в скриншотах E2E.
+
+### 27.4 — Phase 18 close-out: MaterializeLesson + AnswerQuiz + `/lessons/:id`
+
+**Цель:** LMS-цикл «создал курс → тьютор построил программу → человек принял → уроки прошёл → курс done» закрыт end-to-end.
+
+**Контекст:** Phase 18 пришёл только в виде MVP-скелета. `Service.CreateWithIntent` не wire'ит `GeneratorTaskID`, нет `MaterializeLesson`, нет `AnswerQuiz` endpoint'ов, `/lessons/:id` страницы нет, тестов `internal/service/course/` — 0.
+
+**Задачи (backend, 27.4.A):**
+
+1. `internal/service/course/course.go::MaterializeLesson(lessonID, contentMD, taskID)`: создать/обновить `content_md`, проверить переход `locked → open` (если урок теперь к прохождению), создать/слинковать exercise task.
+2. `AnswerQuiz(quizID, answer)`: `exact` — нормализация + сравнение, 1/0. `open` — review-задача тьютору с ответом в `context_md`.
+3. Wire `GeneratorTaskID`: `CreateWithIntent` создаёт `tasks` со ссылкой на `course_id` (Phase 16 inbox — без проекта).
+4. Endpoints: `PUT /api/v1/agent/lessons/{id}/content`, `POST /api/v1/lessons/{id}/quizzes/{qid}/answer`, `POST /api/v1/agent/lessons/{id}/materialize`.
+5. Migration `020_course_attempts.sql` (таблица `quiz_attempts` для exact-quiz статистики).
+6. **Tests:** 70% покрытия сервиса.
+
+**Задачи (frontend, 27.4.B):**
+
+1. `web/src/features/courses/LessonPage.tsx`: markdown-renderer (как в Wiki), quiz-формы inline, кнопка «Завершить урок».
+2. `CourseDetailPage.tsx`: ссылка на текущий open-урок.
+3. E2E `course.spec.ts`: full happy-path.
+4. Vitest: `LessonPage.test.tsx` (markdown + quiz + complete-кнопка).
+
+**DoD:** E2E «create → mock-tutor REST → user via UI → done». `go test` + `npm test` зелёные.
+
+### 27.5 — Down-миграции (Wave 4)
+
+**Цель:** retroactive `.down.sql` для всех 18 миграций; `migrate down` откатывает последнюю.
+
+**Задачи:**
+
+1. Написать down-файлы (`001_init.down.sql` … `019_courses.down.sql`).
+2. Расширить runner `internal/storage/sqlite/db.go::applyMigration` — если рядом с `.sql` есть `.down.sql`, использовать для `migrate down`.
+3. Необратимые миграции (FTS5 триггеры 005/008) помечаем `-- irreversible` и `migrate down` возвращает ошибку.
+4. Tests: `migrate down` + `migrate up` roundtrip для каждой реверсивной.
+
+**DoD:** `migrate down` (где реверсивно) → `migrate up` → БД identical.
+
+### Что НЕ входит в Phase 27
+
+- Multi-user / multi-device sync (Phase 11+).
+- Phase 9 polish (prettier, pprof, Prometheus) — отдельная фаза «Полировка» в roadmap.
+- PWA outbox update/comment (Phase 8.4 обещано, но не критично для dogfooding).
+- Notifier event emission (`task.commented`, `agent.offline`, `backup.failed` шаблоны есть, вэйрить — отдельный PR).
+
+---
+
 ## DB Schema (для миграции 001_init.sql)
 
 > Подробная схема появится в Phase 1. Ниже — скелет.
@@ -1821,3 +1918,4 @@ Wave 2 (после Wave 1):
 | 2026-08-11 | 0.12.0 | Приоритеты фаз P0/P1/P2 (видение, dogfooding, надёжность) |
 | 2026-08-11 | 0.13.0 | Phase 26: верификация фронтенда — Playwright E2E smoke + vitest component coverage (отмена решения «E2E пропускаем») |
 | 2026-08-12 | 0.14.0 | Аудит реализации: статусы фаз под заголовками (✅/🟡/❌), критичные дефекты (WS-токен, `web_dist`, теги в payload), расхождения миграций |
+| 2026-08-12 | 0.15.0 | Phase 27: саб-PR 27.1–27.5 — закрытие аудит-дефектов (D2 done, D1/D3 next) + Phase 18 close-out + down-миграции |

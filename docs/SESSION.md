@@ -1,4 +1,4 @@
-# Session Snapshot — 2026-08-12 (Phase 26 завершён)
+# Session Snapshot — 2026-08-12 (Phase 27.1 зафиксирован; Wave 1 в работе)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
@@ -9,10 +9,25 @@
 
 - ✅ **Phase 26 закрыт:** 5 Playwright E2E specs (8/8 pass, 5 runs no flakes) + 188 vitest unit/component tests + `make test` инклюдит vitest + новый `make test-e2e` target.
 - **Критично (открыто):** фронтенд WS никогда не подключается — `AuthContext` не сохраняет JWT (`setToken` не вызывается), а запланированный `/auth/ws-token` не реализован. Backend WS живой; ws-live E2E spec пинeт data path (refresh simulates WS).
-- **Критично (открыто):** `make build` без `-tags=web_dist` → бинарь не несёт SPA, раздача только через fallback на диск. (Phase 26.F не правил это — оставлено для следующего саб-PR.)
-- **Критично (открыто):** теги не попадают в list-payload (`ListByProjectWithStats` без `TagsForTasks`) → чипы на канбане невидимы (Phase 13).
-- **DoD провалены (частично):** Phase 18 (нет MaterializeLesson/AnswerQuiz/страницы урока/завершения курса) — закрытие не вошло в 26.A–F.
-- **Частично (🟡):** фазы 0, 1, 2, 6, 7, 8, 9, 10, 13, 15, 17 — пробелы перечислены в PLAN.md под каждым заголовком.
+- ✅ **D2 закрыт (2026-08-12, Phase 27.1):** `make build` теперь встраивает SPA через `//go:embed all:dist`. Бинарь self-contained — `/` отдаёт 661B index.html без `web/dist/` на диске. Verify: `strings bin/orenda | grep '<div id="root"'` → 1.
+- **Критично (открыто):** теги не попадают в list-payload (`ListByProjectWithStats` без `TagsForTasks`) → чипы на канбане невидимы (Phase 13). **PR 1.3 (Phase 27.3) — следующий.**
+- **DoD провалены (частично):** Phase 18 (нет MaterializeLesson/AnswerQuiz/страницы урока/завершения курса) — закрытие не вошло в 26.A–F. **Phase 27.4 (отдельная фаза) — после Wave 1.**
+- **Частично (🟡):** фазы 0, 1, 2, 6, 7, 8, 9, 10, 13, 15, 17 — пробелы перечислены в PLAN.md под каждым заголовком. Wave 4 (down-миграции + мелкие 🟡).
+
+## Wave 1 (D2 → D1 → D3) — план, согласован 2026-08-12
+
+Саб-PR закрываются по одному за сессию, в том же порядке:
+
+- **PR 1.1 / Phase 27.1 — D2 (web_dist).** ✅ Готово в worktree `phase-27-1-web-dist-embed`. См. ниже.
+- **PR 1.2 / Phase 27.2 — D1 (WS-токен).** Архитектурное решение: WS-upgrade через cookie (без отдельного `/auth/ws-token`), `gorilla/websocket.Upgrader` читает cookie из request. AuthContext упрощается, `useWebSocketConnection` больше не проверяет `token`. На очереди.
+- **PR 1.3 / Phase 27.3 — D3 (теги в payload).** `Task.Tags []Tag`, `ListByProjectWithStats` зовёт `TagsForTasks`, чипы на `TaskCard`. На очереди.
+
+## Phase 27.1 (D2) — web_dist embed, детали реализации
+
+- `//go:embed all:dist` + `//go:embed placeholder.txt` в `internal/embed/web/embed.go`. `dist/.gitkeep` поддерживает пустую директорию в git, чтобы embed компилировался в `go test` / `go vet` / `make dev`.
+- Makefile: новый таргет `embed-dists` (rsync `web/dist/` → `internal/embed/web/dist/`); `build` теперь имеет зависимость `web-build embed-dists`. `clean` восстанавливает gitkeep-only состояние.
+- 6 тестов в `internal/embed/web/embed_test.go`: embed-compiles, embedded-or-empty, placeholder, valid-FS, disk fallback, embedded-precedence.
+- Verify smoke: `bin/orenda serve` в `/tmp/orenda-embed-test` (нет `web/dist/`); `/`, `/healthz`, `/api/v1/{info,openapi.yaml}`, `/assets/*.css` — все 200.
 - Миграции: `.down.sql` нет нигде; нумерация съехала относительно текста фаз (courses=019, 018 отсутствует, `tasks.color` в 012).
 
 ## Метаданные
@@ -95,7 +110,7 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 ### Запуск E2E локально
 
 ```bash
-make build                 # ВНИМАНИЕ: пока БЕЗ -tags=web_dist (дефект из аудита) — SPA идёт с диска, не из embed
+make build                 # Phase 27.1: SPA встроена в бинарь через //go:embed
 make test-e2e              # Playwright spec'ы против тестового сервера
 ```
 
@@ -108,10 +123,10 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 
 ## Что можно дальше (за рамками PLAN)
 
-- **WS-токен для фронтенда** — `AuthContext` не сохраняет JWT (`setToken` не вызывается), `/auth/ws-token` endpoint не реализован. Без этого фронт не подписывается на WS-эвенты; realtime DoD фаз 2/6/19/20 формально не выполнен в UI. Следующий саб-PR.
-- **`make build` без `-tags=web_dist`** — бинарь не несёт SPA. Починить либо добавлением флага в Makefile по умолчанию, либо автоматическим его определением через `web/dist` (есть/нет).
-- **Теги в list-payload** — `ListByProjectWithStats` должен звать `TagsForTasks`, чтобы чипы на канбане были видны.
-- **Phase 18 close-out** — MaterializeLesson, AnswerQuiz, страница урока, завершение курса. Курсы-как-курсы — большая продуктовая фича.
+- **WS-токен для фронтенда** — `AuthContext` не сохраняет JWT (`setToken` не вызывается), `/auth/ws-token` endpoint не реализован. Без этого фронт не подписывается на WS-эвенты; realtime DoD фаз 2/6/19/20 формально не выполнен в UI. **PR 1.2 / Phase 27.2 — cookie-based WS upgrade, на очереди.**
+- **`make build` без `-tags=web_dist`** — ✅ **закрыт Phase 27.1** (см. отдельный блок ниже).
+- **Теги в list-payload** — `ListByProjectWithStats` должен звать `TagsForTasks`, чтобы чипы на канбане были видны. **PR 1.3 / Phase 27.3 — на очереди.**
+- **Phase 18 close-out** — MaterializeLesson, AnswerQuiz, страница урока, завершение курса. Курсы-как-курсы — большая продуктовая фича. **Отдельная фаза «Phase 27.4», после Wave 1.**
 - Restore-from-snapshot flow (CLI/UI) — snapshot есть, restore — заглушка
 - Telegram onboarding (chat_id через /start)
 - OpenAPI генерация
