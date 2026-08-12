@@ -21,7 +21,7 @@ status: pre-alpha
 > 3. ✅ **Теги не попадали в list-payload** → **закрыт 2026-08-12 в Phase 27.3 / PR 1.3** (см. секцию ниже). Чипы на канбане видны.
 > 3. **Теги не попадают в list-payload**: `ListByProjectWithStats` не вызывает `TagsForTasks`, у Go-типа `Task` нет поля `Tags` → чипы тегов на канбане невидимы (Phase 13).  ➜ **Phase 27.3 / PR 1.3.**
 >
-> Миграции: `.down.sql` отсутствуют глобально; нумерация съехала относительно текста фаз (wiki=008, notifications=009, backups=010, sync=011, events_to_tasks=012, courses=019; миграции 018 нет; `tasks.color` добавлен в 012).  ➜ **Wave 4 / PR 4.1.**
+> Миграции: `.down.sql` отсутствуют глобально; нумерация съехала относительно текста фаз (wiki=008, notifications=009, backups=010, sync=011, events_to_tasks=012, courses=019; миграции 018 нет; `tasks.color` добавлен в 012).  ➜ **Wave 4 / PR 4.1.** **✅ закрыт `phase-down-migrations`** — runner с маркером `-- orenda:irreversible` + 18 парных файлов.
 >
 > Приоритет фиксов: WS-токен → `web_dist` → теги в payload → Phase 18 → Phase 26.
 
@@ -1486,18 +1486,21 @@ make build
 
 **DoD:** E2E «create → mock-tutor REST → user via UI → done». `go test` + `npm test` зелёные.
 
-### 27.5 — Down-миграции (Wave 4)
+### 27.5 — Down-миграции (Wave 4) — ✅ закрыто в `phase-down-migrations`
 
 **Цель:** retroactive `.down.sql` для всех 18 миграций; `migrate down` откатывает последнюю.
 
-**Задачи:**
+**Что сделано:**
 
-1. Написать down-файлы (`001_init.down.sql` … `019_courses.down.sql`).
-2. Расширить runner `internal/storage/sqlite/db.go::applyMigration` — если рядом с `.sql` есть `.down.sql`, использовать для `migrate down`.
-3. Необратимые миграции (FTS5 триггеры 005/008) помечаем `-- irreversible` и `migrate down` возвращает ошибку.
-4. Tests: `migrate down` + `migrate up` roundtrip для каждой реверсивной.
+1. Runner: `internal/storage/sqlite/db.go::MigrateDown` ищет `<version>.down.sql` рядом с `.sql`, парсит тело, выполняет в транзакции. Foreign-keys-off маркер (Phase 16) обрабатывается и в down-пути. `//go:embed all:migrations/*.sql` (префикс `all:` нужен для файлов с несколькими точками в имени).
+2. `-- orenda:irreversible[: <reason>]` маркер: down-файл помечается комментом; runner возвращает `ErrMigrationIrreversible` с reason.
+3. `cmd/orenda/main.go::migrateDown` подключён к runner; structured logging отражает irreversible/нехватку файла.
+4. 18 парных `.down.sql` файлов:
+   - 13 reversible (002-012, 014, 016, 019) — чистые reverse'ы
+   - 3 irreversible (001, 013, 015) — помечены `-- orenda:irreversible`
+5. 17 unit-тестов в `db_down_test.go` (RoundTrip × 13, Irreversible × 3, MissingDownFile, ParseIrreversibleReason × 6).
 
-**DoD:** `migrate down` (где реверсивно) → `migrate up` → БД identical.
+**DoD:** `migrate down` (где реверсивно) → `migrate up` → БД identical. Manual smoke: `orenda migrate up` поднимает все 18; `migrate down` роллбэкает по одной.
 
 ### Что НЕ входит в Phase 27
 

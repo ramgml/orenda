@@ -45,7 +45,7 @@
 - Repo-тест: `TestTaskRepo_ListByProjectWithStats` расширен — два тега на `A`, `B` без тегов; ассертится ordered by name + len на обоих сторонах + non-nil empty slice у `B`.
 - E2E: `kanban.spec.ts` новый кейс — `createTag × 2` + `createTask` + `setTaskTags` → reload → `page.getByTitle(tagBug.name).toBeVisible()` × 2. Подтверждает, что один round-trip доставляет чипы на доску.
 - Vitest: +1 тест в `TaskCard.test.tsx` — chip реально получает `backgroundColor: rgb(34, 197, 94)` от тега `#22c55e` (предохраняет от регрессии «chip рендерится с slate-фоллбэком, обогащение молча сломано»).
-- Миграции: `.down.sql` нет нигде; нумерация съехала относительно текста фаз (courses=019, 018 отсутствует, `tasks.color` в 012).
+- Миграции: `.down.sql` нет нигде; нумерация съехала относительно текста фаз (courses=019, 018 отсутствует, `tasks.color` в 012). **✅ закрыт в `phase-down-migrations` (Wave 4 PR 1)** — runner с `-- orenda:irreversible` маркером + 18 парных `.down.sql` файлов; необратимые (001/013/015) возвращают `ErrMigrationIrreversible` с reason, остальные роллбэкаются.
 
 ## Метаданные
 

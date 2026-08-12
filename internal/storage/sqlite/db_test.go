@@ -488,6 +488,8 @@ func assertIndexNotExists(t *testing.T, db *sql.DB, name string) {
 // applyUpTo applies every migration whose name sorts <= target and
 // records them in schema_migrations so the next Migrate() call picks
 // up at the next version.
+//
+// Down migrations (`.down.sql`) are routed to MigrateDown, not here.
 func applyUpTo(t *testing.T, ctx context.Context, db *sql.DB, target string) {
 	t.Helper()
 	_, err := db.ExecContext(ctx, `
@@ -501,6 +503,11 @@ func applyUpTo(t *testing.T, ctx context.Context, db *sql.DB, target string) {
 	require.NoError(t, err)
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		// Phase Wave 4: skip down migrations here — they're
+		// picked up by MigrateDown only.
+		if strings.HasSuffix(e.Name(), ".down.sql") {
 			continue
 		}
 		name := strings.TrimSuffix(e.Name(), ".sql")
