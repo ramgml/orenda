@@ -160,16 +160,18 @@ func (r *taskRepo) ListByProject(ctx context.Context, f task.Filter) ([]*task.Ta
 }
 
 // ListByProjectWithStats returns tasks from ListByProject with the
-// per-task Counters (comments/attachments/children/checklist_items)
-// and BlockedByCount populated in a single round-trip per metric.
+// per-task Counters (comments/attachments/children/checklist_items),
+// BlockedByCount, and Tags populated in a single round-trip per metric.
 //
 // The implementation runs four aggregate queries keyed by the result
 // set's task IDs rather than N+1 per-task queries. For a kanban
 // board with 100 cards the per-render cost is bounded to ~5 SQL
-// queries instead of ~100.
+// queries instead of ~100. Phase 27.3 adds a fifth: a batch
+// TagsForTasks join that fills the Tags slice the TaskCard renders
+// as coloured chips.
 //
 // Used by the /projects/{id}/board and /inbox/tasks endpoints
-// (Phase 17).
+// (Phase 17; Phase 27.3 made the kanban chipper end-to-end).
 func (r *taskRepo) ListByProjectWithStats(ctx context.Context, f task.Filter) ([]*task.Task, error) {
 	tasks, err := r.ListByProject(ctx, f)
 	if err != nil {
@@ -190,11 +192,22 @@ func (r *taskRepo) ListByProjectWithStats(ctx context.Context, f task.Filter) ([
 	if err != nil {
 		return nil, err
 	}
+	tags, err := r.TagsForTasks(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	for _, t := range tasks {
 		if c, ok := counters[t.ID]; ok {
 			t.Counters = &c
 		}
 		t.BlockedByCount = blockers[t.ID]
+		// TagsForTasks pre-populates an empty slice for every input
+		// id, so `tagged == nil` only happens if some other code path
+		// stripped the entry — nil-check guards that case without
+		// hiding real bugs.
+		if ts, ok := tags[t.ID]; ok {
+			t.Tags = ts
+		}
 	}
 	return tasks, nil
 }

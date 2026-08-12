@@ -10,10 +10,21 @@
  *     card is in the new column.
  *   - The move position endpoint accepts fractional positions and the
  *     new column id.
+ *   - Phase 27.3: a task with attached tags shows up as a card with
+ *     a coloured chip per tag — the kanban enrichment path must
+ *     populate task.tags end-to-end.
  */
 import { expect, test } from '@playwright/test'
 
-import { E2E_PASSWORD, createProject, createTask, listColumns, loginAsUser } from './helpers'
+import {
+  E2E_PASSWORD,
+  createProject,
+  createTag,
+  createTask,
+  listColumns,
+  loginAsUser,
+  setTaskTags,
+} from './helpers'
 
 test.describe('Kanban', () => {
   test('creating a task posts the API and the card appears in the column', async ({
@@ -61,6 +72,45 @@ test.describe('Kanban', () => {
     const movedResp = await ctx.get(`/api/v1/tasks/${task.id}`)
     const moved = await movedResp.json()
     expect(moved.column_id).toBe(target.id)
+
+    await ctx.dispose()
+  })
+
+  test('Phase 27.3: kanban card renders coloured tag chips from list-payload', async ({
+    page,
+  }) => {
+    const ctx = await loginAsUser()
+    const project = await createProject(ctx)
+
+    // Sign the browser in and open the project board.
+    await page.goto('/login')
+    await page.getByLabel('Email').fill('e2e@orenda.local')
+    await page.getByLabel('Password').fill(E2E_PASSWORD)
+    await page.getByRole('button', { name: /sign in/i }).click()
+    await page.waitForURL((u) => u.pathname === '/')
+    await page.goto(`/projects/${project.id}`)
+    await page.waitForLoadState('networkidle')
+
+    // Seed two tags + a tagged task through the REST surface. The
+    // assertions below prove ListByProjectWithStats populates task.tags
+    // (without this, the chip would render with the empty-state text).
+    const tagBug = await createTag(ctx, { name: `bug-${Date.now()}`, color: '#dc2626' })
+    const tagUrgent = await createTag(ctx, { name: `urgent-${Date.now()}`, color: '#f59e0b' })
+    const task = await createTask(ctx, project.id, {
+      title: `Tagged card ${Date.now()}`,
+    })
+    await setTaskTags(ctx, task.id, [tagBug.id, tagUrgent.id])
+
+    // Reload so the board pulls the enriched payload.
+    await page.reload()
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByText('Loading…')).toHaveCount(0, { timeout: 10_000 })
+
+    // Both chips must be visible — the chip's title attribute is the
+    // tag name, so we anchor on that to distinguish it from any
+    // title text that happens to share the substring.
+    await expect(page.getByTitle(tagBug.name)).toBeVisible()
+    await expect(page.getByTitle(tagUrgent.name)).toBeVisible()
 
     await ctx.dispose()
   })

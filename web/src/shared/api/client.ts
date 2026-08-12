@@ -118,11 +118,13 @@ export interface Task {
    * The backend always emits this field so PATCH responses can
    * distinguish "no change" from "cleared". */
   color: string
-  /** Phase 13: tag set attached to this task. Populated by the
-   * server on GET /tasks/{id} (always returned) and on the kanban
-   * list endpoint when the batch enrichment is on (Phase 17 will
-   * wire that enrichment; until then the field stays undefined on
-   * list responses and the UI falls back to []). */
+  /** Phase 27.3: tag set attached to this task. Populated by the
+   * server on every endpoint that returns tasks — GET /tasks/{id}
+   * and the list endpoints (kanban + inbox). The batch join
+   * (TagsForTasks) keeps it O(1) queries regardless of board size,
+   * so the kanban card can render tags as chips without per-card
+   * fetches. Optional for back-compat with older clients that
+   * don't read this field. */
   tags?: Tag[]
   /** Phase 17: per-task counters populated by GET /projects/{id}/tasks
    * and /inbox/tasks (the list endpoints). Always undefined on the

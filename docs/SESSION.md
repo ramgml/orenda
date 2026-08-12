@@ -10,7 +10,7 @@
 - ✅ **Phase 26 закрыт:** 5 Playwright E2E specs (8/8 pass, 5 runs no flakes) + 188 vitest unit/component tests + `make test` инклюдит vitest + новый `make test-e2e` target.
 - ✅ **D1 закрыт (2026-08-12, Phase 27.2):** WS-апгрейд через cookie — `AuthContext` больше не хранит JWT (и не должен), `useWebSocketConnection` подключён в `AppLayout`, фронт реально открывает `/api/v1/ws` после login. `ws-live.spec.ts` ловит настоящий WS-фрейм без `page.reload()`. 5 прогонов подряд без флейков.
 - ✅ **D2 закрыт (2026-08-12, Phase 27.1):** `make build` теперь встраивает SPA через `//go:embed all:dist`. Бинарь self-contained — `/` отдаёт 661B index.html без `web/dist/` на диске. Verify: `strings bin/orenda | grep '<div id="root"'` → 1.
-- **Критично (открыто):** теги не попадают в list-payload (`ListByProjectWithStats` без `TagsForTasks`) → чипы на канбане невидимы (Phase 13). **PR 1.3 (Phase 27.3) — следующий.**
+- ✅ **D3 закрыт (2026-08-12, Phase 27.3):** `Task.Tags []Tag` в `ListByProjectWithStats`, +1 batch-запрос `TagsForTasks`. Чипы на канбан-карточке видны (через `task.tags`) одним round-trip; vitest 189/189; E2E `kanban.spec.ts` создаёт тег через REST, привязывает, проверяет чип.
 - **DoD провалены (частично):** Phase 18 (нет MaterializeLesson/AnswerQuiz/страницы урока/завершения курса) — закрытие не вошло в 26.A–F. **Phase 27.4 (отдельная фаза) — после Wave 1.**
 - **Частично (🟡):** фазы 0, 1, 2, 6, 7, 8, 9, 10, 13, 15, 17 — пробелы перечислены в PLAN.md под каждым заголовком. Wave 4 (down-миграции + мелкие 🟡).
 
@@ -20,7 +20,7 @@
 
 - **PR 1.1 / Phase 27.1 — D2 (web_dist).** ✅ Готово в worktree `phase-27-1-web-dist-embed`. См. ниже.
 - **PR 1.2 / Phase 27.2 — D1 (WS-cookie).** ✅ Готово в worktree `phase-27-2-ws-cookie`. См. ниже.
-- **PR 1.3 / Phase 27.3 — D3 (теги в payload).** `Task.Tags []Tag`, `ListByProjectWithStats` зовёт `TagsForTasks`, чипы на `TaskCard`. На очереди.
+- **PR 1.3 / Phase 27.3 — D3 (теги в payload).** ✅ Готово в worktree `phase-27-3-tags-in-payload`. См. ниже.
 
 ## Phase 27.1 (D2) — web_dist embed, детали реализации
 
@@ -36,6 +36,15 @@
 - Frontend: `AuthContext.tsx` убирает поле `token` (было always null). `ws.ts::WSClient.connect()` — без аргументов, URL `/api/v1/ws` без query. `useWebSocketConnection` срабатывает на `status === 'authenticated'` без проверки токена. Mounted в `AppLayout.tsx::AppLayoutInner` так, что каждый авторизованный route получает WS автоматически.
 - E2E `ws-live.spec.ts` — `page.waitForEvent('websocket')` подписывается до login, ловит `framereceived` с topic `tasks`, проверяет, что `/today`-баннер меняется без `page.reload()`.
 - Manual smoke с реальным бинарём: cookie → 101 Switching Protocols; без cookie → 401; `?token=` всё ещё работает (back-compat для curl/внешних клиентов).
+
+## Phase 27.3 (D3) — tags in list-payload, детали реализации
+
+- Domain: `internal/domain/task/model.go::Task` получил `Tags []Tag \`json:"tags,omitempty"\``. `omitempty` — обратная совместимость (старые клиенты без поля читают как `undefined`, фронт `|| []` уже работает).
+- Repo: `ListByProjectWithStats` теперь делает **5-й aggregate** — `TagsForTasks(ctx, ids)` одним запросом на N задач (без N+1). `TagsForTasks` пре-популирует `out[id]=[]` для каждого input id, так что untagged задачи получают empty-slice не-nil. Сортировка по `t.name ASC` детерминирует порядок чипов.
+- Handler: `getTaskHandler` теперь гидратирует `tr.Tags` через `ListTagsForTask` — single-task и list-payload всегда консистентны.
+- Repo-тест: `TestTaskRepo_ListByProjectWithStats` расширен — два тега на `A`, `B` без тегов; ассертится ordered by name + len на обоих сторонах + non-nil empty slice у `B`.
+- E2E: `kanban.spec.ts` новый кейс — `createTag × 2` + `createTask` + `setTaskTags` → reload → `page.getByTitle(tagBug.name).toBeVisible()` × 2. Подтверждает, что один round-trip доставляет чипы на доску.
+- Vitest: +1 тест в `TaskCard.test.tsx` — chip реально получает `backgroundColor: rgb(34, 197, 94)` от тега `#22c55e` (предохраняет от регрессии «chip рендерится с slate-фоллбэком, обогащение молча сломано»).
 - Миграции: `.down.sql` нет нигде; нумерация съехала относительно текста фаз (courses=019, 018 отсутствует, `tasks.color` в 012).
 
 ## Метаданные
@@ -68,6 +77,7 @@
 | **26.F** | **Makefile wiring + docs** — `make test` += vitest, новый `make test-e2e` target; `docs/SESSION.md` отражает закрытие E2E-пропуска. |
 | **27.1** | **web_dist embed** — `//go:embed all:dist` + Makefile `embed-dists` target; бинарь self-contained (index.html внутри), 6 тестов `internal/embed/web/embed_test.go`. |
 | **27.2** | **WS cookie auth** — handler читает `orenda_session` cookie first, потом `Authorization: Bearer`, потом `?token=` (deprecated). `useWebSocketConnection` подключён в `AppLayout`. `AuthContext` больше не хранит `token`. `ws-live.spec.ts` ловит реальный WS-фрейм без `page.reload()`. 5 прогонов E2E без флейков. |
+| **27.3** | **Tags in list-payload** — `Task.Tags []Tag`, `ListByProjectWithStats` зовёт `TagsForTasks` (5-й aggregate запрос, без N+1). `getTaskHandler` тоже подгружает теги через `ListTagsForTask` (консистентность single-task ↔ list). Чипы на канбане видны одним round-trip; vitest 189/189 (+1 цвет-бейдж тест); E2E `kanban.spec.ts` «Phase 27.3: kanban card renders coloured tag chips from list-payload». 4 прогона подряд без флейков. |
 
 ## Ключевые решения (не забыть)
 

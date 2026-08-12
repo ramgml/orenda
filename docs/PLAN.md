@@ -18,6 +18,7 @@ status: pre-alpha
 > Критичные дефекты:
 > 1. ✅ **Фронтенд WS никогда не подключался** → **закрыт 2026-08-12 в Phase 27.2 / PR 1.2** (cookie-based upgrade, см. секцию ниже). Realtime UI работает end-to-end.
 > 2. ✅ **`make build` не передавал `-tags=web_dist`** → **закрыт 2026-08-12 в Phase 27.1 / PR 1.1** (см. секцию ниже). Бинарь self-contained через `//go:embed all:dist`.
+> 3. ✅ **Теги не попадали в list-payload** → **закрыт 2026-08-12 в Phase 27.3 / PR 1.3** (см. секцию ниже). Чипы на канбане видны.
 > 3. **Теги не попадают в list-payload**: `ListByProjectWithStats` не вызывает `TagsForTasks`, у Go-типа `Task` нет поля `Tags` → чипы тегов на канбане невидимы (Phase 13).  ➜ **Phase 27.3 / PR 1.3.**
 >
 > Миграции: `.down.sql` отсутствуют глобально; нумерация съехала относительно текста фаз (wiki=008, notifications=009, backups=010, sync=011, events_to_tasks=012, courses=019; миграции 018 нет; `tasks.color` добавлен в 012).  ➜ **Wave 4 / PR 4.1.**
@@ -1440,19 +1441,23 @@ make build
 
 **DoD — достигнут:** `go test ./...` зелёный, vitest 188/188, Playwright 8/8 на 5 прогонах подряд без флейков. Manual smoke: cookie → 101, без cookie → 401, `?token=` работает (back-compat для curl/внешних клиентов).
 
-### 27.3 — Фикс D3: теги в list-payload + чипы на карточке
+### 27.3 — Фикс D3: теги в list-payload + чипы на карточке *(✅ закрыт в worktree `phase-27-3-tags-in-payload`)*
 
 **Цель:** чипы тегов на канбан-карточках и в inbox/search-results видны.
 
-**Задачи:**
+**Задачи (все выполнены):**
 
 1. `internal/domain/task/model.go`: `Tags []Tag` (`omitempty`, обратная совместимость).
-2. `internal/storage/sqlite/task_repo.go::ListByProjectWithStats`: +1 batch-запрос `TagsForTasks` (уже реализован в строке 740), заполнить `t.Tags`.
-3. `web/src/features/projects/TaskCard.tsx`: рендерить чипы (Phase 17.7 оставил место).
-4. `web/src/shared/api/client.ts`: TS-тип `Task.tags`.
-5. **Tests:** Repo `TestTaskRepo_ListByProjectWithStats_TagsIncluded` (batch, no N+1); frontend снэпшот карточки; E2E `kanban.spec.ts` — создать тег через REST, привязать, чип на канбане.
+2. `internal/storage/sqlite/task_repo.go::ListByProjectWithStats`: +1 batch-запрос `TagsForTasks` (5-й aggregate, без N+1), заполнить `t.Tags`.
+3. `internal/api/handlers_tasks.go::getTaskHandler`: тоже гидратирует `Tags` через `ListTagsForTask` (single-task JSON и list-payload консистентны).
+4. `web/src/features/projects/TaskCard.tsx`: уже рендерил чипы через `task.tags` (Phase 17/13 заготовка) — теперь payload приходит с бэкенда.
+5. `web/src/shared/api/client.ts`: TS-тип `Task.tags` уже был; обновил stale-комментарий.
+6. **Tests:**
+   - Repo `TestTaskRepo_ListByProjectWithStats` расширен — два тега на `A`, `B` untagged, проверяется ordered by name + non-nil empty slice на обоих.
+   - Frontend `TaskCard.test.tsx`: +1 тест, что chip `backgroundColor` совпадает с `tag.color` (предохраняет от «chip рендерится с slate-фоллбэком»).
+   - E2E `kanban.spec.ts`: новый кейс — `createTag × 2` + `createTask` + `setTaskTags` → reload → `page.getByTitle(...)` × 2.
 
-**DoD:** Чипы видны; payload одним round-trip; чип в скриншотах E2E.
+**DoD — достигнут:** Чипы видны; payload одним round-trip (5 агрегатов на N задач); vitest 189/189, Playwright 9/9 на 4 прогонах подряд.
 
 ### 27.4 — Phase 18 close-out: MaterializeLesson + AnswerQuiz + `/lessons/:id`
 
