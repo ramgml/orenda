@@ -16,8 +16,8 @@ status: pre-alpha
 > **Аудит реализации 2026-08-12** (сверка плана с кодом, не с чекбоксами): backend-ядро фаз 0–17, 19–25 реализовано; ни одна фаза не закрыта на 100%. Статусы под заголовками фаз: ✅ реализовано · 🟡 частично · ❌ минимально.
 >
 > Критичные дефекты:
-> 1. **Фронтенд WS никогда не подключается**: `AuthContext` не сохраняет JWT (`setToken` не вызывается), а запланированный endpoint `/auth/ws-token` не реализован → realtime DoD фаз 2, 6, 19, 20 фактически не работает в UI.  ➜ **Phase 27.2 / PR 1.2 (cookie-based WS upgrade).**
-> 2. ✅ **`make build` не передаёт `-tags=web_dist`** → **закрыт 2026-08-12 в Phase 27.1 / PR 1.1** (см. секцию ниже). Бинарь self-contained через `//go:embed all:dist`.
+> 1. ✅ **Фронтенд WS никогда не подключался** → **закрыт 2026-08-12 в Phase 27.2 / PR 1.2** (cookie-based upgrade, см. секцию ниже). Realtime UI работает end-to-end.
+> 2. ✅ **`make build` не передавал `-tags=web_dist`** → **закрыт 2026-08-12 в Phase 27.1 / PR 1.1** (см. секцию ниже). Бинарь self-contained через `//go:embed all:dist`.
 > 3. **Теги не попадают в list-payload**: `ListByProjectWithStats` не вызывает `TagsForTasks`, у Go-типа `Task` нет поля `Tags` → чипы тегов на канбане невидимы (Phase 13).  ➜ **Phase 27.3 / PR 1.3.**
 >
 > Миграции: `.down.sql` отсутствуют глобально; нумерация съехала относительно текста фаз (wiki=008, notifications=009, backups=010, sync=011, events_to_tasks=012, courses=019; миграции 018 нет; `tasks.color` добавлен в 012).  ➜ **Wave 4 / PR 4.1.**
@@ -1424,20 +1424,21 @@ make build
 - `go test ./internal/embed/...` 6/6 pass.
 - `make test && make lint && make test-e2e` зелёные.
 
-### 27.2 — Фикс D1: cookie-based WebSocket upgrade *(next session)*
+### 27.2 — Фикс D1: cookie-based WebSocket upgrade *(✅ закрыт в worktree `phase-27-2-ws-cookie`)*
 
 **Цель:** realtime-обновления UI (kanban, review-бейдж, today) работают в браузере.
 
 **Архитектурное решение:** cookie-based WS upgrade. `gorilla/websocket.Upgrader` читает `orenda_session` cookie из request — отдельный `/auth/ws-token` endpoint не нужен. Снимает: TTL-проблему, дополнительный round-trip, выделенный JWT.
 
-**Задачи:**
+**Задачи (все выполнены):**
 
-1. `internal/api/ws/hub.go`: middleware понимает cookie-сессию (стандартный `AuthMiddleware.RequireUser`-обёртку). `?token=` остаётся deprecated-путём.
-2. `web/src/features/auth/AuthContext.tsx`: убрать `token` из state (не нужен при cookie-апгрейде). `useWebSocketConnection` коннектится по `status === 'authenticated'` без проверки токена.
-3. `web/src/shared/ws.ts::useWebSocketConnection`: cookie-based `ws(s)` URL, без query.
-4. E2E `ws-live.spec.ts`: реально открыть WS, поймать `task.created` event (Playwright `page.waitForEvent('console')` + WebSocket-маркер).
+1. `internal/api/ws/client.go`: новый `extractWSToken(r, cookieName)` с precedence cookie → `Authorization: Bearer` → `?token=`. `Handler` принимает `cookieName`, пробрасывается через `router.go::deps.CookieName`.
+2. `web/src/features/auth/AuthContext.tsx`: убран `token` из state. Был always null anyway (аудит 2026-08-12).
+3. `web/src/shared/ws.ts::useWebSocketConnection`: connect на `status === 'authenticated'` без проверки токена; URL без query.
+4. `web/src/features/layout/AppLayout.tsx`: mount хука в layout root — все авторизованные роуты получают WS автоматически (без per-page wiring).
+5. E2E `ws-live.spec.ts`: `waitForEvent('websocket')` подписывается до login; `framereceived` с topic `tasks`; баннер `/today` обновляется без `page.reload()`.
 
-**DoD:** E2E `ws-live.spec.ts` больше не симулирует refresh, ловит настоящий WS-эвент. 5 прогонов подряд — без флейков.
+**DoD — достигнут:** `go test ./...` зелёный, vitest 188/188, Playwright 8/8 на 5 прогонах подряд без флейков. Manual smoke: cookie → 101, без cookie → 401, `?token=` работает (back-compat для curl/внешних клиентов).
 
 ### 27.3 — Фикс D3: теги в list-payload + чипы на карточке
 

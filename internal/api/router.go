@@ -238,10 +238,12 @@ func NewRouter(deps Dependencies) http.Handler {
 			caps.RESTTasks = true
 		}
 		r.Get("/info", infoHandler(Version, caps))
-		// WebSocket: authenticates via ?token=<jwt> in query because the
-		// browser WS API can't set headers. See internal/api/ws.Handler.
+		// WebSocket: Phase 27.2 — authenticates via the orenda_session
+		// cookie (same-origin browser WS sends it automatically). The
+		// handler still accepts ?token=<jwt> for curl / external clients.
+		// See internal/api/ws.Handler for the precedence rules.
 		if deps.Signer != nil && deps.WSHub != nil {
-			r.Handle("/ws", ws.Handler(deps.WSHub, deps.Signer))
+			r.Handle("/ws", ws.Handler(deps.WSHub, deps.Signer, deps.CookieName))
 		}
 
 		// Auth: public endpoints.

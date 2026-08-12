@@ -3,6 +3,7 @@ package ws
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -37,16 +38,29 @@ func checkLoopbackOrigin(r *http.Request) bool {
 }
 
 // Handler upgrades the request to a WebSocket connection, authenticates
-// the user via the JWT in the ?token= query parameter (the browser WS API
-// can't set headers), then runs read/write pumps.
+// the user via the JWT carried in either the `orenda_session` cookie or
+// the `?token=` query parameter, then runs read/write pumps.
 //
-// writeTimeout governs how often we send heartbeats and the maximum time we
-// wait for a slow consumer.
-func Handler(hub Hub, signer *auth.Signer) http.Handler {
+// Phase 27.2: the previous design required `?token=` because the browser
+// WebSocket API cannot set arbitrary request headers. Now that the UI
+// authenticates with a same-origin cookie (Set-Cookie: orenda_session),
+// the same cookie is sent automatically on the WS upgrade — no token
+// juggling on the client. `?token=` is still accepted as a deprecated
+// fallback so external integrations keep working.
+//
+// cookieName is the cookie carrying the session JWT (defaults to
+// "orenda_session" when empty).
+func Handler(hub Hub, signer *auth.Signer, cookieName string) http.Handler {
+	if cookieName == "" {
+		cookieName = "orenda_session"
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Auth: token in ?token= query param (browser WebSocket limitation).
-		raw := r.URL.Query().Get("token")
-		if raw == "" {
+		// Phase 27.2: prefer the cookie (same-origin browser WS, no auth
+		// state on the client). Fall back to ?token= for the legacy path
+		// (curl, third-party integrations, and tests that don't have a
+		// cookie jar handy).
+		raw, ok := extractWSToken(r, cookieName)
+		if !ok {
 			http.Error(w, "missing token", http.StatusUnauthorized)
 			return
 		}
@@ -69,6 +83,33 @@ func Handler(hub Hub, signer *auth.Signer) http.Handler {
 		go writePump(conn, events)
 		readPump(conn, unsub)
 	})
+}
+
+// extractWSToken pulls the JWT from the session cookie first, then the
+// Authorization: Bearer header (useful for server-side clients that want
+// to piggyback on the existing auth surface), then the legacy ?token=
+// query parameter.
+//
+// Cookie wins because:
+//  1. Browsers send it automatically on the WS upgrade, so the UI needs
+//     no client-side token storage.
+//  2. It's HttpOnly, so the JS layer can't accidentally exfiltrate it.
+//  3. The Set-Cookie is already established by /auth/login on the same
+//     origin — no extra round-trip.
+func extractWSToken(r *http.Request, cookieName string) (string, bool) {
+	if c, err := r.Cookie(cookieName); err == nil && c.Value != "" {
+		return c.Value, true
+	}
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		tok := strings.TrimPrefix(h, "Bearer ")
+		if tok != "" {
+			return tok, true
+		}
+	}
+	if q := r.URL.Query().Get("token"); q != "" {
+		return q, true
+	}
+	return "", false
 }
 
 // writePump pumps events from the channel to the WebSocket connection.
