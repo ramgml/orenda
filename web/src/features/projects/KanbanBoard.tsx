@@ -20,6 +20,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useAuth } from '@/features/auth/AuthContext'
 import { api, type Column, type Task } from '@/shared/api/client'
 import { useWebSocketTopic } from '@/shared/ws'
+import { queueMoveTask } from '@/shared/offline/outbox'
 
 import { ColumnView } from './ColumnView'
 import { TaskCard } from './TaskCard'
@@ -141,7 +142,16 @@ export function KanbanBoard({
     )
 
     try {
-      await api.moveTask(activeId, targetColumnId)
+      // Phase Wave 4 PR 2: route the move through the offline
+      // outbox when the client is disconnected, so a dnd-while-
+      // offline lands the position on the server once connectivity
+      // returns. Online path is the same as before (axios call
+      // catches the error and the optimistic update stays in place).
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        await queueMoveTask(activeId, targetColumnId)
+      } else {
+        await api.moveTask(activeId, targetColumnId)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setTasks(prev)

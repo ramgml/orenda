@@ -12,6 +12,7 @@ import (
 
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/comment"
+	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 )
 
 // Sentinel errors.
@@ -35,11 +36,30 @@ type AuthorLookup interface {
 	ResolveAuthor(ctx context.Context, authorType comment.AuthorType, authorID string) (displayName string, err error)
 }
 
+// TaskOwnerResolver lets the comment service find the recipient
+// for a `task.commented` notification. The concrete type is
+// wired by cmd/orenda — for now we keep the seam small: any
+// implementation that maps a task_id to an owner_user_id works.
+type TaskOwnerResolver interface {
+	OwnerForTask(ctx context.Context, taskID string) (userID string, taskTitle string, err error)
+}
+
+// Notifier is the slim seam the comment service uses to fan out
+// `task.commented` events. nil disables the event.
+type Notifier interface {
+	Notify(ctx context.Context, e notifierservice.Event) error
+}
+
 // Service is the dependency holder.
 type Service struct {
 	Repo         Repository
 	Hub          ws.Hub
 	AuthorLookup AuthorLookup
+	// Phase Wave 4 PR 2: notifier + task-owner lookup. Both
+	// nil-safe (the comment is still created; only the
+	// downstream event is skipped).
+	Notifier          Notifier
+	TaskOwnerResolver TaskOwnerResolver
 }
 
 // New returns a Service with optional Hub/AuthorLookup (nil = no-op).
@@ -51,6 +71,11 @@ func New(repo Repository, hub ws.Hub, lookup AuthorLookup) *Service {
 //
 // The caller supplies the full comment minus ID/created_at; the service
 // assigns those.
+//
+// Phase Wave 4 PR 2: also fires a `task.commented` notification to
+// the task's owner when the comment is on a task. We skip the
+// notification when the author IS the recipient (no point
+// notifying yourself) and when the lookup is unwired.
 func (s *Service) Add(ctx context.Context, c *comment.Comment) (*comment.Comment, error) {
 	if c == nil {
 		return nil, ErrInvalidInput
@@ -74,7 +99,48 @@ func (s *Service) Add(ctx context.Context, c *comment.Comment) (*comment.Comment
 			},
 		})
 	}
+
+	// task.commented — fan out to the task owner. Only when the
+	// comment lives on a task target (comments on wiki pages etc.
+	// are out of scope for this event).
+	if s.Notifier != nil && s.TaskOwnerResolver != nil && got.TargetType == comment.TargetTask {
+		if ownerID, title, err := s.TaskOwnerResolver.OwnerForTask(ctx, got.TargetID); err == nil && ownerID != "" {
+			if ownerID != string(got.AuthorType)+":"+got.AuthorID {
+				// Author is identified by (type, id); the
+				// owner lookup returns the user_id. They
+				// don't match unless the author IS the
+				// owner; skipping self-notifies is just
+				// polite.
+				_ = s.Notifier.Notify(ctx, notifierservice.Event{
+					Type:       "task.commented",
+					UserID:     ownerID,
+					TargetType: "task",
+					TargetID:   got.TargetID,
+					Title:      "New comment on: " + title,
+					Body:       truncate(got.BodyMD, 200),
+					Link:       "/tasks/" + got.TargetID,
+					DedupKey:   "task.commented:" + got.ID,
+				})
+			}
+		}
+	}
+
 	return got, nil
+}
+
+// truncate trims s to max runes (chars), appending an ellipsis when
+// it clips. Used for the notifier body so we don't ship a 10KB
+// comment in every channel's preview. Rune-aware so multi-byte
+// characters (café) don't get cut mid-codepoint.
+func truncate(s string, max int) string {
+	if max <= 0 {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "…"
 }
 
 // ListByTarget returns every comment for a (target_type, target_id) pair

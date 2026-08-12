@@ -421,7 +421,7 @@ make build
 
 ## Phase 7 — Бэкапы *(3–4 дня)*
 
-> **Аудит 2026-08-12:** 🟡 — VACUUM INTO snapshot + ротация, git push, scheduler, CLI (push/snapshot/status/restore), UI — есть. Mirror не пишет комментарии (`nil` в `MirrorSave`); git client без `Status`/`TestConnection`; snapshot по тикеру 24h, не cron 03:00; `PUT /backups/settings` → 501 («config.yaml is the source of truth»); UI настроек read-only.
+> **Аудит 2026-08-12:** 🟡 — VACUUM INTO snapshot + ротация, git push, scheduler, CLI (push/snapshot/status/restore), UI — есть. Mirror не пишет комментарии (`nil` в `MirrorSave`); git client без `Status`/`TestConnection`; snapshot по тикеру 24h, не cron 03:00; `PUT /backups/settings` → 501 («config.yaml is the source of truth»); UI настроек read-only. **✅ Wave 4 PR 2 — Mirror now fetches comments; down-миграции закрыли бóльшую часть. PWA outbox update/move/comment зашиты в call sites; InboxPage теперь использует TaskCard.**
 
 **Цель:** markdown-зеркало + git push + sqlite snapshot + UI.
 
@@ -847,7 +847,7 @@ make build
 
 ## Phase 16 — Inbox: карточки без проекта, а не системный проект *(2–3 дня)*
 
-> **Аудит 2026-08-12:** ✅ — FK-off migration runner, миграция 015 (rebuild tasks, rowid, FTS rebuild, удаление `...cafe` и system-user), inbox endpoints, PATCH project_id, `/inbox` страница, статичный сайдбар-пункт с бейджем — есть. Оговорки: нет dedicated теста миграции 015; `docs/API.md` не описывает `/inbox/tasks`; InboxPage не переиспользует TaskCard.
+> **Аудит 2026-08-12:** ✅ — FK-off migration runner, миграция 015 (rebuild tasks, rowid, FTS rebuild, удаление `...cafe` и system-user), inbox endpoints, PATCH project_id, `/inbox` страница, статичный сайдбар-пункт с бейджем — есть. Оговорки: нет dedicated теста миграции 015; `docs/API.md` не описывает `/inbox/tasks`; InboxPage не переиспользует TaskCard. **✅ закрыт в `phase-mirror-minor` (Wave 4 PR 2) — InboxPage переиспользует TaskCard; остальные оговоренные бэклоги оставлены на Phase 9 polish.**
 
 **Цель:** Inbox перестаёт быть системным проектом с магическим id. Inbox — это просто набор карточек (задач), у которых ещё нет проекта: `tasks.project_id IS NULL`. Системный проект `00000000-0000-0000-0000-00000000cafe` и его placeholder-пользователь удаляются миграцией.
 

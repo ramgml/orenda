@@ -20,7 +20,12 @@ type Repository interface {
 	TouchLastSeen(ctx context.Context, id string) (*Agent, error)
 
 	// SweepOffline marks every agent with last_seen_at older than ttl as
-	// offline. Returns the number of rows updated; Phase 3.5 calls this
-	// every 30s from a background worker.
+	// offline. Returns the number of rows updated.
 	SweepOffline(ctx context.Context, ttl time.Duration) (int64, error)
+	// ListStaleOnlineAgents returns the agents that the next sweep
+	// will flip to offline. Phase Wave 4 PR 2: notifier fans
+	// `agent.offline` events per-agent from the result of this
+	// call before the SweepOffline UPDATE. Best-effort, no
+	// round-trip guarantee.
+	ListStaleOnlineAgents(ctx context.Context, ttl time.Duration) ([]*Agent, error)
 }
