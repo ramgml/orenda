@@ -16,6 +16,10 @@ web/node_modules/
 web/dist/
 web/.vite/
 web/*.tsbuildinfo
+web/playwright-report/
+web/test-results/
+web/blob-report/
+web/playwright/.cache/
 
 # --- Go ---
 *.test
