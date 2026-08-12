@@ -6,14 +6,17 @@ import { api, type BackupLogEntry, type BackupSettings, type BackupSnapshot } fr
  * /settings/backups — backup configuration + manual actions + history.
  *
  * Phase 7 shows the settings read-only (config.yaml is the source of
- * truth); Phase 9 adds a real "edit remote" form.
+ * truth); Phase 9 adds a real "edit remote" form; Phase 22 closes
+ * the restore loop with an in-process button (maintenance mode +
+ * force=true) so the operator doesn't have to ssh to the host and
+ * run the CLI command by hand.
  */
 export function BackupsSettingsPage(): JSX.Element {
   const [settings, setSettings] = useState<BackupSettings | null>(null)
   const [snapshots, setSnapshots] = useState<BackupSnapshot[]>([])
   const [log, setLog] = useState<BackupLogEntry[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState<'push' | 'snapshot' | null>(null)
+  const [busy, setBusy] = useState<'push' | 'snapshot' | 'restore' | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [restoreTarget, setRestoreTarget] = useState<BackupSnapshot | null>(null)
   const [restoreHint, setRestoreHint] = useState<string | null>(null)
@@ -69,18 +72,25 @@ export function BackupsSettingsPage(): JSX.Element {
     }
   }
 
+  // Initial click on Restore… — opens the modal in CLI-hint mode.
+  // The operator can either copy the CLI command or click the
+  // "Restore in this window" button to drive the in-process path.
   async function onRestore(s: BackupSnapshot): Promise<void> {
     setError(null)
     setInfo(null)
     setRestoreTarget(s)
     setRestoreHint(null)
     try {
-      // Server is running — this is expected to 409; we use the structured
-      // hint to surface the exact CLI command the operator must run.
-      const r = await api.restoreBackup(s.path)
-      setRestoreHint(r.hint)
+      // Probe the server with `force: false` — most installs return
+      // 409 with a CLI hint that we can show as the "manual path".
+      // If the operator has already turned maintenance on (or the
+      // server happens to be off for some reason) the call may
+      // succeed and we still surface the CLI hint as a fallback.
+      const r = await api.restoreBackup(s.path, { force: false })
+      if (r.hint) setRestoreHint(r.hint)
     } catch (e) {
-      // axios throws for non-2xx. Read the server's structured body.
+      // axios throws for non-2xx. The server's structured body
+      // carries the CLI hint; recover it from the error message.
       const msg = e instanceof Error ? e.message : String(e)
       const hintMatch = /hint[":\s]+([^\n}]+)/i.exec(msg)
       setRestoreHint(
@@ -88,6 +98,46 @@ export function BackupsSettingsPage(): JSX.Element {
           ? hintMatch[1].replace(/^[":\s]+/, '').replace(/[",]+$/, '')
           : `Run on the server host: orenda backup restore --from ${s.path} --yes`,
       )
+    }
+  }
+
+  // The in-process restore path (Phase 22.3). The UI drives the
+  // three-step sequence — maintenance on, restore with force, reload
+  // — without the operator touching the CLI. The server stays in
+  // maintenance after success so the operator can verify the
+  // restored data before exiting.
+  async function onRestoreInline(s: BackupSnapshot): Promise<void> {
+    setBusy('restore')
+    setError(null)
+    setInfo(null)
+    try {
+      await api.maintenanceOn()
+      // The restore call is the only one that returns 200 on the
+      // happy path; any error here means the restore failed (the
+      // server exited maintenance for us, so the next reload will
+      // see the live DB).
+      await api.restoreBackup(s.path, { force: true })
+      // Maintenance stays on after a successful restore. Show the
+      // operator the next-step hint and let them decide when to
+      // reload + exit.
+      setInfo('Restore complete. Reloading in 1.5s — maintenance stays on until you exit it.')
+      setRestoreTarget(null)
+      // Reload the SPA so all in-flight fetches pick up the
+      // restored data (and the maintenance banner shows).
+      window.setTimeout(() => {
+        window.location.reload()
+      }, 1500)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(`Restore failed: ${msg}`)
+      // Best-effort: ensure we don't leave maintenance stuck on.
+      try {
+        await api.maintenanceOff()
+      } catch {
+        // ignore — the operator can flip it from the CLI
+      }
+    } finally {
+      setBusy(null)
     }
   }
 
@@ -221,14 +271,23 @@ export function BackupsSettingsPage(): JSX.Element {
               Snapshot: <code className="px-1 bg-slate-100 dark:bg-slate-800 rounded text-xs break-all">{restoreTarget.path}</code>
             </p>
             <p className="text-sm">
-              The server holds the live database open, so the restore must run via the CLI
-              <em> after </em>
-              the server is stopped. Copy the command below and run it on the host where
-              <code className="px-1 bg-slate-100 dark:bg-slate-800 rounded text-xs">orenda</code>
-              is installed.
+              Orenda holds the live database open. Two ways to restore:
             </p>
+            <ul className="text-sm space-y-1 list-disc pl-5">
+              <li>
+                <strong>In this window</strong> — flips the server into maintenance mode,
+                runs the atomic swap, reloads. Maintenance stays on after success so you
+                can verify the data before exiting.
+              </li>
+              <li>
+                <strong>From the host CLI</strong> — stop the server, run the command below.
+              </li>
+            </ul>
             <div className="relative">
-              <pre className="bg-slate-100 dark:bg-slate-800 rounded p-3 text-xs overflow-x-auto whitespace-pre-wrap break-all">
+              <pre
+                data-testid="restore-cli-hint"
+                className="bg-slate-100 dark:bg-slate-800 rounded p-3 text-xs overflow-x-auto whitespace-pre-wrap break-all"
+              >
 {restoreHint ?? '…'}
               </pre>
               <button
@@ -243,9 +302,19 @@ export function BackupsSettingsPage(): JSX.Element {
               <button
                 type="button"
                 onClick={closeRestore}
-                className="px-3 py-2 rounded border border-slate-300 dark:border-slate-700 text-sm"
+                disabled={busy === 'restore'}
+                className="px-3 py-2 rounded border border-slate-300 dark:border-slate-700 text-sm disabled:opacity-50"
               >
                 Close
+              </button>
+              <button
+                type="button"
+                data-testid="restore-inline"
+                onClick={() => void onRestoreInline(restoreTarget)}
+                disabled={busy === 'restore'}
+                className="px-3 py-2 rounded bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm"
+              >
+                {busy === 'restore' ? 'Restoring…' : 'Restore in this window'}
               </button>
             </div>
           </div>
