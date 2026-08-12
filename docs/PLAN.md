@@ -13,7 +13,7 @@ status: pre-alpha
 
 ---
 
-> **Аудит реализации 2026-08-12** (сверка плана с кодом, не с чекбоксами): backend-ядро фаз 0–17, 19–25 реализовано; ни одна фаза не закрыта на 100%. Статусы под заголовками фаз: ✅ реализовано · 🟡 частично · ❌ минимально.
+> **Аудит реализации 2026-08-12** (сверка плана с кодом, не с чекбоксами): backend-ядро фаз 0–17, 19–25 реализовано; ни одна фаза не закрыта на 100%. Статусы под заголовками фаз: ✅ реализовано · 🟡 частично · ❌ минимально. **2026-08-12 update**: Phase 27.1 (D2), 27.2 (D1), 27.3 (D3), 27.4.A (backend), 27.4.B (frontend) — закрыты.
 >
 > Критичные дефекты:
 > 1. ✅ **Фронтенд WS никогда не подключался** → **закрыт 2026-08-12 в Phase 27.2 / PR 1.2** (cookie-based upgrade, см. секцию ниже). Realtime UI работает end-to-end.
@@ -1474,12 +1474,15 @@ make build
 5. Migration `020_course_attempts.sql` — **отложена**: в MVP exact-quiz scores computed on the fly (no history); open-quiz answers tracked через review task.
 6. **Tests:** 14 service-тестов на generator / materialize / answer / exact-normalisation / open-spawn-review / error-bubbling.
 
-**27.4.B (frontend) — следующая сессия:**
+**27.4.B (frontend) — ✅ в worktree `phase-27-4-courses-frontend`:**
 
-1. `web/src/features/courses/LessonPage.tsx`: markdown-renderer (как в Wiki), quiz-формы inline, кнопка «Завершить урок».
-2. `CourseDetailPage.tsx`: ссылка на текущий open-урок.
-3. E2E `course.spec.ts`: full happy-path.
-4. Vitest: `LessonPage.test.tsx` (markdown + quiz + complete-кнопка).
+1. `web/src/features/courses/LessonPage.tsx` (NEW): markdown-renderer (react-markdown + remark-gfm), quiz-формы inline, кнопка «Завершить урок» с gateguard на completed-quizzes, locked/open/done state-машина.
+2. `web/src/App.tsx`: route `/lessons/:id` под `RequireAuth`.
+3. E2E `course.spec.ts` (NEW): full happy-path с agent-context для tutor-вызовов (submitCurriculum, materializeLesson).
+4. Vitest `LessonPage.test.tsx` (NEW): 4 теста — locked-placeholder, markdown-render, multi-quiz gating, verdict display.
+5. Backend bugfix `course_repo.go::UpdateLessonContent`: убран `updated_at=datetime('now')` (миграция 019 не имеет такой колонки в `course_lessons`).
+
+**DoD — достигнут:** E2E «create → tutor submits → approve → materialise → student reads UI → complete → progress 1/1». 10/10 E2E (3 прогона без флейков), 193/193 vitest.
 
 **DoD:** E2E «create → mock-tutor REST → user via UI → done». `go test` + `npm test` зелёные.
 
