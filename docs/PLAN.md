@@ -1214,8 +1214,8 @@ make build
 ### Tasks
 
 - [ ] **22.1** CLI: `orenda backup restore --snapshot <path>`: остановить writer (single-conn), safety-copy текущей БД (`orenda.db.pre-restore-<ts>`), замена файла (включая `-wal`/`-shm` обработку), `migrate up` на восстановленной БД, `PRAGMA integrity_check` + `foreign_key_check`, отчёт.
-- [ ] **22.2** UI: в Settings → Backups список снапшотов (endpoint есть) + кнопка Restore с модалкой-подтверждением (явный текст про замену данных); после restore — перезагрузка SPA.
-- [ ] **22.3** Защита от гонок: restore только при остановленном serve (CLI) или через maintenance-режим (UI: drain WS, блокировка API middleware на время restore).
+- [x] **22.2** UI: в Settings → Backups список снапшотов (endpoint есть) + кнопка Restore с модалкой-подтверждением (явный текст про замену данных); после restore — перезагрузка SPA. **✅ закрыто в работе `phase-22-ui-restore` — модалка предлагает CLI-hint и "Restore in this window"; inline-кнопка ведёт через maintenance → force restore → reload.**
+- [x] **22.3** Защита от гонок: restore только при остановленном serve (CLI) или через maintenance-режим (UI: drain WS, блокировка API middleware на время restore). **✅ закрыто в Phase 22.3 — `internal/api/handlers_restore.go` + maintenance middleware.**
 - [ ] **22.4** Тесты: snapshot → изменить данные → restore → данные снапшота на месте; restore старой версии схемы → миграции догоняют; safety-copy создана и валидна.
 - [ ] **22.5** `docs/API.md`, `docs/SESSION.md`; install docs: шаг проверки restore при установке.
 
