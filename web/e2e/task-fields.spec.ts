@@ -72,7 +72,11 @@ test.describe('Task field controls (Phase 27.7)', () => {
     await statusPatch
     const after = await patchTask(userCtx, task.id, {}) // server truth
     expect(after.status).toBe('done')
-    expect(after.column_id).toBe(initialColumnID, 'columns stay put in 27.7')
+    // Phase 27.8: status ≡ column_id, so the card also moves onto
+    // the "done" column automatically. We can't assert the exact
+    // column id without exposing the board, but we do know it's
+    // no longer the original backlog column.
+    expect(after.column_id).not.toBe(initialColumnID)
     expect(after.completed_at).toBeTruthy()
     expect(after.awaiting).toBe('none')
 
