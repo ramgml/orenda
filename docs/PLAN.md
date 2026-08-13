@@ -512,7 +512,7 @@ make build
 
 ## Phase 9 — Полировка *(ongoing)*
 
-> **Аудит 2026-08-12:** 🟡 — бенчмарки, security headers, rate limit (429+Retry-After), zap+lumberjack, install.sh/systemd/uninstall, dark mode — есть. Нет `docs/ARCHITECTURE.md`, pprof endpoint, Prometheus metrics, govulncheck; README без скриншотов.
+> **Аудит 2026-08-12:** 🟡 — бенчмарки, security headers, rate limit (429+Retry-After), zap+lumberjack, install.sh/systemd/uninstall, dark mode — есть. Нет `docs/ARCHITECTURE.md`, pprof endpoint, govulncheck; README без скриншотов. (Prometheus metrics вычеркнут из скоупа решением 2026-08-13.)
 >
 > **Update 2026-08-13 (Phase 28.1 polish.1):** закрыт блокер dogfooding — `PUT /api/v1/backups/settings` теперь 200 (раньше 501). UI Settings → Backups: редактируемая форма с Save и restart-to-apply banner. Полная секция — ниже.
 
@@ -588,7 +588,7 @@ make build
   - Профилирование через pprof endpoint (только для debug)
 - [ ] **9.4** Логи и метрики:
   - Структурные логи (zap)
-  - Опционально: Prometheus metrics endpoint
+  - ~~Опционально: Prometheus metrics endpoint~~ — **отклонено 2026-08-13:** для single-binary single-user избыточен (второй always-on процесс + TSDB); покрытие — `/api/v1/stats` + slow-request log
 - [ ] **9.5** Установка:
   - `scripts/install.sh` — билд + копирование в `~/.local/bin`
   - `scripts/systemd/orenda.service` — user unit
@@ -1804,7 +1804,7 @@ make build
 ### Что НЕ входит в Phase 27
 
 - Multi-user / multi-device sync (Phase 11+).
-- Phase 9 polish (prettier, pprof, Prometheus) — отдельная фаза «Полировка» в roadmap.
+- Phase 9 polish (prettier, pprof) — отдельная фаза «Полировка» в roadmap. Prometheus вычеркнут решением 2026-08-13 (не нужен для single-binary single-user; покрытие — `/api/v1/stats` + slow-request log).
 - PWA outbox update/comment (Phase 8.4 обещано, но не критично для dogfooding).
 - Notifier event emission (`task.commented`, `agent.offline`, `backup.failed` шаблоны есть, вэйрить — отдельный PR).
 
