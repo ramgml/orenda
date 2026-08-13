@@ -195,4 +195,77 @@ test.describe('Kanban', () => {
 
     await ctx.dispose()
   })
+
+  // Phase 27.8.4: drag-and-drop changes the column, and the task's
+  // status follows. Pre-27.8.4 the backend's Service.Move updated
+  // `column_id` but left `status` on the old value — the invariant
+  // `task.status ≡ column.status` was broken on every drag. This
+  // spec exercises the move endpoint (dnd-kit pointer sequences are
+  // unreliable in headless Chromium; the API path is the same one
+  // the drag handler uses) and asserts both fields move together.
+  test('Phase 27.8.4: moving a task to the done column flips status to done', async ({
+    page,
+  }) => {
+    const ctx = await loginAsUser()
+    const project = await createProject(ctx)
+    const cols = await listColumns(ctx, project.id)
+    // Find the todo and done columns by their canonical status keys
+    // (the default columns are seeded with `name == status`).
+    const todoCol = cols.find((c) => c.status === 'todo') ?? cols[0]
+    const doneCol = cols.find((c) => c.status === 'done') ?? cols[cols.length - 1]
+    expect(todoCol.id).not.toBe(doneCol.id)
+
+    // Sign in and open the board.
+    await page.goto('/login')
+    await page.getByLabel('Email').fill('e2e@orenda.local')
+    await page.getByLabel('Password').fill(E2E_PASSWORD)
+    await page.getByRole('button', { name: /sign in/i }).click()
+    await page.waitForURL((u) => u.pathname === '/')
+    await page.goto(`/projects/${project.id}`)
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByText('Loading…')).toHaveCount(0, { timeout: 10_000 })
+
+    // Seed a task in the todo column with status="todo".
+    const task = await createTask(ctx, project.id, {
+      title: `Drag me ${Date.now()}`,
+    })
+    // Re-seat the task on the todo column explicitly — createTask
+    // may pick the first column by default. This is the same wire
+    // shape the DnD handler uses.
+    const seatResp = await ctx.post(`/api/v1/tasks/${task.id}/move`, {
+      data: { column_id: todoCol.id, position: 1024 },
+    })
+    expect(seatResp.status()).toBe(200)
+
+    // Open the task to drive the Status select path (and so reload
+    // after the drag can re-fetch via the same fixture).
+    await page.goto(`/tasks/${task.id}`)
+    await page.waitForLoadState('networkidle')
+    // The select must have loaded the board's columns (Phase 27.8.4).
+    const status = page.getByTestId('task-status')
+    await expect(status).toHaveValue('todo', { timeout: 10_000 })
+
+    // Drag (simulated via API, since the dnd-kit pointer sequence
+    // is unreliable in jsdom/Chromium — see top-of-file comment):
+    // POST /tasks/:id/move with the done column id.
+    const moveResp = await ctx.post(`/api/v1/tasks/${task.id}/move`, {
+      data: { column_id: doneCol.id, position: 1024 },
+    })
+    expect(moveResp.status()).toBe(200)
+
+    // The card moved AND the status flipped. Read both back through
+    // the REST surface — the move handler updates the row in-place.
+    const after = await (await ctx.get(`/api/v1/tasks/${task.id}`)).json()
+    expect(after.column_id).toBe(doneCol.id)
+    expect(after.status).toBe('done', 'Phase 27.8.4: status follows the column on Move')
+
+    // Visible contract: the Status select in the sidebar reads "done"
+    // after the drag (the sidebar re-fetches on focus / WS event).
+    // A reload is the deterministic way to drive the read.
+    await page.reload()
+    await page.waitForLoadState('networkidle')
+    await expect(status).toHaveValue('done', { timeout: 10_000 })
+
+    await ctx.dispose()
+  })
 })

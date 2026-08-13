@@ -399,6 +399,7 @@ export function TaskViewBody({
           assigneeID={task.assignee_id ?? ''}
           taskID={task.id}
           busy={busy}
+          projectID={task.project_id ?? ''}
           onChanged={(t) => setTask(t)}
           onError={(msg) => setError(msg)}
         />

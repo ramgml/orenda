@@ -248,6 +248,20 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 		}
 	}
 
+	// Phase 27.8: collapse the two axes (status, column) into one —
+	// the column's status is the source of truth when the user picked
+	// a destination column by dragging. The reverse direction
+	// (status → column) is handled by syncColumnToStatus / SyncStatusAndColumn
+	// on every write that touches status. Move is the only path that
+	// moves by column alone, so it has to lift the column's status
+	// onto the task here. Defensive: nil Columns repo or missing
+	// status key leaves the task's status untouched (the old behaviour).
+	if s.Columns != nil {
+		if col, err := s.Columns.GetColumn(ctx, opts.TargetColumnID); err == nil && col.Status != "" {
+			tr.Status = task.Status(col.Status)
+		}
+	}
+
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return nil, fmt.Errorf("task service: update: %w", err)
 	}

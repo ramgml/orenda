@@ -1,4 +1,4 @@
-# Session Snapshot — 2026-08-13 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11; открыт 27.8.4)
+# Session Snapshot — 2026-08-13 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4; открытых фаз нет)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
@@ -51,8 +51,8 @@
 
 - **Дата снапшота:** 2026-08-13
 - **Ветка:** `dev`
-- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11. Открыт: 27.8.4 (frontend) (см. «Бэклог» ниже).
-- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.9/27.10/27.11)
+- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4. Открытых фаз нет (см. «Бэклог» ниже).
+- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11)
 
 ## Что сделано за сессию (кратко)
 
@@ -88,6 +88,7 @@
 | **27.9** | **Known gaps** — аудит отложенных швов 2026-08-13 закрыт. **(1)** WS fan-out: `internal/api/ws.AllTopics` (8 топиков) + `subscribeAll(hub, userID)` мерджит каналы; `Handler` зовёт `subscribeAll` вместо `hub.Subscribe(…, "tasks")`. Tests: `TestSubscribeAll_FansOutAcrossTopics` + `TestSubscribeAll_CleanupReleasesAllSubscriptions`. Live-обновления колокольчика/календаря/wiki/таймера теперь реально доходят до браузера (ранее молча терялись на сервере). **(2)** Report titles: `task.Repository.TitlesByIDs(ctx, ids)` — batch SQL; `timeentry.Service` получил узкий интерфейс `TaskTitleLookup` + `WithTitles` builder; `Report` обогащает каждую строку одним запросом (без N+1). Test: `TestTimeEntryService_Report_PopulatesTitles` (3 кейса). **(3)** Course adapter WS/activity: `courseTaskCreatorAdapter` принял `hub ws.Hub` и узкий `courseTaskActivityRecorder`; `notifyCreated` публикует `task.created` (source = `course_generator`/`course_quiz_review`) + пишет activity row `task.created`. Best-effort — nil hub/recorder не паникует. Tests: 3 в `cmd/orenda/main_course_adapter_test.go`. **(4)** Activity verb map unified: backend константы (`ActionCreated`/`Claimed`/…) приняли префикс `task.*` (покрывает старые и новые); фронт verb map в `TaskViewBody.tsx` имеет fallback со старыми spelling — старые audit-rows читаются. **(5)** Comment-debt cleanup: 5 из 6 в списке PLAN.md вычищены (`main.go:650`, `notifier.go:6`, `bot/bot.go:3`, `handlers_dependencies.go:83`, `domain/timeentry/model.go:60`); исторические преамбулы «Phase 1/2 will…» оставлены (low priority). Verify: `make test` Go — все пакеты ok; vitest 215/215 (нет регрессии); `make test-e2e` 12/12 (`task-fields.spec.ts` обновлён под `task.*` prefix); TypeScript clean; OpenAPI coverage зелёный. |
 | **27.10** | **Цвет колонки (init/рендер/WS)** — дефект зафиксирован 2026-08-13. Frontend: `ColumnView` получил пропсы `color?` / `wipLimit?`; рендерит `data-testid="column-color-dot"` слева от заголовка (slate fallback если пусто). `EditColumnModal` теперь инициализирует `useState(initialColor ?? '#94a3b8')` и `useState(initialWipLimit?.toString() ?? '')` — reopen показывает сохранённое. Submit отправляет `color` в PATCH только если он отличается от `initialColor` — rename больше не затирает цвет. Backend: `patchColumnHandler` публикует `column.updated` на топик `tasks` (parity с created/deleted). Tests: 5 vitest (`ColumnView.test.tsx`: dot рендерит сохранённый цвет + fallback; модалка открывается с initialColor/initialWipLimit; PATCH rename не содержит `color`; PATCH смены цвета содержит) + `TestPatchColumn_BroadcastsColumnUpdated` (subscribe → patch → assert WS event) + E2E `kanban.spec.ts:Phase 27.10` (dot виден, rgb соответствует hex, переживает rename + reload). Verify: `make test` Go — все пакеты ok; vitest 220/220 (+5); `make test-e2e` 13/13 (+1); TypeScript clean. |
 | **27.11** | **Agent comment/await 401 + openapi coverage (аудит документации)** — дефекты зафиксированы 2026-08-13. **(1)** Agent-namespace aliases: `POST /api/v1/agent/tasks/{id}/comments` (author=agent + `Identity.AgentID`) и `POST /api/v1/agent/events/await` (long-poll подписывает WS hub под agent's id). Оба хэндлера в новом `handlers_agent_namespace.go`; оба под `RequireAgent` middleware. CLI `comment`/`await` (`cmd/orenda/agent.go`) переведены на новые endpoints. Tests: `TestAgent_CommentCreatesAgentAuthoredComment` (agent-токен → 201, `author_type=agent`, `author_id=agentID`), `TestAgent_CommentRejectsUserCookie` (cookie на agent-namespace → 401), `TestAgent_AwaitRequiresAgentToken` (no/bad/valid bearer). **(2)** OpenAPI route-coverage против полного роутера: новый `fullRouterDeps` фикстура подключает все deps (users/projects/tasks/tokens/agents/comments/activities/event/time/wiki/search/notifier/courses + WS hub); `TestOpenAPI_RouteCoverage_FullRouter` walks every (method, path) и ассертит наличие в `docs/openapi.yaml`. Сразу поймал две пропущенные routes — добавлены в обе спеки (`docs/openapi.yaml` + embedded `internal/api/openapi.yaml`). SKILL.md known-issue сняты; `comment`/`await` помечены как bearer-token endpoints с явным указанием, что фильтр идёт по `agent_id`. Verify: `make test` Go — все пакеты ok; vitest 220/220; `make test-e2e` 13/13; TypeScript clean. |
+| **27.8.4** | **Status select из колонок проекта + латентный gap в `Service.Move`** — дефекты зафиксированы 2026-08-13. **(1) Backend gap в `Service.Move`:** Phase 27.8 закрыл инвариант `task.status ≡ column.status` для agent-flow (claim/release/submit/review) и PATCH (applyTaskPatch), но **пропустил `Move`** — DnD менял `column_id`, оставляя `status` на старом значении. Фикс в `internal/service/task/move.go::Move`: после fixup `tr.ProjectID` (Phase 16) добавлен блок `if s.Columns != nil { col, err := s.Columns.GetColumn(ctx, opts.TargetColumnID); if err == nil && col.Status != "" { tr.Status = task.Status(col.Status) } }` — симметрично существующему `syncColumnToStatus` (status → column). Заодно: `internal/storage/sqlite/project_repo.go::GetColumn` не возвращал `status` (SQL не подтягивал поле) — добавил `c.status` в SELECT/Scan. **(2) Frontend:** `BoardColumn` TS тип получил `status?: string`; `TaskFieldControls` теперь принимает prop `projectID: string`, `useEffect` зовёт `api.getBoard(projectID)`, деривит `statusOptions` из `columns`, отсортированных по `position` (отображаются кастомные колонки Phase 12). Defensive fallback на канонический enum при ошибке сети. **Inbox fallback:** `projectID === ''` → рендерится `SidebarReadOnlyField` с label «Inbox task — assign to a project to change status» (у inbox-задачи нет колонки, статус некуда перемещать). `TaskViewBody` пробрасывает `projectID={task.project_id ?? ''}`. Tests: `TestService_Move_ColumnDrivesStatus` (seed todo+done колонки, Move → status=done, persisted check, обратное направление); vitest `TaskFieldControls` 7→9 тестов (helper `mockBoard()`, новый кейс sorted+custom columns, новый кейс inbox readonly). E2E `Phase 27.8.4: moving a task to the done column flips status to done` — move API → reload → assert `task.status==='done'` И `task-status` select reads `'done'`. Verify: `make test` Go — все пакеты ok; vitest 222/222 (+2); `make test-e2e` 14/14 (+1); TypeScript clean. **Phase 27.8 закрыт полностью.** |
 
 ## Ключевые решения (не забыть)
 
@@ -143,9 +144,9 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 
 ## Тесты
 
-**Последние зафиксированные прогоны** (Phase 27.11, 2026-08-13):
-- `make test` — Go (все пакеты ok) + vitest (220/220) — зелёные.
-- `make test-e2e` — Playwright smoke против свежесобранного бинаря; 13/13 pass на чистой БД, без флейков. Требует `make build` (бинарь должен быть свежим); spawns test server on port 21371 (override `ORENDA_SERVER__PORT` чтобы не конфликтовать с dev-сервером на 2137).
+**Последние зафиксированные прогоны** (Phase 27.8.4, 2026-08-13):
+- `make test` — Go (все пакеты ok) + vitest (222/222) — зелёные.
+- `make test-e2e` — Playwright smoke против свежесобранного бинаря; 14/14 pass на чистой БД, без флейков. Требует `make build` (бинарь должен быть свежим); spawns test server on port 21371 (override `ORENDA_SERVER__PORT` чтобы не конфликтовать с dev-сервером на 2137).
 - Coverage: domain 100%, services 70–100%, api 61%, storage 72%; фронт — компонентный/юнит (vitest + jsdom), e2e (Playwright + реальный бинарь).
 
 ### Запуск E2E локально
@@ -164,14 +165,13 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 
 ## Бэклог (открыто)
 
-- **Канбан: 27.8.4 frontend** — status-select рисует колонки проекта, не enum (после backend 27.8); drag→status E2E-кейс.
 - **Фаза «Полировка»** — хвосты Phase 9: backup_settings write path (PUT → 501), prettier/pprof/Prometheus, CSP-tightening.
 - Multi-user / multi-device sync (Phase 11+)
 
 ## Файлы
 
 - `docs/PRD.md` — видение продукта
-- `docs/PLAN.md` — фазы и задачи (открытый бэклог: Phase 27.8.4)
+- `docs/PLAN.md` — фазы и задачи (открытый бэклог: только «Полировка» + multi-user)
 - `docs/CONTEXT.md` — концепции продукта (семантика домена; хартия в шапке файла)
 - `docs/API.md` — REST reference
 - `docs/DB.md` — схема БД по миграциям

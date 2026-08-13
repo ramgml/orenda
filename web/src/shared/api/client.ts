@@ -71,6 +71,13 @@ export interface BoardColumn {
   position: number
   wip_limit?: number
   color?: string
+  /**
+   * Phase 27.8: machine key the column carries. The invariant
+   * `task.status ≡ column.status` (when both are set) means a
+   * single-axis UI — the Status select renders project columns
+   * instead of a fixed enum.
+   */
+  status?: string
 }
 
 /** Alias kept for PATCH /columns/:id which returns the same shape. */
