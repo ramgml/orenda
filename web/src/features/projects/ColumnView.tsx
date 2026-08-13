@@ -18,6 +18,8 @@ export function ColumnView({
   name,
   projectId,
   tasks,
+  color,
+  wipLimit,
   onCreate,
   onColumnUpdated,
   onColumnDeleted,
@@ -27,6 +29,13 @@ export function ColumnView({
   name: string
   projectId: string
   tasks: Task[]
+  /** Phase 27.10: saved colour from the column row. Rendered as a
+   *  small dot left of the column header; null/undefined falls back
+   *  to a neutral slate dot so the header layout stays stable. */
+  color?: string
+  /** Saved WIP limit. Used to initialise the EditColumnModal so the
+   *  field doesn't reset to "unlimited" on every reopen. */
+  wipLimit?: number
   onCreate: (title: string) => Promise<void>
   onColumnUpdated?: (col: Column) => void
   /**
@@ -94,9 +103,24 @@ export function ColumnView({
         {...(dragHandleProps ?? {})}
         onDoubleClick={() => setEditing(true)}
       >
-        <h2 className="font-medium text-sm uppercase tracking-wide text-slate-600 dark:text-slate-300">
-          {name}
-        </h2>
+        <div className="flex items-center gap-2">
+          {/*
+            Phase 27.10: render the column's saved colour as a dot left
+            of the header. Sized to coexist with the wip-limit badge
+            on the right side without overlapping (header is flexed
+            with `justify-between`).
+          */}
+          <span
+            aria-hidden="true"
+            data-testid="column-color-dot"
+            data-column-color={color ?? ''}
+            className="inline-block w-2.5 h-2.5 rounded-full border border-slate-300/60 dark:border-slate-700/60"
+            style={{ backgroundColor: color || '#94a3b8' }}
+          />
+          <h2 className="font-medium text-sm uppercase tracking-wide text-slate-600 dark:text-slate-300">
+            {name}
+          </h2>
+        </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-400">{tasks.length}</span>
           <button
@@ -153,6 +177,8 @@ export function ColumnView({
         <EditColumnModal
           columnId={columnId}
           initialName={name}
+          initialColor={color}
+          initialWipLimit={wipLimit}
           currentTaskCount={tasks.length}
           onClose={() => setEditing(false)}
           onSaved={(col) => {
@@ -172,6 +198,13 @@ export function ColumnView({
 interface EditColumnModalProps {
   columnId: string
   initialName: string
+  /** Phase 27.10: saved colour from the column row. Falls back to a
+   *  neutral slate so the picker still has a sane initial value for
+   *  legacy rows without a colour set. */
+  initialColor?: string
+  /** Saved WIP limit (number) or undefined for "no limit". The empty
+   *  string in the input represents the same state. */
+  initialWipLimit?: number
   /** Number of tasks currently in the column — shown as a hint before
    * the user confirms the delete. Mirrors what the server will
    * enforce (422 when non-zero). */
@@ -188,14 +221,22 @@ interface EditColumnModalProps {
 function EditColumnModal({
   columnId,
   initialName,
+  initialColor,
+  initialWipLimit,
   currentTaskCount,
   onClose,
   onSaved,
   onDeleted,
 }: EditColumnModalProps): JSX.Element {
   const [name, setName] = useState(initialName)
-  const [color, setColor] = useState('#94a3b8')
-  const [wip, setWip] = useState<string>('')
+  // Phase 27.10: previously hardcoded to '#94a3b8' — the bug was that
+  // re-opening the modal after picking a colour reset the field to
+  // slate, and any subsequent Save (e.g. just to rename the column)
+  // then overwrote the saved colour on the server with slate.
+  const [color, setColor] = useState<string>(initialColor ?? '#94a3b8')
+  const [wip, setWip] = useState<string>(
+    initialWipLimit === undefined ? '' : String(initialWipLimit),
+  )
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   // Two-step confirm: first click arms the button ("Delete column"),
@@ -212,17 +253,30 @@ function EditColumnModal({
     setBusy(true)
     setError(null)
     try {
+      // Parse WIP. Empty input = "no limit" (server treats null as
+      // clear; the API client also accepts undefined for "unchanged"
+      // — here we always send an explicit value because the user is
+      // editing the row).
       const wipNum = wip === '' ? null : parseInt(wip, 10)
       if (wip !== '' && Number.isNaN(wipNum)) {
         setError('WIP limit must be a number')
         setBusy(false)
         return
       }
-      const col = await api.updateColumn(columnId, {
+      // Send the colour only when the user changed it from the
+      // saved value — this preserves the saved colour across a
+      // rename (Phase 27.10 bug). The picker is uncontrolled from
+      // the moment it opens, so we compare the live state against
+      // the prop.
+      const payload: Parameters<typeof api.updateColumn>[1] = {
         name: name.trim(),
-        color,
         wip_limit: wipNum,
-      })
+      }
+      const savedColor = initialColor ?? ''
+      if (color !== savedColor) {
+        payload.color = color
+      }
+      const col = await api.updateColumn(columnId, payload)
       onSaved(col)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

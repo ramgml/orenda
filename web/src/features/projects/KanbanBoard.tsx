@@ -327,6 +327,12 @@ function SortableColumnView({
         projectId={projectId}
         name={column.name}
         tasks={tasks}
+        // Phase 27.10: pipe the saved colour + WIP into ColumnView
+        // so the header renders the dot and the edit modal opens
+        // with the persisted values (rename then Save no longer
+        // wipes the colour).
+        color={column.color}
+        wipLimit={column.wip_limit}
         onCreate={onCreate}
         onColumnUpdated={onColumnUpdated}
         onColumnDeleted={onColumnDeleted}

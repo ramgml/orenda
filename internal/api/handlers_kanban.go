@@ -231,6 +231,22 @@ func patchColumnHandler(deps Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+
+		// Phase 27.10: parity with create/delete — broadcast
+		// column.updated on the existing "tasks" topic so a second
+		// tab refetches the board and renders the new colour /
+		// rename / WIP change without a manual reload. The kanban
+		// already subscribes to the topic; the front-end refetches
+		// on any of created / updated / deleted.
+		if deps.WSHub != nil {
+			deps.WSHub.Publish(r.Context(), ws.Event{
+				Topic: "tasks",
+				Body: map[string]any{
+					"type":   "column.updated",
+					"column": col,
+				},
+			})
+		}
 		writeJSON(w, http.StatusOK, col)
 	}
 }
