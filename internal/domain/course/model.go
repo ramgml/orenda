@@ -130,6 +130,12 @@ func (c *Course) Validate() error {
 // StatusTransitionOK returns whether `to` is reachable from the
 // course's current status. We allow the explicit "review → draft"
 // rollback (user feedback path) and "any → archived".
+//
+// Phase 27.6: "review → review" is also valid — it lets the owner
+// re-submit after editing the program while the tutor (or the user
+// themselves) iterates, without forcing a trip through draft. The
+// SubmitCurriculum service path uses this; ApproveCurriculum still
+// only moves review → active.
 func (c *Course) StatusTransitionOK(to Status) bool {
 	if to == StatusArchived {
 		return true
@@ -138,7 +144,7 @@ func (c *Course) StatusTransitionOK(to Status) bool {
 	case StatusDraft:
 		return to == StatusReview
 	case StatusReview:
-		return to == StatusActive || to == StatusDraft
+		return to == StatusActive || to == StatusDraft || to == StatusReview
 	case StatusActive:
 		return to == StatusDone
 	case StatusDone:

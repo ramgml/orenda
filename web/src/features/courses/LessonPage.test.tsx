@@ -161,4 +161,87 @@ describe('LessonPage', () => {
     const result = await findByTestId('quiz-result')
     expect(result.textContent).toContain('Correct')
   })
+
+  // ---- Phase 27.6: owner-edit affordance for active-course lessons ----
+
+  it('shows the Edit content button when the course is active', async () => {
+    setupApi({ treeResp: tree([makeLesson()]) })
+    const { findByTestId, queryByTestId } = renderPage()
+    // tree default has course.status='active' — the button is rendered
+    // as a sibling of lesson-content.
+    expect(await findByTestId('lesson-content')).toBeTruthy()
+    expect(await findByTestId('lesson-edit-content')).toBeTruthy()
+    // No textarea before clicking.
+    expect(queryByTestId('lesson-edit-content-textarea')).toBeNull()
+  })
+
+  it('hides the Edit content button when the course is not active', async () => {
+    vi.restoreAllMocks()
+    vi.spyOn(api, 'listCourses').mockResolvedValue({
+      courses: [
+        {
+          id: 'c-1',
+          title: 'Learn Rust',
+          intent_md: '',
+          level: 'beginner',
+          pace: 'casual',
+          status: 'draft',
+          owner_id: 'u-1',
+          created_at: '',
+          updated_at: '',
+        },
+      ],
+      count: 1,
+    })
+    vi.spyOn(api, 'getCourse').mockResolvedValue({
+      course: {
+        id: 'c-1',
+        title: 'Learn Rust',
+        intent_md: '',
+        level: 'beginner',
+        pace: 'casual',
+        status: 'draft',
+        owner_id: 'u-1',
+        created_at: '',
+        updated_at: '',
+      },
+      modules: [{ id: 'm-1', course_id: 'c-1', title: 'Intro', description: '', position: 0 }],
+      lessons: [
+        {
+          id: 'lesson-1',
+          module_id: 'm-1',
+          title: 'L',
+          position: 0,
+          status: 'open',
+          content_md: 'x',
+        },
+      ],
+      quizzes: [],
+      progress: { lessons_total: 1, lessons_done: 0 },
+    })
+    vi.spyOn(api, 'answerQuiz').mockResolvedValue({ correct: true })
+    vi.spyOn(api, 'completeLesson').mockResolvedValue({})
+
+    const { findByTestId, queryByTestId } = renderPage()
+    await findByTestId('lesson-content')
+    expect(queryByTestId('lesson-edit-content')).toBeNull()
+  })
+
+  it('saves content via api.updateLessonContent and reloads', async () => {
+    setupApi({ treeResp: tree([makeLesson()]) })
+    const updateSpy = vi
+      .spyOn(api, 'updateLessonContent')
+      .mockResolvedValue({} as unknown as Awaited<ReturnType<typeof api.updateLessonContent>>)
+    const { findByTestId } = renderPage()
+    await findByTestId('lesson-content')
+    const editBtn = await findByTestId('lesson-edit-content')
+    fireEvent.click(editBtn)
+    const saveBtn = await findByTestId('lesson-save-content')
+    fireEvent.click(saveBtn)
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1))
+    expect(updateSpy).toHaveBeenCalledWith(
+      'lesson-1',
+      expect.objectContaining({ content_md: expect.any(String) }),
+    )
+  })
 })

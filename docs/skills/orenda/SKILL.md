@@ -238,7 +238,8 @@ handles reconnect transparently.
 | POST | `/api/v1/agent/tasks/{id}/submit` | Mark ready for human review. |
 | GET | `/api/v1/agent/tasks/{id}/context` | Full snapshot: task + comments + activity + children + checklists. |
 | GET | `/api/v1/agent/courses?status=draft` | Phase 18: courses the tutor can claim. |
-| PUT | `/api/v1/agent/courses/{id}/curriculum` | Phase 18: tutor's atomic curriculum swap. |
+| PUT | `/api/v1/agent/courses/{id}/curriculum` | Phase 18: tutor's atomic curriculum swap. Phase 27.6: the payload now carries per-lesson `quizzes` (`{position, question_md, expected_md?, kind: 'exact'|'open'}`) and per-module `description`; submit the whole program in one tx. |
+| POST | `/api/v1/agent/lessons/{id}/quizzes` | Phase 27.6 (closes Phase 18.6): append a single quiz to an existing lesson without re-submitting the whole curriculum. |
 | POST | `/api/v1/events/await` | Long-poll for events (timeout ≤ 60s). |
 
 ### 6.2 Common task fields

@@ -80,7 +80,10 @@ Tasks awaiting human action — the union of `awaiting='human'` and `status='rev
 | GET | `/api/v1/review-queue` | `{tasks: [ReviewQueueItem], count}` |
 | GET | `/api/v1/review-queue/count` | `{count}` — cheap, used by the sidebar badge |
 | GET | `/api/v1/today` | `{overdue, due_today, scheduled_today, awaiting_count}` (Phase 20). One round-trip for the daily-driver dashboard |
-| GET/POST | `/api/v1/courses[/{id}]` | Phase 18 LMS. `POST` body: `{title, intent_md}`. `GET /{id}` returns the full tree (course + modules + lessons + quizzes + progress) |
+| GET/POST | `/api/v1/courses[/{id}]` | Phase 18 LMS. `POST` body: `{title, intent_md, skip_generator?}` (Phase 27.6). `GET /{id}` returns the full tree (course + modules + lessons + quizzes + progress) |
+| PUT | `/api/v1/courses/{id}/curriculum` | Phase 27.6 owner-side atomic swap: `{modules: [{title, description?, position, lessons: [{title, position, content_md?, quizzes?: [{position, question_md, expected_md?, kind}]}]}]}`. Same service path as the tutor agent — when called from the owner namespace, the service retires the generator task so a sleeping tutor can't overwrite manual work. |
+| POST | `/api/v1/lessons/{id}/quizzes` | Phase 27.6 owner-side quiz append (closes Phase 18.6 debt). Body: `{position?: 0=append, question_md, expected_md?, kind: 'exact'|'open'}`. Returns the persisted quiz (with id + assigned position). |
+| PUT | `/api/v1/lessons/{id}/content` | Phase 27.6 owner-side content edit (active courses only by design). Body: `{content_md, task_id?}`. Doesn't flip lesson status — used for typos / rewordings once the course is live. |
 
 Inline accept / return goes through the standard review endpoint (`POST /api/v1/tasks/{id}/review` with `decision: approve|reject`). Approval moves the task to `done`; return moves it back to `in_progress` + `awaiting='agent'` and (optionally) records a comment the agent sees on resume.
 
@@ -104,7 +107,10 @@ Inline accept / return goes through the standard review endpoint (`POST /api/v1/
 | POST | `/api/v1/agent/tasks/{id}/submit` | |
 | GET | `/api/v1/agent/tasks/{id}/context` | 403 if not assigned |
 | GET | `/api/v1/agent/courses?status=draft` | Phase 18: list courses the tutor can claim |
-| PUT | `/api/v1/agent/courses/{id}/curriculum` | body `{modules: [{title, position, lessons: [{title, position}]}]}` — atomic swap |
+| PUT | `/api/v1/agent/courses/{id}/curriculum` | body `{modules: [{title, description?, position, lessons: [{title, position, content_md?, quizzes?: [{position, question_md, expected_md?, kind}]}]}]}` — atomic swap (Phase 27.6 added per-lesson `quizzes` and per-module `description`) |
+| POST | `/api/v1/agent/lessons/{id}/materialize` | Phase 27.4: tutor writes content + unlocks the lesson |
+| PUT | `/api/v1/agent/lessons/{id}/content` | Phase 27.4: in-place content update |
+| POST | `/api/v1/agent/lessons/{id}/quizzes` | Phase 27.6: append a single quiz (closes Phase 18.6 debt). Same body as the user-side endpoint. |
 
 The `orenda agent` CLI (Phase 25) is a thin cobra wrapper over the
 agent namespace. Source: `cmd/orenda/agent.go`. See

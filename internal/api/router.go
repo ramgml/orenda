@@ -416,9 +416,17 @@ func NewRouter(deps Dependencies) http.Handler {
 					r.Delete("/", deleteCourseHandler(deps))
 					r.Post("/approve", approveCourseHandler(deps))
 					r.Post("/request-changes", requestChangesCourseHandler(deps))
+					// Phase 27.6: owner-side curriculum swap.
+					// Same atomic swap the tutor uses; the service
+					// retires the generator task when present so
+					// a sleeping tutor cannot overwrite manual work.
+					r.Put("/curriculum", submitCurriculumHandlerUser(deps))
 				})
 			})
 			r.Post("/lessons/{id}/complete", completeLessonHandler(deps))
+			// Phase 27.6: user-side quiz CRUD + lesson content edits.
+			r.Post("/lessons/{id}/quizzes", addQuizHandler(deps))
+			r.Put("/lessons/{id}/content", updateLessonContentHandlerUser(deps))
 			// Phase 27.4: quiz answer (user-side).
 			r.Post("/lessons/{id}/quizzes/{qid}/answer", answerQuizHandler(deps))
 
@@ -511,6 +519,10 @@ func NewRouter(deps Dependencies) http.Handler {
 				r.Route("/agent/lessons", func(r chi.Router) {
 					r.Post("/{id}/materialize", materializeLessonHandlerAgent(deps))
 					r.Put("/{id}/content", materializeLessonHandlerAgent(deps))
+					// Phase 27.6: closes the Phase 18.6 debt —
+					// tutors can add a single quiz to an existing
+					// lesson without re-submitting the whole tree.
+					r.Post("/{id}/quizzes", addQuizHandlerAgent(deps))
 				})
 			})
 		}
