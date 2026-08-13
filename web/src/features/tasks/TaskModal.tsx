@@ -9,6 +9,7 @@ import {
 } from 'react-router-dom'
 
 import { TaskViewBody } from './TaskViewBody'
+import { useBodyScrollLock } from '@/shared/hooks/useBodyScrollLock'
 
 /**
  * Trello-style modal overlay for a single task.
@@ -28,6 +29,25 @@ import { TaskViewBody } from './TaskViewBody'
  *
  * Direct deep-links to /tasks/:id (no background state) fall back to
  * the full TaskViewPage route — see App.tsx.
+ *
+ * Phase 28.3 (polish): two fixes for the long-content scroll bug.
+ *   1. Centring: the backdrop used `flex items-start md:items-center`
+ *      with `overflow-y-auto`. When the card grew past the viewport,
+ *      `items-center` placed the flex item so its top edge went into
+ *      negative offset — un-scrollable. We keep `items-start` (no
+ *      centering on the cross axis) and let the card sit at the top
+ *      with a `my-auto` margin: `margin: auto` centres short cards
+ *      while naturally collapsing to the padding edge when the card
+ *      overflows, so the user can scroll all the way to the top.
+ *   2. Scroll lock: `<body>` kept its scroll while the modal was
+ *      open — the background page drifted under the user's wheel.
+ *      We toggle `document.body.style.overflow` on mount/cleanup.
+ *      Crucially, the lock keys on mount, not on `id`: navigating
+ *      from one task to another keeps the same `TaskModal` mounted
+ *      (just `useParams().id` changes), so the lock stays on.
+ *      Closing (any path) unmounts the component and restores the
+ *      previous overflow value — not just "visible", because a
+ *      previous host app could have set its own value.
  */
 export function TaskModal(): JSX.Element | null {
   const { id } = useParams<{ id: string }>()
@@ -58,6 +78,17 @@ export function TaskModal(): JSX.Element | null {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [close])
 
+  // Phase 28.3: lock the background page from scrolling while the
+  // modal is mounted — implementation lives in `@/shared/hooks/useBodyScrollLock`
+  // so other modals can reuse it and so it stays testable in
+  // isolation. The hook keys on mount, not on `id`: navigating from
+  // one task to another keeps the same `TaskModal` mounted (just
+  // `useParams().id` changes), so the lock stays on the whole time.
+  // Closing (any path) unmounts the component and the hook restores
+  // the previous overflow value — not just "visible", because a
+  // previous host could have set its own value.
+  useBodyScrollLock()
+
   if (!id) return null
 
   return (
@@ -65,11 +96,15 @@ export function TaskModal(): JSX.Element | null {
       role="dialog"
       aria-modal="true"
       aria-label="Task details"
-      className="fixed inset-0 z-[60] bg-black/50 flex items-start md:items-center justify-center p-2 md:p-6 overflow-y-auto"
+      // Phase 28.3: drop `md:items-center`. The card carries its own
+      // `my-auto`, so on a short card the margin centres it; on a
+      // tall card `my-auto` collapses to the padding (`p-2 md:p-6`),
+      // letting `overflow-y-auto` actually scroll all the way up.
+      className="fixed inset-0 z-[60] bg-black/50 flex items-start justify-center p-2 md:p-6 overflow-y-auto"
       onClick={close}
     >
       <div
-        className="bg-white dark:bg-slate-900 rounded-lg shadow-2xl max-w-4xl w-full my-4 md:my-0 relative"
+        className="bg-white dark:bg-slate-900 rounded-lg shadow-2xl max-w-4xl w-full my-auto relative"
         // stopPropagation so clicks inside the modal don't bubble to
         // the backdrop (which would close the modal).
         onClick={(e) => e.stopPropagation()}
