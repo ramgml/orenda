@@ -57,15 +57,20 @@ func (r *projectRepo) CreateProject(ctx context.Context, p *project.Project) (*p
 
 	// Default columns with evenly spaced positions so future inserts can
 	// average between them without renumbering.
+	//
+	// Phase 27.8: we also seed the new `status` machine key in the
+	// same INSERT so the column is usable for the Phase 27.8
+	// invariant without a separate round-trip. The five canonical
+	// column names are already valid status keys (lowercase form).
 	columns := make([]*project.Column, 0, len(project.DefaultColumns))
 	const insColumn = `
-		INSERT INTO columns (id, board_id, name, position)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO columns (id, board_id, name, position, status)
+		VALUES (?, ?, ?, ?, ?)
 	`
 	for i, name := range project.DefaultColumns {
 		colID := newUUID()
 		position := float64(i) * 1024
-		if _, err := tx.ExecContext(ctx, insColumn, colID, boardID, name, position); err != nil {
+		if _, err := tx.ExecContext(ctx, insColumn, colID, boardID, name, position, name); err != nil {
 			return nil, nil, nil, fmt.Errorf("project.CreateProject: insert column %q: %w", name, err)
 		}
 		columns = append(columns, &project.Column{
@@ -73,6 +78,7 @@ func (r *projectRepo) CreateProject(ctx context.Context, p *project.Project) (*p
 			BoardID:  boardID,
 			Name:     name,
 			Position: position,
+			Status:   name, // Phase 27.8: default columns share name+status.
 		})
 	}
 
@@ -226,7 +232,8 @@ func (r *projectRepo) GetBoard(ctx context.Context, projectID string) (*project.
 	b.CreatedAt = parseTime(cAt)
 
 	const qCols = `
-		SELECT id, board_id, name, position, wip_limit, color
+		SELECT id, board_id, name, position, wip_limit, color,
+		       COALESCE(status, '')
 		FROM columns WHERE board_id = ?
 		ORDER BY position ASC
 	`
@@ -243,7 +250,7 @@ func (r *projectRepo) GetBoard(ctx context.Context, projectID string) (*project.
 			wip   sql.NullInt64
 			color sql.NullString
 		)
-		if err := rows.Scan(&col.ID, &col.BoardID, &col.Name, &col.Position, &wip, &color); err != nil {
+		if err := rows.Scan(&col.ID, &col.BoardID, &col.Name, &col.Position, &wip, &color, &col.Status); err != nil {
 			return nil, nil, fmt.Errorf("project.GetBoard: scan column: %w", err)
 		}
 		if wip.Valid {
@@ -428,4 +435,45 @@ func (r *projectRepo) CreateColumn(ctx context.Context, projectID string, c *pro
 		return nil, fmt.Errorf("project.CreateColumn: insert: %w", err)
 	}
 	return c, nil
+}
+
+// FindColumnByStatus returns the column on the (single) board of the
+// given project whose status matches the supplied machine key. The
+// status lookup joins through `boards` to scope by project — Phase 1
+// uses a single board per project, but the schema allows more.
+func (r *projectRepo) FindColumnByStatus(ctx context.Context, projectID, status string) (*project.Column, error) {
+	if status == "" {
+		return nil, project.ErrNotFound
+	}
+	const q = `
+		SELECT c.id, c.board_id, c.name, c.position, c.wip_limit, c.color,
+		       COALESCE(c.status, '')
+		FROM columns c
+		JOIN boards b ON b.id = c.board_id
+		WHERE b.project_id = ? AND c.status = ?
+		LIMIT 1
+	`
+	var (
+		col   project.Column
+		wip   sql.NullInt64
+		color sql.NullString
+	)
+	err := r.db.QueryRowContext(ctx, q, projectID, status).Scan(
+		&col.ID, &col.BoardID, &col.Name, &col.Position, &wip, &color, &col.Status,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, project.ErrNotFound
+		}
+		return nil, fmt.Errorf("project.FindColumnByStatus: %w", err)
+	}
+	col.ProjectID = projectID
+	if wip.Valid {
+		v := int(wip.Int64)
+		col.WIPLimit = &v
+	}
+	if color.Valid {
+		col.Color = color.String
+	}
+	return &col, nil
 }

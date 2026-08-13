@@ -48,4 +48,12 @@ type Repository interface {
 	// UpdateColumn persists mutable fields (name, position, wip_limit, color).
 	// Returns ErrNotFound when no row matches.
 	UpdateColumn(ctx context.Context, c *Column) error
+
+	// FindColumnByStatus returns the column on the (single) board of the
+	// given project whose status matches the supplied machine key, or
+	// ErrNotFound if no such column exists. The status lookup is what
+	// Phase 27.8 uses to keep tasks and columns in sync — when the
+	// owner changes a task's status through the sidebar, the service
+	// looks up the column with that status and moves the card.
+	FindColumnByStatus(ctx context.Context, projectID, status string) (*Column, error)
 }

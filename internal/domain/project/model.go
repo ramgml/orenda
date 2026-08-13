@@ -68,6 +68,14 @@ type Board struct {
 // Position is a float so drag-and-drop in Phase 2 can place a task between
 // two siblings without renumbering all subsequent positions (just pick
 // (prev + next) / 2).
+//
+// Status is the Phase 27.8 machine key that links the column to a
+// `task.Status` value. Default columns have Status == Name (lowercase
+// form: "backlog", "todo", "in_progress", "review", "done"). Custom
+// columns get a slugified status — see migration 020 for the rules.
+// The service layer treats the pair (task.status, column.status) as a
+// single invariant: status(column_id) == task.status, and
+// status-equivalent columns are interchangeable within a board.
 type Column struct {
 	ID      string `json:"id"`
 	BoardID string `json:"board_id"`
@@ -81,6 +89,11 @@ type Column struct {
 	Position  float64 `json:"position"`
 	WIPLimit  *int    `json:"wip_limit,omitempty"`
 	Color     string  `json:"color,omitempty"`
+	// Status is the machine key, populated by the storage layer.
+	// Empty for pre-27.8 boards that haven't run migration 020 yet;
+	// the service layer falls back to the default status set in
+	// that case (see task.Service.lookupColumnForStatus).
+	Status string `json:"status"`
 }
 
 // DefaultColumns lists the four columns every new project starts with.

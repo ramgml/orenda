@@ -130,6 +130,73 @@ func New(tasks task.Repository, locks Locks, recorder Recorder, comments Comment
 	}
 }
 
+// lookupColumnForStatus returns the column id on the (single) board of
+// tr.ProjectID whose status matches status. Returns ("", nil) when no
+// such column exists; callers fall back to "no change" so the side
+// effect doesn't break a PATCH that just wanted to set the label.
+//
+// Phase 27.8 collapses status and column_id into a single axis — a
+// PATCH on one must update the other. We do that here so every entry
+// point (move, applyTaskPatch, the agent-flow methods below) sees
+// the same canonical pair.
+func (s *Service) lookupColumnForStatus(ctx context.Context, projectID, status string) (string, error) {
+	if s.Columns == nil || status == "" || projectID == "" {
+		return "", nil
+	}
+	col, err := s.Columns.FindColumnByStatus(ctx, projectID, status)
+	if err != nil {
+		// ErrNotFound is the normal case for a status with no column
+		// (custom project, off-board task, etc.). Anything else is a
+		// real error.
+		return "", nil
+	}
+	return col.ID, nil
+}
+
+// syncColumnToStatus keeps the (task.status, task.column_id) pair in
+// sync: when status changes, the column is moved to the column that
+// carries the new status. Used by every write path that touches
+// status — agent-flow Claim/Submit/Review, the user-side applyTaskPatch,
+// and Move when the user dragged a card to a column with a different
+// status.
+//
+// Returns the column id that was set (which may equal the current
+// one) and the new status, so the caller can emit a single
+// `moved` activity row instead of two.
+func (s *Service) syncColumnToStatus(ctx context.Context, tr *task.Task) (newColID, newStatus string) {
+	if s.Columns == nil || tr.ProjectID == "" {
+		return tr.ColumnID, string(tr.Status)
+	}
+	colID, _ := s.lookupColumnForStatus(ctx, tr.ProjectID, string(tr.Status))
+	if colID == "" {
+		// Status has no matching column on this board (custom
+		// status, off-board task, …). Keep the column the user
+		// already picked — the status label changes but the visual
+		// position doesn't, which is the right UX for a custom
+		// status without a column.
+		return tr.ColumnID, string(tr.Status)
+	}
+	tr.ColumnID = colID
+	return colID, string(tr.Status)
+}
+
+// SyncStatusAndColumn is the public surface of the same logic —
+// handlers call it after applyTaskPatch to keep the invariant on
+// every PATCH. It is safe to call with nil tr (no-op) or with a
+// task whose project has no columns (also no-op).
+//
+// We expose this as a separate method rather than embedding the
+// sync inside applyTaskPatch because applyTaskPatch lives in the
+// api package (it mutates the task struct from a wire shape) and
+// the lookup needs the service's column repo — which is the
+// service's dependency, not the handler's.
+func (s *Service) SyncStatusAndColumn(ctx context.Context, tr *task.Task) {
+	if s == nil || tr == nil {
+		return
+	}
+	s.syncColumnToStatus(ctx, tr)
+}
+
 // Move relocates a task to a new column / position atomically.
 //
 // The repository update is performed in a single transaction (using the
@@ -349,6 +416,10 @@ func (s *Service) Claim(ctx context.Context, taskID, agentID string) (*task.Task
 	tr.Awaiting = task.AwaitingNone
 	tr.StartedAt = &now
 	tr.ClaimedAt = &now
+	// Phase 27.8: status ≡ column. Keep the card on the column that
+	// carries "in_progress" so the kanban reflects the agent's
+	// claim without a separate move.
+	s.syncColumnToStatus(ctx, tr)
 
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		_ = s.Locks.Release(ctx, taskID, agentID)
@@ -380,6 +451,8 @@ func (s *Service) Release(ctx context.Context, taskID, agentID string) (*task.Ta
 	tr.AssigneeID = ""
 	tr.Status = task.StatusTodo
 	tr.Awaiting = task.AwaitingNone
+	// Phase 27.8: drop the card back onto the "todo" column.
+	s.syncColumnToStatus(ctx, tr)
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return nil, err
 	}
@@ -550,6 +623,8 @@ func (s *Service) Submit(ctx context.Context, taskID, agentID string, note strin
 	if note != "" {
 		tr.AgentNotes = note
 	}
+	// Phase 27.8: move the card onto the "review" column.
+	s.syncColumnToStatus(ctx, tr)
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return nil, err
 	}
@@ -599,6 +674,10 @@ func (s *Service) Review(ctx context.Context, taskID, userID string, decision Re
 		tr.Status = task.StatusInProgress
 		tr.Awaiting = task.AwaitingAgent
 	}
+	// Phase 27.8: status → column sync. Done/Approve drops the
+	// card on the "done" column; Reject sends it back to the
+	// "in_progress" column.
+	s.syncColumnToStatus(ctx, tr)
 	if comment != "" && s.Comments != nil {
 		if _, cerr := s.Comments.Add(ctx, &CommentInput{
 			TargetType: commentTargetTask,
