@@ -122,7 +122,7 @@ A task is done or not done — "almost done" is not done. Phases here have been 
 ## Key files to read first
 
 - `docs/SESSION.md` — **session snapshot** (current state, decisions, next steps; read first when resuming work)
-- `docs/CONTEXT.md` — **product concepts** (kanban = statuses, courses, agent loop, inbox, auth models; durable semantics, not status — read second)
+- `docs/CONTEXT.md` — **domain context** (what kanban / courses / delegation ARE — shared mental models that prevent wrong reinvention; concepts, not rules — read second)
 - `docs/PRD.md` — what we're building and why
 - `docs/PLAN.md` — phases, tasks, criteria
 - `internal/storage/sqlite/migrations/001_init.sql` — DB schema *(Phase 1)*
