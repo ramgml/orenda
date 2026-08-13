@@ -1,4 +1,4 @@
-# Session Snapshot — 2026-08-12 (Phase 27 вся смержена: D1–D3 закрыты, Phase 18 close-out, Wave 4 done)
+# Session Snapshot — 2026-08-13 (смержено: фазы 0–26 + Wave 4 + 27.1–27.5; открыт бэклог 27.6–27.10)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
@@ -11,12 +11,12 @@
 - ✅ **D1 закрыт (2026-08-12, Phase 27.2):** WS-апгрейд через cookie — `AuthContext` больше не хранит JWT (и не должен), `useWebSocketConnection` подключён в `AppLayout`, фронт реально открывает `/api/v1/ws` после login. `ws-live.spec.ts` ловит настоящий WS-фрейм без `page.reload()`. 5 прогонов подряд без флейков.
 - ✅ **D2 закрыт (2026-08-12, Phase 27.1):** `make build` теперь встраивает SPA через `//go:embed all:dist`. Бинарь self-contained — `/` отдаёт 661B index.html без `web/dist/` на диске. Verify: `strings bin/orenda | grep '<div id="root"'` → 1.
 - ✅ **D3 закрыт (2026-08-12, Phase 27.3):** `Task.Tags []Tag` в `ListByProjectWithStats`, +1 batch-запрос `TagsForTasks`. Чипы на канбан-карточке видны (через `task.tags`) одним round-trip; vitest 189/189; E2E `kanban.spec.ts` создаёт тег через REST, привязывает, проверяет чип.
-- **DoD провалены (частично):** Phase 18 (нет MaterializeLesson/AnswerQuiz/страницы урока/завершения курса) — закрытие не вошло в 26.A–F. **Phase 27.4 (отдельная фаза) — после Wave 1.** **27.4.A (backend) ✅ в worktree `phase-27-4-courses-backend` — MaterializeLesson + AnswerQuiz + GeneratorTask. 27.4.B (frontend) ✅ в worktree `phase-27-4-courses-frontend` — LessonPage + E2E happy-path.**
-- **Частично (🟡):** фазы 0, 1, 2, 6, 7, 8, 9, 10, 13, 15, 17 — пробелы перечислены в PLAN.md под каждым заголовком. **Wave 4 PR 2 (mirror + notifier + PWA outbox + InboxPage) ✅ в worktree `phase-mirror-minor`.** Wave 4 down-миграции ✅.
+- **Phase 18 DoD закрыт:** 27.4.A (backend) + 27.4.B (frontend) **смержены 2026-08-12** (MaterializeLesson, AnswerQuiz, GeneratorTask wire, LessonPage, E2E happy-path; worktree'и удалены). Открытый LMS-долг — ручное наполнение + quiz surface — вынесен в Phase 27.6 (2026-08-13).
+- **Частично (🟡):** фазы 0, 1, 2, 6, 7, 8, 9, 10, 13, 15, 17 — пробелы перечислены в PLAN.md под каждым заголовком. **Wave 4 целиком смержена:** PR 1 (down-миграции) и PR 2 (mirror + notifier + PWA outbox + InboxPage).
 
-## Wave 1 (D2 → D1 → D3) — план, согласован 2026-08-12
+## Wave 1 (D2 → D1 → D3) — выполнено 2026-08-12 (лог)
 
-Саб-PR закрываются по одному за сессию, в том же порядке:
+Все три саб-PR смержены (worktree'и удалены после merge):
 
 - **PR 1.1 / Phase 27.1 — D2 (web_dist).** ✅ Готово в worktree `phase-27-1-web-dist-embed`. См. ниже.
 - **PR 1.2 / Phase 27.2 — D1 (WS-cookie).** ✅ Готово в worktree `phase-27-2-ws-cookie`. См. ниже.
@@ -49,10 +49,10 @@
 
 ## Метаданные
 
-- **Дата:** 2026-08-08 (вечер)
+- **Дата снапшота:** 2026-08-13
 - **Ветка:** `dev`
-- **Статус:** **все 10 фаз завершены** и запушены в `git@github.com:ramgml/orenda.git`
-- **Теги:** `v0.1.0-phase0` … `v0.1.0-phase10`
+- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.5. Открыты: 27.6–27.10 (см. «Бэклог» ниже).
+- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега +8 коммитов документации)
 
 ## Что сделано за сессию (кратко)
 
@@ -105,6 +105,7 @@
 - **Колонки = статусы (решение владельца 2026-08-13, отменяет «оси не сливаем» из 27.7).** «В этом и суть канбана — мы визуализируем статусы». Единая ось: `columns.status` — machine key; кастомные колонки = кастомные статусы; инвариант `task.status ≡ status колонки` с синком обеих сторон (DnD, select карточки, agent-flow — всё двигает и статус, и карточку). Риск обхода review-flow перетаскиванием осознанно принят (single-owner, обратимо, activity). План — **Phase 27.8**.
 - **Аудит отложенных швов (2026-08-13).** Проход по маркерам (TODO/FIXME/for now/«Phase N will»/placeholder/later/skip) нашёл 3 реальных дефекта: WS fan-out только топика `tasks` (live колокольчика/календаря/wiki/таймера молча мёртв — 27.2 чинила подключение, не подписки); пустые заголовки в `/reports` («Phase 5 adds it» не приземлилась, фоллбэк `task_id[:8]`); course-задачи без WS/activity (бейдж review-очереди не загорается до рефетча). Плюс comment-debt (`main.go` «not yet exposed», notifier «console for now», bot «Phase 10 adds Telegram» и др.). Чистых TODO/FIXME в коде нет — молча устаревают именно комментарии-обещания. План — **Phase 27.9**.
 - **Цвет колонки (дефект 2026-08-13).** Бэкенд сохраняет корректно (в живой БД `done` = `#1463d2`), фронт сломан втройне: цвет нигде не рендерится (`ColumnView` без пропа color), `EditColumnModal` инициализирует цвет хардкодом `#94a3b8` (reopen показывает дефолт), submit всегда шлёт color → rename затирает выбор. Плюс `patchColumnHandler` не публикует WS `column.updated`. План — **Phase 27.10**.
+- **SESSION.md: реновация + правило гигиены (2026-08-13).** По реплике разработчика «SESSION.md устарел» сверка с git log подтвердила: шапка 2026-08-12, «Метаданные» от 2026-08-08 («все 10 фаз завершены», теги до phase10 при реальном `v0.1.0-wave4-minor`), бэклог содержал 6 уже смерженных пунктов (27.1, 27.2, 27.3, restore, telegram, openapi), «Файлы» утверждали «все выполнены» при открытых 27.6–27.10, счётчики тестов (188/8) отставали от последних прогонов (199/10). **Правило:** при закрытии пункта бэклога его строка удаляется из SESSION.md «Бэклога» в том же коммите, что и статус в PLAN.md; шапка и «Метаданные» обновляются при каждой смене даты снапшота.
 - **Phase 25: agent DX — CLI + SKILL** — `orenda agent` cobra-сабкоманды (`me`, `next`, `context`, `claim`, `release`, `submit`, `comment`, `await`) поверх уже существующего REST API. Конфиг: флаги > env > `~/.config/orenda/agent.yaml`. Exit code 2 = "no work" для shell-циклов. Документ `docs/skills/orenda/SKILL.md` — полный workflow + этикет + reference. **MCP server (Phase 25.1+25.2 follow-up):** stdio JSON-RPC 2.0 сервер в `internal/mcp` (zero deps) + `orenda mcp-proxy` CLI. Инструменты: orenda_me, orenda_list_tasks, orenda_claim, orenda_release, orenda_submit, orenda_context, orenda_await. Без новых SDK зависимостей.
 - **Модель агентов:** внешние, через REST/long-poll (`/api/v1/agent/*`, claim/submit/review). Встроенный LLM-рантайм — опция, не цель; домен не должен жёстко зашивать предположение «агент всегда снаружи».
 - **Горизонт:** dogfooding и стабильность. Критерий ценности задачи — «использую каждый день без трения». Приоритетные пробелы: restore-from-snapshot (снапшоты есть, восстановления нет), UX-трение ежедневных сценариев, наблюдаемость. Multi-user и интеграции календарей — за скобкой, пока ядро не «живётся».
@@ -133,9 +134,9 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 
 ## Тесты
 
-**Phase 26 final**:
-- `make test` — Go (27 пакетов) + vitest (188 тестов) — оба зелёные.
-- `make test-e2e` — Playwright smoke против свежесобранного бинаря; 8/8 pass на чистой БД, пять прогонов подряд без флейков. Требует `make build` (бинарь должен быть свежим); spawns test server on port 21371 (override `ORENDA_SERVER__PORT` чтобы не конфликтовать с dev-сервером на 2137).
+**Последние зафиксированные прогоны** (сессия 22.3+TG, 2026-08-12):
+- `make test` — Go + vitest (199/199) — зелёные.
+- `make test-e2e` — Playwright smoke против свежесобранного бинаря; 10/10 pass на чистой БД, без флейков. Требует `make build` (бинарь должен быть свежим); spawns test server on port 21371 (override `ORENDA_SERVER__PORT` чтобы не конфликтовать с dev-сервером на 2137).
 - Coverage: domain 100%, services 70–100%, api 61%, storage 72%; фронт — компонентный/юнит (vitest + jsdom), e2e (Playwright + реальный бинарь).
 
 ### Запуск E2E локально
@@ -152,25 +153,20 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 
 (В текущей версии порт 21371 зашит в `web/playwright.config.ts`; смена требует правки двух файлов. Это сознательно — `make test-e2e` не должен конфликтовать с dev-сервером на 2137.)
 
-## Что можно дальше (за рамками PLAN)
+## Бэклог (открыто)
 
-- **WS-токен для фронтенда** — `AuthContext` не сохраняет JWT (`setToken` не вызывается), `/auth/ws-token` endpoint не реализован. Без этого фронт не подписывается на WS-эвенты; realtime DoD фаз 2/6/19/20 формально не выполнен в UI. **PR 1.2 / Phase 27.2 — cookie-based WS upgrade, на очереди.**
-- **`make build` без `-tags=web_dist`** — ✅ **закрыт Phase 27.1** (см. отдельный блок ниже).
-- **Теги в list-payload** — `ListByProjectWithStats` должен звать `TagsForTasks`, чтобы чипы на канбане были видны. **PR 1.3 / Phase 27.3 — на очереди.**
 - **Курсы: ручное наполнение (Phase 27.6)** — user-side curriculum editor + quiz surface: без агента курс сейчас ненаполняем (дефект зафиксирован 2026-08-13). 27.4 close-out (MaterializeLesson/AnswerQuiz/LessonPage) смержен.
 - **Карточка задачи: редактируемые Status/Priority/Assignee (Phase 27.7)** — сейчас read-only в сайдбаре карточки; priority/assignee не выставить ниоткуда (дефект зафиксирован 2026-08-13).
 - **Канбан: колонки = статусы (Phase 27.8)** — единая ось: DnD меняет статус, agent-flow двигает карточку (решение владельца 2026-08-13).
 - **Known gaps (Phase 27.9)** — WS multi-topic fan-out, заголовки в /reports, WS/activity для course-задач, comment-debt (аудит отложенных швов 2026-08-13).
 - **Цвет колонки: init/рендер/WS (Phase 27.10)** — сохранение в БД работает, но цвет невидим на доске и затирается при rename (дефект 2026-08-13).
-- Restore-from-snapshot flow (CLI/UI) — snapshot есть, restore — заглушка
-- Telegram onboarding (chat_id через /start)
-- OpenAPI генерация
+- **Фаза «Полировка»** — хвосты Phase 9: backup_settings write path (PUT → 501), prettier/pprof/Prometheus, CSP-tightening.
 - Multi-user / multi-device sync (Phase 11+)
 
 ## Файлы
 
 - `docs/PRD.md` — видение продукта
-- `docs/PLAN.md` — фазы и задачи (все выполнены)
+- `docs/PLAN.md` — фазы и задачи (открытый бэклог: Phase 27.6–27.10)
 - `docs/API.md` — REST reference
 - `docs/DB.md` — схема БД по миграциям
 - `docs/SESSION.md` — этот файл
