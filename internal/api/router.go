@@ -89,18 +89,23 @@ type infoResponse struct {
 // Constructing this struct lives in cmd/orenda so the api package stays
 // independent of the storage layer.
 type Dependencies struct {
-	Logger              *zap.Logger
-	Signer              *auth.Signer
-	Users               user.Repository
-	Projects            project.Repository
-	Tasks               task.Repository
-	Tokens              APITokenLookup
-	TaskService         *taskservice.Service
-	Agents              agent.Repository
-	AgentService        *agentservice.Service
-	Comments            CommentService
-	Attachments         AttachmentService
-	Activities          ActivityService
+	Logger       *zap.Logger
+	Signer       *auth.Signer
+	Users        user.Repository
+	Projects     project.Repository
+	Tasks        task.Repository
+	Tokens       APITokenLookup
+	TaskService  *taskservice.Service
+	Agents       agent.Repository
+	AgentService *agentservice.Service
+	Comments     CommentService
+	Attachments  AttachmentService
+	Activities   ActivityService
+	// ActivityRecorder is the write side for task_activity rows.
+	// nil-safe (handlers must guard). Phase 28.5: wired so
+	// createTaskCommentHandler / addTaskAttachmentHandler can emit
+	// task.commented / task.attachment_added.
+	ActivityRecorder    ActivityRecorder
 	EventService        *eventservice.Service
 	TimeService         *timeentryservice.Service
 	WikiService         *wikiservice.Service

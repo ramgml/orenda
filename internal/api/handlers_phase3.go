@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 
 	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/attachment"
@@ -193,6 +194,30 @@ func createTaskCommentHandler(deps Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		// Phase 28.5: emit task.commented. The action constant has
+		// existed in `internal/domain/activity` since Phase 6, but
+		// nothing ever wrote the row — the comment handler was the
+		// only mutation that didn't go through taskSvc and therefore
+		// didn't get the standard side-effect. We log on failure
+		// and keep the 201 going: the comment landed; an audit gap
+		// is recoverable, a failed user-visible request isn't.
+		if deps.ActivityRecorder != nil {
+			payload, _ := json.Marshal(map[string]any{
+				"comment_id": got.ID,
+				"length":     len(in.BodyMD),
+			})
+			if rerr := deps.ActivityRecorder.RecordTask(
+				r.Context(), taskID,
+				activity.ActorUser, userID,
+				activity.ActionCommented, string(payload),
+			); rerr != nil && deps.Logger != nil {
+				deps.Logger.Warn("activity record failed",
+					zap.String("action", string(activity.ActionCommented)),
+					zap.String("task_id", taskID),
+					zap.Error(rerr),
+				)
+			}
+		}
 		// Phase 6.4: notify mentioned users.
 		if deps.Notifier != nil {
 			if mentions, merr := deps.Comments.MentionsForComment(r.Context(), got.ID); merr == nil {
@@ -347,6 +372,32 @@ func addTaskAttachmentHandler(deps Dependencies) http.HandlerFunc {
 		}
 		if res.Duplicate {
 			w.Header().Set("X-Attachment-Duplicate", "true")
+		}
+		// Phase 28.5: emit task.attachment_added. Same nil-safe +
+		// log-on-error pattern as createTaskCommentHandler above.
+		// Skip the duplicate-deduplication case: the audit row
+		// would point at the *original* attachment (res.Attachment
+		// is the existing row), and a second "added" event for the
+		// same row would mislead the timeline.
+		if !res.Duplicate && deps.ActivityRecorder != nil {
+			taskID := chi.URLParam(r, "id")
+			payload, _ := json.Marshal(map[string]any{
+				"attachment_id": res.Attachment.ID,
+				"filename":      filename,
+				"mime":          mimeType,
+				"size":          res.Attachment.Size,
+			})
+			if rerr := deps.ActivityRecorder.RecordTask(
+				r.Context(), taskID,
+				activity.ActorUser, uploaderID,
+				activity.ActionAttachmentAdd, string(payload),
+			); rerr != nil && deps.Logger != nil {
+				deps.Logger.Warn("activity record failed",
+					zap.String("action", string(activity.ActionAttachmentAdd)),
+					zap.String("task_id", taskID),
+					zap.Error(rerr),
+				)
+			}
 		}
 		writeJSON(w, http.StatusCreated, res.Attachment)
 	}

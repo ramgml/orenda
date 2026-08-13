@@ -32,6 +32,12 @@ BIN="${BIN_PATH:-./bin/orenda}"
 # Idempotent: wipe so a previous crashed run doesn't leak migrations.
 rm -rf "${E2E_DIR}"
 mkdir -p "${DATA_DIR}"
+# Pre-create data/uploads/ so attachment uploads don't fail on a
+# fresh worktree. attachment service's CreateTemp(s.Config.UploadDir, ...)
+# expects the directory to exist; the service itself only MkdirAll's
+# the YYYY/MM subdir later, not the root. Without this every
+# attachment test would 500 on the first request of a clean run.
+mkdir -p "${DATA_DIR}/uploads"
 
 export ORENDA_STORAGE__DATA_DIR="${DATA_DIR}"
 export ORENDA_STORAGE__DB_PATH="${DB_PATH}"

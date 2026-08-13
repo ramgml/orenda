@@ -25,7 +25,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 
+	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/comment"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 )
@@ -65,6 +67,28 @@ func agentCreateTaskCommentHandler(deps Dependencies) http.HandlerFunc {
 		if err != nil {
 			writeError(w, err)
 			return
+		}
+		// Phase 28.5: emit task.commented from the agent side too.
+		// Same nil-safe + log-on-error pattern as the user-side
+		// handler. ActorType is `agent` so the timeline can colour
+		// human vs agent comments distinctly.
+		if deps.ActivityRecorder != nil {
+			payload, _ := json.Marshal(map[string]any{
+				"comment_id":  got.ID,
+				"author_type": "agent",
+				"length":      len(in.BodyMD),
+			})
+			if rerr := deps.ActivityRecorder.RecordTask(
+				r.Context(), taskID,
+				activity.ActorAgent, id.AgentID,
+				activity.ActionCommented, string(payload),
+			); rerr != nil && deps.Logger != nil {
+				deps.Logger.Warn("activity record failed",
+					zap.String("action", string(activity.ActionCommented)),
+					zap.String("task_id", taskID),
+					zap.Error(rerr),
+				)
+			}
 		}
 		// Phase 6.4: notify mentioned users (owner only — agent → user
 		// mentions are the only direction we route today; agent-to-agent

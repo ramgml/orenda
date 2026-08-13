@@ -878,7 +878,12 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			MaxSizeBytes: int64(cfg.Uploads.MaxSizeMB) * 1024 * 1024,
 			AllowedMimes: cfg.Uploads.AllowedMimes,
 		}, hub)),
-		Activities:          activityRepo,
+		Activities: activityRepo,
+		// Phase 28.5: comment + attachment handlers write task_activity
+		// rows through this recorder. *activityservice.Recorder
+		// satisfies api.ActivityRecorder structurally (same method
+		// signature) — no explicit adapter needed.
+		ActivityRecorder:    activityRecorder,
 		EventService:        eventSvc,
 		TimeService:         timeSvc,
 		WikiService:         wikiSvc,
@@ -943,6 +948,19 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("graceful shutdown: %w", err)
+	}
+	// Phase 28.5: tell the bots to stop too. Without this, long-poll
+	// transports (Telegram) keep their goroutines alive past
+	// http.Server.Shutdown — the process gets SIGKILL'd at the
+	// end of the shutdown timeout while updates are mid-flight,
+	// which surfaces as "context canceled" errors on the upstream
+	// bot API. Best-effort: a bot that fails to Stop doesn't fail
+	// the whole shutdown — log and continue.
+	for _, b := range botRegistry.List() {
+		name := b.Name()
+		if err := b.Stop(shutdownCtx); err != nil {
+			logger.Warn("bot stop failed", zap.String("bot", name), zap.Error(err))
+		}
 	}
 	logger.Info("shutdown complete")
 	return nil

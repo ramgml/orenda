@@ -68,6 +68,30 @@ type ActivityService interface {
 	ListByProject(ctx context.Context, projectID string, limit int) ([]*activity.ProjectActivityEvent, error)
 }
 
+// ActivityRecorder is the write surface for activity rows that
+// handlers fire as a side-effect of their primary mutation. It is
+// intentionally narrower than the full Recorder type in
+// internal/service/activity so the api package doesn't depend on
+// that package (the service layer builds a small adapter in
+// cmd/orenda). Nil-safe in handlers — a missing recorder must NOT
+// fail the user-facing request, just silently skip the side-effect
+// (mirrors the long-standing convention for deps.Notifier).
+//
+// Phase 28.5: introduced so the comment + attachment handlers can
+// finally emit `task.commented` and `task.attachment_added`. The
+// constants exist in `internal/domain/activity` since Phase 6 but
+// nothing wrote them until this phase.
+type ActivityRecorder interface {
+	RecordTask(
+		ctx context.Context,
+		taskID string,
+		actorType activity.ActorType,
+		actorID string,
+		action activity.Action,
+		payload string,
+	) error
+}
+
 // TaskActivityService is the read surface for the task "context"
 // endpoint — full snapshot an agent needs to resume work.
 type TaskActivityService interface {
