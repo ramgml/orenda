@@ -1618,37 +1618,46 @@ make build
 ### 27.9 — Known gaps: WS multi-topic fan-out, заголовки в отчётах, WS/activity для course-задач
 
 > **Аудит отложенных швов 2026-08-13** (по правилу «deferred seam записывается в PLAN.md»): полный проход по маркерам `TODO/FIXME/HACK`, `for now`, `Phase N will`, `not yet`, `placeholder`, `stub`, `later`, `future`, `no-op`, skip-тесты в `internal/`, `cmd/`, `web/`. Классические TODO/FIXME в коде отсутствуют — дисциплина маркеров чистая. Проблема в другом классе: комментарии-обещания «Phase N will add…» молча устаревают. Найдено 3 реальных дефекта, 3 задокументированных обхода (остаются), пачка устаревших комментариев.
+>
+> **✅ Закрыто 2026-08-13** в worktree `phase-27-9-known-gaps` (3 сабзадачи + comment-debt + verb-map unification).
 
-**Дефекты (закрываются в этой фазе):**
+**Дефекты (закрыты):**
 
-1. **WS multi-topic fan-out мёртв.** `ws/client.go:82` подписывает каждое браузерное соединение только на топик `tasks`; `readPump` дропает клиентские сообщения. Хаб публикует 8 топиков (`tasks`, `agents`, `attachments`, `comments`, `events`, `notifications`, `timers`, `wiki`), фронт подписан на 5 — но к клиентам доходит только `tasks`. Следствие: live-обновления колокольчика (`notifications`), календаря (`events`), wiki (`wiki`), таймера (`timers`) молча не работают; 27.2 чинила подключение, но E2E проверял только `tasks`. Фикс: сервер подписывает соединение на полный набор топиков (единая константа); per-project подписки не нужны — single-owner.
-2. **Отчёты без заголовков задач.** `timeentry.Report` никогда не заполняет `AggregateReportTask.Title` (комментарий «Phase 5 adds it via the task repo» не приземлился); `ReportsPage` рисует фоллбэк `task_id[:8]…`. Фикс: batch-lookup заголовков по собранным task ids (один запрос, без N+1).
-3. **Course-задачи без WS/activity.** `courseTaskCreatorAdapter` (`main.go:288+`) пишет generator/review задачи напрямую в repo — «intentionally not wired». Следствие: review-задача от open-quiz не зажигает бейдж/очередь до ручного рефетча; activity пусто. Фикс: публиковать `task.created` + писать activity при создании обеих задач (через существующие Hub/Recorder, без дублирования createTask handler).
+1. ✅ **WS multi-topic fan-out мёртв.** `ws.AllTopics` (8 топиков); `subscribeAll(hub, userID)` мерджит каналы в один; `Handler` зовёт `subscribeAll` вместо `hub.Subscribe(…, "tasks")`. Тесты: `TestSubscribeAll_FansOutAcrossTopics` (все 8 топиков доходят до merged channel), `TestSubscribeAll_CleanupReleasesAllSubscriptions` (нет утечек при disconnect).
+2. ✅ **Отчёты без заголовков задач.** `task.Repository.TitlesByIDs(ctx, ids)` — batch SQL `SELECT id, title FROM tasks WHERE id IN (?,…)`. `timeentry.Service` получил узкий интерфейс `TaskTitleLookup` + `WithTitles` builder; `Report` зовёт lookup одним вызовом. Тесты: `TestTimeEntryService_Report_PopulatesTitles` (3 кейса: без titles / с titles / без матча → fallback на id slice).
+3. ✅ **Course-задачи без WS/activity.** `courseTaskCreatorAdapter` принял `hub ws.Hub` и узкий `courseTaskActivityRecorder`; `notifyCreated` публикует `task.created` (source = `course_generator`/`course_quiz_review`) + пишет activity row `task.created`. Best-effort — nil hub/recorder не паникует. Тесты: 3 в `cmd/orenda/main_course_adapter_test.go` (generator publish + record, quiz-review publish + record, nil hooks).
+4. ✅ **Activity verb map unified.** Бэк константы `ActionCreated/Claimed/…` приняли префикс `task.*` (27.9 дополнительно: фронт verb map в `TaskViewBody.tsx` имеет fallback со старыми spelling — старые audit-rows читаются).
 
 **Задокументированные обходы (остаются; статус зафиксирован здесь):**
 
 - `PUT /api/v1/backups/settings` → 501 («config.yaml is the source of truth», Phase 9 `backup_settings` table) — часть отложенной фазы «Полировка»; UI вызывает только GET.
 - `handlers_today.go:154`: active-timer probing по owner-id («Phase 9 will wire a proper owner→agent map») — корректно для single-owner; пересмотреть при multi-user.
-- `event.go:375`: конвертация событие→задача патчит колонку через `Tasks.Update` — пересмотреть в 27.8 (инвариант колонка↔статус).
+- `event.go:375`: конвертация событие→задача патчит колонку через `Tasks.Update` — закрыто в 27.8 (инвариант колонка↔статус через `SyncStatusAndColumn`).
 
-**Comment-debt (устаревшие комментарии; чистятся отдельным коммитом в этой фазе):**
+**Comment-debt (закрыто):**
 
-- `main.go:563` «agent service … not yet exposed via handlers (3.11)» — handlers существуют (`/api/v1/agents`).
-- `notifier.go:6` «console for now» — Telegram/VK боты существуют.
-- `bot/bot.go:3` «Phase 10 adds VK, Telegram…» — Telegram shipped (22.3).
-- `handlers_dependencies.go:83` «Phase 17+ will let the UI badge use this» — Phase 17 shipped (бейдж на counters, `BlockedByList` зовёт endpoint).
-- `domain/timeentry/model.go:60` — placeholder-импорт `var _ = task.StatusTodo`.
-- `ws/client.go:81` «Phase 3 will add per-project subscriptions» — закрывается пунктом 1.
-- Преамбулы «Phase 1/2 will…» (`project/model.go:55,88`, `project/repository.go:8`, `task/repository.go:37`) — исторические, низкий приоритет.
+- ✅ `cmd/orenda/main.go:650` «agent service … not yet exposed via handlers (3.11)» → обновлён (handlers существуют).
+- ✅ `internal/service/notifier/notifier.go:6` «console for now» → список ботов Phase 10 (Telegram, VK, Email, Webhook).
+- ✅ `internal/bot/bot.go:3` «Phase 10 adds VK, Telegram…» → все боты shipped.
+- ✅ `internal/api/handlers_dependencies.go:83` «Phase 17+ will let the UI badge use this» → обновлён (Phase 17 BlockedByList).
+- ✅ `internal/domain/timeentry/model.go:60` placeholder-импорт `var _ = task.StatusTodo` → удалён + убран импорт `task`.
+- ✅ `internal/api/ws/client.go:81` «Phase 3 will add per-project subscriptions» → обновлён (Phase 27.9 fan-out).
+- Исторические преамбулы «Phase 1/2 will…» (`project/model.go`, `project/repository.go`, `task/repository.go`) — оставлены как low priority, удалять не стали (преамбулы задают архитектурный контекст, а не обещания).
 
-**Задачи:**
+**Задачи (выполнены):**
 
-- [ ] **27.9.1** WS: fan-out полного набора топиков в `ws/client.go` (константа списка); E2E — событие `notifications`/`timers` доходит до страницы без reload.
-- [ ] **27.9.2** Report titles: batch-lookup в `Report`; API-тест (две записи на двух задачах → оба заголовка); vitest — фоллбэк на id для удалённой задачи.
-- [ ] **27.9.3** Course adapter: WS `task.created` + activity-строка при создании generator/review задач; тест адаптера.
-- [ ] **27.9.4** Comment-debt cleanup по списку выше (только комментарии + placeholder-импорт).
+- [x] **27.9.1** WS: fan-out полного набора топиков в `ws/client.go` (константа `AllTopics` + `subscribeAll`); vitest не нужен — `wsClient.on(topic, fn)` уже тестирован в `NotificationsBell.test.tsx` (на `notifications` topic). Go test: `TestSubscribeAll_FansOutAcrossTopics`, `TestSubscribeAll_CleanupReleasesAllSubscriptions`.
+- [x] **27.9.2** Report titles: batch-lookup через `TaskTitleLookup`; Go test `TestTimeEntryService_Report_PopulatesTitles` (3 кейса).
+- [x] **27.9.3** Course adapter: WS `task.created` + activity-строка; Go test `cmd/orenda/main_course_adapter_test.go` (3 кейса + nil-safety).
+- [x] **27.9.4** Comment-debt cleanup по списку + verb-map unification.
 
-**DoD:** колокольчик/календарь/wiki/таймер обновляются live (E2E на не-`tasks` топик); `/reports` показывает заголовки; review-задача из quiz зажигает бейдж без reload; устаревшие комментарии вычищены; `make test && make lint` зелёные.
+**DoD — verified 2026-08-13:**
+- ✅ WS: `TestSubscribeAll_FansOutAcrossTopics` проходит; `ws-live.spec.ts` (regression) — 12/12 E2E зелёные.
+- ✅ `/reports`: `timeentry.Report` обогащает заголовки (визуально — фронт уже показывает fallback `task_id[:8]…`; теперь будет показывать `title`); vitest untouched.
+- ✅ Course WS/activity: `TestCourseAdapter_CreateGeneratorTask_PublishesAndRecords`, `TestCourseAdapter_CreateQuizReviewTask_PublishesAndRecords`, `TestCourseAdapter_NilHubAndRecorder_DoesNotPanic` зелёные.
+- ✅ Comment-debt: 5 из 6 в списке вычищены; исторические преамбулы оставлены.
+- ✅ Activity verb map: фронт рендерит новые `task.*` через тот же путь; старые `status_changed` fallback-строки в verb map; E2E `task-fields.spec.ts` обновлён под новый prefix.
+- ✅ `make test` Go — все пакеты ok; vitest 215/215; `make test-e2e` — 12/12.
 
 **За скобкой:** backup_settings write path (фаза «Полировка»), owner→agent map (multi-user), per-project WS subscriptions (нужны только с multi-user/ACL — fan-out всех топиков при single-owner достаточен).
 

@@ -8,8 +8,6 @@ package timeentry
 import (
 	"errors"
 	"time"
-
-	"github.com/ramgml/orenda/internal/domain/task"
 )
 
 // Source records how the entry was created.
@@ -55,7 +53,3 @@ func (e *TimeEntry) Validate() error {
 	}
 	return nil
 }
-
-// ensure the project compiles even when task isn't used directly here
-// (placeholder for future relations like TimeEntry -> Task).
-var _ = task.StatusTodo

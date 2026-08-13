@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ramgml/orenda/internal/domain/activity"
 )
 
 // TestPhase11_PatchProject_ClearsDescription exercises the new
@@ -167,7 +169,11 @@ func TestPhase11_ProjectActivity(t *testing.T) {
 	// of (task_id, title) pairs and the action.
 	got := map[string]string{} // task_id → task_title
 	for _, ev := range resp.Activity {
-		assert.Equal(t, "moved", ev.Action)
+		// Phase 27.9: backend uses the `task.*` prefix consistently
+		// (ActionMoved = "task.moved"). JSON unmarshal surfaces the
+		// field as a plain string, so we coerce both sides to
+		// activity.Action for a stable comparison.
+		assert.Equal(t, string(activity.ActionMoved), ev.Action)
 		got[ev.TaskID] = ev.TaskTitle
 	}
 	assert.Equal(t, "alpha", got[taskA], "missing alpha event")

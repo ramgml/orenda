@@ -173,3 +173,55 @@ func TestTimeEntryService_ListByDay(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, list, 1)
 }
+
+// fakeTitleLookup is a stand-in TaskTitleLookup for Report tests.
+// It returns exactly the map the test sets; missing ids are absent
+// (matching the contract — caller renders the id slice as fallback).
+type fakeTitleLookup struct {
+	titles map[string]string
+}
+
+func (f *fakeTitleLookup) TitlesByIDs(_ context.Context, ids []string) (map[string]string, error) {
+	out := make(map[string]string, len(ids))
+	for _, id := range ids {
+		if t, ok := f.titles[id]; ok {
+			out[id] = t
+		}
+	}
+	return out, nil
+}
+
+// TestTimeEntryService_Report_PopulatesTitles (Phase 27.9) guards the
+// one-batch lookup contract: Report enriches every row with the task
+// title using a single call to TitlesByIDs (no N+1), and missing
+// titles fall back to an empty title (caller renders the id slice).
+func TestTimeEntryService_Report_PopulatesTitles(t *testing.T) {
+	svc, _, taskID, agentID := setupTimeSvc(t)
+	now := time.Now().Truncate(time.Second)
+	end := now.Add(30 * time.Minute)
+	_, err := svc.ManualAdd(context.Background(), taskID, agentID, now, end)
+	require.NoError(t, err)
+
+	from := now.Add(-time.Hour)
+	to := now.Add(time.Hour)
+
+	// Without titles wired, the row keeps an empty title (pre-27.9).
+	rep, err := svc.Report(context.Background(), agentID, from, to)
+	require.NoError(t, err)
+	require.Len(t, rep.Tasks, 1)
+	assert.Equal(t, "", rep.Tasks[0].Title, "no titles wired → empty title")
+
+	// Wire a fake lookup and re-query — the row gets the title.
+	svc.WithTitles(&fakeTitleLookup{titles: map[string]string{taskID: "Study Redis cache invalidation"}})
+	rep, err = svc.Report(context.Background(), agentID, from, to)
+	require.NoError(t, err)
+	require.Len(t, rep.Tasks, 1)
+	assert.Equal(t, "Study Redis cache invalidation", rep.Tasks[0].Title)
+
+	// Missing lookup entry → empty title (caller renders id slice).
+	svc.WithTitles(&fakeTitleLookup{titles: map[string]string{}})
+	rep, err = svc.Report(context.Background(), agentID, from, to)
+	require.NoError(t, err)
+	require.Len(t, rep.Tasks, 1)
+	assert.Equal(t, "", rep.Tasks[0].Title, "missing lookup key → empty title (caller falls back to id)")
+}

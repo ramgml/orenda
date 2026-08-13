@@ -1,8 +1,9 @@
 // Package bot — pluggable bot interface.
 //
-// Phase 6 ships the Console bot (writes to stderr); Phase 10 adds VK,
-// Telegram, Email, Webhook bots on the same interface. The notifier-фасад
-// uses the interface to fan out events without knowing which channels
+// Phase 6 shipped the Console bot (writes to stderr). Phase 10 added
+// Telegram, VK, Email, and Webhook bots on the same interface, plus
+// the callback handler for inline actions. The notifier-facade uses
+// the interface to fan out events without knowing which channels
 // are configured.
 package bot
 
@@ -13,8 +14,10 @@ import (
 	"time"
 )
 
-// Message is the wire shape sent to a bot. Phase 6 keeps this plain-text;
-// Phase 10 adds structured templates (title, actions, attachments).
+// Message is the structured wire shape every bot implementation
+// receives. It carries a title, body text, and per-channel action
+// hints (Telegram inline buttons, VK keyboard, email links) — see
+// Phase 10 for the structured templates.
 type Message struct {
 	Title  string            `json:"title"`
 	Body   string            `json:"body"`

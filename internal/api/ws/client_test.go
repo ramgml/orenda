@@ -1,11 +1,15 @@
 package ws
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestExtractWSToken_CookieWins validates the auth precedence for /ws:
@@ -78,4 +82,83 @@ func TestExtractWSToken_CustomCookieName(t *testing.T) {
 	got, ok = extractWSToken(r2, "orenda_dev")
 	assert.True(t, ok)
 	assert.Equal(t, "dev-token", got, "custom cookie name should be matched, not the default")
+}
+
+// TestSubscribeAll_FansOutAcrossTopics is the Phase 27.9 contract: a
+// single subscription surface (subscribeAll) must receive events from
+// every topic in AllTopics, not just "tasks". Pre-27.9 the WS handler
+// only subscribed to "tasks", which silently dropped live updates for
+// notifications, timers, calendar, wiki, comments, attachments, and
+// agents events.
+func TestSubscribeAll_FansOutAcrossTopics(t *testing.T) {
+	hub := NewHub()
+
+	merged, cleanup := subscribeAll(hub, "user-1")
+	defer cleanup()
+
+	// Publish one event to every topic in AllTopics and ensure each
+	// reaches the merged channel.
+	received := make(map[string]bool, len(AllTopics))
+	var mu sync.Mutex
+	done := make(chan struct{})
+
+	go func() {
+		timeout := time.After(2 * time.Second)
+		for {
+			select {
+			case ev, ok := <-merged:
+				if !ok {
+					return
+				}
+				mu.Lock()
+				received[ev.Topic] = true
+				if len(received) == len(AllTopics) {
+					mu.Unlock()
+					close(done)
+					return
+				}
+				mu.Unlock()
+			case <-timeout:
+				close(done)
+				return
+			}
+		}
+	}()
+
+	for _, topic := range AllTopics {
+		hub.Publish(context.Background(), Event{Topic: topic, Body: "x"})
+	}
+
+	<-done
+	mu.Lock()
+	defer mu.Unlock()
+	for _, topic := range AllTopics {
+		assert.True(t, received[topic], "topic %q did not fan out to merged channel", topic)
+	}
+}
+
+// TestSubscribeAll_CleanupReleasesAllSubscriptions guards against a
+// partial cleanup that would leak subscriptions — Phase 27.9 changes
+// fan-out from 1 to N subscriptions, so a single missed unsub would
+// silently retain a buffered channel after disconnect.
+func TestSubscribeAll_CleanupReleasesAllSubscriptions(t *testing.T) {
+	hub := NewHub()
+	impl, ok := hub.(*channelHub)
+	require.True(t, ok, "NewHub should return *channelHub; type assertion keeps this test honest if the implementation changes")
+
+	_, cleanup := subscribeAll(hub, "user-1")
+
+	// Pre-cleanup: every topic must have one subscriber.
+	impl.mu.RLock()
+	for _, topic := range AllTopics {
+		_, present := impl.subs[topic]
+		require.True(t, present, "expected subscriber on topic %q before cleanup", topic)
+	}
+	impl.mu.RUnlock()
+
+	cleanup()
+
+	impl.mu.RLock()
+	defer impl.mu.RUnlock()
+	require.Empty(t, impl.subs, "cleanup must release every per-topic subscription; saw leftover topics: %v", impl.subs)
 }

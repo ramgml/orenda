@@ -675,13 +675,24 @@ function ColorPicker({
 
 function ActivityLog({ items }: { items: TaskActivity[] }): JSX.Element {
   // Action verbs we render as a human label.
+  //
+  // Phase 27.9: pre-27.9 rows stored status/priority/assignee
+  // without the `task.` prefix (status_changed, priority_changed,
+  // assigned). We keep a fallback copy with both spellings so old
+  // audit rows still render the human label instead of the raw
+  // action name. New rows use the prefixed form (the backend
+  // constants adopt the prefix in 27.9).
   const verb: Record<string, string> = {
     'task.created': 'created the task',
     'task.moved': 'moved the task',
     'task.status_changed': 'changed the status',
+    status_changed: 'changed the status',
     'task.title_changed': 'changed the title',
+    title_changed: 'changed the title',
     'task.priority_changed': 'changed the priority',
+    priority_changed: 'changed the priority',
     'task.assigned': 'assigned the task',
+    assigned: 'assigned the task',
     'task.claimed': 'claimed the task',
     'task.released': 'released the task',
     'task.submitted': 'submitted the task for review',

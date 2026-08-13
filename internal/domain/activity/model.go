@@ -25,17 +25,22 @@ const (
 type Action string
 
 const (
-	ActionCreated         Action = "created"
-	ActionClaimed         Action = "claimed"
-	ActionReleased        Action = "released"
-	ActionSubmitted       Action = "submitted"
-	ActionReviewed        Action = "reviewed"
-	ActionMoved           Action = "moved"
-	ActionCommented       Action = "commented"
-	ActionAttachmentAdd   Action = "attachment_added"
-	ActionStatusChanged   Action = "status_changed"
-	ActionPriorityChanged Action = "priority_changed"
-	ActionAssigned        Action = "assigned"
+	ActionCreated       Action = "task.created"
+	ActionClaimed       Action = "task.claimed"
+	ActionReleased      Action = "task.released"
+	ActionSubmitted     Action = "task.submitted"
+	ActionReviewed      Action = "task.reviewed"
+	ActionMoved         Action = "task.moved"
+	ActionCommented     Action = "task.commented"
+	ActionAttachmentAdd Action = "task.attachment_added"
+	// Phase 27.9: status/priority/assignee changes adopt the
+	// `task.*` prefix so the frontend verb map renders them as
+	// human strings. Pre-27.9 rows stored these without the prefix;
+	// TaskViewBody's verb map includes both spellings so old data
+	// still renders.
+	ActionStatusChanged   Action = "task.status_changed"
+	ActionPriorityChanged Action = "task.priority_changed"
+	ActionAssigned        Action = "task.assigned"
 
 	// Phase 14 additions for child tasks + checklists. The names
 	// keep the task.* prefix in the public activity feed (see

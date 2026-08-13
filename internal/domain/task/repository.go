@@ -174,6 +174,15 @@ type Repository interface {
 	// Inbox tasks (project_id IS NULL after Phase 16) are included;
 	// the joined project name + colour come back as empty strings.
 	ListAwaitingReview(ctx context.Context) ([]ReviewQueueItem, error)
+
+	// TitlesByIDs returns id→title for every requested task in a
+	// single round-trip (Phase 27.9). Missing ids are simply absent
+	// from the map; callers should treat "no key" as "task gone",
+	// fall back to a slice of the id. Empty input → empty map.
+	//
+	// Used by the time-entry report to render task titles next to
+	// the aggregated seconds.
+	TitlesByIDs(ctx context.Context, ids []string) (map[string]string, error)
 }
 
 // ReviewQueueItem is a task awaiting review, denormalised with its

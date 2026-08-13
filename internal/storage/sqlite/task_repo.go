@@ -1328,3 +1328,40 @@ func parseTimePtr(s sql.NullString) *time.Time {
 	}
 	return &t
 }
+
+// TitlesByIDs returns id→title for every requested task in a single
+// round-trip (Phase 27.9). Missing ids are absent from the map; the
+// service treats "no key" as "task deleted between writes", falling
+// back to a slice of the id. Empty input → empty map.
+//
+// We don't pre-populate here — the contract differs from TagsForTasks:
+// an absent key in this case is meaningful (gone) rather than empty
+// data. The caller iterates its own input slice, not the result map.
+func (r *taskRepo) TitlesByIDs(ctx context.Context, ids []string) (map[string]string, error) {
+	out := make(map[string]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	placeholders := strings.Repeat("?, ", len(ids)-1) + "?"
+	args := make([]any, 0, len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	q := `SELECT id, title FROM tasks WHERE id IN (` + placeholders + `)`
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("task.TitlesByIDs: query: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, title string
+		if err := rows.Scan(&id, &title); err != nil {
+			return nil, fmt.Errorf("task.TitlesByIDs: scan: %w", err)
+		}
+		out[id] = title
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("task.TitlesByIDs: rows: %w", err)
+	}
+	return out, nil
+}

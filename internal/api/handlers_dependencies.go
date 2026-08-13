@@ -80,8 +80,10 @@ func putTaskDependenciesHandler(deps Dependencies) http.HandlerFunc {
 
 // getTaskBlockersHandler returns ALL blockers (open + satisfied).
 //
-// Phase 17+ will let the UI badge use this; for now it's a simple
-// passthrough.
+// Phase 17 wires the TaskCard's "blocked" badge through this
+// endpoint via BlockedByList; Phase 27.8 lets the agent claim-flow
+// surface unfinished blockers in the 422 response. Future work
+// (filtering by project, etc.) builds on this same passthrough.
 func getTaskBlockersHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Tasks == nil {

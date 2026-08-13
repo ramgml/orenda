@@ -13,6 +13,29 @@ import (
 	"sync"
 )
 
+// AllTopics lists every topic the hub accepts. Services publish to these
+// topics (see service/notifier, service/task, service/wiki, etc.) and the
+// WebSocket client subscribes to all of them at upgrade time so the UI
+// receives live updates regardless of which surface changed.
+//
+// Phase 27.9: the WS handler used to subscribe only to "tasks", which
+// silently dropped notifications / timers / calendar / wiki / comments /
+// attachments / agents events. Single-owner deployment, no per-project
+// filter required — fan out everything.
+//
+// New services that publish to the hub should add their topic here so the
+// UI gets the live update without further wiring.
+var AllTopics = []string{
+	"tasks",
+	"agents",
+	"attachments",
+	"comments",
+	"events",
+	"notifications",
+	"timers",
+	"wiki",
+}
+
 // Event is the wire shape sent over WebSocket. Subscribers receive the raw
 // JSON-serialisable body — Phase 2 only uses map[string]any.
 type Event struct {
