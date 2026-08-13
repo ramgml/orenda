@@ -1,0 +1,16 @@
+# Build artifacts — never reformat these (they're regenerated on every build).
+dist/
+node_modules/
+
+# Tests get linted by Playwright / vitest; Prettier formatting them
+# adds noise to PRs.
+playwright-report/
+test-results/
+
+# Generated embed files (Phase 27.1: SPA is embedded into the Go
+# binary via //go:embed all:dist). These are produced by `make embed-dists`
+# — re-running Prettier against them is wasted work.
+internal/embed/web/dist/
+
+# Markdown is handled by the docs workflow, not Prettier.
+**/*.md

@@ -28,7 +28,8 @@ LDFLAGS    := -ldflags "-s -w -X main.version=$(VERSION)"
 .PHONY: all dev build test lint clean migrate-up migrate-down \
         backup backup-push backup-snapshot backup-status \
         web-install web-dev web-build web-test test-e2e \
-        embed-dists run version help govulncheck
+        embed-dists run version help govulncheck \
+        web-format web-format-check
 
 all: build
 
@@ -88,6 +89,19 @@ lint:
 	@command -v golangci-lint >/dev/null 2>&1 || echo "install: https://golangci-lint.run/usage/install/"
 	golangci-lint run ./...
 	cd $(WEB_DIR) && $(NPM) run lint
+
+## web-format: Format web/ sources with Prettier (writes in-place).
+## Phase 28.7: prettier setup. We deliberately do NOT auto-format
+## in `make lint` — that would create a giant mixed-style commit
+## the first time someone runs the target. Operators run this
+## explicitly when they're ready to absorb a formatter pass.
+web-format:
+	cd $(WEB_DIR) && $(NPM) run format
+
+## web-format-check: Verify formatting (CI-style). Exits non-zero
+## if any file would change — useful as a pre-push gate later.
+web-format-check:
+	cd $(WEB_DIR) && $(NPM) run format:check
 
 ## test-e2e: Playwright E2E smoke suite.
 ## Requires a built binary (make build). Spawns its own test server
