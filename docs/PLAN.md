@@ -572,6 +572,24 @@ make build
 - Auth-write нет separate path — форма шлёт `remote_auth=""` для удаления (но `SetKey` пишет empty value; clear=delete отдельный путь, не выставлен через PUT).
 - `source_hint` показывается как жёлтый banner; нет кнопки «Restart now» (systemd-notify integration — отдельная история).
 
+## Phase 28.2 (полировка) — Settings index: hub-страница *(2026-08-13)*
+
+> **Дефект зафиксирован владельцем 2026-08-13:** `/settings` рендерит `<Placeholder title="Settings" />` — пустую страницу (`App.tsx`). Подстраницы `/settings/backups` и `/settings/bots` рабочие, но из индекса недостижимы; из сайдбара (⚙ Settings) пользователь попадает в пустоту. Задачи на это в плане отсутствовали.
+
+**Цель:** индекс настроек как hub — все настроечные поверхности достижимы в один клик.
+
+**Контекст (проверено 2026-08-13):**
+
+- Существуют: `Backups.tsx` (редактируемая форма с 28.1), `Bots.tsx` (подписки + Telegram bind), `/agents` (top-level), ThemeToggle в `AppTopBar`, `/reports`.
+- Бэкенд-работы не требуется — всё на существующих GET (`/api/v1/info`, `/api/v1/stats`).
+
+**Задачи:**
+
+- [ ] **28.2.1** `web/src/features/settings/SettingsHome.tsx`: карточки-ссылки — Backups, Bots & notifications, Agents (`/agents`), Reports; блок About (version, uptime, db size из `/api/v1/info` + `/api/v1/stats`); пометка, что тема — в топбаре. Route `/settings` → компонент вместо `Placeholder`. Vitest: карточки ведут на правильные пути, About рендерит версию.
+- [ ] **28.2.2** E2E: сайдбар ⚙ → `/settings` показывает hub → клик по Backups ведёт на `/settings/backups`.
+
+**DoD:** `/settings` не пустая; Backups/Bots/Agents достижимы из индекса в один клик; vitest + E2E зелёные.
+
 ### Tasks
 
 - [ ] **9.1** Покрытие тестами:

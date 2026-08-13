@@ -169,6 +169,7 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 
 - **«Полировка» (Phase 28.x)** — долги после Phase 28.1 закрытия `PUT /backups/settings`:
   - **Hot-reload backup settings** без restart (сейчас — restart required)
+  - **Settings index page** — `/settings` рендерит пустой `<Placeholder>`; подстраницы backups/bots из индекса недостижимы (дефект 2026-08-13) → **Phase 28.2**
   - **Prettier** + автоформат в pre-commit
   - **`net/http/pprof`** endpoint, debug-only за флагом
   - **CSP-tightening** (style-src nonce)
