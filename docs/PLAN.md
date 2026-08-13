@@ -1543,6 +1543,37 @@ make build
 
 **За скобкой:** структурная правка active-курса с сохранением прогресса (granular CRUD + стабильные ID), drag&drop reorder, импорт программы из markdown.
 
+### 27.7 — Карточка задачи: редактируемые Status / Priority / Assignee
+
+> **Дефект зафиксирован 2026-08-13 (скриншот владельца):** сайдбар карточки показывает `Status: todo`, `Priority: medium`, `Assignee: —` как read-only текст. Status никогда не меняется и не совпадает с колонкой канбана; priority и assignee нельзя установить ни на одном экране.
+
+**Цель:** три поля карточки редактируются из модалки/страницы задачи; отображение человекочитаемое (имена вместо `type:id`).
+
+**Контекст (проверено по коду 2026-08-13):**
+
+- Две независимые оси: `task.status` (workflow: `backlog/todo/in_progress/review/done` — двигается agent-flow: claim→in_progress, submit→review, approve→done) и `task.column_id` (визуальная колонка; DnD меняет только её — `queueMoveTask` → PATCH `{column_id}`). Исторически совпадали: `DefaultColumns` = пять имён статусов (инвариант Phase 1) — отсюда ожидание «статус = колонка».
+- UI нигде не выставляет `status` → вручную ведомые задачи навсегда `todo`.
+- `PATCH /api/v1/tasks/{id}` уже принимает `status`, `priority`, `assignee_type`, `assignee_id` (`taskInput`/`applyTaskPatch`) — бэкенд-работа минимальна.
+- `TaskViewBody` рендерит поля read-only (`SidebarField`); Assignee рисуется сырым `assignee_type:assignee_id`.
+
+**Ключевые решения:**
+
+- **Оси не сливаем.** Колонка ≠ статус: status значим для контура делегирования (review queue, `awaiting`); авто-синк при DnD позволил бы обойти review перетаскиванием в «done», а кастомные колонки ломают фиксированный маппинг. Вместо синка — явные подписи и редактируемость.
+- **Три поля — контролы в сайдбаре карточки:** Status → select из `AllStatuses`; Priority → select (low/medium/high/urgent); Assignee → select (Unassigned / владелец / агенты из `GET /api/v1/agents`). Изменение → PATCH; рефетч по WS уже работает.
+- **Assignee отображается именем** (display_name владельца / имя агента), не `type:id`.
+- **Сайд-эффекты ручной смены статуса — на бэкенде:** `status=done` → `completed_at=now`; прямая установка нормализует `awaiting` (done→none, review→human, прочие→none). Activity-события (`task.status_changed`, `task.priority_changed`, `task.assigned`) должны реально писаться — лейблы в UI уже существуют.
+
+**Задачи:**
+
+- [ ] **27.7.1** Backend: сайд-эффекты PATCH status (`completed_at`, нормализация `awaiting`) + гарантированные activity-строки для status/priority/assignee; API-тесты.
+- [ ] **27.7.2** Client: типы `updateTask` (status/priority/assignee_*); резолв имён assignee (список агентов + владелец из AuthContext).
+- [ ] **27.7.3** Frontend: контролы в `TaskViewBody` (общий компонент — работают и в модалке, и на `/tasks/:id`); vitest на селекты и PATCH-вызовы.
+- [ ] **27.7.4** E2E: открыть карточку → сменить priority/status/assignee → после reload сохранено; колонка на канбане при смене status НЕ двигается (оси разделены).
+
+**DoD:** все три поля меняются из карточки и переживают reload; assignee виден именем; ручной `done` ставит `completed_at` (отчёты/таймеры корректны); agent-flow (claim/submit/review) не сломан — его тесты зелёные.
+
+**За скобкой:** авто-синк колонка↔статус (отклонён 2026-08-13, причины выше), кастомные статусы, bulk-edit.
+
 ### Что НЕ входит в Phase 27
 
 - Multi-user / multi-device sync (Phase 11+).
