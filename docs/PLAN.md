@@ -584,9 +584,9 @@ make build
 - Бэкенд-работы не требуется — всё на существующих GET (`/api/v1/info`, `/api/v1/stats`).
 
 **Задачи:**
+- [x] **28.2.1** `web/src/features/settings/SettingsHome.tsx`: карточки-ссылки — Backups, Bots & notifications, Agents (`/agents`), Reports; блок About (version, uptime, db size из `/api/v1/info` + `/api/v1/stats`); пометка, что тема — в топбаре. Route `/settings` → компонент вместо `Placeholder`. Vitest: карточки ведут на правильные пути, About рендерит версию.
 
-- [ ] **28.2.1** `web/src/features/settings/SettingsHome.tsx`: карточки-ссылки — Backups, Bots & notifications, Agents (`/agents`), Reports; блок About (version, uptime, db size из `/api/v1/info` + `/api/v1/stats`); пометка, что тема — в топбаре. Route `/settings` → компонент вместо `Placeholder`. Vitest: карточки ведут на правильные пути, About рендерит версию.
-- [ ] **28.2.2** E2E: сайдбар ⚙ → `/settings` показывает hub → клик по Backups ведёт на `/settings/backups`.
+- [x] **28.2.2** E2E: сайдбар ⚙ → `/settings` показывает hub → клик по Backups ведёт на `/settings/backups`.
 
 **DoD:** `/settings` не пустая; Backups/Bots/Agents достижимы из индекса в один клик; vitest + E2E зелёные.
 
