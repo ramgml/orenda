@@ -1244,6 +1244,53 @@ paths:
       security: [{ bearerAuth-agent: [] }]
       responses: { '200': { description: ok } }
 
+  # Phase 27.11: agent-namespace comment. Mirrors the user-cookie
+  # /api/v1/tasks/{id}/comments POST but writes the comment as
+  # author_type=agent with the agent's id. Pre-27.11 the agent CLI
+  # posted to the user-cookie route which 401'd under RequireUser.
+  /api/v1/agent/tasks/{id}/comments:
+    post:
+      tags: [agent]
+      summary: Add a comment authored by the agent (author_type=agent).
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body_md]
+              properties:
+                body_md: { type: string }
+      responses:
+        '201': { description: created }
+        '401': { description: missing or invalid agent token }
+
+  # Phase 27.11: agent-namespace long-poll. Mirrors the user-cookie
+  # /api/v1/events/await POST but subscribes the WS hub under the
+  # agent's id (the user-side handler reads Identity.UserID, the
+  # agent handler reads Identity.AgentID). Pre-27.11 the agent CLI
+  # posted to the user-cookie route which 401'd under RequireUser.
+  /api/v1/agent/events/await:
+    post:
+      tags: [agent]
+      summary: Long-poll for the next event scoped to the agent's id.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                topic: { type: string }
+                user_id: { type: string, description: "Override the filter id (default = agent's id)." }
+                timeout_s: { type: integer, default: 30, maximum: 60 }
+      responses:
+        '200': { description: ok }
+        '204': { description: timeout }
+        '401': { description: missing or invalid agent token }
+
   /api/v1/agent/courses:
     get:
       tags: [agent, courses]

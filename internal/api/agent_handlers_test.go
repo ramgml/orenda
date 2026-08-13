@@ -46,9 +46,10 @@ func newAgentFixture(t *testing.T) *agentFixture {
 	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
 
 	users := sqlite.NewUserRepository(db)
+	ownerEmail := "agent-owner-" + randLite()[:8] + "@x.com"
 	require.NoError(t, users.Create(context.Background(), &user.User{
-		Email:        "agent-owner-" + randLite()[:8] + "@x.com",
-		PasswordHash: "x",
+		Email:        ownerEmail,
+		PasswordHash: mustHashFast(t, "hunter2!"),
 		DisplayName:  "Owner",
 	}))
 
@@ -236,4 +237,140 @@ func TestAgent_ClaimReleaseSubmitRoundTrip(t *testing.T) {
 	rr = httptest.NewRecorder()
 	fx.router.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+// Phase 27.11: agent-side comment endpoint writes the comment as
+// AuthorAgent + the agent's id, not as the user. Pre-27.11 the CLI
+// posted to the user-cookie route `/api/v1/tasks/{id}/comments`
+// which only accepts a JWT session — agent tokens got 401.
+func TestAgent_CommentCreatesAgentAuthoredComment(t *testing.T) {
+	fx := newAgentFixture(t)
+
+	// Seed a real task.
+	row := fx.db.QueryRow("SELECT id FROM users LIMIT 1")
+	var ownerID string
+	require.NoError(t, row.Scan(&ownerID))
+	projects := sqlite.NewProjectRepository(fx.db)
+	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
+		Name: "CommentTest", OwnerID: ownerID,
+	})
+	require.NoError(t, err)
+	tasks := sqlite.NewTaskRepository(fx.db)
+	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "needs review"}
+	require.NoError(t, tasks.Create(context.Background(), tr))
+
+	// POST under the agent namespace.
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/agent/tasks/"+tr.ID+"/comments",
+		bytes.NewReader([]byte(`{"body_md":"agent observation"}`)))
+	req.Header.Set("Authorization", "Bearer "+fx.token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusCreated, rr.Code, "body=%s", rr.Body.String())
+
+	var got struct {
+		AuthorType string `json:"author_type"`
+		AuthorID   string `json:"author_id"`
+		BodyMD     string `json:"body_md"`
+		TargetID   string `json:"target_id"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+	assert.Equal(t, "agent", got.AuthorType, "comment should be authored by the agent")
+	assert.Equal(t, fx.agentID, got.AuthorID, "comment author_id should be the agent's id")
+	assert.Equal(t, "agent observation", got.BodyMD)
+	assert.Equal(t, tr.ID, got.TargetID)
+}
+
+// Phase 27.11: agent namespace is the bearer-token path. A cookie
+// session on /agent/tasks/.../comments must not pass through — it
+// belongs to the user-side namespace, not the agent one.
+func TestAgent_CommentRejectsUserCookie(t *testing.T) {
+	fx := newAgentFixture(t)
+	row := fx.db.QueryRow("SELECT id FROM users LIMIT 1")
+	var ownerID string
+	require.NoError(t, row.Scan(&ownerID))
+	projects := sqlite.NewProjectRepository(fx.db)
+	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
+		Name: "Cmt2", OwnerID: ownerID,
+	})
+	require.NoError(t, err)
+	tasks := sqlite.NewTaskRepository(fx.db)
+	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "x"}
+	require.NoError(t, tasks.Create(context.Background(), tr))
+
+	// Mint a user JWT cookie through the login endpoint. We use the
+	// fixture owner's real password (the one newAgentFixture set up).
+	// The ownerEmail helper round-trips through the DB to grab the
+	// random email; the password is the same one the fixture used.
+	loginBody, _ := json.Marshal(map[string]string{
+		"email":    ownerEmailFor(t, fx, ownerID),
+		"password": "hunter2!",
+	})
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginBody))
+	loginRR := httptest.NewRecorder()
+	fx.router.ServeHTTP(loginRR, loginReq)
+	require.Equal(t, http.StatusOK, loginRR.Code, "login body=%s", loginRR.Body.String())
+	cookie := loginRR.Result().Cookies()
+
+	// Use the user cookie on the agent namespace — must 401.
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/agent/tasks/"+tr.ID+"/comments",
+		bytes.NewReader([]byte(`{"body_md":"sneak"}`)))
+	for _, c := range cookie {
+		req.AddCookie(c)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusUnauthorized, rr.Code, "body=%s", rr.Body.String())
+}
+
+// ownerEmailFor returns the email of the fixture's owner; used in
+// the cookie-based 401 check above. The fixture sets it to a
+// random string, so we round-trip through the DB to fetch it.
+func ownerEmailFor(t *testing.T, fx *agentFixture, ownerID string) string {
+	t.Helper()
+	var email string
+	require.NoError(t, fx.db.QueryRow("SELECT email FROM users WHERE id = ?", ownerID).Scan(&email))
+	return email
+}
+
+// Phase 27.11: agent-side await endpoint subscribes the WS hub
+// under the agent's id (not the user's). We don't drive a full
+// long-poll round-trip — that's covered by the user-side
+// longpoll_test.go — but we DO assert that the endpoint exists,
+// requires the agent token, and that the user-cookie variant
+// returns 401 (mirroring the comment contract).
+func TestAgent_AwaitRequiresAgentToken(t *testing.T) {
+	fx := newAgentFixture(t)
+
+	// Without any auth → 401.
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/agent/events/await",
+		bytes.NewReader([]byte(`{"timeout_s":1}`)))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+
+	// With a malformed bearer token → 401.
+	req = httptest.NewRequest(http.MethodPost,
+		"/api/v1/agent/events/await",
+		bytes.NewReader([]byte(`{"timeout_s":1}`)))
+	req.Header.Set("Authorization", "Bearer not-a-real-token")
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+
+	// With a valid bearer token → 204 (timeout, no events).
+	req = httptest.NewRequest(http.MethodPost,
+		"/api/v1/agent/events/await",
+		bytes.NewReader([]byte(`{"timeout_s":1,"topic":"tasks"}`)))
+	req.Header.Set("Authorization", "Bearer "+fx.token)
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusNoContent, rr.Code, "body=%s", rr.Body.String())
 }

@@ -441,14 +441,13 @@ func newAgentCommentCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Comments currently live under the user-side route.
-			// The agent-side mirror is a planned addition; for now
-			// we use the user-side endpoint with the bearer token
-			// (which is also valid because we set up the agent
-			// to fall through to the user-side middleware when
-			// the agent-side handler doesn't match).
+			// Phase 27.11: post to the agent-namespace alias
+			// `/api/v1/agent/tasks/{id}/comments` so the bearer
+			// token resolves through RequireAgent (the user-side
+			// route only accepts cookie/JWT sessions and would
+			// 401 otherwise).
 			raw, code, err := ctx.agentPost(cmd.Context(),
-				"/api/v1/tasks/"+args[0]+"/comments",
+				"/api/v1/agent/tasks/"+args[0]+"/comments",
 				map[string]any{"body_md": args[1]})
 			if err != nil {
 				return err
@@ -475,13 +474,17 @@ func newAgentAwaitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// POST /api/v1/events/await with an optional timeout.
-			// The endpoint accepts a JSON body {timeout_s, filter}.
+			// Phase 27.11: post to the agent-namespace alias
+			// `/api/v1/agent/events/await` so the bearer token
+			// resolves through RequireAgent. The handler reads
+			// Identity.AgentID and subscribes the hub under
+			// that id; user-side /events/await only accepts
+			// cookie/JWT and would 401 otherwise.
 			body := map[string]any{
 				"timeout_s": timeoutSecs,
 			}
 			raw, code, err := ctx.agentPost(cmd.Context(),
-				"/api/v1/events/await", body)
+				"/api/v1/agent/events/await", body)
 			if err != nil {
 				return err
 			}
