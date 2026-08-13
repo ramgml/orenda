@@ -19,10 +19,16 @@ func TestDefaultConfig(t *testing.T) {
 	assert.True(t, c.Storage.WALMode)
 	assert.Equal(t, 12, c.Auth.BcryptCost)
 	// Phase 28.4: OWASP-aligned default for cookie session TTL.
-	// Older 168h lives on in any token already issued; new logins
+	// Older 168h lives on any token already issued; new logins
 	// get this 24h window. The cookie's Expires in handlers_auth.go
 	// is derived from this same value (deps.JWTTTL).
 	assert.Equal(t, 24*time.Hour, c.Auth.JWTTTL)
+	// Phase 28.6: pprof is off by default — exposing heap /
+	// goroutine state on any reachable port is an information
+	// leak. Operators flip it on with `server.debug_pprof: true`
+	// in config.yaml or `ORENDA_SERVER__DEBUG_PPROF=true`.
+	assert.False(t, c.Server.DebugPProf, "pprof must be off by default")
+	assert.Equal(t, "127.0.0.1:6060", c.Server.PProfAddr, "pprof defaults to loopback-only")
 	assert.Equal(t, "info", c.Logging.Level)
 	require.NoError(t, c.Validate())
 }
@@ -104,6 +110,8 @@ func TestLoad_EnvOverridesYAML(t *testing.T) {
 	t.Setenv("ORENDA_STORAGE__WAL_MODE", "false")
 	t.Setenv("ORENDA_AUTH__JWT_TTL", "12h")
 	t.Setenv("ORENDA_AUTH__COOKIE_SECURE", "true")
+	t.Setenv("ORENDA_SERVER__DEBUG_PPROF", "true")
+	t.Setenv("ORENDA_SERVER__PPROF_ADDR", "127.0.0.1:6061")
 
 	c, err := Load(path)
 	require.NoError(t, err)
@@ -114,6 +122,9 @@ func TestLoad_EnvOverridesYAML(t *testing.T) {
 	// Phase 28.4: env wins over YAML wins over default.
 	assert.Equal(t, 12*time.Hour, c.Auth.JWTTTL)
 	assert.True(t, c.Auth.CookieSecure)
+	// Phase 28.6: pprof env override (bool + addr).
+	assert.True(t, c.Server.DebugPProf)
+	assert.Equal(t, "127.0.0.1:6061", c.Server.PProfAddr)
 }
 
 func TestLoad_EnvOnly_NoFile(t *testing.T) {

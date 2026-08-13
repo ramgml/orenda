@@ -28,7 +28,7 @@ LDFLAGS    := -ldflags "-s -w -X main.version=$(VERSION)"
 .PHONY: all dev build test lint clean migrate-up migrate-down \
         backup backup-push backup-snapshot backup-status \
         web-install web-dev web-build web-test test-e2e \
-        embed-dists run version help
+        embed-dists run version help govulncheck
 
 all: build
 
@@ -147,3 +147,22 @@ web-test:
 ## version: Print version
 version:
 	@echo $(VERSION)
+
+## govulncheck: Run Go's official vulnerability scanner against the
+## module's dependencies. Phase 28.6 (polish) — `lint` was previously
+## only ESLint + golangci-lint, neither of which cross-references the
+## Go vuln database. govulncheck pulls its own copy of the database
+## on each run (network access required) and exits non-zero on any
+## known CVE in the call graph — i.e. it does NOT flood you with
+## advisories for libraries you don't actually use.
+##
+## Installation is gated: govulncheck ships as `golang.org/x/vuln/cmd/govulncheck`.
+## If `which govulncheck` returns nothing, we install into the local
+## Go bin (GOBIN) and re-run. Subsequent invocations use the cached
+## binary.
+govulncheck:
+	@if ! command -v govulncheck >/dev/null 2>&1; then \
+		echo "installing govulncheck (first run only)..."; \
+		$(GO) install golang.org/x/vuln/cmd/govulncheck@latest; \
+	fi
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest ./...

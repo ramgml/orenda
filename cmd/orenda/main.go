@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	_ "net/http/pprof" // Phase 28.6: registers /debug/pprof/* on http.DefaultServeMux
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -926,6 +927,32 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// ctx.Done() and exits with the server.
 	go reminder.Run(ctx)
 
+	// Phase 28.6: opt-in pprof listener for live debugging. Off by
+	// default — pprof endpoints expose heap, goroutine, and CPU
+	// state that are an information leak on any reachable port.
+	// When enabled, a SECOND listener runs on cfg.Server.PProfAddr
+	// bound to http.DefaultServeMux (net/http/pprof registers itself
+	// there on import). Loopback-only by design — operators who
+	// want remote profiling should set up an ssh tunnel rather
+	// than bind 0.0.0.0.
+	var pprofSrv *http.Server
+	if cfg.Server.DebugPProf {
+		pprofSrv = &http.Server{
+			Addr:              cfg.Server.PProfAddr,
+			Handler:           http.DefaultServeMux,
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		go func() {
+			logger.Warn("pprof listening (debug only)",
+				zap.String("addr", cfg.Server.PProfAddr),
+				zap.String("hint", "stop with cfg.server.debug_pprof=false"),
+			)
+			if err := pprofSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Warn("pprof listener stopped", zap.Error(err))
+			}
+		}()
+	}
+
 	serverErr := make(chan error, 1)
 	go func() {
 		logger.Info("http listening", zap.String("addr", srv.Addr))
@@ -948,6 +975,15 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	defer shutdownCancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("graceful shutdown: %w", err)
+	}
+	// Phase 28.6: shut the pprof listener down too. We bound the
+	// shutdown to the same timeout — the pprof server is debug-only
+	// and a few in-flight profile requests can wait for the
+	// regular deadline.
+	if pprofSrv != nil {
+		if err := pprofSrv.Shutdown(shutdownCtx); err != nil {
+			logger.Warn("pprof shutdown", zap.Error(err))
+		}
 	}
 	// Phase 28.5: tell the bots to stop too. Without this, long-poll
 	// transports (Telegram) keep their goroutines alive past

@@ -49,6 +49,17 @@ type ServerConfig struct {
 	ReadTimeout     time.Duration `yaml:"read_timeout"`
 	WriteTimeout    time.Duration `yaml:"write_timeout"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
+
+	// Phase 28.6: opt-in pprof listener for live debugging. Off by
+	// default — the pprof endpoints expose memory and goroutine state
+	// that are an information leak on any reachable port. When on,
+	// a SECOND listener starts at PProfAddr (default 127.0.0.1:6060)
+	// bound to http.DefaultServeMux (net/http/pprof registers itself
+	// there on import). The listener is loopback-only by design; an
+	// operator who wants remote profiling should set up an ssh
+	// tunnel rather than bind 0.0.0.0.
+	DebugPProf bool   `yaml:"debug_pprof"`
+	PProfAddr  string `yaml:"pprof_addr"`
 }
 
 // StorageConfig controls the SQLite database.
@@ -123,6 +134,12 @@ func DefaultConfig() *Config {
 			ReadTimeout:     30 * time.Second,
 			WriteTimeout:    30 * time.Second,
 			ShutdownTimeout: 10 * time.Second,
+			// Phase 28.6: pprof off by default. Loopback-only
+			// address so a misconfigured operator can never
+			// accidentally expose the heap profile to the
+			// network.
+			DebugPProf: false,
+			PProfAddr:  "127.0.0.1:6060",
 		},
 		Storage: StorageConfig{
 			DataDir:       "data",
@@ -270,6 +287,12 @@ func overrideServer(c *ServerConfig, p []string, v string) {
 		if d, err := time.ParseDuration(v); err == nil {
 			c.ShutdownTimeout = d
 		}
+	case "debug_pprof":
+		if b, err := strconv.ParseBool(v); err == nil {
+			c.DebugPProf = b
+		}
+	case "pprof_addr":
+		c.PProfAddr = v
 	}
 }
 
