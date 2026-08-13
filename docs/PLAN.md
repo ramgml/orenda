@@ -1603,6 +1603,43 @@ make build
 
 **За скобкой:** UI управления набором статусов проекта (добавление/переименование статус-колонок с выбором machine key).
 
+### 27.9 — Known gaps: WS multi-topic fan-out, заголовки в отчётах, WS/activity для course-задач
+
+> **Аудит отложенных швов 2026-08-13** (по правилу «deferred seam записывается в PLAN.md»): полный проход по маркерам `TODO/FIXME/HACK`, `for now`, `Phase N will`, `not yet`, `placeholder`, `stub`, `later`, `future`, `no-op`, skip-тесты в `internal/`, `cmd/`, `web/`. Классические TODO/FIXME в коде отсутствуют — дисциплина маркеров чистая. Проблема в другом классе: комментарии-обещания «Phase N will add…» молча устаревают. Найдено 3 реальных дефекта, 3 задокументированных обхода (остаются), пачка устаревших комментариев.
+
+**Дефекты (закрываются в этой фазе):**
+
+1. **WS multi-topic fan-out мёртв.** `ws/client.go:82` подписывает каждое браузерное соединение только на топик `tasks`; `readPump` дропает клиентские сообщения. Хаб публикует 8 топиков (`tasks`, `agents`, `attachments`, `comments`, `events`, `notifications`, `timers`, `wiki`), фронт подписан на 5 — но к клиентам доходит только `tasks`. Следствие: live-обновления колокольчика (`notifications`), календаря (`events`), wiki (`wiki`), таймера (`timers`) молча не работают; 27.2 чинила подключение, но E2E проверял только `tasks`. Фикс: сервер подписывает соединение на полный набор топиков (единая константа); per-project подписки не нужны — single-owner.
+2. **Отчёты без заголовков задач.** `timeentry.Report` никогда не заполняет `AggregateReportTask.Title` (комментарий «Phase 5 adds it via the task repo» не приземлился); `ReportsPage` рисует фоллбэк `task_id[:8]…`. Фикс: batch-lookup заголовков по собранным task ids (один запрос, без N+1).
+3. **Course-задачи без WS/activity.** `courseTaskCreatorAdapter` (`main.go:288+`) пишет generator/review задачи напрямую в repo — «intentionally not wired». Следствие: review-задача от open-quiz не зажигает бейдж/очередь до ручного рефетча; activity пусто. Фикс: публиковать `task.created` + писать activity при создании обеих задач (через существующие Hub/Recorder, без дублирования createTask handler).
+
+**Задокументированные обходы (остаются; статус зафиксирован здесь):**
+
+- `PUT /api/v1/backups/settings` → 501 («config.yaml is the source of truth», Phase 9 `backup_settings` table) — часть отложенной фазы «Полировка»; UI вызывает только GET.
+- `handlers_today.go:154`: active-timer probing по owner-id («Phase 9 will wire a proper owner→agent map») — корректно для single-owner; пересмотреть при multi-user.
+- `event.go:375`: конвертация событие→задача патчит колонку через `Tasks.Update` — пересмотреть в 27.8 (инвариант колонка↔статус).
+
+**Comment-debt (устаревшие комментарии; чистятся отдельным коммитом в этой фазе):**
+
+- `main.go:563` «agent service … not yet exposed via handlers (3.11)» — handlers существуют (`/api/v1/agents`).
+- `notifier.go:6` «console for now» — Telegram/VK боты существуют.
+- `bot/bot.go:3` «Phase 10 adds VK, Telegram…» — Telegram shipped (22.3).
+- `handlers_dependencies.go:83` «Phase 17+ will let the UI badge use this» — Phase 17 shipped (бейдж на counters, `BlockedByList` зовёт endpoint).
+- `domain/timeentry/model.go:60` — placeholder-импорт `var _ = task.StatusTodo`.
+- `ws/client.go:81` «Phase 3 will add per-project subscriptions» — закрывается пунктом 1.
+- Преамбулы «Phase 1/2 will…» (`project/model.go:55,88`, `project/repository.go:8`, `task/repository.go:37`) — исторические, низкий приоритет.
+
+**Задачи:**
+
+- [ ] **27.9.1** WS: fan-out полного набора топиков в `ws/client.go` (константа списка); E2E — событие `notifications`/`timers` доходит до страницы без reload.
+- [ ] **27.9.2** Report titles: batch-lookup в `Report`; API-тест (две записи на двух задачах → оба заголовка); vitest — фоллбэк на id для удалённой задачи.
+- [ ] **27.9.3** Course adapter: WS `task.created` + activity-строка при создании generator/review задач; тест адаптера.
+- [ ] **27.9.4** Comment-debt cleanup по списку выше (только комментарии + placeholder-импорт).
+
+**DoD:** колокольчик/календарь/wiki/таймер обновляются live (E2E на не-`tasks` топик); `/reports` показывает заголовки; review-задача из quiz зажигает бейдж без reload; устаревшие комментарии вычищены; `make test && make lint` зелёные.
+
+**За скобкой:** backup_settings write path (фаза «Полировка»), owner→agent map (multi-user), per-project WS subscriptions (нужны только с multi-user/ACL — fan-out всех топиков при single-owner достаточен).
+
 ### Что НЕ входит в Phase 27
 
 - Multi-user / multi-device sync (Phase 11+).
