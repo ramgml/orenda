@@ -71,7 +71,7 @@ orenda agent me           # confirm the token works
 orenda agent next          # await + claim a task in one shot
 orenda agent claim <id>    # claim a specific task by id
 orenda agent context <id>  # read the full task snapshot
-orenda agent comment <id> "...markdown..."   # ⚠ see known issue below
+orenda agent comment <id> "...markdown..."   # leave a comment as the agent
 orenda agent submit <id>   # mark ready for human review
 orenda agent release <id>  # give up a claim
 orenda agent await         # long-poll for the next event
@@ -79,11 +79,11 @@ orenda agent await         # long-poll for the next event
 
 Flags → env → config file. Use `-json` for scripts.
 
-> ⚠ **Known issue (Phase 27.11):** `orenda agent comment` and `orenda agent
-> await` currently hit user-only routes (`POST /tasks/{id}/comments` and
-> `POST /events/await` live under cookie auth), so an agent token gets 401.
-> Agent-namespace aliases are being added. Claim/submit/context/next are
-> unaffected.
+`comment` posts to `/api/v1/agent/tasks/{id}/comments`; `await` posts to
+`/api/v1/agent/events/await`. Both routes require the bearer token
+and write the comment / subscribe the hub under the agent's id
+(not the owner's), so the human sees `agent` as the author and
+events scoped to this agent only.
 
 ---
 
@@ -244,7 +244,8 @@ orenda_submit / orenda_context / orenda_await
 | POST | `/api/v1/agent/lessons/{id}/materialize` | Phase 27.4: tutor writes lesson content (`content_md`, optional `task_id`); lesson flips locked → open. |
 | PUT | `/api/v1/agent/lessons/{id}/content` | Phase 27.4: in-place content update (same handler). |
 | POST | `/api/v1/agent/lessons/{id}/quizzes` | Phase 27.6 (closes Phase 18.6): append a single quiz to an existing lesson without re-submitting the whole curriculum. |
-| POST | `/api/v1/events/await` | Long-poll for events (timeout ≤ 60s). ⚠ Currently user-auth only — see the known issue in §2.2. |
+| POST | `/api/v1/agent/tasks/{id}/comments` | Add a comment authored by the agent (Phase 27.11). |
+| POST | `/api/v1/agent/events/await` | Long-poll for events scoped to the agent's id (Phase 27.11; timeout ≤ 60s). |
 
 ### 6.2 Common task fields
 

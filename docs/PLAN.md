@@ -1693,18 +1693,29 @@ make build
 ### 27.11 — Дефекты из аудита документации: agent comment/await 401, openapi coverage
 
 > **Найдено аудитом консистентности документации 2026-08-13** (скауты по связке docs↔code). Документная сторона исправлена в том же заходе; здесь — код-дефекты.
+>
+> **✅ Закрыто 2026-08-13** в worktree `phase-27-11-agent-comment-await`.
 
 **Контекст (evidence):**
 
 - **Agent comment/await → 401.** `orenda agent comment` шлёт `POST /api/v1/tasks/{id}/comments` с agent-токеном, `orenda agent await` — `POST /api/v1/events/await` (`cmd/orenda/agent.go:449,491`); оба роута под `RequireUser`, который принимает только cookie/Bearer JWT, не opaque API-токены → 401. SKILL.md документирует оба workflow как рабочие (сейчас помечены known-issue).
 - **OpenAPI route-coverage не exhaustive.** `TestOpenAPI_RouteCoverage` ходит по fixture-роутеру (`columnDeps`), который монтирует лишь user-side task/project роуты: agent/backup/wiki/calendar/maintenance не покрыты. Комментарий ссылается на `TestOpenAPI_RouteCoverage_FullRouter` под `-tags=integration` — такого теста не существует. Побочка: embedded-копия спеки протухла незамеченной (не хватало блоков 22.3/27.4) — синхронизирована с `docs/openapi.yaml` 2026-08-13.
 
-**Задачи:**
+**Задачи (выполнены):**
 
-- [ ] **27.11.1** Agent-namespace aliases: `POST /api/v1/agent/tasks/{id}/comments` (author=agent) и `POST /api/v1/agent/events/await` (long-poll с agent-identity; решить фильтр подписки в hub). CLI `comment`/`await` перевести на них. Тесты: agent-токен → 200, cookie → 401 на agent-namespace (изоляция в обе стороны). После merge — снять пометки known-issue в SKILL.md.
-- [ ] **27.11.2** Coverage-тест против полного роутера (все namespaces, deps со стабами): каждый продакшн-роут есть в спеке, каждая спека — в роутере. Убрать или реализовать упомянутый `FullRouter`.
+- [x] **27.11.1** Agent-namespace aliases: `POST /api/v1/agent/tasks/{id}/comments` (author=agent, `Identity.AgentID`) и `POST /api/v1/agent/events/await` (long-poll подписывается под agent's id в WS hub; hub фильтрует по `user_id == agentID`). CLI `comment`/`await` переведены на них (cmd/orenda/agent.go). Тесты:
+  - `TestAgent_CommentCreatesAgentAuthoredComment` — agent-токен → 201, `author_type=agent`, `author_id=agentID`.
+  - `TestAgent_CommentRejectsUserCookie` — user-cookie на agent-namespace → 401.
+  - `TestAgent_AwaitRequiresAgentToken` — без токена / bad token → 401, valid token → 204 timeout.
 
-**DoD:** `orenda agent comment` и `orenda agent await` работают по SKILL.md; coverage-тест падает при добавлении роута без спеки (проверено инверсией); `make test` зелёный.
+- [x] **27.11.2** Coverage-тест против полного роутера: `fullRouterDeps` фикстура подключает все deps (users/projects/tasks/tokens/agents/comments/activities/event/time/wiki/search/notifier/courses + WS hub) → `TestOpenAPI_RouteCoverage_FullRouter` walks every (method, path) через chi.Walk и ассертит наличие в `docs/openapi.yaml` + embedded copy. Сразу поймал два пропущенных routes — добавлены в обе спеки.
+
+**DoD — verified 2026-08-13:**
+
+- ✅ `orenda agent comment` и `orenda agent await` работают по SKILL.md (CLI переведён на agent-namespace endpoints).
+- ✅ Coverage-тест против полного роутера ловит пропущенные routes (проверено инверсией: добавил `/api/v1/agent/events/await` без спеки — тест красный; добавил в спеку — зелёный).
+- ✅ SKILL.md known-issue сняты; `comment`/`await` помечены как bearer-token endpoints с явным указанием, что фильтр идёт по `agent_id`.
+- ✅ `make test` Go — все пакеты ok; vitest 220/220; `make test-e2e` 13/13; TypeScript clean.
 
 ### Что НЕ входит в Phase 27
 

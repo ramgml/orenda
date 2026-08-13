@@ -506,8 +506,21 @@ func NewRouter(deps Dependencies) http.Handler {
 						r.Post("/release", agentReleaseTaskHandler(deps))
 						r.Post("/submit", agentSubmitTaskHandler(deps))
 						r.Get("/context", agentTaskContextHandler(deps))
+						// Phase 27.11: agent-author comments. Pre-27.11
+						// the agent CLI posted to the user-cookie
+						// route `/api/v1/tasks/{id}/comments` which
+						// 401'd under RequireUser. Mirrors the user
+						// handler but writes AuthorAgent + uses
+						// Identity.AgentID as the author id.
+						r.Post("/comments", agentCreateTaskCommentHandler(deps))
 					})
 				})
+				// Phase 27.11: agent-namespace long-poll. The user-side
+				// /events/await is gated by RequireUser (cookie/JWT),
+				// so the agent CLI got 401 there. Mounted here under
+				// RequireAgent so a bearer token resolves through to
+				// the WS hub and the agent id is the filter key.
+				r.Post("/agent/events/await", agentAwaitHandler(deps))
 				// Phase 18: courses for the tutor agent.
 				r.Route("/agent/courses", func(r chi.Router) {
 					r.Get("/", listCoursesHandlerAgent(deps))
