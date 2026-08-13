@@ -1664,23 +1664,31 @@ make build
 ### 27.10 — Цвет колонки: инициализация модалки, рендер на доске, WS-событие
 
 > **Дефект зафиксирован 2026-08-13 (владелец):** «выбор цвета в настройках колонки ни на что не сохраняется». Расследование: бэкенд сохраняет корректно (в живой БД колонка `done` имеет `#1463d2` — реальное сохранённое значение); фронт сломан в трёх местах + нет WS-события.
+>
+> **✅ Закрыто 2026-08-13** в worktree `phase-27-10-column-color`.
 
 **Контекст (проверено по коду 2026-08-13):**
 
 - Backend OK: `patchColumnHandler` применяет `color`, `projectRepo.UpdateColumn` пишет его в SQL; API-тест `TestPatchColumn_RenameAndRecolor` зелёный.
-- **Фронт не рендерит цвет колонки вообще:** `ColumnView` не получает `color` (пропа нет), в шапке нет dot/stripe — сохранённый цвет невидим.
-- **`EditColumnModal` инициализирует цвет хардкодом `#94a3b8`** (`initialColor` не передаётся) → повторное открытие показывает slate вместо сохранённого — выглядит как «не сохранилось».
-- **Тихое затирание:** submit всегда шлёт `color` → переименование колонки после выбора цвета сбрасывает его на slate. (У `wip` та же пустая инициализация, но `null` = «не трогать» — не затирает.)
-- **Нет WS-события:** `patchColumnHandler` не публикует `column.updated` (created/deleted публикуют) — другие вкладки увидят правку только после рефетча.
+- ~~Фронт не рендерит цвет колонки вообще~~ → **ColumnView рендерит цвет как `data-testid="column-color-dot"` слева от имени** (slate-фоллбэк `#94a3b8` если пусто).
+- ~~`EditColumnModal` инициализирует цвет хардкодом `#94a3b8`~~ → **useState теперь инициализируется из `initialColor ?? '#94a3b8'`** + useState wip из `initialWipLimit`.
+- ~~Тихое затирание~~ → **submit шлёт `color` только если он отличается от `initialColor`**. Rename через модалку больше не затирает цвет.
+- ~~Нет WS-события~~ → **`patchColumnHandler` публикует `column.updated` на топик `tasks`** (parity с created/deleted) — другие вкладки получают обновление без reload.
 
-**Задачи:**
+**Задачи (все выполнены):**
 
-- [ ] **27.10.1** Frontend: `EditColumnModal` получает `initialColor`/`initialWipLimit` (или весь `column`), состояние инициализируется из них; `ColumnView`/`KanbanBoard` пробрасывают значения. Rename больше не затирает цвет.
-- [ ] **27.10.2** Frontend: рендер цвета в шапке колонки (dot слева от имени, не конфликтует с wip-бейджем). Vitest: цвет из пропсов виден; модалка открывается с сохранённым значением; rename шлёт PATCH с исходным цветом.
-- [ ] **27.10.3** Backend: WS-публикация `column.updated` в `patchColumnHandler` (parity с created/deleted); API-тест.
-- [ ] **27.10.4** E2E: выбрать цвет → dot виден на доске; переоткрыть модалку → значение сохранённое; переименовать → цвет на месте; reload → цвет на месте.
+- [x] **27.10.1** Frontend: `ColumnView` получил пропсы `color?` и `wipLimit?`; `EditColumnModal` получил `initialColor`/`initialWipLimit`; state инициализируется из них; `SortableColumnView` пробрасывает `column.color` / `column.wip_limit`. Rename отправляет PATCH без `color` если не меняли.
+- [x] **27.10.2** Frontend: dot слева от имени через inline `backgroundColor` + `data-column-color` для тестов. Vitest `ColumnView.test.tsx` (5 тестов): dot рендерит сохранённый цвет + slate fallback; модалка открывается с initialColor/initialWipLimit; PATCH для rename не содержит `color`; PATCH для смены цвета содержит.
+- [x] **27.10.3** Backend: WS-публикация `column.updated` в `patchColumnHandler` (parity с created/deleted). Тест `TestPatchColumn_BroadcastsColumnUpdated` — subscribe до PATCH, проверка `column.updated` события с обновлённой `Column`.
+- [x] **27.10.4** E2E `kanban.spec.ts` (Phase 27.10): dot виден на доске (rgb тупл соответствует hex); после rename цвет сохраняется (data-column-color атрибут + CSS rgb); новая колонка читает сохранённый цвет после reload.
 
-**DoD:** цвет колонки виден на доске и переживает reopen/reload/rename; вторая вкладка узнаёт через WS; `make test` + vitest + E2E зелёные.
+**DoD — verified 2026-08-13:**
+- ✅ Цвет виден на доске через dot (`data-testid="column-color-dot"`)
+- ✅ Цвет сохраняется через rename + reload (E2E + vitest)
+- ✅ Reopen модалки показывает сохранённый цвет (vitest)
+- ✅ Backend WS-broadcast `column.updated` (TestPatchColumn_BroadcastsColumnUpdated)
+- ✅ `make test` Go — все пакеты ok; vitest 220/220; `make test-e2e` 13/13
+- ✅ TypeScript clean
 
 ### 27.11 — Дефекты из аудита документации: agent comment/await 401, openapi coverage
 

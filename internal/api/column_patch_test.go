@@ -193,3 +193,88 @@ func TestPatchColumn_NegativeWIPRejected(t *testing.T) {
 	rr := patchColumn(f.router, f.cookie, f.cols[1].ID, map[string]any{"wip_limit": &neg})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
+
+// 8) Phase 27.10: PATCH broadcasts column.updated on the "tasks" topic
+// so a second tab refetches the board and renders the new colour
+// without a manual reload. Pre-27.10 the broadcast was missing —
+// rename/refetch worked, colour/rename-in-place did not propagate.
+//
+// We build the router by hand here (rather than reusing columnDeps)
+// because the fixtures don't expose the hub — we need to subscribe
+// to it before the PATCH to assert the broadcast lands.
+func TestPatchColumn_BroadcastsColumnUpdated(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/col2.db"), sqlite.OpenConfig{
+		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+
+	users := sqlite.NewUserRepository(db)
+	u := &user.User{Email: "col2@x.com", PasswordHash: mustHashFast(t, "hunter2!"), DisplayName: "C2"}
+	require.NoError(t, users.Create(context.Background(), u))
+
+	hub := ws.NewHub()
+	t.Cleanup(func() { hub.Close() })
+	repo := sqlite.NewTaskRepository(db)
+	projRepo := sqlite.NewProjectRepository(db)
+	taskSvc := taskservice.New(repo, sqlite.NewTaskLockRepository(db), nil, nil, hub)
+
+	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
+	deps2 := api.Dependencies{
+		Logger:      zap.NewNop(),
+		Signer:      signer,
+		Users:       users,
+		Projects:    projRepo,
+		Tasks:       repo,
+		Tokens:      sqlite.NewAPITokenRepository(db),
+		TaskService: taskSvc,
+		WSHub:       hub,
+		CookieName:  "orenda_session",
+	}
+	router := api.NewRouter(deps2)
+
+	body, _ := json.Marshal(map[string]string{"email": "col2@x.com", "password": "hunter2!"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
+	cookie := rr.Result().Cookies()[0].Value
+
+	p, _, _, err := projRepo.CreateProject(context.Background(), &project.Project{
+		Name: "Demo2", OwnerID: u.ID, Color: "#3b82f6",
+	})
+	require.NoError(t, err)
+	_, cols, err := projRepo.GetBoard(context.Background(), p.ID)
+	require.NoError(t, err)
+
+	// Subscribe before the PATCH — the fan-out goroutine runs
+	// during the handler call.
+	events, unsub := hub.Subscribe(u.ID, "tasks")
+	defer unsub()
+
+	// Patch the column: rename + recolor.
+	raw, _ := json.Marshal(map[string]any{"name": "Doing", "color": "#22c55e"})
+	patchReq := httptest.NewRequest(http.MethodPatch, "/api/v1/columns/"+cols[1].ID, bytes.NewReader(raw))
+	patchReq.Header.Set("Cookie", "orenda_session="+cookie)
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchRR := httptest.NewRecorder()
+	router.ServeHTTP(patchRR, patchReq)
+	require.Equal(t, http.StatusOK, patchRR.Code)
+
+	// The WS event must arrive within a short timeout (the hub is
+	// in-process, no race).
+	select {
+	case ev := <-events:
+		body, ok := ev.Body.(map[string]any)
+		require.True(t, ok, "WS event body should be a map")
+		assert.Equal(t, "column.updated", body["type"], "expected column.updated event, got %#v", body["type"])
+		col, ok := body["column"].(*project.Column)
+		require.True(t, ok, "column payload should be *project.Column")
+		assert.Equal(t, "Doing", col.Name)
+		assert.Equal(t, "#22c55e", col.Color)
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not receive column.updated WS event within 2s")
+	}
+}

@@ -114,4 +114,85 @@ test.describe('Kanban', () => {
 
     await ctx.dispose()
   })
+
+  // Phase 27.10: column colour survives a round-trip through
+  // the EditColumnModal. Pre-27.10 the modal hardcoded '#94a3b8',
+  // so any Save action (even just renaming the column) clobbered
+  // the saved colour with the slate default. The dot in the
+  // column header is the visible contract; the dot's
+  // data-column-color attribute reflects the saved value.
+  test('Phase 27.10: column colour persists across rename + reload', async ({
+    page,
+  }) => {
+    const ctx = await loginAsUser()
+    const project = await createProject(ctx)
+    const cols = await listColumns(ctx, project.id)
+    const target = cols[1] // pick any non-default column
+
+    // Sign in and open the project board.
+    await page.goto('/login')
+    await page.getByLabel('Email').fill('e2e@orenda.local')
+    await page.getByLabel('Password').fill(E2E_PASSWORD)
+    await page.getByRole('button', { name: /sign in/i }).click()
+    await page.waitForURL((u) => u.pathname === '/')
+    await page.goto(`/projects/${project.id}`)
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByText('Loading…')).toHaveCount(0, { timeout: 10_000 })
+
+    // Phase 27.10 contract 1: the dot in the column header
+    // reflects whatever the server returned. The seeded columns
+    // have no colour, so the dot is the slate fallback
+    // (data-column-color="" → style rgb(148, 163, 184)).
+    const dot = page.getByTestId('column-color-dot').nth(1)
+    await expect(dot).toHaveAttribute('data-column-color', '')
+
+    // Phase 27.10 contract 2: pick a colour through the EditColumnModal.
+    // We can't drive the colour picker reliably in headless Chromium,
+    // so we seed the colour via the API and assert the dot reflects it
+    // after reload. (The modal pipeline is covered by the vitest
+    // suite — ColumnView.test.tsx asserts on the React state.)
+    const newColour = '#22c55e'
+    const patchResp = await ctx.patch(`/api/v1/columns/${target.id}`, {
+      data: { color: newColour },
+    })
+    expect(patchResp.status()).toBe(200)
+
+    await page.reload()
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByText('Loading…')).toHaveCount(0, { timeout: 10_000 })
+
+    const recoloured = page.getByTestId('column-color-dot').nth(1)
+    await expect(recoloured).toHaveAttribute('data-column-color', newColour)
+    // The dot's background is set via inline style; verify the rgb
+    // tuple matches the chosen hex.
+    await expect(recoloured).toHaveCSS('background-color', 'rgb(34, 197, 94)')
+
+    // Phase 27.10 contract 3: rename must NOT wipe the colour. The
+    // bug was that the EditColumnModal posted `color` on every save
+    // (because state initialised to '#94a3b8'), clobbering the
+    // saved value. The fix posts `color` only when the picker was
+    // actually touched.
+    //
+    // We simulate "user opened the modal, typed a new name, hit Save
+    // without touching the colour picker" by PATCHing only the
+    // name (no `color` field). The server's PATCH semantics ignore
+    // missing fields, so the colour survives.
+    const renameResp = await ctx.patch(`/api/v1/columns/${target.id}`, {
+      data: { name: 'In progress renamed' },
+    })
+    expect(renameResp.status()).toBe(200)
+
+    await page.reload()
+    await page.waitForLoadState('networkidle')
+    await expect(page.getByText('Loading…')).toHaveCount(0, { timeout: 10_000 })
+
+    // The renamed header is visible…
+    await expect(page.getByText('In progress renamed')).toBeVisible()
+    // …and the dot still carries the colour.
+    const stillRecoloured = page.getByTestId('column-color-dot').nth(1)
+    await expect(stillRecoloured).toHaveAttribute('data-column-color', newColour)
+    await expect(stillRecoloured).toHaveCSS('background-color', 'rgb(34, 197, 94)')
+
+    await ctx.dispose()
+  })
 })
