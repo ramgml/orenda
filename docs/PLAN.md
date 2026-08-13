@@ -680,6 +680,38 @@ make build
 - ✅ `npx vitest run` — 236/236 (фронт не тронут).
 - ✅ `make test-e2e` — 18/18 (+1 task-activity.spec.ts).
 - ✅ `npx tsc --noEmit` — clean.
+
+## Phase 28.6 (полировка) — opt-in pprof listener + govulncheck target *(2026-08-13)*
+
+**Цель:** закрыть два small infra-долга из «Полировки»: pprof endpoint под флагом и govulncheck target.
+
+**Контекст (проверено 2026-08-13):**
+
+- pprof полностью отсутствует. Нет ни endpoint, ни флага, ни упоминания в Makefile.
+- `make lint` гоняет `golangci-lint` + `eslint`. Ни один из них не проверяет Go vulnerability database. Раньше упоминалось «govulncheck target в Makefile».
+
+**Ключевые решения:**
+
+- **Отдельный listener для pprof**, не монтирование в основной mux. `net/http/pprof` экспортирует хендлеры в `http.DefaultServeMux`. Сторонний `http.Server{Addr: 127.0.0.1:6060, Handler: http.DefaultServeMux}` запускается параллельно, если `cfg.Server.DebugPProf=true`. Loopback-only by design — оператор, желающий remote profiling, делает ssh tunnel.
+- **Off by default.** Default `DebugPProf=false`. Поднять — `ORENDA_SERVER__DEBUG_PPROF=true` либо `server.debug_pprof: true` в yaml.
+- **Graceful shutdown под тот же timeout.** `pprofSrv.Shutdown(shutdownCtx)` рядом с `srv.Shutdown(shutdownCtx)`.
+- **govulncheck install-gate.** Если `which govulncheck` пусто, ставим через `go install golang.org/x/vuln/cmd/govulncheck@latest` в `GOBIN`. Иначе запускаем через `go run @latest` — кэшируется Go build cache, следующие запуски быстрые.
+- **govulncheck ругается на CVE в stdlib 1.26.4** (GO-2026-5856 Encrypted Client Hello privacy leak) — это **не моя проблема**, фиксится апгрейдом Go. Target работает как надо (exit 3 = найдена CVE).
+
+**Задачи:**
+
+- [x] **28.6.1** `internal/config/config.go` — `ServerConfig.DebugPProf bool` (default false), `ServerConfig.PProfAddr string` (default `127.0.0.1:6060`); env overrides `ORENDA_SERVER__DEBUG_PPROF` / `ORENDA_SERVER__PPROF_ADDR`.
+- [x] **28.6.2** `cmd/orenda/main.go` — `_ "net/http/pprof"` import (side-effect registration на DefaultServeMux); если `cfg.Server.DebugPProf`, запустить второй `http.Server` в goroutine; на shutdown `pprofSrv.Shutdown(shutdownCtx)`.
+- [x] **28.6.3** `internal/config/config_test.go` — `TestDefaultConfig` asserts `DebugPProf=false` и `PProfAddr="127.0.0.1:6060"`; `TestLoad_EnvOverridesYAML` расширен env-ами `DEBUG_PPROF` / `PPROF_ADDR`.
+- [x] **28.6.4** `Makefile` — target `govulncheck` с install-gate.
+
+**DoD — verified 2026-08-13:**
+
+- ✅ `go test ./...` — 30 packages ok (config +2 assertion).
+- ✅ `npx vitest run` — 236/236 (фронт не тронут).
+- ✅ `npx tsc --noEmit` — clean.
+- ✅ Manual smoke: `ORENDA_SERVER__DEBUG_PPROF=true bin/orenda serve` → лог `pprof listening (debug only)` + `/debug/pprof/heap` 200; без флага порт 6060 closed, лог pprof не упоминается.
+- ✅ `make govulncheck` — target install'ит tool, скан нашёл GO-2026-5856 в stdlib 1.26.4, exit 3 (правильное поведение).
 - ✅ Manual: `cmd/orenda/main.go:946` shutdown loop теперь вызывает `b.Stop(shutdownCtx)` для всех зарегистрированных ботов.
 
 ### Tasks
