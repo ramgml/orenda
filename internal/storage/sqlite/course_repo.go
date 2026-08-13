@@ -330,6 +330,27 @@ func (r *courseRepo) CreateQuiz(ctx context.Context, q *course.Quiz) error {
 	if q.ID == "" {
 		q.ID = newUUID()
 	}
+	// Position 0 means "append at the end" — the repo picks the
+	// next slot atomically via a sub-query and writes it back
+	// into q so the caller knows where the quiz landed. Phase 27.6
+	// is what makes the UI's "add another question" affordance
+	// work without the client having to know the current count.
+	if q.Position <= 0 {
+		var newPos int
+		err := r.db.QueryRowContext(ctx,
+			`INSERT INTO course_quizzes (id, lesson_id, position, question_md, expected_md, kind)
+			 VALUES (?, ?,
+			   COALESCE((SELECT MAX(position)+1 FROM course_quizzes WHERE lesson_id = ?), 1),
+			   ?, ?, ?)
+			 RETURNING position`,
+			q.ID, q.LessonID, q.LessonID, q.QuestionMD, q.ExpectedMD, string(q.Kind),
+		).Scan(&newPos)
+		if err != nil {
+			return fmt.Errorf("course.CreateQuiz: %w", err)
+		}
+		q.Position = newPos
+		return nil
+	}
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO course_quizzes (id, lesson_id, position, question_md, expected_md, kind)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
@@ -383,14 +404,21 @@ func (r *courseRepo) Progress(ctx context.Context, courseID string) (course.Prog
 	return p, nil
 }
 
-// SubmitCurriculum replaces the modules + lessons for the course
-// atomically. Quizzes are not replaced within this call — we'd
-// accept the curriculum first, then the tutor fills in quizzes.
+// SubmitCurriculum replaces the modules + lessons + quizzes for the
+// course atomically. Quizzes are matched to lessons via LessonID;
+// the service fills that in from the parent module during the
+// request decode so the payload is one flat list.
+//
+// Phase 27.6: previously quizzes were a follow-up step the tutor
+// did after approval. They're now part of the swap, which means
+// the owner can ship a fully-formed program in one request and
+// the tutor's job collapses to "approve or send back".
 func (r *courseRepo) SubmitCurriculum(
 	ctx context.Context,
 	courseID string,
 	modules []*course.Module,
 	lessons []*course.Lesson,
+	quizzes []*course.Quiz,
 ) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -408,15 +436,20 @@ func (r *courseRepo) SubmitCurriculum(
 		return err
 	}
 
-	// Wipe existing modules + lessons (cascade kills lessons).
+	// Wipe existing modules + lessons + quizzes (the cascade on
+	// modules drops lessons, the cascade on lessons drops quizzes;
+	// explicit delete for quizzes keeps it independent of the
+	// schema's exact cascade direction).
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM course_modules WHERE course_id = ?`, courseID); err != nil {
 		return fmt.Errorf("course.SubmitCurriculum: clear: %w", err)
 	}
+	moduleIDs := make(map[string]struct{}, len(modules))
 	for _, m := range modules {
 		if m.ID == "" {
 			m.ID = newUUID()
 		}
+		moduleIDs[m.ID] = struct{}{}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO course_modules (id, course_id, title, description, position)
 			 VALUES (?, ?, ?, ?, ?)`,
@@ -441,5 +474,37 @@ func (r *courseRepo) SubmitCurriculum(
 			}
 		}
 	}
+	// Insert quizzes in the same tx. Each quiz's LessonID is
+	// expected to match a lesson that was just inserted; we
+	// silently skip ones that don't (defence-in-depth against
+	// hand-crafted payloads). When the caller passes an empty ID
+	// we mint one.
+	for _, q := range quizzes {
+		if _, ok := moduleIDs[lessonModuleID(lessons, q.LessonID)]; !ok {
+			continue
+		}
+		if q.ID == "" {
+			q.ID = newUUID()
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO course_quizzes (id, lesson_id, position, question_md, expected_md, kind)
+			 VALUES (?, ?, ?, ?, ?, ?)`,
+			q.ID, q.LessonID, q.Position, q.QuestionMD, q.ExpectedMD, string(q.Kind),
+		); err != nil {
+			return fmt.Errorf("course.SubmitCurriculum: quiz: %w", err)
+		}
+	}
 	return tx.Commit()
+}
+
+// lessonModuleID returns the module_id of the lesson with the given
+// id, or "" if not found. SubmitCurriculum uses this to filter
+// quizzes to lessons that are actually part of the new curriculum.
+func lessonModuleID(lessons []*course.Lesson, lessonID string) string {
+	for _, l := range lessons {
+		if l.ID == lessonID {
+			return l.ModuleID
+		}
+	}
+	return ""
 }

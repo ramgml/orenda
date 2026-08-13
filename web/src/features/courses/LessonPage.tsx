@@ -45,12 +45,20 @@ export function LessonPage(): JSX.Element {
   const [results, setResults] = useState<
     Record<string, { correct: boolean; feedback_md?: string; review_task_id?: string }>
   >({})
+  // Phase 27.6: owner-edit affordance for active-course lessons.
+  // We don't fetch /courses/{id} a second time — the tree endpoint
+  // is the source of truth and we already pulled the course status
+  // from it.
+  const [editingContent, setEditingContent] = useState(false)
+  const [draftContent, setDraftContent] = useState('')
+  const [savingContent, setSavingContent] = useState(false)
 
   const load = useCallback(async () => {
     if (!id) return
     try {
       const r = await loadLesson(id)
       setData(r)
+      setDraftContent(r.lesson.content_md ?? '')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -97,6 +105,20 @@ export function LessonPage(): JSX.Element {
     }
   }
 
+  async function onSaveContent(): Promise<void> {
+    if (!id || savingContent) return
+    setSavingContent(true)
+    try {
+      await api.updateLessonContent(id, { content_md: draftContent })
+      setEditingContent(false)
+      void load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSavingContent(false)
+    }
+  }
+
   if (loading) {
     return <p className="p-6 text-sm text-slate-400 italic">Loading…</p>
   }
@@ -110,6 +132,11 @@ export function LessonPage(): JSX.Element {
   const isDone = lesson.status === 'done'
   const allAnswered = quizzes.length === 0 || quizzes.every((q) => results[q.id])
   const canComplete = !isDone && !isLocked && allAnswered
+  // Owner-edit is only available for active-course lessons (closed
+  // in active; structural changes would clobber progress). Locked
+  // lessons are owned by the agent — the owner edits them through
+  // the curriculum swap path.
+  const canEditContent = !isLocked && !editingContent && course.status === 'active'
 
   return (
     <section className="p-6 max-w-3xl mx-auto space-y-6">
@@ -148,18 +175,64 @@ export function LessonPage(): JSX.Element {
       )}
 
       {!isLocked && (
-        <article
-          data-testid="lesson-content"
-          className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-6 py-5 prose dark:prose-invert max-w-none text-sm"
-        >
-          {lesson.content_md ? (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {lesson.content_md}
-            </ReactMarkdown>
-          ) : (
-            <p className="text-slate-400 italic">No content yet.</p>
-          )}
-        </article>
+        editingContent ? (
+          <div className="space-y-2" data-testid="lesson-edit-content">
+            <textarea
+              value={draftContent}
+              onChange={(e) => setDraftContent(e.target.value)}
+              rows={12}
+              className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm font-mono"
+              placeholder="Lesson body (markdown)"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => void onSaveContent()}
+                disabled={savingContent || !draftContent.trim()}
+                data-testid="lesson-save-content"
+                className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
+              >
+                {savingContent ? 'Saving…' : 'Save content'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingContent(false)
+                  setDraftContent(lesson.content_md ?? '')
+                }}
+                disabled={savingContent}
+                className="px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <article
+              data-testid="lesson-content"
+              className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-6 py-5 prose dark:prose-invert max-w-none text-sm"
+            >
+              {lesson.content_md ? (
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {lesson.content_md}
+                </ReactMarkdown>
+              ) : (
+                <p className="text-slate-400 italic">No content yet.</p>
+              )}
+            </article>
+            {canEditContent && (
+              <button
+                type="button"
+                onClick={() => setEditingContent(true)}
+                data-testid="lesson-edit-content"
+                className="text-xs text-orenda-700 hover:underline"
+              >
+                Edit content
+              </button>
+            )}
+          </>
+        )
       )}
 
       {lesson.task_id && (
@@ -293,7 +366,7 @@ interface LessonLoad {
     content_md: string
     task_id?: string
   }
-  course: { id: string; title: string }
+  course: { id: string; title: string; status: string }
   quizzes: {
     id: string
     question_md: string
@@ -334,7 +407,7 @@ async function loadLesson(lessonId: string): Promise<LessonLoad> {
         content_md: found.content_md ?? '',
         task_id: found.task_id,
       },
-      course: { id: c.id, title: c.title },
+      course: { id: c.id, title: c.title, status: c.status },
       quizzes: ourQuizzes,
     }
   }

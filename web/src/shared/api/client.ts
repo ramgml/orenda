@@ -797,7 +797,14 @@ class ApiClient {
       .then((r) => r.data)
   }
 
-  createCourse(input: { title: string; intent_md?: string }): Promise<Course> {
+  createCourse(input: {
+    title: string
+    intent_md?: string
+    // Phase 27.6: when true, the owner intends to build the
+    // curriculum themselves; the server skips the agent generator
+    // task so a sleeping tutor can't overwrite manual work.
+    skip_generator?: boolean
+  }): Promise<Course> {
     return this.http.post<Course>('/api/v1/courses', input).then((r) => r.data)
   }
 
@@ -880,6 +887,76 @@ class ApiClient {
         `/api/v1/lessons/${lessonId}/quizzes/${quizId}/answer`,
         { answer },
       )
+      .then((r) => r.data)
+  }
+
+  // ---- Phase 27.6: owner-side curriculum editor + quiz surface ----
+  //
+  // The owner can build the program themselves instead of waiting on
+  // a tutor. submitCurriculum is the atomic swap the tutor already
+  // uses — the service detects the user-side path and retires the
+  // generator task so a sleeping tutor can't overwrite manual work.
+  // addQuiz appends a single quiz to a lesson (no swap required);
+  // updateLessonContent edits a lesson's body without touching its
+  // lifecycle. The owner of an active course uses this to fix typos
+  // and re-wordings once the program is live.
+
+  submitCurriculum(
+    courseId: string,
+    payload: {
+      modules: {
+        id?: string
+        title: string
+        description?: string
+        position: number
+        lessons: {
+          id?: string
+          title: string
+          position: number
+          content_md?: string
+          quizzes?: {
+            id?: string
+            position: number
+            question_md: string
+            expected_md?: string
+            kind: 'exact' | 'open'
+          }[]
+        }[]
+      }[]
+    },
+  ): Promise<{ status: string }> {
+    return this.http
+      .put<{ status: string }>(`/api/v1/courses/${courseId}/curriculum`, payload)
+      .then((r) => r.data)
+  }
+
+  addQuiz(
+    lessonId: string,
+    input: {
+      position?: number
+      question_md: string
+      expected_md?: string
+      kind: 'exact' | 'open'
+    },
+  ): Promise<{
+    id: string
+    lesson_id: string
+    position: number
+    question_md: string
+    expected_md?: string
+    kind: 'exact' | 'open'
+  }> {
+    return this.http
+      .post(`/api/v1/lessons/${lessonId}/quizzes`, input)
+      .then((r) => r.data)
+  }
+
+  updateLessonContent(
+    lessonId: string,
+    input: { content_md: string; task_id?: string },
+  ): Promise<unknown> {
+    return this.http
+      .put(`/api/v1/lessons/${lessonId}/content`, input)
       .then((r) => r.data)
   }
 

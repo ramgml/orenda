@@ -3,6 +3,11 @@ import { Link, useParams } from 'react-router-dom'
 
 import { api } from '@/shared/api/client'
 import { useWebSocketTopic } from '@/shared/ws'
+import {
+  CourseCurriculumEditor,
+  type EditorModule,
+  type EditorQuiz,
+} from './CourseCurriculumEditor'
 
 /**
  * Phase 18.7: Course tree view.
@@ -13,6 +18,11 @@ import { useWebSocketTopic } from '@/shared/ws'
  *   - review:    tutor submitted; owner can approve / request changes
  *   - active:    approved, lessons open sequentially
  *   - done:      all lessons completed
+ *
+ * Phase 27.6: in draft/review the owner can switch into the inline
+ * editor and rebuild the program themselves. In active, structural
+ * edits are disabled — the owner edits a single lesson's content
+ * from the lesson page (LessonPage → updateLessonContent).
  */
 export function CourseDetailPage(): JSX.Element {
   const { id } = useParams<{ id: string }>()
@@ -20,6 +30,7 @@ export function CourseDetailPage(): JSX.Element {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -77,10 +88,12 @@ export function CourseDetailPage(): JSX.Element {
   }
   if (!data) return <></>
 
-  const { course, modules, lessons, progress } = data
+  const { course, modules, lessons, quizzes, progress } = data
 
-  // Bucket lessons by module.
+  // Bucket lessons and quizzes by module so the editor can hydrate
+  // from the tree shape without losing quizzes.
   const lessonsByModule = new Map<string, typeof lessons>()
+  const quizzesByLesson = new Map<string, NonNullable<typeof quizzes>>()
   for (const l of lessons) {
     const arr = lessonsByModule.get(l.module_id) ?? []
     arr.push(l)
@@ -89,6 +102,38 @@ export function CourseDetailPage(): JSX.Element {
   for (const arr of lessonsByModule.values()) {
     arr.sort((a, b) => a.position - b.position)
   }
+  if (quizzes) {
+    for (const q of quizzes) {
+      const arr = quizzesByLesson.get(q.lesson_id) ?? []
+      arr.push(q)
+      quizzesByLesson.set(q.lesson_id, arr)
+    }
+  }
+
+  const initialModules: EditorModule[] = modules.map((m, mi) => ({
+    id: m.id,
+    title: m.title,
+    description: m.description ?? '',
+    position: mi,
+    lessons: (lessonsByModule.get(m.id) ?? []).map((l, li) => {
+      const qs = (quizzesByLesson.get(l.id) ?? []).slice().sort((a, b) => a.position - b.position)
+      return {
+        id: l.id,
+        title: l.title,
+        position: li,
+        content_md: l.content_md ?? '',
+        quizzes: qs.map<EditorQuiz>((q, qi) => ({
+          id: q.id,
+          position: qi,
+          question_md: q.question_md,
+          expected_md: q.expected_md ?? '',
+          kind: q.kind,
+        })),
+      }
+    }),
+  }))
+
+  const editable = course.status === 'draft' || course.status === 'review'
 
   return (
     <section className="p-6 max-w-3xl mx-auto space-y-6">
@@ -150,11 +195,37 @@ export function CourseDetailPage(): JSX.Element {
         </div>
       </div>
 
-      {/* Modules + lessons */}
-      {modules.length === 0 ? (
+      {editable && (
+        <div className="flex gap-2 items-center">
+          <button
+            type="button"
+            onClick={() => setEditing((v) => !v)}
+            data-testid="course-edit-toggle"
+            className="px-3 py-1.5 rounded border border-slate-300 hover:bg-slate-50 text-sm"
+          >
+            {editing ? 'Done editing' : 'Edit curriculum'}
+          </button>
+          <span className="text-xs text-slate-500">
+            Modules, lessons, quizzes — atomic swap.
+          </span>
+        </div>
+      )}
+
+      {editing ? (
+        <CourseCurriculumEditor
+          course={course}
+          initialModules={initialModules}
+          onCancel={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false)
+            void load()
+          }}
+        />
+      ) : modules.length === 0 ? (
         <p className="text-sm text-slate-400 italic">
-          No modules yet. The tutor agent will submit a curriculum
-          when ready.
+          {editable
+            ? 'No modules yet. Click "Edit curriculum" to add the first one.'
+            : 'No modules yet.'}
         </p>
       ) : (
         <ul className="space-y-4">
@@ -172,28 +243,36 @@ export function CourseDetailPage(): JSX.Element {
                   <p className="text-xs text-slate-500 mt-1">{m.description}</p>
                 )}
                 <ul className="mt-2 space-y-1">
-                  {ls.map((l) => (
-                    <li
-                      key={l.id}
-                      data-testid="lesson-row"
-                      className="flex justify-between items-center text-sm px-2 py-1 rounded hover:bg-slate-50 dark:hover:bg-slate-900"
-                    >
-                      <Link
-                        to={`/lessons/${l.id}`}
-                        className={
-                          l.status === 'locked'
-                            ? 'text-slate-400'
-                            : 'text-slate-800 dark:text-slate-100 hover:underline'
-                        }
+                  {ls.map((l) => {
+                    const lessonQuizzes = quizzesByLesson.get(l.id) ?? []
+                    return (
+                      <li
+                        key={l.id}
+                        data-testid="lesson-row"
+                        className="flex justify-between items-center text-sm px-2 py-1 rounded hover:bg-slate-50 dark:hover:bg-slate-900"
                       >
-                        {l.status === 'locked' && '🔒 '}
-                        {l.title}
-                      </Link>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        {l.status}
-                      </span>
-                    </li>
-                  ))}
+                        <Link
+                          to={`/lessons/${l.id}`}
+                          className={
+                            l.status === 'locked'
+                              ? 'text-slate-400'
+                              : 'text-slate-800 dark:text-slate-100 hover:underline'
+                          }
+                        >
+                          {l.status === 'locked' && '🔒 '}
+                          {l.title}
+                          {lessonQuizzes.length > 0 && (
+                            <span className="ml-2 text-[10px] text-slate-400">
+                              {lessonQuizzes.length} q
+                            </span>
+                          )}
+                        </Link>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {l.status}
+                        </span>
+                      </li>
+                    )
+                  })}
                 </ul>
               </li>
             )

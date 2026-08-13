@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 import { api, type Course } from '@/shared/api/client'
 
@@ -10,16 +10,19 @@ import { api, type Course } from '@/shared/api/client'
  *   1. List of existing courses (one row per course).
  *   2. Inline create form: title + intent text → submit.
  *
- * The intent text is the raw prompt the tutor agent will read. The
- * UI doesn't try to structure it — the agent's job is to ask
- * clarifying questions, not ours.
+ * Phase 27.6 adds a "Build it myself" toggle: when checked, the
+ * server skips the agent generator task so a sleeping tutor can't
+ * overwrite the manual curriculum. The wizard still creates a draft;
+ * the owner builds the program via the editor on /courses/:id.
  */
 export function CoursesPage(): JSX.Element {
+  const navigate = useNavigate()
   const [courses, setCourses] = useState<Course[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [intent, setIntent] = useState('')
+  const [skipGenerator, setSkipGenerator] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
@@ -43,10 +46,17 @@ export function CoursesPage(): JSX.Element {
     setBusy(true)
     setError(null)
     try {
-      await api.createCourse({ title: title.trim(), intent_md: intent })
+      const created = await api.createCourse({
+        title: title.trim(),
+        intent_md: intent,
+        skip_generator: skipGenerator,
+      })
       setTitle('')
       setIntent('')
-      void load()
+      setSkipGenerator(false)
+      // Jump straight into the editor for "I'll build it myself"
+      // courses — the empty tree on the detail page is unhelpful.
+      navigate(`/courses/${created.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -87,6 +97,16 @@ export function CoursesPage(): JSX.Element {
           data-testid="course-intent"
           className="w-full px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
         />
+        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+          <input
+            type="checkbox"
+            checked={skipGenerator}
+            onChange={(e) => setSkipGenerator(e.target.checked)}
+            data-testid="course-skip-generator"
+            className="h-4 w-4 rounded border-slate-300"
+          />
+          <span>I'll build the curriculum myself (skip tutor agent)</span>
+        </label>
         <div className="flex justify-end">
           <button
             type="submit"

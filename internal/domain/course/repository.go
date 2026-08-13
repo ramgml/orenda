@@ -47,6 +47,10 @@ type Repository interface {
 	ModuleCourseOwner(ctx context.Context, moduleID string) (string, error)
 
 	// ---- Quizzes ----
+	// CreateQuiz inserts a quiz; if the supplied position is 0 the
+	// repo picks the next slot via MAX(position)+1. The persisted
+	// row's position is written back into q so callers (UI)
+	// can patch their local state.
 	CreateQuiz(ctx context.Context, q *Quiz) error
 	// ListQuizzesInCourse returns every quiz for the course in a
 	// single query (lessons + quizzes joined).
@@ -59,13 +63,20 @@ type Repository interface {
 	// ---- Submit / Approve (Phase 18 orchestrator surface) ----
 	//
 	// SubmitCurriculum replaces the draft curriculum (modules +
-	// lessons) atomically. The service builds the target list,
-	// runs the cycle check, and only then calls this. We use a
+	// lessons + quizzes) atomically. The service builds the target
+	// list, runs the cycle check, and only then calls this. We use a
 	// single tx so a partial write never leaks.
+	//
+	// Phase 27.6: quizzes are part of the swap payload. Each quiz is
+	// matched to its lesson by LessonID, which the service fills in
+	// from the parent module during the request decode. Quiz IDs are
+	// reused if the caller supplied one (so a tutor can edit a
+	// draft without churning IDs); new IDs are minted when blank.
 	SubmitCurriculum(
 		ctx context.Context,
 		courseID string,
 		modules []*Module,
 		lessons []*Lesson,
+		quizzes []*Quiz,
 	) error
 }

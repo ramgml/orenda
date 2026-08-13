@@ -175,7 +175,7 @@ export interface CourseResp {
 /** Create a draft course on the user side. */
 export async function createCourse(
   ctx: APIRequestContext,
-  input: { title: string; intent_md?: string },
+  input: { title: string; intent_md?: string; skip_generator?: boolean },
 ): Promise<CourseResp> {
   const resp = await ctx.post('/api/v1/courses', { data: input })
   expect(resp.status(), `createCourse: ${await resp.text()}`).toBe(201)
@@ -211,6 +211,71 @@ export async function submitCurriculum(
     },
   })
   expect(resp.status(), `submitCurriculum: ${await resp.text()}`).toBe(200)
+}
+
+/**
+ * submitCurriculumAsOwner — Phase 27.6 owner-side swap. Same body
+ * shape as the agent endpoint, plus quizzes per lesson and
+ * description per module. Returns when the server reports review.
+ */
+export async function submitCurriculumAsOwner(
+  ctx: APIRequestContext,
+  courseId: string,
+  modules: {
+    title: string
+    description?: string
+    position: number
+    lessons: {
+      title: string
+      position: number
+      content_md?: string
+      quizzes?: {
+        position: number
+        question_md: string
+        expected_md?: string
+        kind: 'exact' | 'open'
+      }[]
+    }[]
+  }[],
+): Promise<void> {
+  const resp = await ctx.put(`/api/v1/courses/${courseId}/curriculum`, {
+    data: {
+      modules: modules.map((m) => ({
+        title: m.title,
+        description: m.description ?? '',
+        position: m.position,
+        lessons: m.lessons.map((l) => ({
+          title: l.title,
+          position: l.position,
+          content_md: l.content_md ?? '',
+          quizzes: (l.quizzes ?? []).map((q) => ({
+            position: q.position,
+            question_md: q.question_md,
+            expected_md: q.expected_md ?? '',
+            kind: q.kind,
+          })),
+        })),
+      })),
+    },
+  })
+  expect(resp.status(), `submitCurriculumAsOwner: ${await resp.text()}`).toBe(200)
+}
+
+/** addQuizAsOwner — append a single quiz to a lesson (Phase 27.6). */
+export async function addQuizAsOwner(
+  ctx: APIRequestContext,
+  lessonId: string,
+  q: { question_md: string; expected_md?: string; kind: 'exact' | 'open' },
+): Promise<{ id: string; position: number }> {
+  const resp = await ctx.post(`/api/v1/lessons/${lessonId}/quizzes`, {
+    data: {
+      question_md: q.question_md,
+      expected_md: q.expected_md ?? '',
+      kind: q.kind,
+    },
+  })
+  expect(resp.status(), `addQuizAsOwner: ${await resp.text()}`).toBe(201)
+  return resp.json()
 }
 
 /** Fetch the full course tree (course + modules + lessons + quizzes). */

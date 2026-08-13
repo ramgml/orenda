@@ -826,6 +826,42 @@ paths:
         '200': { description: ok }
         '422': { description: invalid_transition }
 
+  # Phase 27.6: owner-side curriculum swap (same body as the
+  # agent-side PUT /agent/courses/{id}/curriculum; the service
+  # retires the generator task when present so a sleeping tutor
+  # cannot overwrite manual work).
+  /api/v1/courses/{id}/curriculum:
+    put:
+      tags: [courses]
+      summary: Atomic curriculum swap — modules + lessons + quizzes in one tx.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '422': { description: invalid_transition }
+
+  # Phase 27.6: owner-side content edit for active courses. The
+  # agent-only PUT /agent/lessons/{id}/content still owns the
+  # locked → open transition.
+  /api/v1/lessons/{id}/content:
+    put:
+      tags: [courses]
+      summary: Update a lesson's content_md (owner edit, active courses).
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+        '404': { description: lesson not found }
+
+  # Phase 27.6: closes the Phase 18.6 debt — tutors can add a single
+  # quiz to an existing lesson without swapping the whole tree.
+  /api/v1/lessons/{id}/quizzes:
+    post:
+      tags: [courses]
+      summary: Append a quiz to a lesson (owner-side). Position 0 = append at end.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '201': { description: created }
+        '400': { description: invalid_input }
+
   /api/v1/lessons/{id}/complete:
     post:
       tags: [courses]
@@ -1159,20 +1195,31 @@ paths:
               required: [modules]
               properties:
                 modules:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      title: { type: string }
-                      position: { type: integer }
-                      lessons:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            title: { type: string }
-                            position: { type: integer }
+                   type: array
+                   items:
+                     type: object
+                     properties:
+                       title: { type: string }
+                       position: { type: integer }
+                       lessons:
+                         type: array
+                         items:
+                           type: object
+                           properties:
+                             title: { type: string }
+                             position: { type: integer }
       responses: { '200': { description: ok } }
+
+  # Phase 27.6: tutor adds a single quiz to an existing lesson
+  # without re-submitting the whole curriculum (closes Phase 18.6).
+  /api/v1/agent/lessons/{id}/quizzes:
+    post:
+      tags: [agent, courses]
+      summary: Append a quiz to a lesson (agent-side). Position 0 = append at end.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '201': { description: created }
+        '400': { description: invalid_input }
 
   # ---- SPA fallback ----
   /{catchAll}:

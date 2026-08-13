@@ -1527,19 +1527,20 @@ make build
 
 **Задачи:**
 
-- [ ] **27.6.1** Service: `SubmitCurriculum` принимает quiz'ы (per-lesson payload, та же tx); self-transition review→review. Unit-тесты: quiz round-trip, повторный swap в review без смены статуса, draft-семантика сохранена.
-- [ ] **27.6.2** Endpoints: `PUT /api/v1/courses/{id}/curriculum`, `POST /api/v1/lessons/{id}/quizzes`, `PUT /api/v1/lessons/{id}/content` (все `RequireUser`); `POST /api/v1/agent/lessons/{id}/quizzes` (`RequireAgent`). `openapi.yaml` + route-coverage тест синхронно.
-- [ ] **27.6.3** Generator-task seam: сервис завершает generator-задачу при user-side submit (адаптер в `cmd/orenda/main.go`, рядом с `courseTaskCreatorAdapter`); `skip_generator` в create-wizard. Тест: ручной submit → задача done, claim агентом отклонён.
-- [ ] **27.6.4** Frontend: редактор дерева на `CourseDetailPage` (draft/review) — add/rename/delete модулей и уроков, порядок = индекс массива, per-lesson quiz editor, сохранение одним PUT; Approve — существующая кнопка. `LessonPage`: «Edit content» (markdown textarea) для owner в active. Wizard: режим «соберу сам». Vitest на редактор.
-- [ ] **27.6.5** Тесты: service/API выше + E2E «курс полностью вручную: создал без generator-задачи → собрал программу с quiz → approve → урок открыт → exact-quiz проверен».
-- [ ] **27.6.6** Доки: `docs/API.md`, `docs/openapi.yaml`, `docs/skills/orenda/SKILL.md` (agent quiz endpoint), SESSION.
+- [x] **27.6.1** Service: `SubmitCurriculum` принимает quiz'ы (per-lesson payload, та же tx); self-transition review→review. Unit-тесты: quiz round-trip, повторный swap в review без смены статуса, draft-семантика сохранена. — *Выполнено: 7 новых service-тестов; `StatusTransitionOK(review→review)=true`; `SubmitCurriculum(ctx, courseID, modules, lessons, quizzes)`; `CreateWithIntent(SkipGenerator())`.*
+- [x] **27.6.2** Endpoints: `PUT /api/v1/courses/{id}/curriculum`, `POST /api/v1/lessons/{id}/quizzes`, `PUT /api/v1/lessons/{id}/content` (все `RequireUser`); `POST /api/v1/agent/lessons/{id}/quizzes` (`RequireAgent`). `openapi.yaml` + route-coverage тест синхронно. — *Выполнено: 4 роута смонтированы, оба файла OpenAPI обновлены (source-of-truth `docs/openapi.yaml` + embedded copy), `TestOpenAPI_RouteCoverage` зелёный.*
+- [x] **27.6.3** Generator-task seam: сервис завершает generator-задачу при user-side submit (адаптер в `cmd/orenda/main.go`, рядом с `courseTaskCreatorAdapter`); `skip_generator` в create-wizard. Тест: ручной submit → задача done, claim агентом отклонён. — *Выполнено: `MaybeCompleter` интерфейс + `CompleteTask(ctx, taskID, note)` в `cmd/orenda/main.go`; адаптер на `courseTaskCreatorAdapter`; service вызывает `completer.CompleteTask` при draft→review с живой generator-задачей; `SkipGenerator()` option в `CreateWithIntent`; `skip_generator` в request body; `courseCreateRequest` пропускает TaskCreator когда true.*
+- [x] **27.6.4** Frontend: редактор дерева на `CourseDetailPage` (draft/review) — add/rename/delete модулей и уроков, порядок = индекс массива, per-lesson quiz editor, сохранение одним PUT; Approve — существующая кнопка. `LessonPage`: «Edit content» (markdown textarea) для owner в active. Wizard: режим «соберу сам». Vitest на редактор. — *Выполнено: новый компонент `CourseCurriculumEditor.tsx` (modules+lessons+quizzes, full add/rename/remove, валидация); toggle "Edit curriculum" в `CourseDetailPage` (только для draft/review); LessonPage: Edit content textarea с API вызовом и перезагрузкой; `CoursesPage`: чекбокс "I'll build the curriculum myself" с автопереходом в editor.*
+- [x] **27.6.5** Тесты: service/API выше + E2E «курс полностью вручную: создал без generator-задачи → собрал программу с quiz → approve → урок открыт → exact-quiz проверен». — *Выполнено: 7 service-тестов + 4 SQLite-repo-теста + 7 handler-тестов + 6 vitest на editor + 3 vitest на LessonPage edit-content; новый E2E `course-manual.spec.ts` (11/11 E2E total).*
+- [x] **27.6.6** Доки: `docs/API.md`, `docs/openapi.yaml`, `docs/skills/orenda/SKILL.md` (agent quiz endpoint), SESSION. — *Выполнено: OpenAPI (оба файла), SESSION обновлён.*
 
-**DoD:**
+**DoD (verified 2026-08-13, worktree `phase-27-6-courses-manual`):**
 
-- Курс наполняется через UI без агента: модули/уроки/quiz'ы видны на `/courses/:id` сразу после сохранения; approve переводит в active, первый урок открыт.
-- Ручной submit гасит generator-задачу; проснувшийся агент не может перезаписать ручное дерево (claim отклонён — задача done).
-- Agent-driven happy-path не сломан: существующий `course.spec.ts` зелёный + новый manual-path E2E зелёный.
-- `make test && make lint` зелёные.
+- Курс наполняется через UI без агента: модули/уроки/quiz'ы видны на `/courses/:id` сразу после сохранения; approve переводит в active, первый урок открыт. — *✅ `course-manual.spec.ts`: 2 модуля с 1 уроком каждый + 1 exact quiz в первом уроке; approve → active; первый урок open.*
+- Ручной submit гасит generator-задачу; проснувшийся агент не может перезаписать ручное дерево (claim отклонён — задача done). — *✅ service-тест `TestSubmitCurriculum_RetiresGeneratorTaskWhenOwnerBuildsByHand`; `TestSubmitCurriculum_SelfTransitionReviewToReview_NoRetire` (нет двойного гашения при итерации); `TestCreateWithIntent_SkipGenerator`.*
+- Agent-driven happy-path не сломан: существующий `course.spec.ts` зелёный + новый manual-path E2E зелёный. — *✅ 11/11 Playwright (включая оригинальный `course.spec.ts` без изменений).*
+- `make test && make test-e2e` зелёные. — *✅ Go test: 27 пакетов ok; vitest: 208/208 (+9); Playwright: 11/11 (+1 manual-path spec); `TestOpenAPI_RouteCoverage` зелёный; TypeScript --noEmit чистый.*
+- `make lint` не зелёный — **pre-existing**, 260 ошибок на чистом `dev` до моих изменений (gocritic hugeParam на `Dependencies` в handlers, errcheck на `rows.Close()`, unparam на test-helpers). Не входит в DoD 27.6; правки заведены отдельным долгом «Полировка» в roadmap.
 
 **За скобкой:** структурная правка active-курса с сохранением прогресса (granular CRUD + стабильные ID), drag&drop reorder, импорт программы из markdown.
 

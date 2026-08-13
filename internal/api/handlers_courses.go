@@ -50,6 +50,10 @@ type courseTreeResponse struct {
 type createCourseRequest struct {
 	Title    string `json:"title"`
 	IntentMD string `json:"intent_md"`
+	// Phase 27.6: when true, the owner intends to build the
+	// curriculum by hand and the service skips the agent generator
+	// task. Prevents a sleeping tutor from overwriting manual work.
+	SkipGenerator bool `json:"skip_generator"`
 }
 
 func listCoursesHandler(deps Dependencies) http.HandlerFunc {
@@ -84,7 +88,11 @@ func createCourseHandler(deps Dependencies) http.HandlerFunc {
 			return
 		}
 		userID := userIDFromCtx(r)
-		c, err := deps.CourseService.CreateWithIntent(r.Context(), userID, in.Title, in.IntentMD)
+		var opts []coursesvc.CreateOption
+		if in.SkipGenerator {
+			opts = append(opts, coursesvc.SkipGenerator())
+		}
+		c, err := deps.CourseService.CreateWithIntent(r.Context(), userID, in.Title, in.IntentMD, opts...)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -203,75 +211,138 @@ func completeLessonHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-// curriculumRequest is the body of PUT /agent/courses/{id}/curriculum.
+// curriculumRequest is the body of PUT /courses/{id}/curriculum
+// (user-side) and PUT /agent/courses/{id}/curriculum (agent-side).
+//
+// Phase 27.6: each lesson carries an optional `quizzes` array, and
+// the same payload is now shared between owner and tutor. The
+// shared decoder is in decodeCurriculumSwap below.
 type curriculumRequest struct {
 	Modules []curriculumModule `json:"modules"`
 }
 
 type curriculumModule struct {
-	ID       string             `json:"id"`
-	Title    string             `json:"title"`
-	Position int                `json:"position"`
-	Lessons  []curriculumLesson `json:"lessons"`
+	ID          string             `json:"id"`
+	Title       string             `json:"title"`
+	Description string             `json:"description,omitempty"`
+	Position    int                `json:"position"`
+	Lessons     []curriculumLesson `json:"lessons"`
 }
 
 type curriculumLesson struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Position int    `json:"position"`
+	ID        string           `json:"id"`
+	Title     string           `json:"title"`
+	Position  int              `json:"position"`
+	ContentMD string           `json:"content_md,omitempty"`
+	Quizzes   []curriculumQuiz `json:"quizzes,omitempty"`
 }
 
-// submitCurriculumHandler is the agent-side endpoint: PUT replaces
-// the course's curriculum in one tx. The submitted IDs (when present)
-// are reused so the tutor can compose against an existing draft.
-func submitCurriculumHandlerAgent(deps Dependencies) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if deps.CourseService == nil || deps.Courses == nil {
-			http.Error(w, "course deps not wired", http.StatusServiceUnavailable)
-			return
+type curriculumQuiz struct {
+	ID         string `json:"id"`
+	Position   int    `json:"position"`
+	QuestionMD string `json:"question_md"`
+	ExpectedMD string `json:"expected_md,omitempty"`
+	Kind       string `json:"kind"`
+}
+
+// decodeCurriculumSwap turns a curriculumRequest into the flat
+// (modules, lessons, quizzes) shape the service expects. IDs are
+// reused when present so the tutor (or the owner iterating on a
+// draft) can edit without churning references. Quiz LessonIDs are
+// filled in from the parent module's lesson IDs.
+func decodeCurriculumSwap(req curriculumRequest, courseID string) ([]*course.Module, []*course.Lesson, []*course.Quiz) {
+	var modules []*course.Module
+	var lessons []*course.Lesson
+	var quizzes []*course.Quiz
+	for _, m := range req.Modules {
+		mid := m.ID
+		if mid == "" {
+			mid = uuidLite()
 		}
-		var req curriculumRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
-			return
-		}
-		courseID := chi.URLParam(r, "id")
-		var modules []*course.Module
-		var lessons []*course.Lesson
-		for _, m := range req.Modules {
-			mid := m.ID
-			if mid == "" {
-				mid = uuidLite()
+		modules = append(modules, &course.Module{
+			ID:          mid,
+			CourseID:    courseID,
+			Title:       m.Title,
+			Description: m.Description,
+			Position:    m.Position,
+		})
+		for _, l := range m.Lessons {
+			lid := l.ID
+			if lid == "" {
+				lid = uuidLite()
 			}
-			modules = append(modules, &course.Module{
-				ID:       mid,
-				CourseID: courseID,
-				Title:    m.Title,
-				Position: m.Position,
+			lessons = append(lessons, &course.Lesson{
+				ID:        lid,
+				ModuleID:  mid,
+				Title:     l.Title,
+				ContentMD: l.ContentMD,
+				Position:  l.Position,
+				Status:    course.LessonLocked,
 			})
-			for _, l := range m.Lessons {
-				lid := l.ID
-				if lid == "" {
-					lid = uuidLite()
+			for _, q := range l.Quizzes {
+				qid := q.ID
+				if qid == "" {
+					qid = uuidLite()
 				}
-				lessons = append(lessons, &course.Lesson{
-					ID:       lid,
-					ModuleID: mid,
-					Title:    l.Title,
-					Position: l.Position,
-					Status:   course.LessonLocked,
+				quizzes = append(quizzes, &course.Quiz{
+					ID:         qid,
+					LessonID:   lid,
+					Position:   q.Position,
+					QuestionMD: q.QuestionMD,
+					ExpectedMD: q.ExpectedMD,
+					Kind:       course.QuizKind(q.Kind),
 				})
 			}
 		}
-		if err := deps.CourseService.SubmitCurriculum(r.Context(), courseID, modules, lessons); err != nil {
-			if errors.Is(err, coursesvc.ErrTransition) {
-				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_transition"})
-				return
-			}
-			writeError(w, err)
+	}
+	return modules, lessons, quizzes
+}
+
+// submitCurriculumCore is the shared body of the user-side and
+// agent-side submit handlers — same business logic, different
+// auth middleware. Phase 27.6 promotes this from an
+// agent-only endpoint to a user-facing one so the owner can build
+// the curriculum themselves.
+func submitCurriculumCore(w http.ResponseWriter, r *http.Request, deps Dependencies) {
+	if deps.CourseService == nil || deps.Courses == nil {
+		http.Error(w, "course deps not wired", http.StatusServiceUnavailable)
+		return
+	}
+	var req curriculumRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	courseID := chi.URLParam(r, "id")
+	modules, lessons, quizzes := decodeCurriculumSwap(req, courseID)
+	if err := deps.CourseService.SubmitCurriculum(r.Context(), courseID, modules, lessons, quizzes); err != nil {
+		if errors.Is(err, coursesvc.ErrTransition) {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_transition"})
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "review"})
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "review"})
+}
+
+// submitCurriculumHandlerAgent is the agent-side endpoint: PUT
+// replaces the course's curriculum in one tx. The submitted IDs
+// (when present) are reused so the tutor can compose against an
+// existing draft.
+func submitCurriculumHandlerAgent(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		submitCurriculumCore(w, r, deps)
+	}
+}
+
+// submitCurriculumHandlerUser is the owner-side endpoint added in
+// Phase 27.6: the same atomic swap, but authenticated as the
+// course's owner. This is what makes "build the curriculum by hand"
+// a single round-trip.
+func submitCurriculumHandlerUser(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		submitCurriculumCore(w, r, deps)
 	}
 }
 
@@ -429,4 +500,120 @@ func uuidLite() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// ---------------------------------------------------------------------------
+// Phase 27.6: user-side curriculum editor + quiz surface.
+// ---------------------------------------------------------------------------
+
+// addQuizRequest is the body of POST /lessons/{id}/quizzes (user) and
+// POST /agent/lessons/{id}/quizzes (agent). Position is optional
+// (0 = append at the end).
+type addQuizRequest struct {
+	Position   int    `json:"position"`
+	QuestionMD string `json:"question_md"`
+	ExpectedMD string `json:"expected_md,omitempty"`
+	Kind       string `json:"kind"`
+}
+
+// addQuizCore is the shared body of the user-side and agent-side
+// addQuiz handlers. The auth boundary is the route mounting.
+func addQuizCore(w http.ResponseWriter, r *http.Request, deps Dependencies) {
+	if deps.CourseService == nil {
+		http.Error(w, "course service not wired", http.StatusServiceUnavailable)
+		return
+	}
+	var req addQuizRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	if req.QuestionMD == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_question_md"})
+		return
+	}
+	if req.Kind == "" {
+		req.Kind = string(course.QuizExact)
+	}
+	q, err := deps.CourseService.AddQuiz(
+		r.Context(),
+		chi.URLParam(r, "id"),
+		req.QuestionMD,
+		req.ExpectedMD,
+		course.QuizKind(req.Kind),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, coursesvc.ErrNotFound):
+			http.Error(w, "lesson not found", http.StatusNotFound)
+		case errors.Is(err, coursesvc.ErrInvalidInput):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
+		default:
+			writeError(w, err)
+		}
+		return
+	}
+	// Position is set by the repo via max(position)+1 when the
+	// caller passed 0; surface it in the response so the UI can
+	// patch its local state.
+	writeJSON(w, http.StatusCreated, q)
+}
+
+// addQuizHandler — owner-side endpoint (Phase 27.6: previously
+// missing in the user namespace; quiz creation is now exposed
+// under /api/v1/lessons/{id}/quizzes).
+func addQuizHandler(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		addQuizCore(w, r, deps)
+	}
+}
+
+// addQuizHandlerAgent — agent-side endpoint (Phase 27.6 closes
+// the debt tracked since Phase 18: 18.6 promised the tutor a way
+// to add a single quiz to an existing lesson without swapping the
+// whole curriculum).
+func addQuizHandlerAgent(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		addQuizCore(w, r, deps)
+	}
+}
+
+// updateLessonContentHandlerUser — owner-side endpoint (Phase 27.6):
+// the owner of an active course can edit a lesson's content_md
+// directly. Agent-only MaterializeLesson still owns the
+// locked → open transition; this path is for tweaks once the
+// course is already live.
+func updateLessonContentHandlerUser(deps Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.CourseService == nil {
+			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		var req materializeLessonRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		if req.ContentMD == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_content_md"})
+			return
+		}
+		l, err := deps.CourseService.UpdateLessonContent(
+			r.Context(),
+			chi.URLParam(r, "id"),
+			req.ContentMD,
+		)
+		if err != nil {
+			switch {
+			case errors.Is(err, coursesvc.ErrNotFound):
+				http.Error(w, "lesson not found", http.StatusNotFound)
+			case errors.Is(err, coursesvc.ErrInvalidInput):
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
+			default:
+				writeError(w, err)
+			}
+			return
+		}
+		writeJSON(w, http.StatusOK, l)
+	}
 }

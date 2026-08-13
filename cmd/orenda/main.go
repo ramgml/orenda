@@ -357,6 +357,45 @@ func (a courseTaskCreatorAdapter) lookupQuizContext(ctx context.Context, quizID,
 	return quizTitle, lessonTitle, nil
 }
 
+// CompleteTask retires a course-related task (Phase 27.6 generator
+// seam). We load the task, flip it to status=done with the current
+// timestamp, clear the awaiting flag, and append the note to the
+// existing context_md so a future audit can see why it ended.
+//
+// This path intentionally does not go through the task service /
+// activity log: the course service is upstream of both, and the
+// task is being retired by the course's own state machine. Keeping
+// it isolated here means a missing task service in a future
+// minimal configuration can't take down course submission.
+func (a courseTaskCreatorAdapter) CompleteTask(ctx context.Context, taskID, note string) error {
+	if taskID == "" {
+		return nil
+	}
+	t, err := a.tasksRepo.GetByID(ctx, taskID)
+	if err != nil {
+		// Already gone or never existed — treat as best-effort
+		// success so the course swap can commit.
+		if errors.Is(err, taskdomain.ErrNotFound) {
+			return nil
+		}
+		return fmt.Errorf("course.CompleteTask: load: %w", err)
+	}
+	now := time.Now().UTC()
+	t.Status = taskdomain.StatusDone
+	t.Awaiting = taskdomain.AwaitingNone
+	t.CompletedAt = &now
+	if note != "" {
+		if t.ContextMD != "" {
+			t.ContextMD += "\n"
+		}
+		t.ContextMD += "course_retired: " + note
+	}
+	if err := a.tasksRepo.Update(ctx, t); err != nil {
+		return fmt.Errorf("course.CompleteTask: write: %w", err)
+	}
+	return nil
+}
+
 // attachmentAdapter bridges attachment.Service (returns *attachment.StoreResult)
 // to api.AttachmentService (returns *api.AttachmentResult).
 type attachmentAdapter struct{ inner *attachmentsvc.Service }
