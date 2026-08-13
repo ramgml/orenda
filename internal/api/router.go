@@ -33,8 +33,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -144,8 +142,17 @@ type Dependencies struct {
 	// so the cookie's `Expires` matches the embedded JWT exp —
 	// otherwise a cookie can outlive its token (or vice versa)
 	// and RequireUser silently fails on otherwise-valid sessions.
-	JWTTTL       time.Duration
-	Capabilities Capabilities
+	JWTTTL time.Duration
+	// Phase 28.8: token-bucket rate-limit knobs. Source is
+	// config.RateLimit (yaml + env override). Defaults to the
+	// pre-28.8 inline values (anon 60/20, auth 300/100) when
+	// all four are zero — defensive against a partially-filled
+	// yaml section.
+	RateLimitAnonBurst  int
+	RateLimitAnonPerSec float64
+	RateLimitAuthBurst  int
+	RateLimitAuthPerSec float64
+	Capabilities        Capabilities
 	// Phase 24: absolute path to the SQLite file so /api/v1/stats
 	// can report its size. Optional — left empty in tests that
 	// don't run a real DB.
@@ -192,30 +199,27 @@ func NewRouter(deps Dependencies) http.Handler {
 	r.Use(maintenanceMiddleware)
 	r.Use(corsLoopback())
 	r.Use(securityHeaders())
-	// Phase 26.E: rate limits can be cranked up via env so the Playwright
-	// suite doesn't flake on /api/v1/board-style GETs that fire on every
-	// page mount. Production defaults are unchanged.
-	anonBurst, anonPerSec := 60, 20.0
-	authBurst, authPerSec := 300, 100.0
-	if v := os.Getenv("ORENDA_RATELIMIT_AUTH_BURST"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			authBurst = n
-		}
+	// Phase 28.8: rate-limit knobs now live in config.RateLimit
+	// (yaml + env). Env vars set by Phase 26.E still win — the
+	// config layer applied them before reaching us, so
+	// anonBurst here already reflects the E2E's cranked value.
+	anonBurst, anonPerSec := deps.RateLimitAnonBurst, deps.RateLimitAnonPerSec
+	authBurst, authPerSec := deps.RateLimitAuthBurst, deps.RateLimitAuthPerSec
+	// Defensive: a zero rate_limit section (operator wrote
+	// `rate_limit:` with no children in YAML, then env didn't
+	// override) would zero out the limiter. The router used
+	// to inline the defaults; preserve that.
+	if anonBurst == 0 {
+		anonBurst = 60
 	}
-	if v := os.Getenv("ORENDA_RATELIMIT_AUTH_PER_SEC"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			authPerSec = f
-		}
+	if authBurst == 0 {
+		authBurst = 300
 	}
-	if v := os.Getenv("ORENDA_RATELIMIT_ANON_BURST"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			anonBurst = n
-		}
+	if anonPerSec == 0 {
+		anonPerSec = 20.0
 	}
-	if v := os.Getenv("ORENDA_RATELIMIT_ANON_PER_SEC"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			anonPerSec = f
-		}
+	if authPerSec == 0 {
+		authPerSec = 100.0
 	}
 	r.Use(rateLimit(rateLimitOptions{
 		AnonBurst:  anonBurst,

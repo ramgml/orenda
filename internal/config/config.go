@@ -33,13 +33,14 @@ const defaultConfigPath = "data/config.yaml"
 
 // Config is the top-level Orenda server configuration.
 type Config struct {
-	Server  ServerConfig  `yaml:"server"`
-	Storage StorageConfig `yaml:"storage"`
-	Auth    AuthConfig    `yaml:"auth"`
-	Logging LoggingConfig `yaml:"logging"`
-	Backup  BackupConfig  `yaml:"backup"`
-	Bots    []BotConfig   `yaml:"bots"`
-	Uploads UploadsConfig `yaml:"uploads"`
+	Server    ServerConfig    `yaml:"server"`
+	Storage   StorageConfig   `yaml:"storage"`
+	Auth      AuthConfig      `yaml:"auth"`
+	Logging   LoggingConfig   `yaml:"logging"`
+	Backup    BackupConfig    `yaml:"backup"`
+	Bots      []BotConfig     `yaml:"bots"`
+	Uploads   UploadsConfig   `yaml:"uploads"`
+	RateLimit RateLimitConfig `yaml:"ratelimit"`
 }
 
 // ServerConfig controls the HTTP listener.
@@ -104,6 +105,27 @@ type BackupConfig struct {
 	GitPushInterval      time.Duration `yaml:"git_push_interval"`
 	SQLiteSnapshotCron   string        `yaml:"sqlite_snapshot_cron"`
 	WALArchiveInterval   time.Duration `yaml:"wal_archive_interval"`
+}
+
+// RateLimitConfig controls the Phase 9.6 token-bucket rate limiter
+// (internal/api/ratelimit.go). Both buckets live in-process and
+// reset on restart — fine for a single-binary single-user
+// install; cross-instance coordination would need Redis (out
+// of scope today).
+//
+// Defaults applied by DefaultConfig() match what the router used
+// to inline before this struct existed: anon 60 burst @ 20/s,
+// authenticated 300 burst @ 100/s. E2E bumps these via env
+// override (ORENDA_RATELIMIT_AUTH_BURST=1M, see
+// web/e2e-setup/run-server.sh) — that env-override path is kept
+// working by this struct; env > YAML > hard-coded default in
+// the router. Operators who want to bake a setting into the
+// install flip the YAML instead.
+type RateLimitConfig struct {
+	AnonBurst  int     `yaml:"anon_burst"`
+	AnonPerSec float64 `yaml:"anon_per_sec"`
+	AuthBurst  int     `yaml:"auth_burst"`
+	AuthPerSec float64 `yaml:"auth_per_sec"`
 }
 
 // BotConfig is a placeholder for Phase 10 pluggable bots.
@@ -177,6 +199,18 @@ func DefaultConfig() *Config {
 		Uploads: UploadsConfig{
 			Dir:       "data/uploads",
 			MaxSizeMB: 50,
+		},
+		// Phase 28.8: rate-limit defaults moved here from the
+		// router's hard-coded constants. Values match what the
+		// router used before the refactor (anon 60/20, auth
+		// 300/100) so production behaviour is unchanged. Override
+		// via yaml rate_limit: section or the existing
+		// ORENDA_RATELIMIT_* envs (router precedence is unchanged).
+		RateLimit: RateLimitConfig{
+			AnonBurst:  60,
+			AnonPerSec: 20.0,
+			AuthBurst:  300,
+			AuthPerSec: 100.0,
 		},
 	}
 }
@@ -261,6 +295,44 @@ func overrideField(cfg *Config, path, value string) {
 		overrideBackup(&cfg.Backup, parts[1:], value)
 	case "uploads":
 		overrideUploads(&cfg.Uploads, parts[1:], value)
+	// Phase 28.8: rate-limit env namespace. The YAML section
+	// is named `ratelimit` (no underscore) so ORENDA_RATELIMIT__AUTH_BURST
+	// splits cleanly into ["ratelimit", "auth", "burst"] under
+	// our `__` tokenisation. Operators who still have
+	// ORENDA_RATELIMIT_AUTH_BURST (no `__`) in their scripts need
+	// to add the underscores — called out in the migration note
+	// of the commit message and in PLAN.md.
+	case "ratelimit":
+		overrideRateLimit(&cfg.RateLimit, parts[1:], value)
+	}
+}
+
+func overrideRateLimit(c *RateLimitConfig, p []string, v string) {
+	if len(p) == 0 {
+		return
+	}
+	// Sub-keys come from `__` splitting, so e.g.
+	// `ORENDA_RATELIMIT_AUTH_BURST` arrives as `["auth","burst"]`
+	// — not `["auth_burst"]`. Re-join so we match the YAML key
+	// shape and stay symmetric with overrideStorage et al.
+	key := strings.Join(p, "_")
+	switch key {
+	case "anon_burst":
+		if n, err := strconv.Atoi(v); err == nil {
+			c.AnonBurst = n
+		}
+	case "anon_per_sec":
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			c.AnonPerSec = f
+		}
+	case "auth_burst":
+		if n, err := strconv.Atoi(v); err == nil {
+			c.AuthBurst = n
+		}
+	case "auth_per_sec":
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			c.AuthPerSec = f
+		}
 	}
 }
 

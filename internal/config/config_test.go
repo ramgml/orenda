@@ -30,6 +30,15 @@ func TestDefaultConfig(t *testing.T) {
 	assert.False(t, c.Server.DebugPProf, "pprof must be off by default")
 	assert.Equal(t, "127.0.0.1:6060", c.Server.PProfAddr, "pprof defaults to loopback-only")
 	assert.Equal(t, "info", c.Logging.Level)
+	// Phase 28.8: rate-limit defaults must match the values the
+	// router used to inline before this struct existed
+	// (anon 60 burst @ 20/s, auth 300 burst @ 100/s). Anything
+	// else would be a silent behaviour change for operators
+	// who never wrote a rate_limit: section.
+	assert.Equal(t, 60, c.RateLimit.AnonBurst)
+	assert.Equal(t, 20.0, c.RateLimit.AnonPerSec)
+	assert.Equal(t, 300, c.RateLimit.AuthBurst)
+	assert.Equal(t, 100.0, c.RateLimit.AuthPerSec)
 	require.NoError(t, c.Validate())
 }
 
@@ -88,6 +97,52 @@ auth:
 	require.NoError(t, err)
 	assert.Equal(t, 168*time.Hour, c.Auth.JWTTTL)
 	assert.True(t, c.Auth.CookieSecure)
+}
+
+// Phase 28.8: rate_limit: section in YAML takes precedence over the
+// hard-coded default. Operators who want a strict prod setting
+// ("tighten auth to 60/10 for the cluster") bake it here rather
+// than relying on env vars at every boot.
+func TestLoad_RateLimitFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yaml := `
+ratelimit:
+  anon_burst: 30
+  anon_per_sec: 5
+  auth_burst: 600
+  auth_per_sec: 200
+`
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o600))
+
+	c, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, 30, c.RateLimit.AnonBurst)
+	assert.Equal(t, 5.0, c.RateLimit.AnonPerSec)
+	assert.Equal(t, 600, c.RateLimit.AuthBurst)
+	assert.Equal(t, 200.0, c.RateLimit.AuthPerSec)
+}
+
+// Phase 28.8: env override (ORENDA_RATELIMIT__AUTH_BURST) wins over
+// yaml. Same env keys the E2E setup uses to crank the limiter so
+// Playwright doesn't flake on the rapid /api/v1/board-style
+// GETs fired on every page mount.
+func TestLoad_RateLimitEnvOverridesYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yaml := `
+ratelimit:
+  auth_burst: 600
+`
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o600))
+
+	t.Setenv("ORENDA_RATELIMIT__AUTH_BURST", "9999")
+	t.Setenv("ORENDA_RATELIMIT__ANON_PER_SEC", "1.5")
+
+	c, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, 9999, c.RateLimit.AuthBurst, "env wins over yaml")
+	assert.Equal(t, 1.5, c.RateLimit.AnonPerSec)
 }
 
 func TestLoad_MalformedYAML_ReturnsError(t *testing.T) {

@@ -910,6 +910,12 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		CookieSecure:   cfg.Auth.CookieSecure,
 		JWTTTL:         cfg.Auth.JWTTTL,
 		DBPath:         cfg.ResolveDBPath("."),
+		// Phase 28.8: rate-limit knobs from config (already merged
+		// with env by the time Load returns).
+		RateLimitAnonBurst:  cfg.RateLimit.AnonBurst,
+		RateLimitAnonPerSec: cfg.RateLimit.AnonPerSec,
+		RateLimitAuthBurst:  cfg.RateLimit.AuthBurst,
+		RateLimitAuthPerSec: cfg.RateLimit.AuthPerSec,
 	})
 
 	// HTTP server with graceful shutdown.
