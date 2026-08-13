@@ -607,6 +607,43 @@ make build
 - [x] **28.3.3** E2E: задача с длинным описанием (форсировать узкое/низкое окно) → верх карточки достижим скроллом; полоска одна; фон не скроллится; Esc/клик мимо закрывают.
 **DoD:** на md+ вьюпорте длинная карточка скроллится от самого верха до низа; одна полоска прокрутки; фоновая страница неподвижна; vitest + E2E зелёные.
 
+## Phase 28.4 (полировка) — security defaults: JWT TTL 24h + cookie Secure from config *(2026-08-13)*
+
+**Цель:** закрыть два бэклог-долга, которые висели в `SESSION.md` с самого первого аудита — `config.DefaultConfig.JWTTTL 168h` (OWASP-рекомендация для cookie-session — 24h) и `Secure: false` хардкод в `handlers_auth.go`. Оба forward-only: выпущенные до изменения cookie валидны до истечения (JWT exp вшит в токен), новые выпускаются с более строгими дефолтами.
+
+**Контекст (проверено 2026-08-13):**
+
+- `config.go:136` `JWTTTL: 168 * time.Hour` — 7 дней, мягче чем рекомендует OWASP для cookie-session (24h).
+- `AuthConfig.CookieSecure bool` уже существовало (default false), но `Dependencies` его не пробрасывало → в `handlers_auth.go:65` хардкод `Secure: false`, `handlers_auth.go:88` (logout) cookie без Secure вообще.
+- Расхождение: cookie `Expires` был захардкожен `24 * time.Hour` в handler'е, а `JWTTTL` дефолт 168h — token жил дольше cookie.
+
+**Ключевые решения:**
+
+- **JWT TTL 24h forward-only.** Существующие 168h-токены валидны до конца их срока. Новые логины получают 24h. Оператор может вернуть 168h через `auth.jwt_ttl: "168h"` в `config.yaml` или `ORENDA_AUTH__JWT_TTL=168h`.
+- **Cookie Secure из config, не хардкод.** `Dependencies.CookieSecure bool` пробрасывается из `cfg.Auth.CookieSecure` (default false — loopback dev, true за reverse-proxy или прямым TLS). Logout cookie тоже получает Secure — иначе `MaxAge=-1` очищает только не-secure cookie set, secure login cookie переживает logout.
+- **Cookie Expires из `deps.JWTTTL`, не хардкод 24h.** Cookie lifetime == JWT lifetime; иначе cookie может пережить token (или наоборот) и `RequireUser` молча отказывает валидным сессиям.
+- **Test seams `LoginHandlerForTest` / `LogoutHandlerForTest`.** Маленькие экспорты, чтобы тест атрибутов cookie жил рядом с handlers, а не тянул весь `NewRouter`.
+
+**Задачи:**
+
+- [x] **28.4.1** `config.go:136` `JWTTTL: 168h → 24h`.
+- [x] **28.4.2** `router.go::Dependencies` — два новых поля: `CookieSecure bool`, `JWTTTL time.Duration`.
+- [x] **28.4.3** `main.go:903` — wire `cfg.Auth.CookieSecure`, `cfg.Auth.JWTTTL` в Dependencies.
+- [x] **28.4.4** `handlers_auth.go::loginHandler` — `Secure: false → deps.CookieSecure`, `Expires: 24h → deps.JWTTTL`.
+- [x] **28.4.5** `handlers_auth.go::logoutHandler` — `Secure: deps.CookieSecure` (MaxAge=-1).
+- [x] **28.4.6** `handlers_auth.go` — `LoginHandlerForTest(deps)`, `LogoutHandlerForTest(deps)` test seams.
+- [x] **28.4.7** `config_test.go` — `TestDefaultConfig` asserts JWTTTL == 24h; новые `TestLoad_JWTTTLFromYAML` (YAML override wins), `TestLoad_EnvOverridesYAML` расширен env-ами `JWT_TTL`/`COOKIE_SECURE`.
+- [x] **28.4.8** `handlers_auth_test.go` (NEW) — in-memory `pwUserRepo`, 3 кейса `TestLogin_CookieAttributes` (loopback default / HTTPS install / operator-opted-in 168h legacy) + `TestLogin_InvalidCredentials_Returns401` (failed login → no cookie) + 2 кейса `TestLogout_CookieAttributes` (Secure matches login).
+
+**DoD — verified 2026-08-13:**
+- `go test ./...`     30/30 ok (config: +2; api: +5 handlers_auth_test).
+- `npx vitest run`    236/236 (фронт не тронут).
+- `make test-e2e`     17/17 (regression — login/logout flow в других specs не сломан).
+- `npx tsc --noEmit`  clean.
+
+**За скобкой (явно отложено):**
+- `data/config.example.yaml` не в git (живёт только в working tree владельца + через `!data/config.example.yaml` в `.gitignore`); `install.sh` использует как шаблон. Стоит обновить `jwt_ttl: "168h" → "24h"` локально у оператора при следующем install — фиксирую в SESSION.md. Альтернатива — выкатить `docs/config.example.yaml` под версионирование и переключить `install.sh` (отдельная мини-фаза).
+
 ### Tasks
 
 - [ ] **9.1** Покрытие тестами:
