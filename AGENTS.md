@@ -89,7 +89,7 @@ make lint
 4. Implement tasks in order.
 5. Run `make test && make lint`.
 6. Re-index the codebase knowledge graph after code changes: codebase-memory-mcp `index_repository` with `mode: "fast"` (`"full"` on first index). Code discovery runs through `search_graph`/`trace_path` — a stale graph misleads the next agent.
-7. Open PR with checklist from Definition of Done.
+7. Open PR via `.github/PULL_REQUEST_TEMPLATE.md` — it mechanically enforces the Definition of Done checklist (see next section).
 
 ### Definition of Done is binary
 
