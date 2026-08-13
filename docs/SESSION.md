@@ -51,8 +51,8 @@
 
 - **Дата снапшота:** 2026-08-13
 - **Ветка:** `dev`
-- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.5. Открыты: 27.6–27.10 (см. «Бэклог» ниже).
-- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега +8 коммитов документации)
+- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.6. Открыты: 27.7–27.10 (см. «Бэклог» ниже).
+- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега +10 коммитов документации + 27.6)
 
 ## Что сделано за сессию (кратко)
 
@@ -82,6 +82,8 @@
 | **27.4.B** | **Course close-out frontend** — `LessonPage.tsx` (markdown + quiz-forms + complete-button), route `/lessons/:id`, `api.answerQuiz` + расширенные типы. E2E `course.spec.ts` happy-path (owner → tutor → student через UI). Vitest 193/193 (+4 lesson-page); E2E 10/10 (+1 course), 3 прогона подряд. Backend bugfix: `UpdateLessonContent` без `updated_at` (таблица `course_lessons` без колонки). |
 | **22.3 UI** | **Restore via UI** — модалка Backups теперь предлагает «Restore in this window» (3-step: maintenance on → force restore → reload). Maintenance остаётся вкл после успеха; failure path откатывает maintenance off. Vitest 195/195 (+2 Backups теста); E2E 10/10 (regress нет). Закрывает долг «UI-кнопка в Settings → Backups подсказывает CLI hint» — теперь restore полностью в UI. |
 | **22.3+ TG** | **Telegram /start onboarding** — бот на `/start` генерирует 6-hex code (TTL 10min), отвечает юзеру в чат. UI в Settings → Bots → Telegram принимает code, backend дёргает `POST /bots/telegram/bind` → резолвит chat_id → создаёт `bot_subscriptions` с дефолтным event set. 404/410/503 mapped на inline-errors. Vitest 199/199 (+4 bind теста, +6 bind-codes store тестов в Go); E2E 10/10. |
+| **27.6** | **Course manual fill (owner-side curriculum + quiz surface + generator-task seam)** — дефект зафиксирован 2026-08-13: курс нельзя собрать без агента. Бэкенд: `Service.SubmitCurriculum(ctx, courseID, modules, lessons, quizzes)` — quiz'ы в той же tx (закрывает Phase 18.6 долг); `StatusTransitionOK` расширен `review→review` (правка на ревью без кругов); `MaybeCompleter` интерфейс + `courseTaskCreatorAdapter.CompleteTask(ctx, taskID, note)` гасит generator-задачу при user-side submit (иначе проснувшийся тьютор перезапишет ручное дерево); `CreateWithIntent(SkipGenerator())` option для wizard-режима «соберу сам». Endpoints: `PUT /api/v1/courses/{id}/curriculum` (user), `POST /api/v1/lessons/{id}/quizzes` (user + agent), `PUT /api/v1/lessons/{id}/content` (user-зеркало materialize). Frontend: новый `CourseCurriculumEditor` (add/rename/delete модулей/уроков/quiz'ов, валидация, atomic save одним PUT); toggle «Edit curriculum» на `CourseDetailPage` для draft/review; «Edit content» на `LessonPage` для owner в active (markdown textarea → PUT content); `CoursesPage` wizard с чекбоксом «I'll build the curriculum myself» + автопереход в editor. OpenAPI (оба файла) + route-coverage sync. Tests: 7 service + 4 SQLite-repo + 7 handler + 6 editor-vitest + 3 LessonPage-edit-vitest; новый E2E `course-manual.spec.ts`. Verify: `make test` Go+vitest 208/208, `make test-e2e` 11/11 (+1 manual-path spec), TypeScript clean, OpenAPI coverage зелёный. |
+| **27.7** | **Task fields editable (status / priority / assignee)** — дефект зафиксирован 2026-08-13 (скриншот владельца): три поля read-only в сайдбаре карточки, status ручных задач навсегда `todo`. Бэкенд: `patchTaskHandler` снимает prev state (status/priority/assignee); после `applyTaskPatch` — side-effects: `status=done` без явного `completed_at` → `time.Now().UTC()`; awaiting нормализация (done→none, review→human, иначе→none — владелец взял руль); activity rows пишутся только когда поле реально поменялось (typed JSON payload `{from, to}`). Новый `ActionPriorityChanged` в `activity/model.go`. Frontend: новый `TaskFieldControls` (3 select: status/priority/assignee), инкапсулирует PATCH + label-resolve через `useAuth()` + `api.listAgents()`; «Me» / «owner» / «agent-name (status)». Под select — «currently: …» для fallback-имени. Интегрирован в `TaskViewBody` (работает и в TaskModal через общий body). Tests: 7 handler-side-effect (SQLite+router) + 7 vitest на TaskFieldControls + новый E2E `task-fields.spec.ts`. Verify: `make test` Go+vitest 206/206 (+7 vitest), `make test-e2e` 11/11 (+1 task-fields), TypeScript clean. Колонка на канбане НЕ двигается при смене status (оси разделены; 27.8 их сольёт). |
 
 ## Ключевые решения (не забыть)
 
@@ -156,7 +158,7 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 ## Бэклог (открыто)
 
 - **Курсы: ручное наполнение (Phase 27.6)** — user-side curriculum editor + quiz surface: без агента курс сейчас ненаполняем (дефект зафиксирован 2026-08-13). 27.4 close-out (MaterializeLesson/AnswerQuiz/LessonPage) смержен.
-- **Карточка задачи: редактируемые Status/Priority/Assignee (Phase 27.7)** — сейчас read-only в сайдбаре карточки; priority/assignee не выставить ниоткуда (дефект зафиксирован 2026-08-13).
+- **Карточка задачи: редактируемые Status/Priority/Assignee (Phase 27.7)** — ✅ **закрыто в worktree `phase-27-7-task-fields`** — см. секцию выше.
 - **Канбан: колонки = статусы (Phase 27.8)** — единая ось: DnD меняет статус, agent-flow двигает карточку (решение владельца 2026-08-13).
 - **Known gaps (Phase 27.9)** — WS multi-topic fan-out, заголовки в /reports, WS/activity для course-задач, comment-debt (аудит отложенных швов 2026-08-13).
 - **Цвет колонки: init/рендер/WS (Phase 27.10)** — сохранение в БД работает, но цвет невидим на доске и затирается при rename (дефект 2026-08-13).

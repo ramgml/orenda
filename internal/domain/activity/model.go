@@ -25,16 +25,17 @@ const (
 type Action string
 
 const (
-	ActionCreated       Action = "created"
-	ActionClaimed       Action = "claimed"
-	ActionReleased      Action = "released"
-	ActionSubmitted     Action = "submitted"
-	ActionReviewed      Action = "reviewed"
-	ActionMoved         Action = "moved"
-	ActionCommented     Action = "commented"
-	ActionAttachmentAdd Action = "attachment_added"
-	ActionStatusChanged Action = "status_changed"
-	ActionAssigned      Action = "assigned"
+	ActionCreated         Action = "created"
+	ActionClaimed         Action = "claimed"
+	ActionReleased        Action = "released"
+	ActionSubmitted       Action = "submitted"
+	ActionReviewed        Action = "reviewed"
+	ActionMoved           Action = "moved"
+	ActionCommented       Action = "commented"
+	ActionAttachmentAdd   Action = "attachment_added"
+	ActionStatusChanged   Action = "status_changed"
+	ActionPriorityChanged Action = "priority_changed"
+	ActionAssigned        Action = "assigned"
 
 	// Phase 14 additions for child tasks + checklists. The names
 	// keep the task.* prefix in the public activity feed (see

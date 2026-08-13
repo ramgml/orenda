@@ -24,6 +24,7 @@ import { ChecklistsList } from './ChecklistsList'
 import { TagsList } from './TagsList'
 import { BlockedByList } from './BlockedByList'
 import { TaskLink } from './TaskModal'
+import { TaskFieldControls } from './TaskFieldControls'
 
 /**
  * Shared task-detail content.
@@ -391,11 +392,15 @@ export function TaskViewBody({
       </div>
 
       <aside className="space-y-3 text-sm">
-        <SidebarField label="Status" value={task.status} />
-        <SidebarField label="Priority" value={task.priority} />
-        <SidebarField
-          label="Assignee"
-          value={task.assignee_type ? `${task.assignee_type}:${task.assignee_id}` : '—'}
+        <TaskFieldControls
+          status={task.status}
+          priority={task.priority}
+          assigneeType={task.assignee_type ?? ''}
+          assigneeID={task.assignee_id ?? ''}
+          taskID={task.id}
+          busy={busy}
+          onChanged={(t) => setTask(t)}
+          onError={(msg) => setError(msg)}
         />
         {task.awaiting && task.awaiting !== 'none' && (
           <div className="rounded border border-blue-300 bg-blue-50 p-3 text-blue-900 text-sm">

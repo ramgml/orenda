@@ -138,6 +138,25 @@ export async function patchTask(
   return resp.json()
 }
 
+/** Phase 27.7: read the task activity feed via REST. */
+export async function listTaskActivity(
+  ctx: APIRequestContext,
+  taskId: string,
+): Promise<{ activity: { action: string; payload?: string }[] }> {
+  const resp = await ctx.get(`/api/v1/tasks/${taskId}/activity`)
+  expect(resp.status(), `listTaskActivity: ${await resp.text()}`).toBe(200)
+  return resp.json()
+}
+
+/** Phase 27.7: list agents so the Assignee dropdown can be exercised. */
+export async function listAgents(
+  ctx: APIRequestContext,
+): Promise<{ agents: { id: string; name: string }[] }> {
+  const resp = await ctx.get('/api/v1/agents')
+  expect(resp.status(), `listAgents: ${await resp.text()}`).toBe(200)
+  return resp.json()
+}
+
 /** Tag payload as the API returns it (id + name + optional color). */
 export interface TagResp {
   id: string
