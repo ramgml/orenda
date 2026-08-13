@@ -1027,7 +1027,7 @@ make build
 
 ## Phase 18 — Личные курсы, создаваемые ИИ-агентами *(1–1.5 недели)*
 
-> **Аудит 2026-08-12 (обновлено после 27.4.A/B):** ✅ — LMS-цикл закрыт end-to-end: MaterializeLesson (locked→open), AnswerQuiz (exact с нормализацией; open → review-задача тьютору), GeneratorTask wire, страница `/lessons/:id` (LessonPage), endpoints user+agent, 14 service-тестов + LessonPage vitest, E2E `course.spec.ts` happy-path зелёный.
+> **Аудит 2026-08-12 (обновлено после 27.4.A/B):** ✅ — LMS-цикл закрыт end-to-end: MaterializeLesson (locked→open), AnswerQuiz (exact с нормализацией; open → review-задача тьютору), GeneratorTask wire, страница `/lessons/:id` (LessonPage), endpoints user+agent, 14 service-тестов + LessonPage vitest, E2E `course.spec.ts` happy-path зелёный. **2026-08-13:** зафиксирован дефект — наполнение возможно только через агента: user-side мутаций дерева нет, quiz creation не экспонирован ни в одном namespace. Закрывается в **Phase 27.6**.
 
 **Цель:** пользователь формулирует намерение («выучить Rust за месяц, 3 раза в неделю по часу»), внешний ИИ-агент-тьютор строит программу курса, материализует уроки и упражнения и проверяет ответы. Курс — first-class LMS-сущность (программа → модули → уроки → вопросы), а упражнения остаются обычными задачами, чтобы переиспользовать claim/submit/review-flow агентов.
 
@@ -1500,6 +1500,48 @@ make build
 5. 17 unit-тестов в `db_down_test.go` (RoundTrip × 13, Irreversible × 3, MissingDownFile, ParseIrreversibleReason × 6).
 
 **DoD:** `migrate down` (где реверсивно) → `migrate up` → БД identical. Manual smoke: `orenda migrate up` поднимает все 18; `migrate down` роллбэкает по одной.
+
+### 27.6 — Ручное наполнение курсов: user-side curriculum + quiz surface
+
+> **Дефект зафиксирован 2026-08-13 (диалог с владельцем):** курс нельзя наполнить вручную — модули/уроки/quiz'ы создаёт только внешний агент-тьютор. Без работающего агента курс навсегда пустой draft (подтверждено на живой БД: «Learn Vim» в `draft`, 0 модулей/уроков, generator-задача unclaimed, единственный агент offline). Агент — помощник, а не единственный автор.
+
+**Цель:** владелец собирает и правит курс без агента: структура (модули/уроки/quiz'ы) — в редакторе на `/courses/:id`, публикация тем же lifecycle (`draft→review→active`), правка контента уроков — в `active`.
+
+**Контекст (проверено по коду 2026-08-13):**
+
+- User-side (`RequireUser`): `GET/POST /courses`, `GET/DELETE /courses/{id}`, `approve`, `request-changes`, `lessons/{id}/complete`, `quizzes/{qid}/answer`. Мутаций дерева нет.
+- Agent-side (`RequireAgent`): `PUT /agent/courses/{id}/curriculum` (atomic swap, draft→review), `POST /agent/lessons/{id}/materialize`, `PUT /agent/lessons/{id}/content`.
+- Service caller-agnostic по дизайну («the same business rules apply regardless of caller») — user-side роуты над тем же `Service` и есть предусмотренный шов.
+- Repo-примитивы `CreateModule/CreateLesson/CreateQuiz/UpdateLesson/UpdateLessonContent` есть. Нет: `UpdateModule/DeleteModule/DeleteLesson/UpdateQuiz/DeleteQuiz` (нужны только для granular CRUD — за скобкой v1).
+- **Quiz creation не экспонирован нигде.** 18.6 обещал `POST /agent/lessons/{id}/quizzes` — не реализован; curriculum-swap quiz'ов не несёт (`curriculumRequest` = modules→lessons). `course.spec.ts` фиксирует это прямым комментарием: «the course_quizzes table … doesn't yet accept quizzes in its payload».
+- Swap допустим только из `draft`; из `review` повторный swap отклоняется (`review→review` нет в `StatusTransitionOK`) — правка программы на ревью требует круга request-changes→draft→submit. Swap = delete+insert: quiz'ы умирают каскадом, статусы уроков сбрасываются в `locked` хендлером, ID сохраняются только если клиент их прислал. **Для active-курса с прогрессом swap деструктивен.**
+
+**Ключевые решения:**
+
+- **User-side — тот же atomic swap.** `PUT /api/v1/courses/{id}/curriculum` с телом agent-endpoint'а, тот же сервисный метод. Редактор строит дерево локально, сохраняет одним запросом. Granular CRUD рядом со swap не вводим — одна конвенция, пока она покрывает сценарий.
+- **Swap несёт quiz'ы:** в payload урока опциональное `quizzes: [{position, question_md, expected_md, kind}]` — обратно-совместимо, вставка в той же tx.
+- **Плюс точечный `POST /api/v1/lessons/{id}/quizzes` (user) и `POST /api/v1/agent/lessons/{id}/quizzes` (agent, долг 18.6)** — добавить вопрос к существующему уроку без полного swap.
+- **Self-transition `review→review` разрешён для swap** (правка программы на ревью без кругов через draft). Прочие переходы не трогаем.
+- **Структурное редактирование — только draft/review.** В `active` — только контент: `PUT /api/v1/lessons/{id}/content` (user-зеркало materialize-content). Структурная правка active-курса с сохранением прогресса — отдельная фаза (нужны granular endpoints + стабильные ID, swap их пересоздаёт).
+- **Конфликт generator-задачи:** ручной submit при живой (`todo`, `awaiting=agent`) generator-задаче завершает её (done, заметка «owner built the curriculum manually») — иначе проснувшийся тьютор claim'нет её и перезапишет ручное дерево. Wizard создания получает режим «соберу сам»: `createCourseRequest.skip_generator` → `CreateWithIntent` не зовёт `TaskCreator` (он уже nil-safe).
+
+**Задачи:**
+
+- [ ] **27.6.1** Service: `SubmitCurriculum` принимает quiz'ы (per-lesson payload, та же tx); self-transition review→review. Unit-тесты: quiz round-trip, повторный swap в review без смены статуса, draft-семантика сохранена.
+- [ ] **27.6.2** Endpoints: `PUT /api/v1/courses/{id}/curriculum`, `POST /api/v1/lessons/{id}/quizzes`, `PUT /api/v1/lessons/{id}/content` (все `RequireUser`); `POST /api/v1/agent/lessons/{id}/quizzes` (`RequireAgent`). `openapi.yaml` + route-coverage тест синхронно.
+- [ ] **27.6.3** Generator-task seam: сервис завершает generator-задачу при user-side submit (адаптер в `cmd/orenda/main.go`, рядом с `courseTaskCreatorAdapter`); `skip_generator` в create-wizard. Тест: ручной submit → задача done, claim агентом отклонён.
+- [ ] **27.6.4** Frontend: редактор дерева на `CourseDetailPage` (draft/review) — add/rename/delete модулей и уроков, порядок = индекс массива, per-lesson quiz editor, сохранение одним PUT; Approve — существующая кнопка. `LessonPage`: «Edit content» (markdown textarea) для owner в active. Wizard: режим «соберу сам». Vitest на редактор.
+- [ ] **27.6.5** Тесты: service/API выше + E2E «курс полностью вручную: создал без generator-задачи → собрал программу с quiz → approve → урок открыт → exact-quiz проверен».
+- [ ] **27.6.6** Доки: `docs/API.md`, `docs/openapi.yaml`, `docs/skills/orenda/SKILL.md` (agent quiz endpoint), SESSION.
+
+**DoD:**
+
+- Курс наполняется через UI без агента: модули/уроки/quiz'ы видны на `/courses/:id` сразу после сохранения; approve переводит в active, первый урок открыт.
+- Ручной submit гасит generator-задачу; проснувшийся агент не может перезаписать ручное дерево (claim отклонён — задача done).
+- Agent-driven happy-path не сломан: существующий `course.spec.ts` зелёный + новый manual-path E2E зелёный.
+- `make test && make lint` зелёные.
+
+**За скобкой:** структурная правка active-курса с сохранением прогресса (granular CRUD + стабильные ID), drag&drop reorder, импорт программы из markdown.
 
 ### Что НЕ входит в Phase 27
 
