@@ -18,6 +18,7 @@ import { WikiPage } from '@/features/wiki/WikiPage'
 import { SearchPage } from '@/features/search/SearchPage'
 import { BackupsSettingsPage } from '@/features/settings/Backups'
 import { BotsSettingsPage } from '@/features/settings/Bots'
+import { SettingsHome } from '@/features/settings/SettingsHome'
 import { ReportsPage } from '@/features/reports/ReportsPage'
 import { InboxPage } from '@/features/inbox/InboxPage'
 import { QuickCapture } from '@/features/inbox/QuickCapture'
@@ -103,7 +104,7 @@ function Shell(): JSX.Element {
           <Route path="/wiki/:slug?" element={<WikiPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/reports" element={<ReportsPage />} />
-          <Route path="/settings" element={<Placeholder title="Settings" />} />
+          <Route path="/settings" element={<SettingsHome />} />
           <Route path="/settings/backups" element={<BackupsSettingsPage />} />
           <Route path="/settings/bots" element={<BotsSettingsPage />} />
           <Route path="*" element={<Placeholder title="Not found" />} />

@@ -25,6 +25,26 @@ export interface HealthResponse {
 }
 
 /**
+ * Phase 24: GET /api/v1/stats. Mirrors `statsResponse` in
+ * `internal/api/handlers_stats.go`. Optional fields (last_backup_unix)
+ * are only emitted when the server has a backup timestamp; the UI
+ * treats them as "not yet".
+ */
+export interface StatsResponse {
+  uptime_seconds: number
+  requests_total: number
+  requests_2xx: number
+  requests_3xx: number
+  requests_4xx: number
+  requests_5xx: number
+  slow_requests: number
+  ws_connections: number
+  db_bytes: number
+  db_path: string
+  last_backup_unix?: number
+}
+
+/**
  * Auth profile returned by GET /api/v1/me and embedded in LoginResponse.
  */
 export interface UserProfile {
@@ -263,6 +283,16 @@ class ApiClient {
 
   me(): Promise<UserProfile> {
     return this.http.get<UserProfile>('/api/v1/me').then((r) => r.data)
+  }
+
+  /**
+   * Phase 24 observable snapshot. The Settings index (Phase 28.2)
+   * renders this in the About panel; uptime + DB size are the two
+   * fields humans actually look at. No auth required — the endpoint
+   * is intentionally public.
+   */
+  getStats(): Promise<StatsResponse> {
+    return this.http.get<StatsResponse>('/api/v1/stats').then((r) => r.data)
   }
 
   login(email: string, password: string): Promise<LoginResponse> {
