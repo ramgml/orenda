@@ -91,6 +91,16 @@ make lint
 6. Re-index the codebase knowledge graph after code changes: codebase-memory-mcp `index_repository` with `mode: "fast"` (`"full"` on first index). Code discovery runs through `search_graph`/`trace_path` — a stale graph misleads the next agent.
 7. Open PR with checklist from Definition of Done.
 
+### Definition of Done is binary
+
+A task is done or not done — "almost done" is not done. Phases here have been signed off as complete while core flows were missing (Phase 18 shipped without lesson materialization, quiz answering, or any quiz-creation endpoint; the generator task stayed a placeholder nothing wrote to). These rules exist so that never happens silently again.
+
+1. **Verify every DoD item by execution.** A test run, a smoke walkthrough, a command whose output you can quote in the PR. "Implemented" and "should work" are not verification.
+2. **Report partial as partial.** If 4 of 6 DoD items pass, say exactly which 2 are missing and why. A PLAN.md checkbox turns `[x]` only when every item passes — never in good faith.
+3. **No silent scope reduction.** A requirement that is blocked, ambiguous, or wrong is surfaced (in the PR, or to the user) — not dropped, stubbed, or deferred to an unrecorded "later".
+4. **No stubs in delivered code.** No `TODO: implement`, no fields nothing writes to, no dead endpoints. An intentionally deferred seam is written down in `docs/PLAN.md` as a known gap, so the next agent sees it.
+5. **Self-review against the DoD before opening the PR.** Walk it top to bottom; attach one evidence line per item. An item without evidence means the PR is not ready.
+
 ### When you're stuck
 - Read [[docs/PRD.md]] for intent.
 - Read [[docs/ARCHITECTURE.md]] (when exists) for design.
@@ -107,6 +117,7 @@ make lint
 - ❌ Don't edit the main working tree directly — worktree per task, always. Other agents may hold uncommitted work there; they don't know about you either.
 - ❌ Don't run `git checkout` / `git reset` / `git clean` / `git restore` in a checkout you didn't create.
 - ❌ Don't push to remote without explicit user request.
+- ❌ Don't report unverified or incomplete work as done. Partial delivery is reported as partial, with the missing items named — see «Definition of Done is binary».
 
 ## Key files to read first
 
