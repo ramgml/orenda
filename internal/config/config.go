@@ -132,8 +132,13 @@ func DefaultConfig() *Config {
 			EnableForeign: true,
 		},
 		Auth: AuthConfig{
-			JWTSecret:    "",
-			JWTTTL:       168 * time.Hour,
+			JWTSecret: "",
+			// Phase 28.4: OWASP-aligned default for a cookie-issued
+			// session token. The previous 168h (7 days) survives
+			// in any token already issued — JWT exp is baked into
+			// the token — so existing sessions stay valid until
+			// their original expiry. New logins get a 24h window.
+			JWTTTL:       24 * time.Hour,
 			CookieName:   "orenda_session",
 			CookieSecure: false,
 			BcryptCost:   12,

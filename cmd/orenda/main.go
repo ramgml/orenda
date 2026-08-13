@@ -901,6 +901,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		BotBindCodes:   bindCodes,
 		WSHub:          hub,
 		CookieName:     cfg.Auth.CookieName,
+		CookieSecure:   cfg.Auth.CookieSecure,
+		JWTTTL:         cfg.Auth.JWTTTL,
 		DBPath:         cfg.ResolveDBPath("."),
 	})
 

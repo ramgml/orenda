@@ -56,15 +56,18 @@ func loginHandler(deps Dependencies) http.HandlerFunc {
 		}
 
 		// Set httpOnly cookie for the SPA. SameSite=Lax is the OWASP
-		// recommendation for cookie-based auth in 2024.
+		// recommendation for cookie-based auth in 2024. The `Secure`
+		// flag is driven by config (auth.cookie_secure) — leave it
+		// false on loopback dev installs and flip it on when serving
+		// over HTTPS. Phase 28.4 retired the Phase 1 hardcoded false.
 		http.SetCookie(w, &http.Cookie{
 			Name:     deps.CookieName,
 			Value:    tok,
 			Path:     "/",
 			HttpOnly: true,
-			Secure:   false, // Phase 1: loopback only; flag toggles in Phase 9
+			Secure:   deps.CookieSecure,
 			SameSite: http.SameSiteLaxMode,
-			Expires:  time.Now().Add(24 * time.Hour),
+			Expires:  time.Now().Add(deps.JWTTTL),
 		})
 
 		writeJSON(w, http.StatusOK, loginResponse{
@@ -82,6 +85,11 @@ func loginHandler(deps Dependencies) http.HandlerFunc {
 // Stateless servers can't actually invalidate a JWT, so logout here means
 // "drop the cookie". Phase 6 (notifications) will introduce a token
 // blacklist for server-side invalidation if needed.
+//
+// Phase 28.4: also propagate `Secure` from config. If we issued the cookie
+// with Secure=true, the matching MaxAge=-1 must carry Secure=true too —
+// otherwise some browsers scope the deletion to the non-secure cookie set
+// and the secure one survives the logout.
 func logoutHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		http.SetCookie(w, &http.Cookie{
@@ -89,6 +97,8 @@ func logoutHandler(deps Dependencies) http.HandlerFunc {
 			Value:    "",
 			Path:     "/",
 			HttpOnly: true,
+			Secure:   deps.CookieSecure,
+			SameSite: http.SameSiteLaxMode,
 			MaxAge:   -1,
 		})
 		writeJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})
@@ -109,4 +119,25 @@ func meHandler() http.HandlerFunc {
 			"scopes":  id.Scopes,
 		})
 	}
+}
+
+// LoginHandlerForTest is the test seam that lets callers mount
+// just the login handler against an arbitrary Dependencies. The
+// router wires loginHandler(deps) internally; tests in
+// handlers_auth_test.go use this to assert cookie attributes
+// (Secure, Expires, SameSite, HttpOnly) without standing up the
+// whole API surface.
+//
+// Phase 28.4 introduced this so the cookie-security regression
+// suite can pin Phase 1's hardcoded Secure:false replacement.
+func LoginHandlerForTest(deps Dependencies) http.Handler {
+	return loginHandler(deps)
+}
+
+// LogoutHandlerForTest mirrors LoginHandlerForTest for the
+// logout endpoint. The MaxAge=-1 cookie must carry the same
+// Secure value as the login one — same regression risk, same
+// fix, same test.
+func LogoutHandlerForTest(deps Dependencies) http.Handler {
+	return logoutHandler(deps)
 }

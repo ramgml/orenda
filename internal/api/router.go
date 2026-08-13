@@ -35,6 +35,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -126,7 +127,20 @@ type Dependencies struct {
 	VKConfirmation string
 	WSHub          ws.Hub
 	CookieName     string
-	Capabilities   Capabilities
+	// Phase 28.4: whether the session cookie should carry the
+	// `Secure` attribute. Defaults to false so the cookie still
+	// flows over plain HTTP on loopback dev installs. Operators
+	// serving over HTTPS (reverse proxy or direct TLS) must set
+	// `auth.cookie_secure: true` in config.yaml — the cookie would
+	// otherwise leak over plain HTTP if the user later hits the
+	// site on http://.
+	CookieSecure bool
+	// Phase 28.4: session-cookie lifetime. Mirrors `Auth.JWTTTL`
+	// so the cookie's `Expires` matches the embedded JWT exp —
+	// otherwise a cookie can outlive its token (or vice versa)
+	// and RequireUser silently fails on otherwise-valid sessions.
+	JWTTTL       time.Duration
+	Capabilities Capabilities
 	// Phase 24: absolute path to the SQLite file so /api/v1/stats
 	// can report its size. Optional — left empty in tests that
 	// don't run a real DB.

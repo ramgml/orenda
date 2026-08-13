@@ -18,6 +18,11 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, "data/orenda.db", c.Storage.DBPath)
 	assert.True(t, c.Storage.WALMode)
 	assert.Equal(t, 12, c.Auth.BcryptCost)
+	// Phase 28.4: OWASP-aligned default for cookie session TTL.
+	// Older 168h lives on in any token already issued; new logins
+	// get this 24h window. The cookie's Expires in handlers_auth.go
+	// is derived from this same value (deps.JWTTTL).
+	assert.Equal(t, 24*time.Hour, c.Auth.JWTTTL)
 	assert.Equal(t, "info", c.Logging.Level)
 	require.NoError(t, c.Validate())
 }
@@ -54,6 +59,29 @@ logging:
 	assert.Equal(t, "debug", c.Logging.Level)
 	// Defaults preserved for unspecified fields.
 	assert.True(t, c.Storage.WALMode)
+	// Phase 28.4: jwt_ttl wasn't in the file → falls back to the
+	// 24h default set in DefaultConfig().
+	assert.Equal(t, 24*time.Hour, c.Auth.JWTTTL)
+}
+
+// Phase 28.4: explicit jwt_ttl in YAML wins over the default.
+// Operators who still want a longer cookie session can opt in
+// (the spec mentions 168h/7d historically) by setting the value.
+func TestLoad_JWTTTLFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yaml := `
+auth:
+  jwt_secret: "x"
+  jwt_ttl: "168h"
+  cookie_secure: true
+`
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o600))
+
+	c, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, 168*time.Hour, c.Auth.JWTTTL)
+	assert.True(t, c.Auth.CookieSecure)
 }
 
 func TestLoad_MalformedYAML_ReturnsError(t *testing.T) {
@@ -74,6 +102,8 @@ func TestLoad_EnvOverridesYAML(t *testing.T) {
 	t.Setenv("ORENDA_AUTH__JWT_SECRET", "from-env")
 	t.Setenv("ORENDA_LOGGING__LEVEL", "warn")
 	t.Setenv("ORENDA_STORAGE__WAL_MODE", "false")
+	t.Setenv("ORENDA_AUTH__JWT_TTL", "12h")
+	t.Setenv("ORENDA_AUTH__COOKIE_SECURE", "true")
 
 	c, err := Load(path)
 	require.NoError(t, err)
@@ -81,6 +111,9 @@ func TestLoad_EnvOverridesYAML(t *testing.T) {
 	assert.Equal(t, "from-env", c.Auth.JWTSecret)
 	assert.Equal(t, "warn", c.Logging.Level)
 	assert.False(t, c.Storage.WALMode)
+	// Phase 28.4: env wins over YAML wins over default.
+	assert.Equal(t, 12*time.Hour, c.Auth.JWTTTL)
+	assert.True(t, c.Auth.CookieSecure)
 }
 
 func TestLoad_EnvOnly_NoFile(t *testing.T) {
