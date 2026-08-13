@@ -1033,6 +1033,22 @@ class ApiClient {
     return this.http.get<BackupSettings>('/api/v1/backups/settings').then((r) => r.data)
   }
 
+  /**
+   * Phase 28.1 (polish.1): PUT /api/v1/backups/settings. Persists
+   * the (enabled, remote_url, remote_auth) tuple to the
+   * backup_settings table; the response body mirrors GET so the UI
+   * can update from the response without an extra round-trip.
+   *
+   * Settings take effect on the next process restart (the
+   * `*backup.Service` is wired from cfg at startup). The UI
+   * surfaces this via the `source_hint` field on GET — when it
+   * reads "ui_override_restart_to_apply", the form shows a
+   * banner.
+   */
+  setBackupSettings(body: BackupSettingsInput): Promise<BackupSettings> {
+    return this.http.put<BackupSettings>('/api/v1/backups/settings', body).then((r) => r.data)
+  }
+
   testBackupPush(): Promise<{ status: string }> {
     return this.http.post<{ status: string }>('/api/v1/backups/test', {}).then((r) => r.data)
   }
@@ -1139,6 +1155,26 @@ export interface BackupSettings {
   enabled: boolean
   remote_url: string
   has_auth: boolean
+  updated_at?: string
+  /**
+   * Phase 28.1 polish.1: when the UI has overridden the in-memory
+   * config, the running `*backup.Service` is still on the old URL
+   * — the operator needs to restart for the new remote to apply.
+   * The form shows a banner whenever this hint is non-empty.
+   */
+  source_hint?: string
+}
+
+/**
+ * Body shape for `setBackupSettings`. All three are optional so
+ * the operator can change one field at a time without us having
+ * to round-trip the current state; missing `enabled` keeps the
+ * persisted value.
+ */
+export interface BackupSettingsInput {
+  enabled?: boolean
+  remote_url?: string
+  remote_auth?: string
 }
 
 export interface BackupSnapshot {

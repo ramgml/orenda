@@ -131,6 +131,9 @@ func fullRouterDeps(t *testing.T) http.Handler {
 		CookieName:    "orenda_session",
 		Courses:       coursesRepo,
 		CourseService: courseSvc,
+		// Phase 28.1 polish.1: backup settings repo is a pure
+		// SQLite repo (no filesystem), so it's wired even in tests.
+		BackupSettings: sqlite.NewBackupSettingsRepository(db),
 		// Attachments and Backup deliberately nil — they require
 		// filesystem paths (config + uploads dir) and aren't needed
 		// for route mount. Their routes mount unconditionally.

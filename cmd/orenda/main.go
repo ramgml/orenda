@@ -890,12 +890,18 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		BackupEnabled:       cfg.Backup.Enabled,
 		BackupRemoteURL:     cfg.Backup.RemoteURL,
 		BackupRemoteAuthSet: cfg.Backup.RemoteAuth != "",
-		SyncOps:             sqlite.NewSyncOpsRepository(db),
-		BotCallback:         botCallback,
-		BotBindCodes:        bindCodes,
-		WSHub:               hub,
-		CookieName:          cfg.Auth.CookieName,
-		DBPath:              cfg.ResolveDBPath("."),
+		// Phase 28.1 polish.1: UI-editable override repo. PUT
+		// /api/v1/backups/settings writes here; GET merges it over
+		// the in-memory cfg (see handlers_backup.go). Settings take
+		// effect on the next process restart — `*backup.Service`
+		// is wired from cfg above and stays immutable.
+		BackupSettings: sqlite.NewBackupSettingsRepository(db),
+		SyncOps:        sqlite.NewSyncOpsRepository(db),
+		BotCallback:    botCallback,
+		BotBindCodes:   bindCodes,
+		WSHub:          hub,
+		CookieName:     cfg.Auth.CookieName,
+		DBPath:         cfg.ResolveDBPath("."),
 	})
 
 	// HTTP server with graceful shutdown.

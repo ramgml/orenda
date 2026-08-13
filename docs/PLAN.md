@@ -513,6 +513,64 @@ make build
 ## Phase 9 — Полировка *(ongoing)*
 
 > **Аудит 2026-08-12:** 🟡 — бенчмарки, security headers, rate limit (429+Retry-After), zap+lumberjack, install.sh/systemd/uninstall, dark mode — есть. Нет `docs/ARCHITECTURE.md`, pprof endpoint, Prometheus metrics, govulncheck; README без скриншотов.
+>
+> **Update 2026-08-13 (Phase 28.1 polish.1):** закрыт блокер dogfooding — `PUT /api/v1/backups/settings` теперь 200 (раньше 501). UI Settings → Backups: редактируемая форма с Save и restart-to-apply banner. Полная секция — ниже.
+
+---
+
+## Phase 28.1 (полировка) — backup_settings write path *(2026-08-13)*
+
+**Цель:** закрыть blocker dogfooding — operator мог настроить remote backup только через ssh + vim config.yaml + restart. План: PUT /api/v1/backups/settings → 200, пишет в таблицу; UI форма редактируемая; restart-to-apply контракт (in-memory Service immutable, новый URL применяется на следующем старте процесса).
+
+**Контекст:**
+
+- Таблица `backup_settings` (key, value) существовала с `001_init.sql:303`, но ни один кусок кода её не читал и не писал (`grep INSERT|UPDATE|DELETE|SELECT.*FROM backup_settings → 0 hits`).
+- `handlers_backup.go:36-47` отдавал 501: «Phase 9 — config.yaml is the source of truth».
+- `cmd/orenda/main.go:601-630` создавал `*backup.Service` с in-memory `Config` (URL/auth из cfg) — `backup.Config` иммутабельный после `New()`.
+- `web/src/features/settings/Backups.tsx` показывал read-only `<dl>`.
+- `docs/API.md:184` и `docs/openapi.yaml:1084` явно документировали 501.
+
+**Ключевые решения:**
+
+- **Два слоя конфига.** `data/config.yaml` остаётся cold-start source of truth (пути, секреты вне БД). `backup_settings` БД-таблица — UI-facing overrides (remote URL, auth, enabled). Get: сначала DB, fallback на cfg; если DB override ≠ cfg.default → `source_hint=ui_override_restart_to_apply`.
+- **Restart-to-apply.** `*backup.Service` immutable; UI Save пишет в DB, restart читает. Hot-reload — отдельный долг. Без этой границы форма создаёт ложное ощущение что «сохранил → push пошёл на новый remote», а на деле продолжает работать старый URL.
+- **Settings keys.** `enabled`, `remote_url`, `remote_auth` — короткие стабильные имена; значение — JSON blob (через `json.RawMessage`).
+- **Auth.** GET никогда не возвращает `remote_auth` в plain text — только флаг `has_auth` (security). Форма не пре-заполняет auth input.
+- **Валидация.** `enabled=true` требует непустой `remote_url`; URL `Parse` обязателен; разрешённые схемы: `http`, `https`, `ssh`, `git` (последняя — для GitHub-стиля `git@…` клонов).
+
+**Tasks:**
+
+- [x] **`internal/storage/sqlite/backup_settings_repo.go`** — `BackupSettingsRepository` интерфейс + реализация `GetAll/GetByKey/SetKey/ClearByKey`. PK = key; value = JSON blob; `SetKey` — UPSERT.
+- [x] **`internal/api/router.go`** — добавлено `BackupSettings sqlite.BackupSettingsRepository` в `Dependencies`. `fullRouterDeps` подключает репо (zero-cost wiring).
+- [x] **`internal/api/handlers_backup.go`**:
+  - `listBackupSettingsHandler` → merge DB над cfg; `source_hint` если override.
+  - `putBackupSettingsHandler` → 501 → 200 + валидация + persist в DB.
+  - `backupSettingsInput` (pointer на `Enabled` чтобы missing ≠ false).
+- [x] **`cmd/orenda/main.go`** — wire `BackupSettings: sqlite.NewBackupSettingsRepository(db)`.
+- [x] **`web/src/shared/api/client.ts`** — `setBackupSettings(body)` + `BackupSettingsInput` тип + `source_hint` в `BackupSettings`.
+- [x] **`web/src/features/settings/Backups.tsx`** — read-only `<dl>` → редактируемая форма (checkbox, URL input, password input), Save button, restart banner. Form state отдельный (`formEnabled/formRemoteUrl/formRemoteAuth`); `formInitialized` flag — форма синкается с сервером только на initial load, не после каждого fetch.
+- [x] **Tests:**
+  - `internal/storage/sqlite/backup_settings_repo_test.go` — 8 тестов: empty roundtrip, set+get, missing → not ok, empty key rejected, upsert, invalid JSON rejected, empty key on Set rejected, ClearByKey removes row.
+  - `internal/api/handlers_backup_test.go` — 7 тестов: GET empty default, PUT+GET roundtrip (с source_hint), invalid URL (missing scheme + ftp scheme → 400), enabled requires URL, disabled без URL OK, remote_auth persist (auth present → has_auth=true, secret never returned), invalid JSON → 400.
+  - `web/src/features/settings/Backups.test.tsx` — обновлён existing «read-only settings panel» → editable form (3 теста: form renders, Save posts + success banner, server error surfaces). Pre-existing 9 тестов (push/snapshot/restore/maintenance) остались зелёные.
+- [x] **`web/e2e/backups-settings.spec.ts`** (NEW) — happy-path через UI: login → settings → fill form → Save → assert 200 (не 501) → reload → GET reflects persisted URL → source_hint="ui_override_restart_to_apply".
+
+**DoD — verified 2026-08-13:**
+
+- ✅ `go test ./...` — 0 fail (новые: 8 repo + 7 handler; существующие не задеты)
+- ✅ `npx vitest run` — 224/224 (+2 от 222; обновлены тесты Backups не «съели» существующие)
+- ✅ `npx tsc --noEmit` — clean
+- ✅ `make test-e2e` — 15/15 (+1 — `backups-settings.spec.ts`)
+- ✅ `TestOpenAPI_RouteCoverage_FullRouter` — pass (route existing в спеке, обновил PUT response shape: now documents `requestBody` + 400/503 codes)
+- ✅ Manual: PUT через UI → page.reload → settings сохраняются. Таблица `backup_settings` заполняется. Restart banner показывается при наличии override.
+
+**За скобкой (явно отложено):** hot-reload без restart (5.4 — hot reload `*backup.Service` на каждом `Push` tick — отдельный долг, pre-existing сложность с `Service.cfg` иммутабельностью); `BACKUP__SNAPSHOT_ROTATION_DAYS` и cron schedule как UI-editable (валидация побольше); `Bot.Stop()` на shutdown; `bot_subscriptions` events JSON в UI form; всё из инвентаря «Полировки» ниже.
+
+**Известные ограничения (зафиксированы):**
+
+- Перечень опций: **только `enabled`/`remote_url`/`remote_auth`**. `mirror_dir`, `snapshot_dir`, schedule cron остаются cfg-only (нечего делать в БД — сервер их использует напрямую для создания Service).
+- Auth-write нет separate path — форма шлёт `remote_auth=""` для удаления (но `SetKey` пишет empty value; clear=delete отдельный путь, не выставлен через PUT).
+- `source_hint` показывается как жёлтый banner; нет кнопки «Restart now» (systemd-notify integration — отдельная история).
 
 ### Tasks
 

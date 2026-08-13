@@ -180,8 +180,8 @@ agent namespace. Source: `cmd/orenda/agent.go`. See
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/v1/backups/settings` | `{enabled, remote_url, has_auth}` |
-| PUT | `/api/v1/backups/settings` | currently **501** — config.yaml stays the source of truth (Phase 9 follow-up) |
+| GET | `/api/v1/backups/settings` | `{enabled, remote_url, has_auth, source_hint?}`. `source_hint` is `"ui_override_restart_to_apply"` when a UI override diverges from the in-memory cfg (the running `*backup.Service` is still on the old URL — restart to apply). |
+| PUT | `/api/v1/backups/settings` | body `{enabled?, remote_url?, remote_auth?}`; persists to the `backup_settings` table; returns the merged `BackupSettings` (200). Validation: `enabled=true` requires a non-empty `remote_url`; allowed URL schemes are `http`, `https`, `ssh`, `git`. The running `*backup.Service` is wired from cfg at startup and stays on the old URL until the operator restarts — see SESSION.md «Фаза «Полировка»» for the restart-to-apply contract. |
 | POST | `/api/v1/backups/test` | git push of mirror |
 | POST | `/api/v1/backups/snapshot` | write snapshot now |
 | GET | `/api/v1/backups/snapshots` | list |
