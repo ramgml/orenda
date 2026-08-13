@@ -403,6 +403,28 @@ func applyTaskPatch(ctx context.Context, deps Dependencies, tr *task.Task, in ta
 	if in.ColumnID != "" {
 		tr.ColumnID = in.ColumnID
 	}
+
+	// Phase 27.8: keep (task.status, task.column_id) in sync. The two
+	// axes are now one — PATCH on one must update the other.
+	//
+	// status → column: when status changed, move the card onto the
+	// column that carries the new status.
+	// column → status: when only column_id changed, lift the
+	// column's status onto the task so the label follows the
+	// visual position.
+	if deps.Projects != nil {
+		if in.Status != "" {
+			if col, err := deps.Projects.FindColumnByStatus(ctx, tr.ProjectID, string(tr.Status)); err == nil && col != nil {
+				tr.ColumnID = col.ID
+			}
+		} else if in.ColumnID != "" && tr.ColumnID == in.ColumnID {
+			// Caller moved the card explicitly (e.g. DnD). Lift
+			// the destination column's status onto the task.
+			if dest, err := deps.Projects.GetColumn(ctx, in.ColumnID); err == nil && dest != nil && dest.Status != "" {
+				tr.Status = task.Status(dest.Status)
+			}
+		}
+	}
 	if in.Color != nil {
 		// PATCH: *string so an empty value explicitly clears the
 		// colour label. We don't validate the format here; the
