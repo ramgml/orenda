@@ -644,6 +644,44 @@ make build
 **За скобкой (явно отложено):**
 - `data/config.example.yaml` не в git (живёт только в working tree владельца + через `!data/config.example.yaml` в `.gitignore`); `install.sh` использует как шаблон. Стоит обновить `jwt_ttl: "168h" → "24h"` локально у оператора при следующем install — фиксирую в SESSION.md. Альтернатива — выкатить `docs/config.example.yaml` под версионирование и переключить `install.sh` (отдельная мини-фаза).
 
+## Phase 28.5 (полировка) — task.commented / task.attachment_added emission + Bot.Stop() on shutdown *(2026-08-13)*
+
+**Цель:** закрыть два small audit-debt'а из «Полировки»: константы `task.commented` / `task.attachment_added` (declared never emitted) и `Bot.Stop()` никогда не вызывался на shutdown (long-poll транспорты SIGKILL'ились после `ShutdownTimeout`).
+
+**Контекст (проверено по коду 2026-08-13):**
+
+- `internal/domain/activity/model.go:34-35` — константы `ActionCommented = "task.commented"` и `ActionAttachmentAdd = "task.attachment_added"` существуют с Phase 6, но `grep` по использованию — 0 hits в handlers.
+- `internal/api/handlers_phase3.go::createTaskCommentHandler` пишет `mention.created` notification, но не activity row. `addTaskAttachmentHandler` тоже не пишет. Обе мутации не шли через `taskSvc` (где живёт стандартный side-effect emission), поэтому audit log пропускал их.
+- `cmd/orenda/main.go:917-947` shutdown loop: `srv.Shutdown(shutdownCtx)` → exit. Ботов `Stop()` нет — `for _, b := range botRegistry.List() { ... b.Start(cmd.Context()) ... }` на старте, но без симметричного Stop. Telegram long-poll goroutine остаётся живой до SIGKILL.
+
+**Ключевые решения:**
+
+- **Узкий `ActivityRecorder` интерфейс** в `api/service_interfaces.go` (один метод `RecordTask`). Nil-safe — паттерн `deps.Notifier`. `*activityservice.Recorder` удовлетворяет структурно (та же сигнатура), без explicit адаптера.
+- **Log-on-error, не fail.** Audit gap recoverable, failed user request — нет. На error пишем `zap.Warn` и возвращаем успешный ответ.
+- **Dedup-attach пропускается.** `res.Duplicate=true` означает, что attachment уже существовал (sha256 dedup); `res.Attachment.ID` указывает на старую запись. Лишний audit row "added" с existing-id обманывает timeline.
+- **Best-effort shutdown loop.** `if err := b.Stop(shutdownCtx); err != nil { logger.Warn(...) }` — бот, который не смог Stop, не валит остальной loop (тест `TestRegistry_ShutdownLoop_OneFailingBot_Continues` это пинит).
+- **Pre-existing infra fix в E2E setup.** `web/e2e-setup/run-server.sh` теперь `mkdir -p data/uploads/` перед стартом сервера. Attachment service `CreateTemp(s.Config.UploadDir, ...)` требует директорию существующей; без неё первый attachment upload 500'ит. Это попутный полезный фикс для любых будущих attachment E2E.
+
+**Задачи:**
+
+- [x] **28.5.1** `internal/api/service_interfaces.go` — `ActivityRecorder` interface.
+- [x] **28.5.2** `internal/api/router.go::Dependencies` — поле `ActivityRecorder ActivityRecorder`.
+- [x] **28.5.3** `internal/api/handlers_phase3.go::createTaskCommentHandler` — emission после Add (payload: comment_id, length).
+- [x] **28.5.4** `internal/api/handlers_phase3.go::addTaskAttachmentHandler` — emission после StoreFromBytes (payload: attachment_id, filename, mime, size); dedup пропускается.
+- [x] **28.5.5** `internal/api/handlers_agent_namespace.go::agentCreateTaskCommentHandler` — emission с `ActorAgent`.
+- [x] **28.5.6** `cmd/orenda/main.go` — wire `ActivityRecorder` + shutdown loop `for _, b := range botRegistry.List() { b.Stop(shutdownCtx) }`.
+- [x] **28.5.7** `internal/bot/bot_test.go` — `TestConsole_Stop_ReturnsNil` + `TestRegistry_ShutdownLoop_StopsEveryBot` + `TestRegistry_ShutdownLoop_OneFailingBot_Continues`.
+- [x] **28.5.8** `web/e2e-setup/run-server.sh` — `mkdir -p data/uploads/`.
+- [x] **28.5.9** `web/e2e/task-activity.spec.ts` (NEW) — POST comment → GET /activity → assert task.commented row.
+
+**DoD — verified 2026-08-13:**
+
+- ✅ `go test ./...` — 30 packages ok (bot: +3 Stop tests; api без изменений).
+- ✅ `npx vitest run` — 236/236 (фронт не тронут).
+- ✅ `make test-e2e` — 18/18 (+1 task-activity.spec.ts).
+- ✅ `npx tsc --noEmit` — clean.
+- ✅ Manual: `cmd/orenda/main.go:946` shutdown loop теперь вызывает `b.Stop(shutdownCtx)` для всех зарегистрированных ботов.
+
 ### Tasks
 
 - [ ] **9.1** Покрытие тестами:
