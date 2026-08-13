@@ -35,14 +35,18 @@ All JSON. Errors are `{"error": "<code>"}` with a 4xx/5xx status.
 | GET/PATCH/DELETE | `/api/v1/projects/{id}` | |
 | GET | `/api/v1/projects/{id}/board` | board + columns; tasks carry `counters` + `blocked_by_count` (Phase 17) |
 | GET/POST | `/api/v1/projects/{id}/tasks` | filter: `?status=`, `?column_id=`. Listing endpoints populate `counters` + `blocked_by_count` (Phase 17) |
-| PATCH | `/api/v1/columns/{id}` | name, position, wip_limit |
+| GET | `/api/v1/projects/{id}/activity` | project-wide activity feed |
+| GET/POST | `/api/v1/projects/{id}/attachments` | project-level attachments |
+| POST | `/api/v1/projects/{id}/columns` | add column `{name, color?, wip_limit?}` (position assigned) |
+| PATCH | `/api/v1/columns/{id}` | name, position, wip_limit, color |
+| DELETE | `/api/v1/columns/{id}` | 422 while tasks remain (`current` count in body) |
 
 ## Tasks
 
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/v1/tasks/{id}` | |
-| PATCH/PUT | `/api/v1/tasks/{id}` | partial update |
+| PATCH/PUT | `/api/v1/tasks/{id}` | partial update (PUT = alias). Mutable: title, description, status, priority, assignee_type/assignee_id, project_id, column_id, parent_task_id, context_md, agent_notes, color, tags, due_at, time_estimate_s, position… Status/column moves follow the 27.8 single-axis rule: PATCHing one syncs the other; `status=done` stamps `completed_at` |
 | DELETE | `/api/v1/tasks/{id}` | |
 | POST | `/api/v1/tasks/{id}/move` | `{column_id, position?}` |
 | POST | `/api/v1/tasks/{id}/claim` | `{agent_id}` — 409 on lock_taken |
@@ -54,9 +58,25 @@ All JSON. Errors are `{"error": "<code>"}` with a 4xx/5xx status.
 | GET | `/api/v1/tasks/{id}/dependents` | reverse lookup, Phase 15 |
 | PUT | `/api/v1/tasks/{id}/dependencies` | `{depends_on_ids: [...]}` — replace; cycles/self-loops → 422 |
 | GET/POST | `/api/v1/tasks/{id}/comments` | body: `{body_md}` — `@user:<id>`/`@agent:<id>` mentions |
-| POST | `/api/v1/tasks/{id}/attachments` | multipart `file` field |
+| GET/POST | `/api/v1/tasks/{id}/attachments` | list / multipart upload (`file` field) |
+| GET | `/api/v1/tasks/{id}/attachments/{attId}/download` | stream file |
+| GET/PUT | `/api/v1/tasks/{id}/tags` | list / replace tag set `{tag_ids: [...]}` (empty array clears) |
+| GET/POST | `/api/v1/tasks/{id}/checklists` | list (with items) / create `{title}` |
+| DELETE | `/api/v1/tasks/{id}/checklists/{clId}` | cascades items |
+| GET/POST | `/api/v1/tasks/{id}/checklists/{clId}/items` | |
+| PATCH/DELETE | `/api/v1/tasks/{id}/checklists/{clId}/items/{itemId}` | `{done?, title?}` / delete |
 | GET | `/api/v1/tasks/{id}/activity` | audit log |
 | GET | `/api/v1/tasks/{id}/context` | task + comments + activity + children + checklists |
+| GET | `/api/v1/attachments/{attId}/download` | global download alias |
+
+### Tags (Phase 13)
+
+Global catalogue (not project-scoped); assignment is per-task via `PUT /tasks/{id}/tags`.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET/POST | `/api/v1/tags` | list / create `{name, color?}` |
+| PATCH/DELETE | `/api/v1/tags/{id}` | `{name?, color?}` — empty color clears |
 
 ### Child tasks (Phase 14)
 
@@ -80,7 +100,12 @@ Tasks awaiting human action — the union of `awaiting='human'` and `status='rev
 | GET | `/api/v1/review-queue` | `{tasks: [ReviewQueueItem], count}` |
 | GET | `/api/v1/review-queue/count` | `{count}` — cheap, used by the sidebar badge |
 | GET | `/api/v1/today` | `{overdue, due_today, scheduled_today, awaiting_count}` (Phase 20). One round-trip for the daily-driver dashboard |
-| GET/POST | `/api/v1/courses[/{id}]` | Phase 18 LMS. `POST` body: `{title, intent_md, skip_generator?}` (Phase 27.6). `GET /{id}` returns the full tree (course + modules + lessons + quizzes + progress) |
+| GET/POST | `/api/v1/courses` | Phase 18 LMS. `POST` body: `{title, intent_md, skip_generator?}` (skip_generator — Phase 27.6, no tutor task) |
+| GET/DELETE | `/api/v1/courses/{id}` | GET returns the full tree (course + modules + lessons + quizzes + progress); DELETE cascades |
+| POST | `/api/v1/courses/{id}/approve` | review → active (unlocks the first lesson) |
+| POST | `/api/v1/courses/{id}/request-changes` | review → draft |
+| POST | `/api/v1/lessons/{id}/complete` | lesson done → next unlocks; last one closes the course |
+| POST | `/api/v1/lessons/{id}/quizzes/{qid}/answer` | exact → instant verdict; open → review task for the tutor |
 | PUT | `/api/v1/courses/{id}/curriculum` | Phase 27.6 owner-side atomic swap: `{modules: [{title, description?, position, lessons: [{title, position, content_md?, quizzes?: [{position, question_md, expected_md?, kind}]}]}]}`. Same service path as the tutor agent — when called from the owner namespace, the service retires the generator task so a sleeping tutor can't overwrite manual work. |
 | POST | `/api/v1/lessons/{id}/quizzes` | Phase 27.6 owner-side quiz append (closes Phase 18.6 debt). Body: `{position?: 0=append, question_md, expected_md?, kind: 'exact'|'open'}`. Returns the persisted quiz (with id + assigned position). |
 | PUT | `/api/v1/lessons/{id}/content` | Phase 27.6 owner-side content edit (active courses only by design). Body: `{content_md, task_id?}`. Doesn't flip lesson status — used for typos / rewordings once the course is live. |
@@ -121,7 +146,8 @@ agent namespace. Source: `cmd/orenda/agent.go`. See
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/v1/events?from=&to=&project_id=` | RFC3339 range |
-| POST/PATCH/DELETE | `/api/v1/events[/{id}]` | supports `recurrence` RRULE (DAILY/WEEKLY/MONTHLY, INTERVAL, COUNT, UNTIL) |
+| POST | `/api/v1/events` | create; supports `recurrence` RRULE (DAILY/WEEKLY/MONTHLY, INTERVAL, COUNT, UNTIL) |
+| GET/PATCH/DELETE | `/api/v1/events/{id}` | |
 | POST | `/api/v1/tasks/{id}/timer/start` | one open timer per actor |
 | POST | `/api/v1/tasks/{id}/timer/stop` | |
 | POST | `/api/v1/tasks/{id}/time` | `{agent_id?, start_at, end_at}` manual entry |
@@ -134,6 +160,8 @@ agent namespace. Source: `cmd/orenda/agent.go`. See
 | GET | `/api/v1/pages` | tree |
 | POST | `/api/v1/pages` | create (auto-parses `[[slug]]`) |
 | GET/PUT | `/api/v1/pages/{slug}` | |
+| DELETE | `/api/v1/pages/{slug}` | |
+| PATCH | `/api/v1/pages/{slug}/move` | re-parent the page |
 | GET | `/api/v1/pages/{slug}/backlinks` | |
 | GET | `/api/v1/search?q=&type=&limit=` | FTS5 BM25 over pages/tasks/comments |
 
@@ -143,12 +171,17 @@ agent namespace. Source: `cmd/orenda/agent.go`. See
 |---|---|---|
 | GET | `/api/v1/notifications?limit=` | unread first; `{unread: n}` |
 | POST | `/api/v1/notifications/{id}/read` | |
+| GET/POST | `/api/v1/notifications/subscriptions` | bot subscriptions list / create |
+| DELETE | `/api/v1/notifications/subscriptions/{id}` | |
+| POST | `/api/v1/bots/telegram/bind` | Phase 22.3: resolve one-shot `/start` code → chat_id → subscription |
+| POST | `/api/v1/webhooks/vk` | VK callback (confirmation token, replay-protected) — unauthenticated by design |
 
 ## Backups
 
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/v1/backups/settings` | `{enabled, remote_url, has_auth}` |
+| PUT | `/api/v1/backups/settings` | currently **501** — config.yaml stays the source of truth (Phase 9 follow-up) |
 | POST | `/api/v1/backups/test` | git push of mirror |
 | POST | `/api/v1/backups/snapshot` | write snapshot now |
 | GET | `/api/v1/backups/snapshots` | list |

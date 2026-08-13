@@ -255,7 +255,7 @@ paths:
       responses: { '200': { description: ok } }
     post:
       tags: [projects]
-      summary: Create a project (auto-creates default board + 4 columns).
+      summary: Create a project (auto-creates default board + 5 columns).
       security: [{ bearerAuth-cookie: [] }]
       responses: { '201': { description: created } }
 
@@ -380,6 +380,11 @@ paths:
     patch:
       tags: [tasks]
       summary: Update task fields.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    put:
+      tags: [tasks]
+      summary: Alias for PATCH (update task fields).
       security: [{ bearerAuth-cookie: [] }]
       responses: { '200': { description: ok } }
     delete:
@@ -675,8 +680,8 @@ paths:
 
   /api/v1/attachments/{attId}/download:
     get:
-      tags: [calendar]
-      summary: Stream a project-level attachment.
+      tags: [attachments]
+      summary: Stream an attachment by id (any target type).
       security: [{ bearerAuth-cookie: [] }]
       responses:
         '200': { description: ok }
@@ -851,7 +856,7 @@ paths:
         '200': { description: ok }
         '404': { description: lesson not found }
 
-  # Phase 27.6: closes the Phase 18.6 debt — tutors can add a single
+  # Phase 27.6: closes the Phase 18.6 debt — owners can add a single
   # quiz to an existing lesson without swapping the whole tree.
   /api/v1/lessons/{id}/quizzes:
     post:
@@ -870,6 +875,38 @@ paths:
       responses:
         '200': { description: ok }
         '422': { description: lesson_not_open }
+
+  /api/v1/lessons/{id}/quizzes/{qid}/answer:
+    post:
+      tags: [courses]
+      summary: Submit a quiz answer (Phase 27.4).
+      description: |
+        Graded server-side for `exact` quizzes (normalised string
+        compare). For `open` quizzes the service spawns a review
+        task on the tutor agent and returns its id; the tutor
+        accepts/rejects via the standard agent flow.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answer]
+              properties:
+                answer: { type: string }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  correct: { type: boolean }
+                  feedback_md: { type: string }
+                  review_task_id: { type: string }
+        '404': { description: quiz not found }
 
   # ---- reports ----
   /api/v1/reports/time:
@@ -908,11 +945,6 @@ paths:
       summary: Delete a wiki page.
       security: [{ bearerAuth-cookie: [] }]
       responses: { '204': { description: deleted } }
-    patch:
-      tags: [wiki]
-      summary: Move a page under a new parent (reparent).
-      security: [{ bearerAuth-cookie: [] }]
-      responses: { '200': { description: ok } }
 
   /api/v1/pages/{slug}/backlinks:
     get:
@@ -969,6 +1001,44 @@ paths:
       summary: Create a bot subscription.
       security: [{ bearerAuth-cookie: [] }]
       responses: { '201': { description: created } }
+
+  /api/v1/bots/telegram/bind:
+    post:
+      tags: [notifications, bots]
+      summary: Bind a Telegram chat to the current user (Phase 22.3 follow-up).
+      description: |
+        Resolves the one-shot onboarding code the bot issued on
+        `/start` into a chat id and creates a default subscription
+        with the standard event set (task.review_needed,
+        task.assigned_to_me, mention.created, task.commented).
+        Codes are 6 hex chars, expire after 10 minutes, and are
+        consumed atomically — a double-click from the UI returns
+        404 the second time.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, description: '6-char hex from /start reply' }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chat_id: { type: integer }
+                  username: { type: string }
+                  subscription_id: { type: string }
+        '400': { description: invalid_json / missing_code }
+        '404': { description: code_unknown }
+        '410': { description: code_expired }
+        '503': { description: telegram_bot_not_running }
 
   /api/v1/notifications/subscriptions/{id}:
     delete:
@@ -1063,7 +1133,7 @@ paths:
     get:
       tags: [meta]
       summary: Read the current maintenance flag.
-      security: []
+      security: [{ bearerAuth-cookie: [] }]
       responses:
         '200':
           description: ok
@@ -1077,7 +1147,7 @@ paths:
     post:
       tags: [meta]
       summary: Enter maintenance mode (writes blocked; WS drained on restore).
-      security: []
+      security: [{ bearerAuth-cookie: [] }]
       responses:
         '200':
           description: ok
@@ -1092,7 +1162,7 @@ paths:
     post:
       tags: [meta]
       summary: Exit maintenance mode (writes resume).
-      security: []
+      security: [{ bearerAuth-cookie: [] }]
       responses:
         '200':
           description: ok
@@ -1195,19 +1265,19 @@ paths:
               required: [modules]
               properties:
                 modules:
-                   type: array
-                   items:
-                     type: object
-                     properties:
-                       title: { type: string }
-                       position: { type: integer }
-                       lessons:
-                         type: array
-                         items:
-                           type: object
-                           properties:
-                             title: { type: string }
-                             position: { type: integer }
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      title: { type: string }
+                      position: { type: integer }
+                      lessons:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            title: { type: string }
+                            position: { type: integer }
       responses: { '200': { description: ok } }
 
   # Phase 27.6: tutor adds a single quiz to an existing lesson
@@ -1220,6 +1290,51 @@ paths:
       responses:
         '201': { description: created }
         '400': { description: invalid_input }
+
+  /api/v1/agent/lessons/{id}/materialize:
+    post:
+      tags: [agent, courses]
+      summary: Materialize a lesson (Phase 27.4) — write content_md and link the exercise task.
+      description: |
+        The tutor writes the lesson body. The service flips the
+        lesson from `locked` to `open` so the student can read
+        it. Idempotent — re-running with the same content keeps
+        the existing task_id and status.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content_md]
+              properties:
+                content_md: { type: string }
+                task_id: { type: string }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: lesson not found }
+
+  /api/v1/agent/lessons/{id}/content:
+    put:
+      tags: [agent, courses]
+      summary: PUT alias of /materialize (Phase 27.4). Identical body and response.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content_md]
+              properties:
+                content_md: { type: string }
+                task_id: { type: string }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: lesson not found }
 
   # ---- SPA fallback ----
   /{catchAll}:

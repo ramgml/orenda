@@ -1,4 +1,4 @@
-# Session Snapshot — 2026-08-13 (смержено: фазы 0–26 + Wave 4 + 27.1–27.5; открыт бэклог 27.6–27.10)
+# Session Snapshot — 2026-08-13 (смержено: фазы 0–26 + Wave 4 + 27.1–27.7 + 27.8-backend; открыты 27.8.4, 27.9–27.11)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
@@ -51,8 +51,8 @@
 
 - **Дата снапшота:** 2026-08-13
 - **Ветка:** `dev`
-- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.6. Открыты: 27.7–27.10 (см. «Бэклог» ниже).
-- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега +10 коммитов документации + 27.6)
+- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.7, 27.8-backend. Открыты: 27.8.4 (frontend), 27.9, 27.10, 27.11 (см. «Бэклог» ниже).
+- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов)
 
 ## Что сделано за сессию (кратко)
 
@@ -109,6 +109,7 @@
 - **Цвет колонки (дефект 2026-08-13).** Бэкенд сохраняет корректно (в живой БД `done` = `#1463d2`), фронт сломан втройне: цвет нигде не рендерится (`ColumnView` без пропа color), `EditColumnModal` инициализирует цвет хардкодом `#94a3b8` (reopen показывает дефолт), submit всегда шлёт color → rename затирает выбор. Плюс `patchColumnHandler` не публикует WS `column.updated`. План — **Phase 27.10**.
 - **SESSION.md: реновация + правило гигиены (2026-08-13).** По реплике разработчика «SESSION.md устарел» сверка с git log подтвердила: шапка 2026-08-12, «Метаданные» от 2026-08-08 («все 10 фаз завершены», теги до phase10 при реальном `v0.1.0-wave4-minor`), бэклог содержал 6 уже смерженных пунктов (27.1, 27.2, 27.3, restore, telegram, openapi), «Файлы» утверждали «все выполнены» при открытых 27.6–27.10, счётчики тестов (188/8) отставали от последних прогонов (199/10). **Правило:** при закрытии пункта бэклога его строка удаляется из SESSION.md «Бэклога» в том же коммите, что и статус в PLAN.md; шапка и «Метаданные» обновляются при каждой смене даты снапшота.
 - **docs/CONTEXT.md (2026-08-13, с уточнением владельца).** Файл **доменного контекста**: общие ментальные модели (канбан, LMS, делегирование, inbox, auth, бэкап) — «что это такое в мире», без директив, номеров фаз и статусов. Цель: не изобретать заново то, что индустрия придумала (кейс-обоснование: отдельная ось статусов рядом с колонками). Не дублирует PLAN/API/SESSION; зарегистрирован в AGENTS.md «Key files to read first».
+- **Аудит консистентности документации (2026-08-13).** Три скаута + сверка с git: DB.md отставал на 9 миграций («17 таблиц» при 25; перечислены дропнутые subtasks/events; нет courses, task_dependencies, columns.status; down-миграции не описаны); API.md — минус ~30 роутов + фантомные POST на `/courses/{id}` и `/events/{id}`; openapi.yaml — 6 broken точек (фантомный PATCH /pages/{slug}, maintenance без auth, «4 columns»), а embedded-копия протухла (без блоков 22.3/27.4) — синхронизирована; SKILL.md — MCP «planned» (shipped), нет claim/materialize/content, comment/await задокументированы, но 401 — код-баг → Phase 27.11; AGENTS.md — нет internal/mcp, «golang-migrate» вместо кастомного runner'а; README — roadmap до Phase 10, install без node_modules; CHANGELOG — пустой скелет → заполнен по фазам. Исправлено одним проходом; код-дефекты (27.11) — разработчику.
 - **Phase 25: agent DX — CLI + SKILL** — `orenda agent` cobra-сабкоманды (`me`, `next`, `context`, `claim`, `release`, `submit`, `comment`, `await`) поверх уже существующего REST API. Конфиг: флаги > env > `~/.config/orenda/agent.yaml`. Exit code 2 = "no work" для shell-циклов. Документ `docs/skills/orenda/SKILL.md` — полный workflow + этикет + reference. **MCP server (Phase 25.1+25.2 follow-up):** stdio JSON-RPC 2.0 сервер в `internal/mcp` (zero deps) + `orenda mcp-proxy` CLI. Инструменты: orenda_me, orenda_list_tasks, orenda_claim, orenda_release, orenda_submit, orenda_context, orenda_await. Без новых SDK зависимостей.
 - **Модель агентов:** внешние, через REST/long-poll (`/api/v1/agent/*`, claim/submit/review). Встроенный LLM-рантайм — опция, не цель; домен не должен жёстко зашивать предположение «агент всегда снаружи».
 - **Горизонт:** dogfooding и стабильность. Критерий ценности задачи — «использую каждый день без трения». Приоритетные пробелы: restore-from-snapshot (снапшоты есть, восстановления нет), UX-трение ежедневных сценариев, наблюдаемость. Multi-user и интеграции календарей — за скобкой, пока ядро не «живётся».
@@ -158,11 +159,10 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 
 ## Бэклог (открыто)
 
-- **Курсы: ручное наполнение (Phase 27.6)** — user-side curriculum editor + quiz surface: без агента курс сейчас ненаполняем (дефект зафиксирован 2026-08-13). 27.4 close-out (MaterializeLesson/AnswerQuiz/LessonPage) смержен.
-- **Карточка задачи: редактируемые Status/Priority/Assignee (Phase 27.7)** — ✅ **закрыто в worktree `phase-27-7-task-fields`** — см. секцию выше.
-- **Канбан: колонки = статусы (Phase 27.8)** — единая ось: DnD меняет статус, agent-flow двигает карточку (решение владельца 2026-08-13).
+- **Канбан: колонки = статусы (Phase 27.8)** — backend смержен (`9c54817` + E2E-флип `7f2544f`): миграция 020, синк обеих сторон, agent-flow двигает карточку. **Открыто 27.8.4** (status-select рисует колонки проекта, не enum) + drag→status E2E-кейс.
 - **Known gaps (Phase 27.9)** — WS multi-topic fan-out, заголовки в /reports, WS/activity для course-задач, comment-debt (аудит отложенных швов 2026-08-13).
 - **Цвет колонки: init/рендер/WS (Phase 27.10)** — сохранение в БД работает, но цвет невидим на доске и затирается при rename (дефект 2026-08-13).
+- **Agent comment/await 401 + openapi coverage (Phase 27.11)** — код-дефекты из аудита доков 2026-08-13: `agent comment`/`await` → 401 (роуты под RequireUser); route-coverage fixture монтирует подмножество роутов.
 - **Фаза «Полировка»** — хвосты Phase 9: backup_settings write path (PUT → 501), prettier/pprof/Prometheus, CSP-tightening.
 - Multi-user / multi-device sync (Phase 11+)
 
@@ -174,4 +174,7 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 - `docs/API.md` — REST reference
 - `docs/DB.md` — схема БД по миграциям
 - `docs/SESSION.md` — этот файл
+- `docs/openapi.yaml` — OpenAPI 3.1 (source of truth; embedded copy `internal/api/openapi.yaml` синхронна)
+- `docs/skills/orenda/SKILL.md` — workflow + etiquette для агентов
+- `CHANGELOG.md` — версионная политика + записи по фазам
 - `AGENTS.md` — правила для AI-агентов

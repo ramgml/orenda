@@ -35,6 +35,7 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 Or one-shot install:
 
 ```bash
+make web-install               # required once — the installer builds the SPA
 scripts/install.sh --systemd   # builds, installs to ~/.local/bin, enables user service
 ```
 
@@ -54,6 +55,8 @@ make dev
 - 💬 Comments, attachments, mentions between user and agents
 - 📅 Calendar (events + tasks with due dates)
 - 📚 Wiki with markdown, wiki-links, backlinks, FTS5 search
+- 🎓 Personal LMS courses — built by an AI tutor or by hand
+- 🔍 Review queue — agent work awaiting your decision, one click away
 - ⏱️ Time tracking with timer + manual entries
 - 🔔 Pluggable notifications (VK, Telegram, Email, Webhook, Console)
 - 💾 Git-based backups (GitHub, Bitbucket, SourceCraft, custom)
@@ -63,9 +66,11 @@ make dev
 
 - [PRD](docs/PRD.md) — Product Requirements Document
 - [PLAN](docs/PLAN.md) — Development phases and tasks
-- [API](docs/API.md) — REST API reference
+- [CONTEXT](docs/CONTEXT.md) — Domain concepts (kanban, courses, delegation)
+- [API](docs/API.md) — REST API reference (+ [openapi.yaml](docs/openapi.yaml))
 - [DB](docs/DB.md) — Database schema
 - [AGENTS.md](AGENTS.md) — Guidelines for AI agents working on this codebase
+- [SKILL](docs/skills/orenda/SKILL.md) — Agent workflow + etiquette
 
 ## Roadmap
 
@@ -80,8 +85,9 @@ make dev
 | 6 — Notifications (facade) | ✅ | In-app + bot abstraction |
 | 7 — Backups | ✅ | Git mirror + sqlite snapshots |
 | 8 — PWA | ✅ | Offline support, IndexedDB outbox |
-| 9 — Polish | 🚧 | Tests, docs, installer |
-| 10 — Bot platform | ⏳ | VK, Telegram, Email, Webhook |
+| 9 — Polish | 🚧 | Tests, docs, installer (остаток — фаза «Полировка») |
+| 10 — Bot platform | ✅ | VK, Telegram, Email, Webhook |
+| 11–27 | ✅ | Projects UI, kanban columns, tags, dependencies, inbox, rich cards, LMS courses, review queue, today, quick capture, restore, OpenAPI, agent CLI + MCP, E2E suite — детали в [PLAN](docs/PLAN.md) |
 
 ## License
 

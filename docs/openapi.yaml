@@ -255,7 +255,7 @@ paths:
       responses: { '200': { description: ok } }
     post:
       tags: [projects]
-      summary: Create a project (auto-creates default board + 4 columns).
+      summary: Create a project (auto-creates default board + 5 columns).
       security: [{ bearerAuth-cookie: [] }]
       responses: { '201': { description: created } }
 
@@ -380,6 +380,11 @@ paths:
     patch:
       tags: [tasks]
       summary: Update task fields.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+    put:
+      tags: [tasks]
+      summary: Alias for PATCH (update task fields).
       security: [{ bearerAuth-cookie: [] }]
       responses: { '200': { description: ok } }
     delete:
@@ -675,8 +680,8 @@ paths:
 
   /api/v1/attachments/{attId}/download:
     get:
-      tags: [calendar]
-      summary: Stream a project-level attachment.
+      tags: [attachments]
+      summary: Stream an attachment by id (any target type).
       security: [{ bearerAuth-cookie: [] }]
       responses:
         '200': { description: ok }
@@ -940,11 +945,6 @@ paths:
       summary: Delete a wiki page.
       security: [{ bearerAuth-cookie: [] }]
       responses: { '204': { description: deleted } }
-    patch:
-      tags: [wiki]
-      summary: Move a page under a new parent (reparent).
-      security: [{ bearerAuth-cookie: [] }]
-      responses: { '200': { description: ok } }
 
   /api/v1/pages/{slug}/backlinks:
     get:
@@ -1133,7 +1133,7 @@ paths:
     get:
       tags: [meta]
       summary: Read the current maintenance flag.
-      security: []
+      security: [{ bearerAuth-cookie: [] }]
       responses:
         '200':
           description: ok
@@ -1147,7 +1147,7 @@ paths:
     post:
       tags: [meta]
       summary: Enter maintenance mode (writes blocked; WS drained on restore).
-      security: []
+      security: [{ bearerAuth-cookie: [] }]
       responses:
         '200':
           description: ok
@@ -1162,7 +1162,7 @@ paths:
     post:
       tags: [meta]
       summary: Exit maintenance mode (writes resume).
-      security: []
+      security: [{ bearerAuth-cookie: [] }]
       responses:
         '200':
           description: ok

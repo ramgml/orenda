@@ -13,7 +13,7 @@ Local-first productivity suite (tasks, calendar, wiki) where **AI-agents are fir
 | Backend | Go 1.22+ (chi, modernc.org/sqlite, jwt, gorilla/websocket, cobra) |
 | Frontend | React 18 + TS + Vite + Tailwind + shadcn/ui |
 | DB | SQLite (WAL mode) |
-| Migrations | golang-migrate (sequential `NNN_*.up.sql` / `NNN_*.down.sql`) |
+| Migrations | custom runner `sqlite.Migrate`/`MigrateDown` (sequential `NNN_*.sql` / `NNN_*.down.sql`) |
 
 ## Directory map
 
@@ -28,6 +28,7 @@ orenda/
 │   ├── config/                    # yaml + env
 │   ├── domain/                    # Entities + repository interfaces
 │   ├── embed/web/                 # embed.FS for React build
+│   ├── mcp/                       # MCP stdio server (Phase 25)
 │   ├── mirror/                    # Markdown mirror for git history
 │   ├── service/                   # Business logic
 │   └── storage/sqlite/            # Repositories + migrations
@@ -50,6 +51,9 @@ make lint
 ./bin/orenda serve    # Production on http://127.0.0.1:2137
 ./bin/orenda migrate up
 ./bin/orenda backup push
+./bin/orenda user create --email ... --display-name ... --password-stdin
+./bin/orenda agent <me|next|claim|context|submit|release|comment|await>   # agent CLI (Phase 25)
+./bin/orenda mcp-proxy # stdio MCP bridge (Phase 25)
 ```
 
 ## Coding rules

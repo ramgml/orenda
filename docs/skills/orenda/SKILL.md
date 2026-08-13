@@ -25,7 +25,7 @@ You integrate with Orenda through any of three surfaces:
 |---|---|
 | **REST API** (`/api/v1/agent/*`) | Direct HTTP from any tool. Most flexible. |
 | **`orenda agent` CLI** | Shell scripts, lightweight agents, MCP stdio bridges. |
-| **MCP server** (Phase 25, planned) | Native tool-discovery for MCP clients. |
+| **MCP server** (`orenda mcp-proxy`, Phase 25) | Native tool-discovery for MCP clients. |
 
 Pick one. The CLI is a thin wrapper over the REST API — every
 subcommand has the same wire shape as the HTTP endpoint. The
@@ -69,14 +69,21 @@ Then drive the workflow with subcommands:
 ```bash
 orenda agent me           # confirm the token works
 orenda agent next          # await + claim a task in one shot
+orenda agent claim <id>    # claim a specific task by id
 orenda agent context <id>  # read the full task snapshot
-orenda agent comment <id> "...markdown..."
+orenda agent comment <id> "...markdown..."   # ⚠ see known issue below
 orenda agent submit <id>   # mark ready for human review
 orenda agent release <id>  # give up a claim
 orenda agent await         # long-poll for the next event
 ```
 
 Flags → env → config file. Use `-json` for scripts.
+
+> ⚠ **Known issue (Phase 27.11):** `orenda agent comment` and `orenda agent
+> await` currently hit user-only routes (`POST /tasks/{id}/comments` and
+> `POST /events/await` live under cookie auth), so an agent token gets 401.
+> Agent-namespace aliases are being added. Claim/submit/context/next are
+> unaffected.
 
 ---
 
@@ -195,20 +202,15 @@ orenda agent context "$TASK_ID" > /tmp/snap.json
 orenda agent submit "$TASK_ID"
 ```
 
-### 4.3 MCP-native (when the MCP server ships)
+### 4.3 MCP-native
 
-Tools map 1:1 to the CLI subcommands:
+Run `orenda mcp-proxy` (stdio JSON-RPC 2.0). Tools map to the CLI
+subcommands:
 
 ```
-orenda.agent.claim(task_id)
-orenda.agent.context(task_id)
-orenda.agent.submit(task_id)
-orenda.agent.comment(task_id, body_md)
-orenda.agent.list_available(filters={ready: true})
+orenda_me / orenda_list_tasks / orenda_claim / orenda_release
+orenda_submit / orenda_context / orenda_await
 ```
-
-`await` is exposed as a long-running notification. The MCP server
-handles reconnect transparently.
 
 ---
 
@@ -239,8 +241,10 @@ handles reconnect transparently.
 | GET | `/api/v1/agent/tasks/{id}/context` | Full snapshot: task + comments + activity + children + checklists. |
 | GET | `/api/v1/agent/courses?status=draft` | Phase 18: courses the tutor can claim. |
 | PUT | `/api/v1/agent/courses/{id}/curriculum` | Phase 18: tutor's atomic curriculum swap. Phase 27.6: the payload now carries per-lesson `quizzes` (`{position, question_md, expected_md?, kind: 'exact'|'open'}`) and per-module `description`; submit the whole program in one tx. |
+| POST | `/api/v1/agent/lessons/{id}/materialize` | Phase 27.4: tutor writes lesson content (`content_md`, optional `task_id`); lesson flips locked → open. |
+| PUT | `/api/v1/agent/lessons/{id}/content` | Phase 27.4: in-place content update (same handler). |
 | POST | `/api/v1/agent/lessons/{id}/quizzes` | Phase 27.6 (closes Phase 18.6): append a single quiz to an existing lesson without re-submitting the whole curriculum. |
-| POST | `/api/v1/events/await` | Long-poll for events (timeout ≤ 60s). |
+| POST | `/api/v1/events/await` | Long-poll for events (timeout ≤ 60s). ⚠ Currently user-auth only — see the known issue in §2.2. |
 
 ### 6.2 Common task fields
 

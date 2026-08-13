@@ -1587,6 +1587,8 @@ make build
 ### 27.8 — Канбан: колонки = статусы (единая ось)
 
 > **Решение владельца 2026-08-13:** колонки канбана ДОЛЖНЫ быть статусами — «в этом и суть канбана, мы визуализируем статусы». Отменяет «оси не сливаем» из 27.7. Риск обхода review-flow перетаскиванием в done осознан и принят (single-owner, действие обратимо, фиксируется в activity).
+>
+> **Статус 2026-08-13:** backend смержен (`9c54817` — миграция 020, `SyncStatusAndColumn`, agent-flow двигает карточку; тесты `move_phase278_test.go`, `migration_020_test.go`) + E2E-флип status→column (`7f2544f`, 12/12 зелёные). **Открыто: 27.8.4 (frontend) и drag→status E2E-кейс из 27.8.5.**
 
 **Цель:** одна ось вместо двух. DnD по колонкам меняет `task.status`; смена статуса (select в карточке, agent-flow) визуально перемещает карточку. Доска всегда показывает истинное состояние workflow.
 
@@ -1603,11 +1605,11 @@ make build
 
 **Задачи:**
 
-- [ ] **27.8.1** Миграция `0NN_column_status.up/down.sql`: `columns.status`, backfill из имени, unique `(board_id, status)`; несовпавшие имена → стабильный slug кастомного статуса. Тест миграции на переименованной колонке.
-- [ ] **27.8.2** Domain/repo: ослабление `Status.IsValid`; lookup колонки по `(project, status)`; инвариант в service-слое задач.
-- [ ] **27.8.3** Синк записей: PATCH column_id↔status (обе стороны); agent-flow (claim/submit/review/approve/release) обновляет `column_id`; activity — одно событие на переход (не дублировать `moved` + `status_changed`).
-- [ ] **27.8.4** Frontend: status-select карточки (27.7) рисует колонки проекта (их имена), а не enum; доска переставляет карточку по WS после claim/approve (рефетч есть — проверить отсутствие фликера).
-- [ ] **27.8.5** Тесты: миграция (backfill, кастомный slug), инвариант обеих сторон, approve → задача в done-колонке, filing inbox→проект по статусу; E2E «drag в done → status=done + completed_at».
+- [x] **27.8.1** Миграция `0NN_column_status.up/down.sql`: `columns.status`, backfill из имени, unique `(board_id, status)`; несовпавшие имена → стабильный slug кастомного статуса. Тест миграции на переименованной колонке. — *Смержено `9c54817`: миграция 020 (up/down), canonical verbatim + slug с `_N`-dedup, UNIQUE(board_id, status); `migration_020_test.go`.*
+- [x] **27.8.2** Domain/repo: ослабление `Status.IsValid`; lookup колонки по `(project, status)`; инвариант в service-слое задач. — *Смержено `9c54817`: `project.Column.Status`, `FindColumnByStatus`, `Service.SyncStatusAndColumn`; `CreateProject` сидирует status=name.*
+- [x] **27.8.3** Синк записей: PATCH column_id↔status (обе стороны); agent-flow (claim/submit/review/approve/release) обновляет `column_id`; activity — одно событие на переход (не дублировать `moved` + `status_changed`). — *Смержено `9c54817`: `applyTaskPatch` двунаправлен, Claim/Release/Submit/Review двигают `column_id`; `move_phase278_test.go`.*
+- [ ] **27.8.4** Frontend: status-select карточки (27.7) рисует колонки проекта (их имена), а не enum; доска переставляет карточку по WS после claim/approve (рефетч есть — проверить отсутствие фликера). — **Открыто:** веб-изменений в merge не было; select по-прежнему рисует enum.
+- [ ] **27.8.5** Тесты: миграция (backfill, кастомный slug), инвариант обеих сторон, approve → задача в done-колонке, filing inbox→проект по статусу; E2E «drag в done → status=done + completed_at». — **Частично:** unit-тесты миграции и синка смержены (`9c54817`); E2E-флип status→column (`7f2544f`, 12/12). Открыты: кейс drag→status и filing-по-статусу.
 
 **DoD:** доска и статусы — одно целое: изменение с любой стороны (DnD, select, agent-flow) консистентно двигает обе оси; E2E подтверждает; `make test && make lint` зелёные.
 
@@ -1670,6 +1672,22 @@ make build
 - [ ] **27.10.4** E2E: выбрать цвет → dot виден на доске; переоткрыть модалку → значение сохранённое; переименовать → цвет на месте; reload → цвет на месте.
 
 **DoD:** цвет колонки виден на доске и переживает reopen/reload/rename; вторая вкладка узнаёт через WS; `make test` + vitest + E2E зелёные.
+
+### 27.11 — Дефекты из аудита документации: agent comment/await 401, openapi coverage
+
+> **Найдено аудитом консистентности документации 2026-08-13** (скауты по связке docs↔code). Документная сторона исправлена в том же заходе; здесь — код-дефекты.
+
+**Контекст (evidence):**
+
+- **Agent comment/await → 401.** `orenda agent comment` шлёт `POST /api/v1/tasks/{id}/comments` с agent-токеном, `orenda agent await` — `POST /api/v1/events/await` (`cmd/orenda/agent.go:449,491`); оба роута под `RequireUser`, который принимает только cookie/Bearer JWT, не opaque API-токены → 401. SKILL.md документирует оба workflow как рабочие (сейчас помечены known-issue).
+- **OpenAPI route-coverage не exhaustive.** `TestOpenAPI_RouteCoverage` ходит по fixture-роутеру (`columnDeps`), который монтирует лишь user-side task/project роуты: agent/backup/wiki/calendar/maintenance не покрыты. Комментарий ссылается на `TestOpenAPI_RouteCoverage_FullRouter` под `-tags=integration` — такого теста не существует. Побочка: embedded-копия спеки протухла незамеченной (не хватало блоков 22.3/27.4) — синхронизирована с `docs/openapi.yaml` 2026-08-13.
+
+**Задачи:**
+
+- [ ] **27.11.1** Agent-namespace aliases: `POST /api/v1/agent/tasks/{id}/comments` (author=agent) и `POST /api/v1/agent/events/await` (long-poll с agent-identity; решить фильтр подписки в hub). CLI `comment`/`await` перевести на них. Тесты: agent-токен → 200, cookie → 401 на agent-namespace (изоляция в обе стороны). После merge — снять пометки known-issue в SKILL.md.
+- [ ] **27.11.2** Coverage-тест против полного роутера (все namespaces, deps со стабами): каждый продакшн-роут есть в спеке, каждая спека — в роутере. Убрать или реализовать упомянутый `FullRouter`.
+
+**DoD:** `orenda agent comment` и `orenda agent await` работают по SKILL.md; coverage-тест падает при добавлении роута без спеки (проверено инверсией); `make test` зелёный.
 
 ### Что НЕ входит в Phase 27
 
