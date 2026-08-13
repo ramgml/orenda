@@ -357,18 +357,19 @@ func (r *projectRepo) DeleteColumn(ctx context.Context, id string) error {
 func (r *projectRepo) GetColumn(ctx context.Context, id string) (*project.Column, error) {
 	const q = `
 		SELECT c.id, c.board_id, c.name, c.position, c.wip_limit, c.color,
-		       b.project_id
+		       c.status, b.project_id
 		FROM columns c
 		JOIN boards b ON b.id = c.board_id
 		WHERE c.id = ?
 	`
 	var (
-		col   project.Column
-		wip   sql.NullInt64
-		color sql.NullString
+		col    project.Column
+		wip    sql.NullInt64
+		color  sql.NullString
+		status sql.NullString
 	)
 	err := r.db.QueryRowContext(ctx, q, id).
-		Scan(&col.ID, &col.BoardID, &col.Name, &col.Position, &wip, &color, &col.ProjectID)
+		Scan(&col.ID, &col.BoardID, &col.Name, &col.Position, &wip, &color, &status, &col.ProjectID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, project.ErrNotFound
 	}
@@ -380,6 +381,7 @@ func (r *projectRepo) GetColumn(ctx context.Context, id string) (*project.Column
 		col.WIPLimit = &v
 	}
 	col.Color = color.String
+	col.Status = status.String
 	return &col, nil
 }
 

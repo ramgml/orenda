@@ -223,3 +223,47 @@ func TestService_SyncStatusAndColumn_StatusDrivesColumn(t *testing.T) {
 	svc.SyncStatusAndColumn(context.Background(), tr)
 	assert.Equal(t, done.ID, tr.ColumnID, "status=done → card lands on the done column")
 }
+
+// Phase 27.8.4: the DnD path picks a destination column by id and
+// expects the card's status to follow. Without this lift, the
+// invariant `task.status ≡ column.status` is broken every time the
+// owner drags a card, which is the very axis-collapse 27.8 shipped
+// to prevent. (Owner override: a manual drag onto `done` is allowed
+// even when `awaiting=agent` — see PLAN §27.8 decisions.)
+func TestService_Move_ColumnDrivesStatus(t *testing.T) {
+	f := setupPhase278Project(t)
+	todo := columnByStatus(t, f, task.StatusTodo)
+	done := columnByStatus(t, f, task.StatusDone)
+	svc := newSvc(t, f)
+
+	tr := &task.Task{
+		ProjectID: f.project.ID,
+		ColumnID:  todo.ID,
+		Title:     "drag me",
+		Status:    task.StatusTodo,
+	}
+	require.NoError(t, f.taskRepo.Create(context.Background(), tr))
+
+	got, err := svc.Move(context.Background(), tr.ID, taskservice.MoveOptions{
+		TargetColumnID: done.ID,
+		Position:       0,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, done.ID, got.ColumnID, "Move relocates the column")
+	assert.Equal(t, task.StatusDone, got.Status,
+		"Phase 27.8.4: status flips to the destination column's status")
+
+	// Persisted, not just returned.
+	persisted := mustGetByID(t, f.taskRepo, tr.ID)
+	assert.Equal(t, task.StatusDone, persisted.Status)
+	assert.Equal(t, done.ID, persisted.ColumnID)
+
+	// Drag back: status follows the other way too.
+	got, err = svc.Move(context.Background(), tr.ID, taskservice.MoveOptions{
+		TargetColumnID: todo.ID,
+		Position:       0,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, task.StatusTodo, got.Status)
+	assert.Equal(t, todo.ID, got.ColumnID)
+}

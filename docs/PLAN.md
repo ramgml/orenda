@@ -1588,7 +1588,7 @@ make build
 
 > **Решение владельца 2026-08-13:** колонки канбана ДОЛЖНЫ быть статусами — «в этом и суть канбана, мы визуализируем статусы». Отменяет «оси не сливаем» из 27.7. Риск обхода review-flow перетаскиванием в done осознан и принят (single-owner, действие обратимо, фиксируется в activity).
 >
-> **Статус 2026-08-13:** backend смержен (`9c54817` — миграция 020, `SyncStatusAndColumn`, agent-flow двигает карточку; тесты `move_phase278_test.go`, `migration_020_test.go`) + E2E-флип status→column (`7f2544f`, 12/12 зелёные). **Открыто: 27.8.4 (frontend) и drag→status E2E-кейс из 27.8.5.**
+> **Статус 2026-08-13:** backend смержен (`9c54817` — миграция 020, `SyncStatusAndColumn`, agent-flow двигает карточку; тесты `move_phase278_test.go`, `migration_020_test.go`) + E2E-флип status→column (`7f2544f`, 12/12 зелёные) + **27.8.4 закрыт 2026-08-13** в `phase-27-8-4-columns-status-select` (см. секцию ниже): фронт Status select из колонок проекта, Inbox read-only fallback, `Service.Move` теперь симметричен `SyncStatusAndColumn` (DnD поднимает статус из колонки-цели), E2E `Phase 27.8.4: moving a task to the done column flips status to done`. Все три файла (move.go, project_repo.go, TaskFieldControls.tsx) плюс 9 vitest + 14 E2E. **Phase 27.8 закрыт полностью.**
 
 **Цель:** одна ось вместо двух. DnD по колонкам меняет `task.status`; смена статуса (select в карточке, agent-flow) визуально перемещает карточку. Доска всегда показывает истинное состояние workflow.
 
@@ -1608,12 +1608,38 @@ make build
 - [x] **27.8.1** Миграция `0NN_column_status.up/down.sql`: `columns.status`, backfill из имени, unique `(board_id, status)`; несовпавшие имена → стабильный slug кастомного статуса. Тест миграции на переименованной колонке. — *Смержено `9c54817`: миграция 020 (up/down), canonical verbatim + slug с `_N`-dedup, UNIQUE(board_id, status); `migration_020_test.go`.*
 - [x] **27.8.2** Domain/repo: ослабление `Status.IsValid`; lookup колонки по `(project, status)`; инвариант в service-слое задач. — *Смержено `9c54817`: `project.Column.Status`, `FindColumnByStatus`, `Service.SyncStatusAndColumn`; `CreateProject` сидирует status=name.*
 - [x] **27.8.3** Синк записей: PATCH column_id↔status (обе стороны); agent-flow (claim/submit/review/approve/release) обновляет `column_id`; activity — одно событие на переход (не дублировать `moved` + `status_changed`). — *Смержено `9c54817`: `applyTaskPatch` двунаправлен, Claim/Release/Submit/Review двигают `column_id`; `move_phase278_test.go`.*
-- [ ] **27.8.4** Frontend: status-select карточки (27.7) рисует колонки проекта (их имена), а не enum; доска переставляет карточку по WS после claim/approve (рефетч есть — проверить отсутствие фликера). — **Открыто:** веб-изменений в merge не было; select по-прежнему рисует enum.
-- [ ] **27.8.5** Тесты: миграция (backfill, кастомный slug), инвариант обеих сторон, approve → задача в done-колонке, filing inbox→проект по статусу; E2E «drag в done → status=done + completed_at». — **Частично:** unit-тесты миграции и синка смержены (`9c54817`); E2E-флип status→column (`7f2544f`, 12/12). Открыты: кейс drag→status и filing-по-статусу.
+- [x] **27.8.4** Frontend: status-select карточки (27.7) рисует колонки проекта (их имена), а не enum; доска переставляет карточку по WS после claim/approve (рефетч есть — проверить отсутствие фликера). — **✅ Закрыто 2026-08-13 в `phase-27-8-4-columns-status-select`** (полная секция ниже).
+- [x] **27.8.5** Тесты: миграция (backfill, кастомный slug), инвариант обеих сторон, approve → задача в done-колонке, filing inbox→проект по статусу; E2E «drag в done → status=done + completed_at». — **✅ Закрыто 2026-08-13:** unit-тесты миграции и синка смержены (`9c54817`) + E2E-флип status→column (`7f2544f`) + новый E2E `Phase 27.8.4: moving a task to the done column flips status to done` (move API → task.status === 'done' + task-status select reads 'done').
 
 **DoD:** доска и статусы — одно целое: изменение с любой стороны (DnD, select, agent-flow) консистентно двигает обе оси; E2E подтверждает; `make test && make lint` зелёные.
 
 **За скобкой:** UI управления набором статусов проекта (добавление/переименование статус-колонок с выбором machine key).
+
+---
+
+## Phase 27.8.4 — Status select из колонок проекта + латентный gap в `Service.Move` *(2026-08-13)*
+
+> **Дефект зафиксирован 2026-08-13.** Phase 27.8 закрыл backend-часть axis collapse (миграция 020, `SyncStatusAndColumn`, agent-flow синхронизирует `column_id`), но **пропустил `Service.Move`** — DnD менял `column_id`, оставляя `status` на старом значении. Плюс фронт `TaskFieldControls` рисовал Status из хардкод enum, а не из колонок проекта. Закрыто одной фазой.
+
+**Что сделано:**
+
+1. **Backend: `Service.Move` поднимает статус из колонки-цели.** В `internal/service/task/move.go::Move` (строки 200-271) после fixup `tr.ProjectID` (Phase 16) добавлена строка: `if s.Columns != nil { col, err := s.Columns.GetColumn(ctx, opts.TargetColumnID); if err == nil && col.Status != "" { tr.Status = task.Status(col.Status) } }`. Defensive — nil Columns или пустой status оставляет `tr.Status` нетронутым (старое поведение, на случай если Columns-репо не завирлен). Symmetric к существующему `syncColumnToStatus` (status → column).
+2. **Backend: `GetColumn` подтягивает `status`.** В `internal/storage/sqlite/project_repo.go::GetColumn` (строки 357-385) SELECT дополнен `c.status`, Scan — `sql.NullString`, result populated. До этого `GetColumn` возвращал `Column.Status == ""` всегда, что маскировало gap для всех, кто зовёт метод напрямую (включая наш `Move`).
+3. **Backend тест:** `internal/service/task/move_phase278_test.go::TestService_Move_ColumnDrivesStatus` — seed проект с колонками `todo` (status="todo") и `done` (status="done"), задача в `todo` со status="todo", `Move(ctx, taskID, MoveOptions{TargetColumnID: doneCol.ID})`, assert `tr.Status == StatusDone`. Plus обратное направление (drag обратно в `todo` → status="todo"). Persisted check через `GetByID`, не только returned value.
+4. **Frontend: `BoardColumn` тип получил `status?: string`.** В `web/src/shared/api/client.ts:67-77` добавлено поле `status?: string` с JSDoc ссылкой на инвариант `task.status ≡ column.status`. Backend уже отдаёт поле (после фикса GetColumn).
+5. **Frontend: `TaskFieldControls` теперь читает `api.getBoard(projectId)`.** В `web/src/features/tasks/TaskFieldControls.tsx` добавлен prop `projectID: string`. `useEffect` на его изменение зовёт `api.getBoard(projectID)`, деривит `statusOptions` из `columns`, отсортированных по `position`. Фильтрует `c.status !== ""` (защита от кастомных колонок без явного status). Defensive fallback на канонический enum при ошибке — пользователь не теряет возможность править статус, если бэкенд моргнул. **Inbox fallback:** если `projectID === ''`, `statusOptions` остаётся `null`, рендерится `SidebarReadOnlyField` (label + hint «Inbox task — assign to a project to change status»). Это не ломает UX — у inbox-задачи действительно нет колонки, которую статус бы двигал; вместо misleading select видим честную метку.
+6. **Frontend: `TaskViewBody` пробрасывает `projectID`.** Однострочное изменение в `web/src/features/tasks/TaskViewBody.tsx:402` — `projectID={task.project_id ?? ''}`. Это покрывает оба места интеграции (`/tasks/:id` page и `TaskModal`).
+7. **Frontend vitest:** `TaskFieldControls.test.tsx` расширен с 7 до 9 тестов. Все 7 существующих тестов теперь передают `projectID="p1"` и мокают `getBoard` через helper `mockBoard()`. Добавлены два новых: `Status select renders project columns sorted by position` (deliberately unsorted + custom column → asserts position-order + custom status renders) и `renders Status as read-only when projectID is empty (Inbox)` (asserts `task-status` testid absent, `task-status-readonly` present, value rendered, **no API call to `getBoard`**).
+8. **E2E:** `web/e2e/kanban.spec.ts` — новый тест `Phase 27.8.4: moving a task to the done column flips status to done`. Seed проект с дефолтными колонками (status=`name`), find `todo` and `done` columns by status, create task in `todo`, POST `/tasks/:id/move` с `doneCol.id`, reload, assert (a) `task.column_id === doneCol.id` (b) `task.status === 'done'` (c) sidebar `task-status` select reads `'done'`. (Тест через API, не pointer events — дnd-kit pointer sequences ненадёжны в headless Chromium, см. комментарий в начале файла; но API path тот же, что использует drag handler.)
+
+**DoD — verified 2026-08-13:**
+- ✅ Drag на доске (через `POST /tasks/:id/move`) меняет и `column_id`, и `status` атомарно. E2E passes.
+- ✅ Status select карточки рендерит опции из колонок проекта (5 канонических + кастомные колонки Phase 12). Vitest passes.
+- ✅ Inbox задачи показывают read-only Status label, не misleading select. Vitest passes.
+- ✅ Латентный gap закрыт — `Service.Move` теперь симметричен `SyncStatusAndColumn`. Backend tests + new test pass.
+- ✅ `go test ./...` — все пакеты ok; `npx vitest run` — 222/222 (+2); `make test-e2e` — 14/14 (+1); `npx tsc --noEmit` — clean.
+
+**За скобкой:** drag-and-drop в inbox (inbox — плоский список без доски, перетаскивать нечего); per-column color editor widget (Phase 27.10 закрыл инициализацию); двусторонний optimistic-update UX (сейчас reload-driven).
 
 ### 27.9 — Known gaps: WS multi-topic fan-out, заголовки в отчётах, WS/activity для course-задач
 
