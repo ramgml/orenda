@@ -884,18 +884,15 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		// rows through this recorder. *activityservice.Recorder
 		// satisfies api.ActivityRecorder structurally (same method
 		// signature) — no explicit adapter needed.
-		ActivityRecorder:    activityRecorder,
-		EventService:        eventSvc,
-		TimeService:         timeSvc,
-		WikiService:         wikiSvc,
-		SearchService:       searchSvc,
-		Courses:             courseRepo,
-		CourseService:       courseSvc,
-		Notifier:            notifierSvc,
-		Backup:              backupSvc,
-		BackupEnabled:       cfg.Backup.Enabled,
-		BackupRemoteURL:     cfg.Backup.RemoteURL,
-		BackupRemoteAuthSet: cfg.Backup.RemoteAuth != "",
+		ActivityRecorder: activityRecorder,
+		EventService:     eventSvc,
+		TimeService:      timeSvc,
+		WikiService:      wikiSvc,
+		SearchService:    searchSvc,
+		Courses:          courseRepo,
+		CourseService:    courseSvc,
+		Notifier:         notifierSvc,
+		Backup:           backupSvc,
 		// Phase 28.1 polish.1: UI-editable override repo. PUT
 		// /api/v1/backups/settings writes here; GET merges it over
 		// the in-memory cfg (see handlers_backup.go). Settings take

@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -57,14 +58,52 @@ type Config struct {
 }
 
 // Service bundles the dependencies.
+//
+// Phase 28.9: cfg is held in an atomic.Pointer so PUT
+// /api/v1/backups/settings can swap the live configuration without
+// waiting for a restart. Readers (push, snapshot, scheduler) get
+// the new config on their next call; in-flight operations are
+// unaffected (they already snapshotted the old cfg by value into
+// their local stack). Without atomic.Pointer we'd have a
+// data-race warning on the first PUT.
 type Service struct {
-	cfg Config
+	cfg atomic.Pointer[Config]
 	db  *sql.DB
 }
 
 // New returns a backup Service.
 func New(cfg Config, db *sql.DB) *Service {
-	return &Service{cfg: cfg, db: db}
+	s := &Service{db: db}
+	s.cfg.Store(&cfg)
+	return s
+}
+
+// getCfg returns a defensive copy of the current configuration.
+// Callers can mutate the returned struct freely (e.g. build a
+// path) without affecting Service state.
+func (s *Service) getCfg() Config {
+	if p := s.cfg.Load(); p != nil {
+		return *p
+	}
+	return Config{}
+}
+
+// UpdateConfig atomically replaces the live configuration.
+// Called by the PUT handler once the new settings have been
+// validated and persisted to the backup_settings DB table.
+// Operators restart-dependent knobs (mirror_dir, snapshot_dir,
+// db_path) keep a deferred comment in PLAN.md — only the
+// remote/url/auth triplet is hot-swapped today because that's
+// what fits this layer's existing call sites.
+func (s *Service) UpdateConfig(cfg Config) {
+	s.cfg.Store(&cfg)
+}
+
+// Config returns a defensive copy of the current live
+// configuration. The listBackupSettingsHandler uses it as the
+// "in-memory default" against which DB overrides are merged.
+func (s *Service) Config() Config {
+	return s.getCfg()
 }
 
 // ----------------------------------------------------------------------------
@@ -77,7 +116,7 @@ func New(cfg Config, db *sql.DB) *Service {
 func (s *Service) EnsureGitRepo(ctx context.Context) error {
 	git := func(args ...string) error {
 		cmd := exec.CommandContext(ctx, "git", args...)
-		cmd.Dir = s.cfg.MirrorDir
+		cmd.Dir = s.getCfg().MirrorDir
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, string(out))
 		}
@@ -85,8 +124,8 @@ func (s *Service) EnsureGitRepo(ctx context.Context) error {
 	}
 
 	// Init if not a repo.
-	if _, err := os.Stat(filepath.Join(s.cfg.MirrorDir, ".git")); os.IsNotExist(err) {
-		if err := os.MkdirAll(s.cfg.MirrorDir, 0o755); err != nil {
+	if _, err := os.Stat(filepath.Join(s.getCfg().MirrorDir, ".git")); os.IsNotExist(err) {
+		if err := os.MkdirAll(s.getCfg().MirrorDir, 0o755); err != nil {
 			return err
 		}
 		if err := git("init", "-q"); err != nil {
@@ -101,20 +140,20 @@ func (s *Service) EnsureGitRepo(ctx context.Context) error {
 	}
 
 	// Set remote if configured and not already set.
-	if s.cfg.RemoteURL == "" {
+	if s.getCfg().RemoteURL == "" {
 		return nil
 	}
 	if err := git("remote", "get-url", "origin"); err != nil {
-		return git("remote", "add", "origin", s.cfg.RemoteURL)
+		return git("remote", "add", "origin", s.getCfg().RemoteURL)
 	}
-	return git("remote", "set-url", "origin", s.cfg.RemoteURL)
+	return git("remote", "set-url", "origin", s.getCfg().RemoteURL)
 }
 
 // CommitAndPush stages every file in MirrorDir, commits with a dated
 // message, and pushes to origin. Returns ErrNoRemote when no remote is
 // configured.
 func (s *Service) CommitAndPush(ctx context.Context, message string) error {
-	if s.cfg.RemoteURL == "" {
+	if s.getCfg().RemoteURL == "" {
 		return ErrNoRemote
 	}
 	if err := s.EnsureGitRepo(ctx); err != nil {
@@ -123,7 +162,7 @@ func (s *Service) CommitAndPush(ctx context.Context, message string) error {
 
 	git := func(args ...string) error {
 		cmd := exec.CommandContext(ctx, "git", args...)
-		cmd.Dir = s.cfg.MirrorDir
+		cmd.Dir = s.getCfg().MirrorDir
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, string(out))
 		}
@@ -154,15 +193,15 @@ func (s *Service) CommitAndPush(ctx context.Context, message string) error {
 // SnapshotDir/orenda-YYYYMMDD-HHMMSS.db and rotates old snapshots per
 // cfg.SnapshotRotationDays. Returns the path written.
 func (s *Service) Snapshot(ctx context.Context) (string, error) {
-	if s.cfg.DBPath == "" {
+	if s.getCfg().DBPath == "" {
 		return "", ErrInvalidInput
 	}
-	if err := os.MkdirAll(s.cfg.SnapshotDir, 0o755); err != nil {
+	if err := os.MkdirAll(s.getCfg().SnapshotDir, 0o755); err != nil {
 		return "", fmt.Errorf("backup snapshot: mkdir: %w", err)
 	}
 
 	ts := time.Now().UTC().Format("20060102-150405")
-	dst := filepath.Join(s.cfg.SnapshotDir, "orenda-"+ts+".db")
+	dst := filepath.Join(s.getCfg().SnapshotDir, "orenda-"+ts+".db")
 
 	// VACUUM INTO refuses to overwrite; pick a unique suffix if the
 	// timestamp collides with an earlier snapshot in the same second.
@@ -170,7 +209,7 @@ func (s *Service) Snapshot(ctx context.Context) (string, error) {
 		if _, err := os.Stat(dst); os.IsNotExist(err) {
 			break
 		}
-		dst = filepath.Join(s.cfg.SnapshotDir,
+		dst = filepath.Join(s.getCfg().SnapshotDir,
 			fmt.Sprintf("orenda-%s-%02d.db", ts, i))
 	}
 
@@ -181,9 +220,9 @@ func (s *Service) Snapshot(ctx context.Context) (string, error) {
 	}
 
 	// Rotate.
-	if s.cfg.SnapshotRotationDays > 0 {
-		cutoff := time.Now().AddDate(0, 0, -s.cfg.SnapshotRotationDays)
-		entries, err := os.ReadDir(s.cfg.SnapshotDir)
+	if s.getCfg().SnapshotRotationDays > 0 {
+		cutoff := time.Now().AddDate(0, 0, -s.getCfg().SnapshotRotationDays)
+		entries, err := os.ReadDir(s.getCfg().SnapshotDir)
 		if err == nil {
 			for _, e := range entries {
 				info, err := e.Info()
@@ -191,7 +230,7 @@ func (s *Service) Snapshot(ctx context.Context) (string, error) {
 					continue
 				}
 				if info.ModTime().Before(cutoff) {
-					_ = os.Remove(filepath.Join(s.cfg.SnapshotDir, e.Name()))
+					_ = os.Remove(filepath.Join(s.getCfg().SnapshotDir, e.Name()))
 				}
 			}
 		}
@@ -202,7 +241,7 @@ func (s *Service) Snapshot(ctx context.Context) (string, error) {
 
 // ListSnapshots returns snapshot files ordered newest-first.
 func (s *Service) ListSnapshots(ctx context.Context) ([]SnapshotInfo, error) {
-	entries, err := os.ReadDir(s.cfg.SnapshotDir)
+	entries, err := os.ReadDir(s.getCfg().SnapshotDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -219,7 +258,7 @@ func (s *Service) ListSnapshots(ctx context.Context) ([]SnapshotInfo, error) {
 			continue
 		}
 		out = append(out, SnapshotInfo{
-			Path:    filepath.Join(s.cfg.SnapshotDir, e.Name()),
+			Path:    filepath.Join(s.getCfg().SnapshotDir, e.Name()),
 			Size:    info.Size(),
 			ModTime: info.ModTime().UTC(),
 		})

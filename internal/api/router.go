@@ -103,16 +103,13 @@ type Dependencies struct {
 	// nil-safe (handlers must guard). Phase 28.5: wired so
 	// createTaskCommentHandler / addTaskAttachmentHandler can emit
 	// task.commented / task.attachment_added.
-	ActivityRecorder    ActivityRecorder
-	EventService        *eventservice.Service
-	TimeService         *timeentryservice.Service
-	WikiService         *wikiservice.Service
-	SearchService       *searchservice.Service
-	Notifier            *notifierservice.Service
-	Backup              *backup.Service
-	BackupEnabled       bool
-	BackupRemoteURL     string
-	BackupRemoteAuthSet bool
+	ActivityRecorder ActivityRecorder
+	EventService     *eventservice.Service
+	TimeService      *timeentryservice.Service
+	WikiService      *wikiservice.Service
+	SearchService    *searchservice.Service
+	Notifier         *notifierservice.Service
+	Backup           *backup.Service
 	// BackupSettings is the UI-facing repo for the backup_settings
 	// table (Phase 28.1 polish.1). Until Phase 7 it wasn't wired,
 	// which is why PUT /backups/settings returned 501; the GET

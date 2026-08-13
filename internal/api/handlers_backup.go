@@ -54,18 +54,27 @@ const (
 func listBackupSettingsHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		// In-memory defaults that `*backup.Service` was wired with
-		// — read via deps so the call works for tests without an
-		// attached DB (deps.BackupSettings is nil in the partial
-		// fixture).
+		// In-memory defaults the running `*backup.Service` is
+		// currently using — read via deps so the call works for
+		// tests without an attached DB (deps.BackupSettings is nil
+		// in the partial fixture).
+		current := backup.Config{}
+		if deps.Backup != nil {
+			current = deps.Backup.Config()
+		}
 		settings := backupSettingsResponse{
-			Enabled:   deps.BackupEnabled,
-			RemoteURL: deps.BackupRemoteURL,
-			HasAuth:   deps.BackupRemoteURL != "" && deps.BackupRemoteAuthSet,
+			Enabled:   current.RemoteURL != "",
+			RemoteURL: current.RemoteURL,
+			HasAuth:   current.RemoteURL != "" && current.RemoteAuth != "",
 		}
 		// DB overrides on top: a row in backup_settings authored by
 		// the UI wins over the in-memory config (it's the more
-		// recent intent).
+		// recent intent). Pre-Phase-28.9 the DB rows were advisory
+		// only (a restart was required). After 28.9 the PUT handler
+		// merges them straight back into the live Service, so the
+		// distinction between in-memory and DB-merge has shrunk
+		// to "is the operator's persisted intent reflected in the
+		// running process right now?" — they always say yes.
 		if deps.BackupSettings != nil {
 			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyEnabled); err == nil && ok {
 				var on bool
@@ -87,9 +96,14 @@ func listBackupSettingsHandler(deps Dependencies) http.HandlerFunc {
 				settings.HasAuth = hasAuthInDB
 			}
 		}
-		if settings.RemoteURL != deps.BackupRemoteURL || settings.Enabled != deps.BackupEnabled {
-			settings.SourceHint = "ui_override_restart_to_apply"
-		}
+		// Phase 28.9: after PUT the live service already mirrors the
+		// DB rows, so the SourceHint banner is no longer needed for
+		// the in-process mismatch case. We keep the field in the
+		// response shape for client back-compat (the UI only renders
+		// it when non-empty) and emit an empty string here. If a
+		// future cron-only field gains hot-reload, this is the place
+		// to flag it.
+		settings.SourceHint = ""
 		writeJSON(w, http.StatusOK, settings)
 	}
 }
@@ -120,10 +134,20 @@ func putBackupSettingsHandler(deps Dependencies) http.HandlerFunc {
 			return
 		}
 		ctx := r.Context()
-		// Defaults: missing `enabled` → keep current (true UX, the
-		// operator expected "save what I typed"). We pull current
-		// from the DB if set, falling back to in-memory cfg.
-		currentEnabled := deps.BackupEnabled
+		// Snapshot the current live configuration (post-Phase-28.9
+		// this is the freshly-merged DB-only state, no in-memory
+		// distortion). We use it as the default for omitted fields
+		// and as the donor for restart-dependent knobs (mirror_dir,
+		// snapshot_dir, db_path, rotation days) that the PUT
+		// handler doesn't own — those stay in-memory only.
+		var current backup.Config
+		if deps.Backup != nil {
+			current = deps.Backup.Config()
+		}
+		// Defaults: missing `enabled` → keep current. We first try
+		// the DB (operator could have just toggled it there) and fall
+		// back to the in-memory config.
+		currentEnabled := current.RemoteURL != ""
 		if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyEnabled); err == nil && ok {
 			var b bool
 			if json.Unmarshal(raw, &b) == nil {
@@ -144,7 +168,13 @@ func putBackupSettingsHandler(deps Dependencies) http.HandlerFunc {
 				s, _ := jsonString(raw)
 				in.RemoteURL = s
 			} else {
-				in.RemoteURL = deps.BackupRemoteURL
+				// Phase 28.9: fall back to the live cfg the
+				// operator wired at startup (no longer a
+				// separate Dependencies mirror field — the
+				// Service holds the authoritative copy now).
+				if deps.Backup != nil {
+					in.RemoteURL = deps.Backup.Config().RemoteURL
+				}
 			}
 		}
 		if in.RemoteAuth == "" {
@@ -176,6 +206,30 @@ func putBackupSettingsHandler(deps Dependencies) http.HandlerFunc {
 			return
 		}
 
+		// Phase 28.9: hot-reload the live service. Push ticks and
+		// the manual "Test push" button now see the new remote on
+		// their next call; in-flight pushes from before the PUT
+		// finish on the old URL (they snapshotted cfg into a local
+		// var by value). The settings knob is fully owned by the
+		// handler from here — the operator sees no restart hint.
+		if deps.Backup != nil {
+			deps.Backup.UpdateConfig(backup.Config{
+				// Keep the restart-dependent knobs from the
+				// live config — those still need a restart
+				// (Phase 28.9 deliberately does NOT add hot
+				// reload for filesystem paths; doing so would
+				// require re-mounting git repos and snapshot
+				// dirs, a bigger change than this polish item).
+				MirrorDir:            current.MirrorDir,
+				SnapshotDir:          current.SnapshotDir,
+				DBPath:               current.DBPath,
+				SnapshotRotationDays: current.SnapshotRotationDays,
+				// UI-editable trio, merged into the live state.
+				RemoteURL:  in.RemoteURL,
+				RemoteAuth: in.RemoteAuth,
+			})
+		}
+
 		// Echo the persisted state back to the caller. The body
 		// shape mirrors GET so the UI reload isn't needed.
 		resp := backupSettingsResponse{
@@ -183,13 +237,9 @@ func putBackupSettingsHandler(deps Dependencies) http.HandlerFunc {
 			RemoteURL: in.RemoteURL,
 			HasAuth:   in.RemoteAuth != "",
 		}
-		// Same hint as GET — informs the operator that the
-		// in-memory `*backup.Service` is still on the old URL
-		// until they restart. Without this the form would lose
-		// the restart banner the moment the operator clicks Save.
-		if resp.RemoteURL != deps.BackupRemoteURL || resp.Enabled != deps.BackupEnabled {
-			resp.SourceHint = "ui_override_restart_to_apply"
-		}
+		// Phase 28.9: no SourceHint restart banner — settings are
+		// hot-applied. Kept in the response shape for backwards
+		// compatibility (the UI only renders it when non-empty).
 		writeJSON(w, http.StatusOK, resp)
 	}
 }

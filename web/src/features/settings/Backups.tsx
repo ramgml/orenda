@@ -201,7 +201,12 @@ export function BackupsSettingsPage(): JSX.Element {
       })
       .then((fresh) => {
         setSettings(fresh)
-        setInfo('Settings saved. Restart Orenda to apply the new remote.')
+        // Phase 28.9: the live service mirrors the new settings
+        // via atomic.Pointer[Config]; the next push tick (or the
+        // manual "Test push now" button below) hits the new URL
+        // without restarting the process. Update the banner to
+        // reflect that.
+        setInfo('Settings saved. The next push will use the new remote.')
         // Clear the auth field — we don't want to keep the secret
         // in component state after a save.
         setFormRemoteAuth('')
@@ -281,14 +286,14 @@ export function BackupsSettingsPage(): JSX.Element {
               >
                 {savingSettings ? 'Saving…' : 'Save settings'}
               </button>
-              {settings.source_hint && (
-                <span
-                  data-testid="settings-restart-hint"
-                  className="rounded border border-amber-300 bg-amber-50 text-amber-900 px-3 py-1 text-xs"
-                >
-                  Restart Orenda to apply the new remote.
-                </span>
-              )}
+              {/* Phase 28.9: removed the historic restart banner —
+                  the live service mirrors the new settings via
+                  atomic.Pointer[Config] without a process restart.
+                  The source_hint field stays in the response shape
+                  for backward compat but is empty after this phase,
+                  so no banner is rendered. The E2E spec
+                  (`backups-settings.spec.ts`) asserts the
+                  data-testid is gone to pin the contract. */}
             </div>
           </div>
         ) : (

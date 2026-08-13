@@ -1,27 +1,29 @@
 // @ts-check
 /**
- * Phase 28.1 polish.1: editable backup settings UI.
+ * Phase 28.1 polish.1 + Phase 28.9 hot-reload: editable backup
+ * settings UI.
  *
  * Pre-28.1 the Settings → Backups panel was a `<dl>` — operators
  * had to ssh to the host and edit data/config.yaml to add a
- * remote. This spec pins the new editable flow:
+ * remote. This spec pins the editable flow end-to-end:
  *   - GET /api/v1/backups/settings returns the merged state.
  *   - PUT 200 (no longer 501) with the form's body.
  *   - The page reload reads the persisted state back.
  *
- * The "restart to apply" contract is *not* fully covered here —
- * the running `*backup.Service` is wired at startup and stays on
- * the old URL until the operator restarts. That's documented in
- * the UI banner and would require a full process restart mid-spec
- * to test from end to end; we pin the persistence + display
- * half instead.
+ * Phase 28.9 changes the contract: PUT no longer requires a
+ * process restart for the new remote to take effect — the test
+ * asserts the absence of the historical "restart to apply" hint,
+ * pinning the new hot-reload behaviour.
  */
 import { expect, test } from '@playwright/test'
 
 import { E2E_PASSWORD, loginAsUser } from './helpers'
 
-test.describe('Backups settings (Phase 28.1)', () => {
-  test('PUT saves settings; reload reflects them; no longer 501', async ({ page, request }) => {
+test.describe('Backups settings (Phase 28.1 + 28.9 hot-reload)', () => {
+  test('PUT saves settings; reload reflects them; no restart needed', async ({
+    page,
+    request,
+  }) => {
     const ctx = await loginAsUser()
 
     // Sign in and open the settings page.
@@ -52,7 +54,13 @@ test.describe('Backups settings (Phase 28.1)', () => {
 
     // The success banner appears.
     await expect(page.getByText(/Settings saved/)).toBeVisible({ timeout: 5_000 })
-    await expect(page.getByTestId('settings-restart-hint')).toBeVisible()
+
+    // Phase 28.9: there is no longer a restart banner — settings
+    // are hot-reloaded. The legacy `settings-restart-hint`
+    // element is removed from the page; asserting absence pins
+    // the contract so a future regression that re-adds the
+    // restart dependency is caught.
+    await expect(page.getByTestId('settings-restart-hint')).toHaveCount(0)
 
     // Reload — GET should reflect the persisted URL.
     await page.reload()
@@ -65,7 +73,11 @@ test.describe('Backups settings (Phase 28.1)', () => {
     expect(getResp.status()).toBe(200)
     const got = await getResp.json()
     expect(got.remote_url).toBe('https://example.com/orenda.git')
-    expect(got.source_hint).toBe('ui_override_restart_to_apply')
+    // Phase 28.9: source_hint is no longer emitted — the live
+    // service mirrors the DB rows by the time GET returns.
+    // Kept in the response shape for backwards compat but
+    // empty (tested as undefined-equivalent).
+    expect(got.source_hint ?? '').toBe('')
     // The auth field is never returned — only `has_auth`.
     expect(got.remote_auth).toBeUndefined()
     expect(got.has_auth).toBe(true)

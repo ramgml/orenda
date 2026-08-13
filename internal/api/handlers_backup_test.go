@@ -111,8 +111,14 @@ func TestBackupSettings_Put_AndGetRoundTrip(t *testing.T) {
 	assert.Equal(t, true, got["enabled"])
 	assert.Equal(t, "https://github.com/me/orenda.git", got["remote_url"])
 	assert.Equal(t, true, got["has_auth"], "auth present → has_auth")
-	assert.Equal(t, "ui_override_restart_to_apply", got["source_hint"],
-		"DB overrides in-memory defaults → restart hint")
+	// Phase 28.9: PUT hot-reloads the live Service, so the
+	// historical 'restart to apply' hint is no longer needed;
+	// the field is kept in the response shape for client back-
+	// compat but rendered empty. Operationally: the next push
+	// tick (or the manual "Test push" button) sees the new URL
+	// without a restart.
+	sourceHint, _ := got["source_hint"].(string)
+	assert.Empty(t, sourceHint, "hot reload: no restart banner")
 }
 
 func TestBackupSettings_Put_RejectsInvalidURL(t *testing.T) {

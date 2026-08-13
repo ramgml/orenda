@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -179,4 +180,115 @@ func TestBackup_CommitAndPush_NoRemote(t *testing.T) {
 	}, db)
 	err := svc.CommitAndPush(context.Background(), "x")
 	assert.ErrorIs(t, err, backup.ErrNoRemote)
+}
+
+// Phase 28.9 (polish): hot-reload via atomic.Pointer[Config]. The
+// PUT /api/v1/backups/settings handler calls Service.UpdateConfig
+// after persisting to the backup_settings table. Three contracts
+// worth pinning:
+//
+//  1. UpdateConfig is atomic — concurrent readers always see
+//     either the old or the new Config, never a torn value.
+//  2. Config() returns a defensive copy — mutating the
+//     returned struct must not silently change Service state.
+//  3. -race detector finds no unsynchronised access.
+func TestService_UpdateConfig_SwapsConfigAtomically(t *testing.T) {
+	db, dbPath := setupDB(t)
+	initial := backup.Config{
+		MirrorDir: t.TempDir(),
+		DBPath:    dbPath,
+		RemoteURL: "git@github.com:old/repo.git",
+	}
+	svc := backup.New(initial, db)
+	got := svc.Config()
+	assert.Equal(t, "git@github.com:old/repo.git", got.RemoteURL,
+		"Service starts with the constructor-passed config")
+
+	// Hot-reload — point at a new remote without restarting.
+	svc.UpdateConfig(backup.Config{
+		MirrorDir: initial.MirrorDir,
+		DBPath:    initial.DBPath,
+		RemoteURL: "git@github.com:new/repo.git",
+	})
+	got = svc.Config()
+	assert.Equal(t, "git@github.com:new/repo.git", got.RemoteURL,
+		"Config() reflects the swapped value")
+}
+
+// TestService_ConfigReturnsDefensiveCopy pins that mutating the
+// result of Config() does not bleed into Service state. Without
+// the copy, a poorly-written caller (say, an E2E test or a
+// future helper) could quietly rewrite the live config by
+// mutating the value it pulled — and we'd lose the
+// PUT-then-push guarantee that the operator expected.
+func TestService_ConfigReturnsDefensiveCopy(t *testing.T) {
+	db, dbPath := setupDB(t)
+	svc := backup.New(backup.Config{
+		MirrorDir: t.TempDir(),
+		DBPath:    dbPath,
+		RemoteURL: "git@github.com:a/repo.git",
+	}, db)
+
+	snap := svc.Config()
+	snap.RemoteURL = "git@github.com:EVIL/repo.git"
+
+	again := svc.Config()
+	assert.Equal(t, "git@github.com:a/repo.git", again.RemoteURL,
+		"Config() returns a defensive copy — caller mutation doesn't leak")
+}
+
+// TestService_UpdateConfig_ConcurrentReadersSeeNoTear is the canary
+// for the atomic.Pointer change. Run with `go test -race ./internal/backup/...`
+// — without atomic.Pointer, the reader goroutines would hit a
+// data race on the cfg struct field.
+func TestService_UpdateConfig_ConcurrentReadersSeeNoTear(t *testing.T) {
+	db, dbPath := setupDB(t)
+	svc := backup.New(backup.Config{
+		MirrorDir: t.TempDir(),
+		DBPath:    dbPath,
+		RemoteURL: "git@github.com:initial/repo.git",
+	}, db)
+
+	// Mixed read/write workload. Readers do 100 reads per
+	// iteration, writers do 200 swaps; -race catches any
+	// unsynchronised access. Use a WaitGroup rather than a
+	// sleeping + channel-close pattern — the test was leaking
+	// goroutines that held t.TempDir() open past the test's
+	// cleanup, producing spurious "directory not empty" failures.
+	var wg sync.WaitGroup
+	urlA := "git@github.com:initial/repo.git"
+	urlB := "git@github.com:swapped/repo.git"
+
+	for i := 0; i < 25; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				got := svc.Config().RemoteURL
+				if got != urlA && got != urlB {
+					t.Errorf("unexpected URL %q", got)
+					return
+				}
+			}
+		}()
+	}
+	for i := 0; i < 25; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 200; j++ {
+				url := urlA
+				if j%2 == 0 {
+					url = urlB
+				}
+				svc.UpdateConfig(backup.Config{
+					MirrorDir: t.TempDir(),
+					DBPath:    dbPath,
+					RemoteURL: url,
+				})
+			}
+		}(i)
+	}
+
+	wg.Wait()
 }
