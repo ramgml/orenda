@@ -27,16 +27,36 @@ type Recorder interface {
 	Record(ctx context.Context, action, payload string) error
 }
 
+// TaskTitleLookup is the narrow surface the report needs to enrich
+// per-task rows with the task title (Phase 27.9). We don't import the
+// task package directly to keep this service free of the task service
+// dependency graph — main.go wires an adapter that satisfies it.
+//
+// Missing ids are simply absent from the result; the report renders
+// a slice of the id in that case so the row stays identifiable.
+type TaskTitleLookup interface {
+	TitlesByIDs(ctx context.Context, ids []string) (map[string]string, error)
+}
+
 // Service is the dependency holder.
 type Service struct {
 	Repo     timeentry.Repository
 	Hub      ws.Hub
 	Recorder Recorder
+	Titles   TaskTitleLookup // optional; nil disables title lookup
 }
 
 // New returns a TimeEntry service.
 func New(repo timeentry.Repository, hub ws.Hub, rec Recorder) *Service {
 	return &Service{Repo: repo, Hub: hub, Recorder: rec}
+}
+
+// WithTitles wires the title lookup used by Report. Returns the
+// receiver so calls chain like the other With* methods on the
+// service constructors.
+func (s *Service) WithTitles(t TaskTitleLookup) *Service {
+	s.Titles = t
+	return s
 }
 
 // Start opens a new timer for (taskID, agentID). Returns ErrAlreadyOpen
@@ -167,8 +187,10 @@ type AggregateReportTask struct {
 
 // Report builds a per-task aggregation for [from, to) on the given agent.
 //
-// Phase 4.5 keeps the title lookup out of scope; Phase 5 adds it via
-// the task repo. For now the title is empty.
+// Phase 27.9: enriches each row with the task title when a Title
+// lookup is wired (via WithTitles). The lookup is one batch query
+// for all distinct task ids — no N+1. Missing ids (deleted tasks)
+// fall back to a slice of the id so the row stays identifiable.
 func (s *Service) Report(ctx context.Context, agentID string, from, to time.Time) (*AggregateReport, error) {
 	entries, err := s.Repo.ListByAgent(ctx, agentID, from, to)
 	if err != nil {
@@ -184,6 +206,21 @@ func (s *Service) Report(ctx context.Context, agentID string, from, to time.Time
 		}
 		byTask[e.TaskID] += d
 	}
+	// Batch title lookup — one query for every distinct task id
+	// (Phase 27.9). The lookup is optional; nil falls back to the
+	// pre-27.9 behaviour (empty title).
+	var titles map[string]string
+	if s.Titles != nil && len(byTask) > 0 {
+		ids := make([]string, 0, len(byTask))
+		for id := range byTask {
+			ids = append(ids, id)
+		}
+		got, err := s.Titles.TitlesByIDs(ctx, ids)
+		if err != nil {
+			return nil, fmt.Errorf("timeentry.Report: titles lookup: %w", err)
+		}
+		titles = got
+	}
 	rep := &AggregateReport{
 		AgentID: agentID,
 		From:    from,
@@ -191,7 +228,11 @@ func (s *Service) Report(ctx context.Context, agentID string, from, to time.Time
 		Tasks:   make([]AggregateReportTask, 0, len(byTask)),
 	}
 	for tid, sec := range byTask {
-		rep.Tasks = append(rep.Tasks, AggregateReportTask{TaskID: tid, TotalSec: sec})
+		row := AggregateReportTask{TaskID: tid, TotalSec: sec}
+		if titles != nil {
+			row.Title = titles[tid]
+		}
+		rep.Tasks = append(rep.Tasks, row)
 		rep.TotalSec += sec
 	}
 	return rep, nil

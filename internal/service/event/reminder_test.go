@@ -136,6 +136,13 @@ func (f *fakeRepo) ListByProjectWithStats(ctx context.Context, fil task.Filter) 
 	return f.ListByProject(ctx, fil)
 }
 
+// TitlesByIDs (Phase 27.9) — fake never used by the reminder path;
+// an empty map is the safest default that matches the contract
+// ("missing key → caller falls back to id slice").
+func (f *fakeRepo) TitlesByIDs(_ context.Context, _ []string) (map[string]string, error) {
+	return map[string]string{}, nil
+}
+
 // withStart helper — Set StartAt + EndAt on a task for the fake.
 func withStart(t *task.Task, start time.Time) *task.Task {
 	t.StartAt = &start

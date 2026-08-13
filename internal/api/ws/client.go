@@ -48,6 +48,11 @@ func checkLoopbackOrigin(r *http.Request) bool {
 // juggling on the client. `?token=` is still accepted as a deprecated
 // fallback so external integrations keep working.
 //
+// Phase 27.9: subscribe to every topic in AllTopics rather than just
+// "tasks", so live updates reach the UI regardless of which surface
+// (notifications, calendar, wiki, timers, …) emitted them. Single-owner
+// deployment — no per-project filter needed.
+//
 // cookieName is the cookie carrying the session JWT (defaults to
 // "orenda_session" when empty).
 func Handler(hub Hub, signer *auth.Signer, cookieName string) http.Handler {
@@ -77,12 +82,42 @@ func Handler(hub Hub, signer *auth.Signer, cookieName string) http.Handler {
 			return
 		}
 
-		// Subscribe to the default task-events topic. Phase 2 only has one
-		// topic; Phase 3 will add per-project subscriptions.
-		events, unsub := hub.Subscribe(userID, "tasks")
-		go writePump(conn, events)
-		readPump(conn, unsub)
+		// Phase 27.9: fan-out every topic so the UI receives live
+		// updates from notifications, timers, calendar, wiki, etc.
+		// Subscribe to each topic, merge the channels into one stream,
+		// and release every subscription on disconnect.
+		merged, cleanupAll := subscribeAll(hub, userID)
+		go writePump(conn, merged)
+		readPump(conn, cleanupAll)
 	})
+}
+
+// subscribeAll opens one subscription per topic in AllTopics and merges
+// them into a single channel. On disconnect the returned cleanup releases
+// every subscription; partial cleanup would leak buffered events.
+//
+// We pick the fan-out shape (N subscriptions, 1 merged channel) rather
+// than a single subscription to "all" because the hub models per-topic
+// subscriber sets — emitting to every topic individually is the publish
+// path already used by every service.
+func subscribeAll(hub Hub, userID string) (<-chan Event, Unsubscribe) {
+	merged := make(chan Event, 32)
+	unsubs := make([]Unsubscribe, 0, len(AllTopics))
+	for _, topic := range AllTopics {
+		ch, unsub := hub.Subscribe(userID, topic)
+		unsubs = append(unsubs, unsub)
+		go func(c <-chan Event) {
+			for ev := range c {
+				merged <- ev
+			}
+		}(ch)
+	}
+	cleanup := func() {
+		for _, u := range unsubs {
+			u()
+		}
+	}
+	return merged, cleanup
 }
 
 // extractWSToken pulls the JWT from the session cookie first, then the

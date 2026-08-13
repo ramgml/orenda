@@ -1,9 +1,11 @@
 // Package notifier — real notifier facade.
 //
-// Phase 6 ships:
+// The facade fans events out across three surfaces:
+//
 //   - Subscriptions (bot_subscriptions table): per-user channel + events
 //   - In-app inbox (notifications table) with dedup via dedup_key
-//   - Dispatch to bots via internal/bot.Registry (console for now)
+//   - Dispatch to bots via internal/bot.Registry (Console, Telegram,
+//     VK, Email, Webhook — Phase 10)
 //   - Retry with exponential backoff (3 attempts) on bot errors
 package notifier
 

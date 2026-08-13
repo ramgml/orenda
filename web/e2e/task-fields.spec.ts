@@ -94,9 +94,10 @@ test.describe('Task field controls (Phase 27.7)', () => {
     // Activity feed carries the priority + status + assigned rows.
     const feed = await listTaskActivity(userCtx, task.id)
     const actions = feed.activity.map((a) => a.action)
-    expect(actions).toContain('priority_changed')
-    expect(actions).toContain('status_changed')
-    expect(actions).toContain('assigned')
+    // Phase 27.9: backend writes the `task.*` prefix consistently.
+    expect(actions).toContain('task.priority_changed')
+    expect(actions).toContain('task.status_changed')
+    expect(actions).toContain('task.assigned')
 
     await userCtx.dispose()
   })

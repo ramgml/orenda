@@ -297,9 +297,30 @@ var pendingNotifier *backup.Scheduler
 // Phase 27.4: the course service stays free of the task service
 // dependency graph. The adapter lives in main.go where the
 // dependency wiring already lives.
+//
+// Phase 27.9: the previous design intentionally skipped WS/activity
+// hooks here so it wouldn't duplicate the createTask handler. That
+// decision left the UI blind to course-spawned tasks (no live
+// notification, no review-queue badge). The fix is bounded: the
+// adapter now publishes a single `task.created` event and writes a
+// single activity row per generated task. Both go through the same
+// Hub / Recorder already wired in main.go so live subscribers see
+// the task immediately.
 type courseTaskCreatorAdapter struct {
 	tasksRepo taskdomain.Repository
 	db        *sql.DB
+	hub       ws.Hub
+	recorder  courseTaskActivityRecorder
+}
+
+// courseTaskActivityRecorder is the narrow surface the adapter needs
+// to write the "task created" activity row. We don't import the
+// task service's Recorder directly to keep this adapter wiring
+// isolated from the task service's full dependency graph. The
+// concrete implementation (activitysvc.Recorder) satisfies it via
+// RecordTask.
+type courseTaskActivityRecorder interface {
+	RecordTask(ctx context.Context, taskID string, actorType activitydomain.ActorType, actorID string, action activitydomain.Action, payload string) error
 }
 
 func (a courseTaskCreatorAdapter) CreateGeneratorTask(ctx context.Context, ownerID, courseID, title, intentMD string) (string, error) {
@@ -317,6 +338,7 @@ func (a courseTaskCreatorAdapter) CreateGeneratorTask(ctx context.Context, owner
 	if err := a.tasksRepo.Create(ctx, t); err != nil {
 		return "", err
 	}
+	a.notifyCreated(ctx, t, ownerID, "course_generator")
 	return t.ID, nil
 }
 
@@ -340,7 +362,33 @@ func (a courseTaskCreatorAdapter) CreateQuizReviewTask(ctx context.Context, owne
 	if err := a.tasksRepo.Create(ctx, t); err != nil {
 		return "", err
 	}
+	a.notifyCreated(ctx, t, ownerID, "course_quiz_review")
 	return t.ID, nil
+}
+
+// notifyCreated publishes the WS `task.created` event and writes a
+// matching activity row for tasks spawned by the course service
+// (Phase 27.9). Errors are swallowed on purpose — best-effort
+// observability for a row that already lives in the DB; surfacing
+// would risk failing a successful course operation.
+func (a courseTaskCreatorAdapter) notifyCreated(ctx context.Context, t *taskdomain.Task, ownerID, source string) {
+	if a.hub != nil {
+		a.hub.Publish(ctx, ws.Event{
+			Topic: "tasks",
+			Body: map[string]any{
+				"type":    "task.created",
+				"task_id": t.ID,
+				"user_id": ownerID,
+				"source":  source,
+				"task":    t,
+			},
+		})
+	}
+	if a.recorder != nil {
+		_ = a.recorder.RecordTask(ctx, t.ID, activitydomain.ActorSystem, ownerID,
+			activitydomain.ActionCreated,
+			fmt.Sprintf(`{"source":%q}`, source))
+	}
 }
 
 func (a courseTaskCreatorAdapter) lookupQuizContext(ctx context.Context, quizID, lessonID string) (quizTitle, lessonTitle string, err error) {
@@ -598,14 +646,16 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// same seam.
 	taskSvc.CommentLister = commentSvc
 
-	// Agent service (Phase 3.5) — Register, Heartbeat, SweepOffline.
-	// Wired but not yet exposed via handlers (3.11).
+	// Agent service — Register, Heartbeat, SweepOffline. Exposed
+	// through /api/v1/agents (REST) and /api/v1/agent/* (namespace)
+	// since Phase 3; the AgentService dep is wired into the router
+	// further down.
 	agentSvc := agentservice.New(
 		sqlite.NewAgentRepository(db),
 		users,
 		tokenMinterFor(tokens),
 		hub,
-		nil, // Recorder lands with 3.9
+		nil, // Recorder wired separately when needed (Phase 3.9+)
 	)
 	_ = agentSvc
 
@@ -614,7 +664,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// eventService facade still exists for API compatibility, but it
 	// reads and writes the tasks table now.
 	eventSvc := eventservice.New(sqlite.NewTaskRepository(db), hub, nil)
-	timeSvc := timeentryservice.New(sqlite.NewTimeEntryRepository(db), hub, nil)
+	timeSvc := timeentryservice.New(sqlite.NewTimeEntryRepository(db), hub, nil).
+		WithTitles(sqlite.NewTaskRepository(db))
 
 	// Wiki + Search services (Phase 5).
 	wikiSvc := wikiservice.New(sqlite.NewWikiRepository(db), hub)
@@ -628,9 +679,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// spawns a "build the curriculum" task and AnswerQuiz (open)
 	// spawns a review task. The adapter keeps the course service
 	// from depending on the task service directly — clean seam.
+	//
+	// Phase 27.9: hub + activityRecorder make spawned tasks visible
+	// to live subscribers (review-queue badge, kanban updates).
 	courseSvc = courseSvc.WithTaskCreator(courseTaskCreatorAdapter{
 		tasksRepo: tasksRepo,
 		db:        db,
+		hub:       hub,
+		recorder:  activityRecorder,
 	})
 
 	// Notifier (Phase 6): registry + console bot (always available) + WS
