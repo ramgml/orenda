@@ -66,3 +66,4 @@ tui.json
 .omp/
 # --- Parallel agent worktrees (nested option; see AGENTS.md) ---
 .worktrees/
+node_modules/

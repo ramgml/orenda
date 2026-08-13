@@ -1566,12 +1566,21 @@ make build
 
 **Задачи:**
 
-- [ ] **27.7.1** Backend: сайд-эффекты PATCH status (`completed_at`, нормализация `awaiting`) + гарантированные activity-строки для status/priority/assignee; API-тесты.
-- [ ] **27.7.2** Client: типы `updateTask` (status/priority/assignee_*); резолв имён assignee (список агентов + владелец из AuthContext).
-- [ ] **27.7.3** Frontend: контролы в `TaskViewBody` (общий компонент — работают и в модалке, и на `/tasks/:id`); vitest на селекты и PATCH-вызовы.
-- [ ] **27.7.4** E2E: открыть карточку → сменить priority/status/assignee → после reload сохранено; колонка на канбане при смене status НЕ двигается (оси разделены).
+- [x] **27.7.1** Backend: сайд-эффекты PATCH status (`completed_at`, нормализация `awaiting`) + гарантированные activity-строки для status/priority/assignee; API-тесты. — *Выполнено: `patchTaskHandler` снимает prev state, после `applyTaskPatch` диффит; `status=done` без явного `completed_at` → `time.Now().UTC()`; awaiting нормализация: done→none, review→human, иначе→none; новый `ActionPriorityChanged` в activity/model.go; activity row пишется только когда поле реально поменялось.*
+- [x] **27.7.2** Client: типы `updateTask` (status/priority/assignee_*); резолв имён assignee (список агентов + владелец из AuthContext). — *Выполнено: `api.patchTask` уже принимает `Partial<Task>` (включая status/priority/assignee_*); `TaskFieldControls` через `useAuth().user` для "Me" + `api.listAgents()` для агентов; лейбл под select показывает текущее имя, даже если оно не в dropdown (fallback).*
+- [x] **27.7.3** Frontend: контролы в `TaskViewBody` (общий компонент — работают и в модалке, и на `/tasks/:id`); vitest на селекты и PATCH-вызовы. — *Выполнено: новый `TaskFieldControls.tsx` (3 select: status/priority/assignee), инкапсулирует PATCH + label-resolve; интегрирован в `TaskViewBody` (используется и в `TaskModal` через тот же TaskViewBody); 7 vitest на компонент.*
+- [x] **27.7.4** E2E: открыть карточку → сменить priority/status/assignee → после reload сохранено; колонка на канбане при смене status НЕ двигается (оси разделены). — *Выполнено: новый `task-fields.spec.ts`: owner открывает карточку, меняет все три поля через UI, проверяет сервер-truth + activity feed содержит status_changed/priority_changed/assigned; column_id остаётся прежним (оси разделены в 27.7, 27.8 их сольёт).*
 
-**DoD:** все три поля меняются из карточки и переживают reload; assignee виден именем; ручной `done` ставит `completed_at` (отчёты/таймеры корректны); agent-flow (claim/submit/review) не сломан — его тесты зелёные.
+**DoD (verified 2026-08-13, worktree `phase-27-7-task-fields`):**
+
+- Все три поля меняются из карточки и переживают reload. — *✅ `task-fields.spec.ts`: `prioritySelect.selectOption('urgent')` → `page.reload()` → `expect(page.getByTestId('task-priority')).toHaveValue('urgent')`; аналогично для status=Done и assignee=Me; сервер-truth через `patchTask(userCtx, task.id, {})` подтверждает значения.*
+- Assignee виден именем. — *✅ `TaskFieldControls` показывает `user.display_name || 'Me'` и `agent.name (status)`; под select — строка "currently: …" с резолвом через `assigneeKey`.*
+- Ручной `done` ставит `completed_at` (отчёты/таймеры корректны). — *✅ `TestPatchTask_StatusDone_AutoCompletesAndNormalisesAwaiting`: `time.Now().UTC()` ±5s; явный `completed_at` сохраняется (`TestPatchTask_StatusDoneWithExplicitCompletedAt_RespectsCaller`).*
+- Agent-flow (claim/submit/review) не сломан. — *✅ `go test ./internal/api/...` — все существующие тесты зелёные; `move_test.go` (agent-flow claim/release/submit/review) без изменений.*
+
+**Verify:** `go test ./...` — все пакеты ok; vitest 206/206 (+7 на TaskFieldControls); Playwright 11/11 (+1 task-fields.spec.ts); `npx tsc --noEmit` чистый.
+
+**Известное расхождение (Phase 27.9 долг):** `ActionStatusChanged = "status_changed"` пишется без префикса `task.`, а verb-map в `TaskViewBody.tsx` ключует `task.status_changed` — новые activity rows показываются raw. Pre-existing расхождение, зафиксировано в PLAN 27.9 «comment-debt cleanup».
 
 **За скобкой:** UI управления набором статусов проекта, bulk-edit. Синк колонка↔статус принят владельцем — см. 27.8.
 

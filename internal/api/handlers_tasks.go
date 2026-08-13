@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -220,8 +221,48 @@ func patchTaskHandler(deps Dependencies) http.HandlerFunc {
 		// Phase 13: capture the colour BEFORE applyTaskPatch overwrites it
 		// so the activity row can report both sides of the transition.
 		prevColor := tr.Color
+		// Phase 27.7: same idea for status / priority / assignee. We
+		// snapshot before apply so the activity rows can report both
+		// sides; the side-effects (status=done → completed_at, awaiting
+		// normalisation) are applied after apply to tr.
+		prevStatus := tr.Status
+		prevPriority := tr.Priority
+		prevAssigneeType := tr.AssigneeType
+		prevAssigneeID := tr.AssigneeID
 
 		applyTaskPatch(r.Context(), deps, tr, in)
+
+		// Phase 27.7: status side-effects. We let the caller set
+		// completed_at explicitly (in.CompletedAt *string), but a
+		// status=done without an explicit completed_at fills it in
+		// — without this, /reports time and Progress both under-count
+		// work the user marks done through the sidebar.
+		statusChanged := in.Status != "" && tr.Status != prevStatus
+		if statusChanged && tr.Status == task.StatusDone && in.CompletedAt == nil {
+			now := time.Now().UTC()
+			tr.CompletedAt = &now
+		}
+		// Awaiting normalisation. The agent flow normally drives
+		// awaiting (claim → agent, submit → human, …). A manual
+		// status change through the UI is the owner's override and
+		// gets its own canonical mapping:
+		//   done     → none  (work is over)
+		//   review   → human (a reviewer must now act)
+		//   anything else → none (the new status is "no one in particular")
+		// We deliberately do NOT preserve awaiting=agent across a
+		// manual status change — the owner is explicitly taking the
+		// wheel and the agent's claim is implicitly released.
+		if statusChanged {
+			switch tr.Status {
+			case task.StatusDone:
+				tr.Awaiting = task.AwaitingNone
+			case task.StatusReview:
+				tr.Awaiting = task.AwaitingHuman
+			default:
+				tr.Awaiting = task.AwaitingNone
+			}
+		}
+
 		if err := deps.Tasks.Update(r.Context(), tr); err != nil {
 			writeError(w, err)
 			return
@@ -250,6 +291,46 @@ func patchTaskHandler(deps Dependencies) http.HandlerFunc {
 		// not flood the activity feed.
 		if in.Tags != nil {
 			applyTaskTagsChange(r.Context(), deps, tr.ID, *in.Tags)
+		}
+
+		// Phase 27.7: status / priority / assignee changes get their
+		// own activity rows. We only emit when the caller actually
+		// sent the field (so a PATCH that touches unrelated fields
+		// doesn't pollute the feed) and when the value truly
+		// changed. The payload format mirrors ActionColorChanged
+		// (typed JSON object) so the ActivityLog component can render
+		// both sides of the transition without extra plumbing.
+		if deps.TaskService != nil {
+			actorID := ""
+			if id, ok := IdentityFrom(r.Context()); ok && id != nil {
+				actorID = id.UserID
+			}
+			if statusChanged {
+				deps.TaskService.RecordActivity(
+					r.Context(), tr.ID, actorID,
+					activity.ActionStatusChanged,
+					fmt.Sprintf(`{"from":%q,"to":%q}`, prevStatus, tr.Status),
+				)
+			}
+			if in.Priority != "" && tr.Priority != prevPriority {
+				deps.TaskService.RecordActivity(
+					r.Context(), tr.ID, actorID,
+					activity.ActionPriorityChanged,
+					fmt.Sprintf(`{"from":%q,"to":%q}`, prevPriority, tr.Priority),
+				)
+			}
+			if (in.AssigneeType != "" || in.AssigneeID != "") &&
+				(tr.AssigneeType != prevAssigneeType || tr.AssigneeID != prevAssigneeID) {
+				deps.TaskService.RecordActivity(
+					r.Context(), tr.ID, actorID,
+					activity.ActionAssigned,
+					fmt.Sprintf(
+						`{"from":{"type":%q,"id":%q},"to":{"type":%q,"id":%q}}`,
+						prevAssigneeType, prevAssigneeID,
+						tr.AssigneeType, tr.AssigneeID,
+					),
+				)
+			}
 		}
 
 		writeJSON(w, http.StatusOK, tr)
