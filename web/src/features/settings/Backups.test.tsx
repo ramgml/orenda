@@ -80,16 +80,56 @@ function stubDefaults(overrides: {
 }
 
 describe('BackupsSettingsPage', () => {
-  it('renders the read-only settings panel', async () => {
+  it('renders an editable settings form (Phase 28.1 polish.1)', async () => {
     stubDefaults()
 
     render(<BackupsSettingsPage />)
 
-    expect(await screen.findByText('git@github.com:foo/bar.git')).toBeTruthy()
-    // Both "Enabled" and "Auth configured" are 'yes' with this stub;
-    // assert the count to disambiguate from siblings.
-    expect(screen.getAllByText('yes').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByText('data/config.yaml')).toBeTruthy()
+    // The form reflects what the server returned: enabled,
+    // current remote URL, a Save button.
+    const url = (await screen.findByTestId('settings-remote-url')) as HTMLInputElement
+    expect(url.value).toBe('git@github.com:foo/bar.git')
+    const enabled = screen.getByTestId('settings-enabled') as HTMLInputElement
+    expect(enabled.checked).toBe(true)
+    expect(screen.getByTestId('settings-save')).toBeTruthy()
+    // Auth field is a password input (never pre-filled — secret).
+    const auth = screen.getByTestId('settings-remote-auth') as HTMLInputElement
+    expect(auth.value).toBe('')
+  })
+
+  it('Save settings posts a PUT and shows the success banner', async () => {
+    stubDefaults()
+    stubHttp.put.mockResolvedValueOnce({
+      data: {
+        enabled: true,
+        remote_url: 'git@github.com:foo/bar.git',
+        has_auth: true,
+      },
+    })
+
+    render(<BackupsSettingsPage />)
+    // Edit URL — old stub returns 'git@github.com:foo/bar.git',
+    // confirm we keep it (this is the "save what I typed, even
+    // when I didn't change anything" path).
+    fireEvent.click(await screen.findByTestId('settings-save'))
+
+    await waitFor(() => {
+      expect(stubHttp.put).toHaveBeenCalledWith(
+        '/api/v1/backups/settings',
+        expect.objectContaining({ enabled: true }),
+      )
+    })
+    expect(await screen.findByText(/Settings saved/)).toBeTruthy()
+  })
+
+  it('Save settings surfaces the server-side validation error', async () => {
+    stubDefaults()
+    stubHttp.put.mockRejectedValueOnce(new Error('invalid remote_url'))
+
+    render(<BackupsSettingsPage />)
+    fireEvent.click(await screen.findByTestId('settings-save'))
+
+    expect(await screen.findByText(/Save failed: invalid remote_url/)).toBeTruthy()
   })
 
   it('renders the empty state for snapshots when none exist', async () => {

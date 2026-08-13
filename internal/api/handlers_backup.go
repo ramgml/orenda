@@ -4,46 +4,243 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/ramgml/orenda/internal/backup"
 )
 
 // backupSettingsInput is the JSON body of PUT /backups/settings.
+//
+// Phase 28.1 (polish.1) is what gives the operator a way to set
+// remote URL / auth / enabled flag from the UI without restarting
+// the process — config.yaml is still the cold-start fallback the
+// running `*backup.Service` was wired from (cmd/orenda/main.go).
+// Settings take effect on the next process restart.
 type backupSettingsInput struct {
 	RemoteURL  string `json:"remote_url"`
 	RemoteAuth string `json:"remote_auth"`
-	Enabled    bool   `json:"enabled"`
+	Enabled    *bool  `json:"enabled"` // pointer so missing field ≠ explicit false
 }
 
-// listBackupSettingsHandler returns the current settings.
+// backupSettingsResponse is the GET / PUT response shape.
 //
-// Phase 7 keeps the settings in memory (cmd/orenda already loaded them
-// from config). Persisted overrides via backup_settings land in Phase 9.
+// We surface `enabled`/`remote_url`/`has_auth` the same way the
+// pre-28.1 GET did (back-compat for the existing UI), plus
+// `updated_at` so the UI can show "saved 30 seconds ago".
+type backupSettingsResponse struct {
+	Enabled    bool   `json:"enabled"`
+	RemoteURL  string `json:"remote_url"`
+	HasAuth    bool   `json:"has_auth"`
+	UpdatedAt  string `json:"updated_at,omitempty"`
+	SourceHint string `json:"source_hint,omitempty"`
+}
+
+// Setting keys persisted in backup_settings. We use short, stable
+// names; if you change them, write a one-shot migration.
+const (
+	bsKeyEnabled    = "enabled"
+	bsKeyRemoteURL  = "remote_url"
+	bsKeyRemoteAuth = "remote_auth"
+)
+
+// listBackupSettingsHandler returns the persisted overrides (when
+// present) layered over the in-memory start-time config. Because the
+// operator can edit settings through the UI, the "current value"
+// answer can diverge from what `*backup.Service` is actually using
+// right now — `source_hint` makes that visible.
 func listBackupSettingsHandler(deps Dependencies) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"enabled":    deps.BackupEnabled,
-			"remote_url": deps.BackupRemoteURL,
-			"has_auth":   deps.BackupRemoteURL != "" && deps.BackupRemoteAuthSet,
-		})
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		// In-memory defaults that `*backup.Service` was wired with
+		// — read via deps so the call works for tests without an
+		// attached DB (deps.BackupSettings is nil in the partial
+		// fixture).
+		settings := backupSettingsResponse{
+			Enabled:   deps.BackupEnabled,
+			RemoteURL: deps.BackupRemoteURL,
+			HasAuth:   deps.BackupRemoteURL != "" && deps.BackupRemoteAuthSet,
+		}
+		// DB overrides on top: a row in backup_settings authored by
+		// the UI wins over the in-memory config (it's the more
+		// recent intent).
+		if deps.BackupSettings != nil {
+			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyEnabled); err == nil && ok {
+				var on bool
+				if jerr := json.Unmarshal(raw, &on); jerr == nil {
+					settings.Enabled = on
+				}
+			}
+			remoteInDB := ""
+			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyRemoteURL); err == nil && ok {
+				s, _ := jsonString(raw)
+				remoteInDB = s
+			}
+			if remoteInDB != "" {
+				settings.RemoteURL = remoteInDB
+				hasAuthInDB := false
+				if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyRemoteAuth); err == nil && ok && len(raw) > 0 {
+					hasAuthInDB = true
+				}
+				settings.HasAuth = hasAuthInDB
+			}
+		}
+		if settings.RemoteURL != deps.BackupRemoteURL || settings.Enabled != deps.BackupEnabled {
+			settings.SourceHint = "ui_override_restart_to_apply"
+		}
+		writeJSON(w, http.StatusOK, settings)
 	}
 }
 
-// putBackupSettingsHandler accepts settings overrides. Phase 7 returns
-// 501 — settings live in config.yaml until Phase 9 adds the backup_settings
-// table write path.
-func putBackupSettingsHandler(_ Dependencies) http.HandlerFunc {
+// jsonString is a helper to pull a string back out of json.RawMessage
+// without panicking on null or non-strings; the write path always
+// emits well-formed JSON, so a parse failure means we return "".
+func jsonString(raw json.RawMessage) (string, error) {
+	var s string
+	err := json.Unmarshal(raw, &s)
+	return s, err
+}
+
+// putBackupSettingsHandler persists UI-editable override settings.
+// The running `*backup.Service` reads URL/auth/schedule from the
+// in-memory Config it was wired with at startup — these overrides
+// take effect on the next restart. See SESSION.md "Фаза «Полировка»".
+func putBackupSettingsHandler(deps Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.BackupSettings == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "backup_settings_repo_unavailable"})
+			return
+		}
+
 		var in backupSettingsInput
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		writeJSON(w, http.StatusNotImplemented, map[string]string{
-			"error": "PUT /backups/settings is Phase 9 (config.yaml is the source of truth)",
-		})
+		ctx := r.Context()
+		// Defaults: missing `enabled` → keep current (true UX, the
+		// operator expected "save what I typed"). We pull current
+		// from the DB if set, falling back to in-memory cfg.
+		currentEnabled := deps.BackupEnabled
+		if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyEnabled); err == nil && ok {
+			var b bool
+			if json.Unmarshal(raw, &b) == nil {
+				currentEnabled = b
+			}
+		}
+		if in.Enabled == nil {
+			in.Enabled = &currentEnabled
+		}
+
+		// Pull remote_url / auth from DB if the body didn't carry
+		// them explicitly. Empty != "set to empty"; the only way
+		// out of "has remote" is the operator clearing the field
+		// and saving, which the UI handles by passing "" (we then
+		// write "" over the existing value).
+		if in.RemoteURL == "" {
+			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyRemoteURL); err == nil && ok {
+				s, _ := jsonString(raw)
+				in.RemoteURL = s
+			} else {
+				in.RemoteURL = deps.BackupRemoteURL
+			}
+		}
+		if in.RemoteAuth == "" {
+			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyRemoteAuth); err == nil && ok {
+				s, _ := jsonString(raw)
+				in.RemoteAuth = s
+			}
+		}
+
+		if err := validateBackupSettingsInput(in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+
+		if err := deps.BackupSettings.SetKey(ctx, bsKeyEnabled, boolJSON(*in.Enabled)); err != nil {
+			writeBackupJSONError(w, err, "persist enabled")
+			return
+		}
+		// Always write remote_url/auth — these JSON columns
+		// persist "" too. Clear=delete is a separate path we
+		// don't expose yet; clear-then-default is handled by the
+		// GET merge above.
+		if err := deps.BackupSettings.SetKey(ctx, bsKeyRemoteURL, jsonRaw(in.RemoteURL)); err != nil {
+			writeBackupJSONError(w, err, "persist remote_url")
+			return
+		}
+		if err := deps.BackupSettings.SetKey(ctx, bsKeyRemoteAuth, jsonRaw(in.RemoteAuth)); err != nil {
+			writeBackupJSONError(w, err, "persist remote_auth")
+			return
+		}
+
+		// Echo the persisted state back to the caller. The body
+		// shape mirrors GET so the UI reload isn't needed.
+		resp := backupSettingsResponse{
+			Enabled:   *in.Enabled,
+			RemoteURL: in.RemoteURL,
+			HasAuth:   in.RemoteAuth != "",
+		}
+		// Same hint as GET — informs the operator that the
+		// in-memory `*backup.Service` is still on the old URL
+		// until they restart. Without this the form would lose
+		// the restart banner the moment the operator clicks Save.
+		if resp.RemoteURL != deps.BackupRemoteURL || resp.Enabled != deps.BackupEnabled {
+			resp.SourceHint = "ui_override_restart_to_apply"
+		}
+		writeJSON(w, http.StatusOK, resp)
 	}
+}
+
+// validateBackupSettingsInput returns the first validation problem
+// or nil. Allowed URL schemes: http(s) for plain git, ssh (for
+// git@… URLs the operator pastes back from GitHub's "clone" button).
+// Empty remote_url is valid — combined with enabled=false it means
+// "I'm not backing up yet".
+func validateBackupSettingsInput(in backupSettingsInput) error {
+	if *in.Enabled && in.RemoteURL == "" {
+		return errors.New("remote_url is required when backup is enabled")
+	}
+	if in.RemoteURL == "" {
+		return nil
+	}
+	u, err := url.Parse(in.RemoteURL)
+	if err != nil {
+		return fmt.Errorf("invalid remote_url: %w", err)
+	}
+	switch u.Scheme {
+	case "http", "https", "ssh", "git":
+		// ok
+	default:
+		return fmt.Errorf("remote_url: unsupported scheme %q (expected http, https, ssh, git)", u.Scheme)
+	}
+	if u.Host == "" && strings.TrimPrefix(u.Scheme+"://", "") == in.RemoteURL {
+		return errors.New("remote_url is missing host")
+	}
+	return nil
+}
+
+// boolJSON wraps a bool as JSON bytes for the repo. We never want
+// to hand the repo a string when the column is JSON-typed — that
+// route is a footgun and was the source of the null-in-value bug
+// caught during Phase 28.1 review.
+func boolJSON(b bool) []byte {
+	out, _ := json.Marshal(b)
+	return out
+}
+
+func jsonRaw(s string) []byte {
+	out, _ := json.Marshal(s)
+	return out
+}
+
+func writeBackupJSONError(w http.ResponseWriter, err error, op string) {
+	msg := err.Error()
+	writeJSON(w, http.StatusInternalServerError, map[string]string{
+		"error": "persist failed: " + op + ": " + msg,
+	})
 }
 
 // testBackupPushHandler runs one CommitAndPush and returns the outcome.

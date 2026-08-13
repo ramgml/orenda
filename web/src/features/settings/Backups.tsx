@@ -21,6 +21,22 @@ export function BackupsSettingsPage(): JSX.Element {
   const [restoreTarget, setRestoreTarget] = useState<BackupSnapshot | null>(null)
   const [restoreHint, setRestoreHint] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  // Phase 28.1 polish.1: editable settings form state. The form
+  // fields are initialized from `settings` once it loads; the user
+  // types into `formEnabled` / `formRemoteUrl` / `formRemoteAuth`
+  // and Save posts all three back. Keeping them as separate state
+  // (not just `settings`) lets the user edit freely without
+  // round-tripping every keystroke.
+  const [formEnabled, setFormEnabled] = useState(false)
+  const [formRemoteUrl, setFormRemoteUrl] = useState('')
+  const [formRemoteAuth, setFormRemoteAuth] = useState('')
+  const [savingSettings, setSavingSettings] = useState(false)
+
+  // We only want the form to mirror the server state on the *initial*
+  // load — once the operator starts typing, the form state is theirs
+  // until they hit Save (or refresh the page). We track this with a
+  // `formInitialized` flag.
+  const [formInitialized, setFormInitialized] = useState(false)
 
   async function load(): Promise<void> {
     try {
@@ -33,6 +49,14 @@ export function BackupsSettingsPage(): JSX.Element {
       setSnapshots(snaps.snapshots ?? [])
       setLog(l.log ?? [])
       setError(null)
+      if (!formInitialized) {
+        setFormEnabled(s.enabled)
+        setFormRemoteUrl(s.remote_url)
+        // Don't pre-fill the auth field — it's a secret, the
+        // backend never returns it.
+        setFormRemoteAuth('')
+        setFormInitialized(true)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -158,6 +182,37 @@ export function BackupsSettingsPage(): JSX.Element {
     }
   }
 
+  // Editable settings form (Phase 28.1 polish.1). Pre-28.1 the
+  // settings panel was a `<dl>` — operators had to ssh to the host
+  // and edit config.yaml to add a remote. Now the same panel
+  // doubles as a Save form; the running `*backup.Service` doesn't
+  // pick up the change (it was wired at startup), but the next
+  // process reload does. The source_hint banner makes that visible.
+  function onSaveSettings(): void {
+    if (!settings) return
+    setSavingSettings(true)
+    setError(null)
+    setInfo(null)
+    api
+      .setBackupSettings({
+        enabled: formEnabled,
+        remote_url: formRemoteUrl,
+        remote_auth: formRemoteAuth,
+      })
+      .then((fresh) => {
+        setSettings(fresh)
+        setInfo('Settings saved. Restart Orenda to apply the new remote.')
+        // Clear the auth field — we don't want to keep the secret
+        // in component state after a save.
+        setFormRemoteAuth('')
+      })
+      .catch((e) => {
+        const msg = e instanceof Error ? e.message : String(e)
+        setError(`Save failed: ${msg}`)
+      })
+      .finally(() => setSavingSettings(false))
+  }
+
   return (
     <section className="space-y-4">
       <header>
@@ -178,24 +233,67 @@ export function BackupsSettingsPage(): JSX.Element {
         </div>
       )}
 
-      <div className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950">
-        <h2 className="font-semibold mb-2">Settings</h2>
+      <div className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950 space-y-3">
+        <h2 className="font-semibold">Settings</h2>
         {settings ? (
-          <dl className="grid grid-cols-[140px,1fr] gap-y-1 text-sm">
-            <dt className="text-slate-500">Enabled</dt>
-            <dd>{settings.enabled ? 'yes' : 'no'}</dd>
-            <dt className="text-slate-500">Remote URL</dt>
-            <dd className="font-mono text-xs break-all">{settings.remote_url || '—'}</dd>
-            <dt className="text-slate-500">Auth configured</dt>
-            <dd>{settings.has_auth ? 'yes' : 'no'}</dd>
-          </dl>
+          <div className="space-y-3 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                data-testid="settings-enabled"
+                checked={formEnabled}
+                onChange={(e) => setFormEnabled(e.target.checked)}
+              />
+              <span>Backup enabled</span>
+            </label>
+            <label className="block">
+              <span className="text-xs text-slate-500">Remote URL</span>
+              <input
+                type="url"
+                data-testid="settings-remote-url"
+                value={formRemoteUrl}
+                onChange={(e) => setFormRemoteUrl(e.target.value)}
+                placeholder="https://github.com/me/orenda.git"
+                className="w-full mt-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs text-slate-500">Remote auth (token)</span>
+              <input
+                type="password"
+                data-testid="settings-remote-auth"
+                value={formRemoteAuth}
+                onChange={(e) => setFormRemoteAuth(e.target.value)}
+                placeholder={
+                  settings.has_auth ? '•••• (configured — leave blank to keep)' : 'optional'
+                }
+                autoComplete="off"
+                className="w-full mt-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono"
+              />
+            </label>
+            <div className="flex gap-2 items-center">
+              <button
+                type="button"
+                data-testid="settings-save"
+                onClick={onSaveSettings}
+                disabled={savingSettings}
+                className="px-3 py-2 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
+              >
+                {savingSettings ? 'Saving…' : 'Save settings'}
+              </button>
+              {settings.source_hint && (
+                <span
+                  data-testid="settings-restart-hint"
+                  className="rounded border border-amber-300 bg-amber-50 text-amber-900 px-3 py-1 text-xs"
+                >
+                  Restart Orenda to apply the new remote.
+                </span>
+              )}
+            </div>
+          </div>
         ) : (
           <p className="text-slate-500 text-sm">Loading…</p>
         )}
-        <p className="text-xs text-slate-500 mt-3">
-          Settings live in <code className="px-1 bg-slate-100 dark:bg-slate-800 rounded">data/config.yaml</code>.
-          Edit and restart to change the remote.
-        </p>
       </div>
 
       <div className="flex gap-2">

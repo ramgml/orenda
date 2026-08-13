@@ -1,4 +1,4 @@
-# Session Snapshot — 2026-08-13 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4; открытых фаз нет)
+# Session Snapshot — 2026-08-13 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1; открыто: «Полировка»)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
@@ -51,8 +51,8 @@
 
 - **Дата снапшота:** 2026-08-13
 - **Ветка:** `dev`
-- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4. Открытых фаз нет (см. «Бэклог» ниже).
-- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11)
+- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1 (полировка). Открытая фаза: «Полировка» — следующие долги (см. «Бэклог» ниже).
+- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1)
 
 ## Что сделано за сессию (кратко)
 
@@ -89,6 +89,7 @@
 | **27.10** | **Цвет колонки (init/рендер/WS)** — дефект зафиксирован 2026-08-13. Frontend: `ColumnView` получил пропсы `color?` / `wipLimit?`; рендерит `data-testid="column-color-dot"` слева от заголовка (slate fallback если пусто). `EditColumnModal` теперь инициализирует `useState(initialColor ?? '#94a3b8')` и `useState(initialWipLimit?.toString() ?? '')` — reopen показывает сохранённое. Submit отправляет `color` в PATCH только если он отличается от `initialColor` — rename больше не затирает цвет. Backend: `patchColumnHandler` публикует `column.updated` на топик `tasks` (parity с created/deleted). Tests: 5 vitest (`ColumnView.test.tsx`: dot рендерит сохранённый цвет + fallback; модалка открывается с initialColor/initialWipLimit; PATCH rename не содержит `color`; PATCH смены цвета содержит) + `TestPatchColumn_BroadcastsColumnUpdated` (subscribe → patch → assert WS event) + E2E `kanban.spec.ts:Phase 27.10` (dot виден, rgb соответствует hex, переживает rename + reload). Verify: `make test` Go — все пакеты ok; vitest 220/220 (+5); `make test-e2e` 13/13 (+1); TypeScript clean. |
 | **27.11** | **Agent comment/await 401 + openapi coverage (аудит документации)** — дефекты зафиксированы 2026-08-13. **(1)** Agent-namespace aliases: `POST /api/v1/agent/tasks/{id}/comments` (author=agent + `Identity.AgentID`) и `POST /api/v1/agent/events/await` (long-poll подписывает WS hub под agent's id). Оба хэндлера в новом `handlers_agent_namespace.go`; оба под `RequireAgent` middleware. CLI `comment`/`await` (`cmd/orenda/agent.go`) переведены на новые endpoints. Tests: `TestAgent_CommentCreatesAgentAuthoredComment` (agent-токен → 201, `author_type=agent`, `author_id=agentID`), `TestAgent_CommentRejectsUserCookie` (cookie на agent-namespace → 401), `TestAgent_AwaitRequiresAgentToken` (no/bad/valid bearer). **(2)** OpenAPI route-coverage против полного роутера: новый `fullRouterDeps` фикстура подключает все deps (users/projects/tasks/tokens/agents/comments/activities/event/time/wiki/search/notifier/courses + WS hub); `TestOpenAPI_RouteCoverage_FullRouter` walks every (method, path) и ассертит наличие в `docs/openapi.yaml`. Сразу поймал две пропущенные routes — добавлены в обе спеки (`docs/openapi.yaml` + embedded `internal/api/openapi.yaml`). SKILL.md known-issue сняты; `comment`/`await` помечены как bearer-token endpoints с явным указанием, что фильтр идёт по `agent_id`. Verify: `make test` Go — все пакеты ok; vitest 220/220; `make test-e2e` 13/13; TypeScript clean. |
 | **27.8.4** | **Status select из колонок проекта + латентный gap в `Service.Move`** — дефекты зафиксированы 2026-08-13. **(1) Backend gap в `Service.Move`:** Phase 27.8 закрыл инвариант `task.status ≡ column.status` для agent-flow (claim/release/submit/review) и PATCH (applyTaskPatch), но **пропустил `Move`** — DnD менял `column_id`, оставляя `status` на старом значении. Фикс в `internal/service/task/move.go::Move`: после fixup `tr.ProjectID` (Phase 16) добавлен блок `if s.Columns != nil { col, err := s.Columns.GetColumn(ctx, opts.TargetColumnID); if err == nil && col.Status != "" { tr.Status = task.Status(col.Status) } }` — симметрично существующему `syncColumnToStatus` (status → column). Заодно: `internal/storage/sqlite/project_repo.go::GetColumn` не возвращал `status` (SQL не подтягивал поле) — добавил `c.status` в SELECT/Scan. **(2) Frontend:** `BoardColumn` TS тип получил `status?: string`; `TaskFieldControls` теперь принимает prop `projectID: string`, `useEffect` зовёт `api.getBoard(projectID)`, деривит `statusOptions` из `columns`, отсортированных по `position` (отображаются кастомные колонки Phase 12). Defensive fallback на канонический enum при ошибке сети. **Inbox fallback:** `projectID === ''` → рендерится `SidebarReadOnlyField` с label «Inbox task — assign to a project to change status» (у inbox-задачи нет колонки, статус некуда перемещать). `TaskViewBody` пробрасывает `projectID={task.project_id ?? ''}`. Tests: `TestService_Move_ColumnDrivesStatus` (seed todo+done колонки, Move → status=done, persisted check, обратное направление); vitest `TaskFieldControls` 7→9 тестов (helper `mockBoard()`, новый кейс sorted+custom columns, новый кейс inbox readonly). E2E `Phase 27.8.4: moving a task to the done column flips status to done` — move API → reload → assert `task.status==='done'` И `task-status` select reads `'done'`. Verify: `make test` Go — все пакеты ok; vitest 222/222 (+2); `make test-e2e` 14/14 (+1); TypeScript clean. **Phase 27.8 закрыт полностью.** |
+| **28.1** | **Полировка — backup_settings write path** — дефект зафиксирован 2026-08-13: `PUT /api/v1/backups/settings` → 501, UI Settings → Backups read-only, единственный путь настроить remote — ssh + vim config.yaml + restart. **Backend:** новый `internal/storage/sqlite/backup_settings_repo.go` с JSON-blob storage поверх существующей `backup_settings` таблицы (001_init:303, ранее никем не использовалась — 0 hits INSERT/UPDATE/DELETE/SELECT). `handlers_backup.go::putBackupSettingsHandler` 501 → 200 с валидацией (URL `Parse`, схемы http/https/ssh/git, `enabled=true` требует URL). `listBackupSettingsHandler` теперь мерджит DB override над in-memory cfg: `source_hint=ui_override_restart_to_apply` когда DB diverges. PUT response тоже несёт `source_hint` (без него форма теряет restart banner после Save — поймано первым прогоном E2E). Новое поле в `Dependencies.BackupSettings` (SQLite-only repo, no filesystem deps — wire-test friendly). **Wiring:** `cmd/orenda/main.go` создаёт repo рядом с другими. `Service` иммутабельный после `New()`, settings применяются на следующем старте процесса — отдельный hot-reload долг за скобкой (см. PLAN §28.1). **Frontend:** `web/src/features/settings/Backups.tsx` read-only `<dl>` → редактируемая форма (checkbox enabled, URL input, password input для token, Save). `formInitialized` flag — форма синкается с сервером только на initial load, не после каждого fetch (не пре-fillит auth поле — secret никогда не возвращается). Restart banner показывается при non-empty `source_hint`. `api.setBackupSettings(body)` + `BackupSettingsInput` тип в client. **Tests:** 8 repo + 7 handler (без них уже проходил PUT 401, потому что без cookie; добавил `loginAndCookie` helper в фикстуру) + vitest Backups обновлены (3 → 12 тестов, old «read-only settings panel» заменён на editable); E2E `backups-settings.spec.ts` (1 новый happy-path через UI: fill + Save → reload → GET reflects + source_hint). **DoD:** `go test ./...` 0 fail; `npx vitest run` 224/224 (+2); `make test-e2e` 15/15 (+1); `npx tsc --noEmit` clean; OpenAPI `PUT` теперь документирует `requestBody` + 400/503 codes. |
 
 ## Ключевые решения (не забыть)
 
@@ -144,9 +145,9 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 
 ## Тесты
 
-**Последние зафиксированные прогоны** (Phase 27.8.4, 2026-08-13):
-- `make test` — Go (все пакеты ok) + vitest (222/222) — зелёные.
-- `make test-e2e` — Playwright smoke против свежесобранного бинаря; 14/14 pass на чистой БД, без флейков. Требует `make build` (бинарь должен быть свежим); spawns test server on port 21371 (override `ORENDA_SERVER__PORT` чтобы не конфликтовать с dev-сервером на 2137).
+**Последние зафиксированные прогоны** (Phase 28.1, 2026-08-13):
+- `make test` — Go (все пакеты ok) + vitest (224/224) — зелёные.
+- `make test-e2e` — Playwright smoke против свежесобранного бинаря; 15/15 pass на чистой БД, без флейков. Требует `make build` (бинарь должен быть свежим); spawns test server on port 21371 (override `ORENDA_SERVER__PORT` чтобы не конфликтовать с dev-сервером на 2137).
 - Coverage: domain 100%, services 70–100%, api 61%, storage 72%; фронт — компонентный/юнит (vitest + jsdom), e2e (Playwright + реальный бинарь).
 
 ### Запуск E2E локально
@@ -165,13 +166,31 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 
 ## Бэклог (открыто)
 
-- **Фаза «Полировка»** — хвосты Phase 9: backup_settings write path (PUT → 501), prettier/pprof/Prometheus, CSP-tightening.
+- **«Полировка» (Phase 28.x)** — долги после Phase 28.1 закрытия `PUT /backups/settings`:
+  - **Hot-reload backup settings** без restart (сейчас — restart required)
+  - **Prettier** + автоформат в pre-commit
+  - **`net/http/pprof`** endpoint, debug-only за флагом
+  - **Prometheus `/metrics`** (сейчас JSON-only `/api/v1/stats`; PLAN §9.4)
+  - **CSP-tightening** (style-src nonce)
+  - **JWT TTL 168h → 24h** (config.go:136)
+  - **Cookie `Secure: false` хардкод** (handlers_auth.go:65)
+  - **`docs/ARCHITECTURE.md`** отсутствует
+  - **README скриншоты**
+  - **`rate_limit` секция в config.go + YAML** (не в env-only)
+  - **`task.commented` / `task.attachment_added` activity не пишется** (declared never emitted)
+  - **`Bot.Stop()` не вызывается на shutdown**
+  - **VK Long Poll / Email HTML / Weekly digest** (Phase 10 долги)
+  - **`PHASE 26.A`**: пре-exising lint warnings cleanup (321 issue, из них 75% — hugeParam + errcheck)
+  - **`govulncheck` target в Makefile**
+  - **`Internal handle_today.go:155`** owner→agent map на multi-user
+  - **`handlers_backup.go:22,34,44`** «Phase 9 lands» комментарии → обновить (Phase 9 закрыт)
+  - Известно: отложенные швы, отмеченные 2026-08-12 аудитом (PLAN.md строка «Аудит реализации 2026-08-12»)
 - Multi-user / multi-device sync (Phase 11+)
 
 ## Файлы
 
 - `docs/PRD.md` — видение продукта
-- `docs/PLAN.md` — фазы и задачи (открытый бэклог: только «Полировка» + multi-user)
+- `docs/PLAN.md` — фазы и задачи (открытый бэклог: «Полировка» (Phase 28.x) + multi-user)
 - `docs/CONTEXT.md` — концепции продукта (семантика домена; хартия в шапке файла)
 - `docs/API.md` — REST reference
 - `docs/DB.md` — схема БД по миграциям

@@ -56,6 +56,7 @@ import (
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
+	"github.com/ramgml/orenda/internal/storage/sqlite"
 )
 
 // Version is the build-time version string.
@@ -108,8 +109,14 @@ type Dependencies struct {
 	BackupEnabled       bool
 	BackupRemoteURL     string
 	BackupRemoteAuthSet bool
-	SyncOps             SyncOpsStore
-	BotCallback         *bot.CallbackHandler
+	// BackupSettings is the UI-facing repo for the backup_settings
+	// table (Phase 28.1 polish.1). Until Phase 7 it wasn't wired,
+	// which is why PUT /backups/settings returned 501; the GET
+	// path here can be nil-safe (only PUT + the GET merge needs
+	// it; partial-router fixtures can leave it nil).
+	BackupSettings sqlite.BackupSettingsRepository
+	SyncOps        SyncOpsStore
+	BotCallback    *bot.CallbackHandler
 	// BotBindCodes is the (optional) bind-code store. Wired only when
 	// the Telegram bot is running; nil-safe — the API returns 503
 	// with a friendly hint when the user tries to bind while the

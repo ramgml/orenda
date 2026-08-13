@@ -1078,14 +1078,45 @@ paths:
   /api/v1/backups/settings:
     get:
       tags: [backups]
-      summary: Read backup settings.
+      summary: Read backup settings (merged: DB overrides win over in-memory cfg).
       security: [{ bearerAuth-cookie: [] }]
-      responses: { '200': { description: ok } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean }
+                  remote_url: { type: string }
+                  has_auth: { type: boolean }
+                  source_hint: { type: string, description: "ui_override_restart_to_apply when DB overrides in-memory cfg" }
+    # Phase 28.1 polish.1 — pre-28.1 returned 501. Now persists
+    # to the backup_settings table. The running *backup.Service is
+    # wired from cfg at startup; the operator must restart to pick
+    # up the new remote URL.
     put:
       tags: [backups]
-      summary: Update backup settings.
+      summary: Update backup settings (persists to backup_settings table; restart required).
       security: [{ bearerAuth-cookie: [] }]
-      responses: { '200': { description: ok } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: { type: boolean }
+                remote_url: { type: string, description: "git remote URL (http, https, ssh, git)" }
+                remote_auth: { type: string, description: "token or auth string (never returned in GET)" }
+      responses:
+        '200':
+          description: persisted; body mirrors the GET response
+        '400':
+          description: invalid URL or enabled=true without remote_url
+        '503':
+          description: backup_settings repository not configured
 
   /api/v1/backups/test:
     post:
