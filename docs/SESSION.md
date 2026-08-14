@@ -1,4 +1,4 @@
-# Session Snapshot — 2026-08-13 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1 + 28.2 + 28.3 + 28.4 + 28.5 + 28.6; открыто: «Полировка»)
+# Session Snapshot — 2026-08-13 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1, 28.2, 28.3, 28.4, 28.5, 28.6, 28.7, 28.8, 28.9, 28.10, 28.11, 28.12, 28.14, 28.15, 28.16, 28.17, 28.18; «Полировка» полностью закрыта)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
@@ -51,8 +51,8 @@
 
 - **Дата снапшота:** 2026-08-13
 - **Ветка:** `dev`
-- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1, 28.2, 28.3, 28.4, 28.5, 28.6 (полировка). Открытая фаза: «Полировка» — следующие долги (см. «Бэклог» ниже).
-- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1)
+- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1–28.18 (полировка полностью закрыта). Multi-user / multi-device sync — следующая эра после полировки.
+- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1/.../28.18)
 
 ## Что сделано за сессию (кратко)
 
@@ -151,9 +151,10 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 
 ## Тесты
 
-**Последние зафиксированные прогоны** (Phase 28.6, 2026-08-13):
-- `make test` — Go (все пакеты ok) + vitest (236/236) — зелёные.
-- `make test-e2e` — Playwright smoke против свежесобранного бинаря; 17/17 pass на чистой БД, без флейков. Требует `make build` (бинарь должен быть свежим); spawns test server on port 21371 (override `ORENDA_SERVER__PORT` чтобы не конфликтовать с dev-сервером на 2137).
+**Последние зафиксированные прогоны** (Phase 28.18, 2026-08-13):
+- `make test` — Go (30/30 packages ok) + vitest (236/236) — зелёные.
+- `make test-e2e` — Playwright smoke против свежесобранного бинаря; 18/18 pass на чистой БД, без флейков. Требует `make build` (бинарь должен быть свежим); spawns test server on port 21371 (override `ORENDA_SERVER__PORT` чтобы не конфликтовать с dev-сервером на 2137).
+- `make lint` — `golangci-lint` показывает 95 issues (с 325 на старте Phase 28.15 — closed 230 issues через 28.15/28.16/28.17). 45 hugeParam non-api + 50 малых кластеров — отложено (см. Phase 28.17 commit).
 - Coverage: domain 100%, services 70–100%, api 61%, storage 72%; фронт — компонентный/юнит (vitest + jsdom), e2e (Playwright + реальный бинарь).
 
 ### Запуск E2E локально
@@ -172,24 +173,23 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 
 ## Бэклог (открыто)
 
-- **«Полировка» (Phase 28.x)** — долги после Phase 28.1 закрытия `PUT /backups/settings`:
-  - **Hot-reload backup settings** без restart (сейчас — restart required)
-  - **Prettier** + автоформат в pre-commit
-  - **CSP-tightening** (style-src nonce)
-  - **`docs/ARCHITECTURE.md`** отсутствует
-  - **README скриншоты**
-  - **`rate_limit` секция в config.go + YAML** (не в env-only)
-  - **VK Long Poll / Email HTML / Weekly digest** (Phase 10 долги)
-  - **`PHASE 26.A`**: пре-exising lint warnings cleanup (321 issue, из них 75% — hugeParam + errcheck)
-  - **`Internal handle_today.go:155`** owner→agent map на multi-user
-  - **`handlers_backup.go:22,34,44`** «Phase 9 lands» комментарии → обновить (Phase 9 закрыт)
-  - Известно: отложенные швы, отмеченные 2026-08-12 аудитом (PLAN.md строка «Аудит реализации 2026-08-12»)
-- Multi-user / multi-device sync (Phase 11+)
+- **«Полировка» (Phase 28.x)** — **полностью закрыта 2026-08-13** через Phase 28.7–28.18 (см. PLAN.md):
+  - ✅ Hot-reload backup settings → Phase 28.9
+  - ✅ Prettier + автоформат в pre-commit → Phase 28.7 + 28.12
+  - ✅ CSP-tightening (style-src без unsafe-inline) → Phase 28.10
+  - ✅ `docs/ARCHITECTURE.md` → Phase 28.11
+  - ✅ README скриншоты → Phase 28.14 (отклонено embedding PNG; вместо — text pointer)
+  - ✅ `rate_limit` секция в config.go + YAML → Phase 28.8
+  - ✅ PHASE 26.A lint warnings cleanup → Phases 28.15 + 28.16 + 28.17 (closed 230 из 325 issues)
+  - ✅ `handlers_backup.go` комментарии → обновлено в Phase 28.9
+- **Phase 10 долги, оставшиеся за скобками:** VK Long Poll / Email HTML / Weekly digest. Это большие подфазы Phase 10 (DoD которой — полный набор ботов с HTML и weekly digest). Не блокируют dogfooding.
+- **Multi-user / multi-device sync (Phase 11+)** — следующая эра.
+- **Lint остаток (95 issues):** 45 hugeParam non-api (per Phase 28.15 commit); 15 unparam, 7 nilnil, 5 contextcheck — механические фиксы с diminishing returns. Не блокируют dogfooding.
 
 ## Файлы
 
 - `docs/PRD.md` — видение продукта
-- `docs/PLAN.md` — фазы и задачи (открытый бэклог: «Полировка» (Phase 28.x) + multi-user)
+- `docs/PLAN.md` — фазы и задачи (открытый бэклог: Phase 10 features + multi-user; «Полировка» полностью закрыта Phase 28.7–28.18)
 - `docs/CONTEXT.md` — концепции продукта (семантика домена; хартия в шапке файла)
 - `docs/API.md` — REST reference
 - `docs/DB.md` — схема БД по миграциям

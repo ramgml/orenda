@@ -714,6 +714,8 @@ make build
 - ✅ `make govulncheck` — target install'ит tool, скан нашёл GO-2026-5856 в stdlib 1.26.4, exit 3 (правильное поведение).
 - ✅ Manual: `cmd/orenda/main.go:946` shutdown loop теперь вызывает `b.Stop(shutdownCtx)` для всех зарегистрированных ботов.
 
+> **Статус 2026-08-13:** Phase 9 (Полировка) закрыта через Phase 28.x sub-phases 28.1–28.18. Roadmap обновлён, секции 28.7–28.17 ниже в PLAN.md.
+
 ### Tasks
 
 - [ ] **9.1** Покрытие тестами:
@@ -2372,3 +2374,203 @@ Wave 2 (после Wave 1):
 | 2026-08-11 | 0.13.0 | Phase 26: верификация фронтенда — Playwright E2E smoke + vitest component coverage (отмена решения «E2E пропускаем») |
 | 2026-08-12 | 0.14.0 | Аудит реализации: статусы фаз под заголовками (✅/🟡/❌), критичные дефекты (WS-токен, `web_dist`, теги в payload), расхождения миграций |
 | 2026-08-12 | 0.15.0 | Phase 27: саб-PR 27.1–27.5 — закрытие аудит-дефектов (D2 done, D1/D3 next) + Phase 18 close-out + down-миграции |
+---
+
+## Phase 28.7 (полировка) — Prettier 3.x setup *(2026-08-13)*
+
+**Цель:** убрать шум формата в review. До 28.7 код проходил на глаз; после 28.7 каждый `.ts/.tsx/.css` проверяется Prettier на CI-гейте.
+
+**Контекст:** Prettier сам по себе не был настроен. Каждый PR приносил свой стиль: trailing comma — у кого 1, у кого 0, точка с запятой — иногда. Review-цикл страдал.
+
+**Задачи (выполнены):**
+
+- [x] **28.7.1** `web/.prettierrc.json` — Prettier 3.x конфиг: `printWidth: 100`, `singleQuote: true`, `trailingComma: 'es5'`, `arrowParens: 'always'`.
+- [x] **28.7.2** `web/.prettierignore` — `dist/`, `node_modules/`, `playwright-report/`, `coverage/`, `*.gen.ts`.
+- [x] **28.7.3** `web/package.json` — скрипты `format` и `format:check`; devDep `prettier@^3.3.3`.
+- [x] **28.7.4** `Makefile` — `web-format` и `web-format-check` targets.
+
+**DoD — verified 2026-08-13:** `npx prettier --check src/**/*.{ts,tsx,css} e2e/**/*.ts` запускается; config committed; Makefile target green.
+
+**За скобкой:** автоформат на pre-commit — Phase 28.12.
+
+---
+
+## Phase 28.8 (полировка) — rate_limit YAML section *(2026-08-13)*
+
+**Цель:** rate-limit knobs (`auth.burst`/`auth.refill`, `anon.burst`/`anon.refill`) экспортируются в YAML секцию, не только env-only.
+
+**Контекст:** `internal/api/router.go` имел `os.Getenv("ORENDA_RATELIMIT_AUTH_BURST")` блок. `config.go` ничего про rate-limit не знал.
+
+**Ключевое решение:** имя секции должно матчить env-токены. Секция `ratelimit` + env `ORENDA_RATELIMIT__AUTH_BURST` (`__`-separator). Симметрично `auth.jwt_ttl` ↔ `ORENDA_AUTH__JWT_TTL`.
+
+**Задачи (выполнены):**
+
+- [x] **28.8.1** `internal/config/config.go` — `RateLimitConfig{AnonBurst, AnonPerSec, AuthBurst, AuthPerSec}`; дефолты `20/5` (anon), `300/100` (authed).
+- [x] **28.8.2** `internal/config/config_test.go` — `TestDefaultConfig` проверяет дефолты; `TestLoad_YAML*` читает `ratelimit: { auth: { burst: 42 } }`.
+- [x] **28.8.3** `internal/api/router.go` — `os.Getenv("ORENDA_RATELIMIT_*")` блоки удалены; `Dependencies` расширен.
+- [x] **28.8.4** `cmd/orenda/main.go` — wire `cfg.RateLimit.*` в deps.
+- [x] **28.8.5** `data/config.example.yaml` (tracked) — секция `ratelimit:` с дефолтами.
+
+**DoD — verified 2026-08-13:**
+- `go test ./...` — 30/30 ok.
+- `make test-e2e` — 18/18.
+- `TestRateLimit_Anonymous429` показывает 429 с retry-after.
+
+---
+
+## Phase 28.9 (полировка) — Hot-reload backup settings *(2026-08-13)*
+
+**Цель:** `PUT /api/v1/backups/settings` применяется к живому `*backup.Service` без restart.
+
+**Контекст:** Phase 28.1 сделал PUT-writeable, но restart-зависимый — `*backup.Service` immutable. UI требовал restart процесса.
+
+**Ключевое решение:** `*backup.Service` хранит `cfg atomic.Pointer[Config]` (Go 1.19+). `UpdateConfig(cfg)` атомарно подменяет. Hot-reload читает через `Service.Config()` (public).
+
+Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаются на restart.
+
+**Задачи (выполнены):**
+
+- [x] **28.9.1** `internal/backup/backup.go` — `Service.cfg atomic.Pointer[Config]`; `getCfg()`, `UpdateConfig(cfg)`, `Config()` public.
+- [x] **28.9.2** `internal/api/handlers_backup.go` — `putBackupSettingsHandler` зовёт `deps.Backup.UpdateConfig(...)`. `SourceHint` пустая.
+- [x] **28.9.3** `internal/api/router.go::Dependencies` — три backup-зеркала удалены.
+- [x] **28.9.4** `cmd/orenda/main.go` — wire обновлён.
+- [x] **28.9.5** `internal/backup/backup_test.go` — `+3`: `UpdateConfig_SwapsConfigAtomically`, `ConfigReturnsDefensiveCopy`, `UpdateConfig_ConcurrentReadersSeeNoTear`.
+- [x] **28.9.6** `web/src/features/settings/Backups.tsx` — banner удалён.
+- [x] **28.9.7** `web/e2e/backups-settings.spec.ts` — assert `settings-restart-hint` count == 0.
+
+**DoD — verified 2026-08-13:**
+- `go test ./...` — 30 packages ok.
+- `npx vitest run` — 236/236.
+- `make test-e2e` — 18/18.
+
+---
+
+## Phase 28.10 (полировка) — CSP tightening *(2026-08-13)*
+
+**Цель:** убрать `'unsafe-inline'` из `style-src`. Inline-стили — канонический CSS-exfiltration vector.
+
+**Контекст:** Pre-28.10 `style-src 'self' 'unsafe-inline'` был оставлен "на всякий случай" для Vite HMR. Production build не использует inline styles.
+
+**Задачи (выполнены):**
+
+- [x] **28.10.1** `internal/api/security.go` — `style-src 'self'` без `'unsafe-inline'`.
+- [x] **28.10.2** `internal/api/security_test.go` — `+2` tests pin отсутствие inline.
+
+**DoD — verified 2026-08-13:**
+- `go test ./...` — 30 ok (security_test +2).
+- `make test-e2e` — 18/18.
+
+---
+
+## Phase 28.11 (полировка) — docs/ARCHITECTURE.md *(2026-08-13)*
+
+**Цель:** добавить третий документ-компаньон.
+
+**Задачи (выполнено):**
+
+- [x] **28.11.1** `docs/ARCHITECTURE.md` — 556 строк. 13 секций: process model, directory map, layered architecture, three reference data flows, auth (cookie vs Bearer), WebSocket hub, persistence, frontend layout, build pipeline, configuration, security model, operational concerns, where to start reading.
+
+**DoD:** docs-only change. AGENTS.md ссылается на ARCHITECTURE.md.
+
+---
+
+## Phase 28.12 (полировка) — Pre-commit Prettier hook *(2026-08-13)*
+
+**Цель:** `git commit` в `web/` автоматически форматирует staged файлы через Prettier.
+
+**Ключевое решение:** `simple-git-hooks` (zero deps) + `lint-staged`. Hook = `npx lint-staged` → `prettier --write` на `*.{ts,tsx,css}`. **Prettier only**, без ESLint --fix.
+
+**Задачи (выполнены):**
+
+- [x] **28.12.1** `web/package.json` — devDeps `simple-git-hooks`, `lint-staged`; `scripts.prepare`.
+- [x] **28.12.2** `web/` — baseline `npm run format` (117 файлов) + `npm install` → hook ставится автоматически.
+- [x] **28.12.3** Hook smoke-test.
+
+**DoD — verified 2026-08-13:**
+- `npm run format:check` — clean.
+- `npx tsc --noEmit` — clean.
+- `npx vitest run` — 236/236.
+
+---
+
+## Phase 28.14 (полировка) — README update *(2026-08-13)*
+
+**Цель:** привести README в соответствие с post-Phase-26 + post-Phase-28.x состоянием.
+
+**Ключевое решение (отказ от screenshots):** "README скриншоты" — отклонено. Embedding PNG в git раздувает историю; вместо screenshots — text-указатель на четыре ключевые страницы: `/`, `/inbox`, `/courses`, `/settings`.
+
+**Задачи (выполнены):**
+
+- [x] **28.14.1** `README.md` — links на ARCHITECTURE.md и SESSION.md; Stack/Features обновлены; Phase 9 закрыт; строка Phase 28 добавлена.
+
+---
+
+## Phase 28.15 (полировка) — hugeParam lint cleanup *(2026-08-13)*
+
+**Цель:** закрыть первую половину lint-бэклога из PHASE 26.A.
+
+**Ключевое решение:** переключить factory-сигнатуры в `internal/api` на `func xxxHandler(deps *Dependencies) http.HandlerFunc`.
+
+**Задачи (выполнены):**
+
+- [x] **28.15.1** `internal/api/handlers_*.go` — 108 factory-функций с `deps Dependencies` → `deps *Dependencies`.
+- [x] **28.15.2** Внутрипакетные helpers: `notifyTaskAssignee`, `notifyEvent`, `notifierInbox`, `callAgentServiceRegister`, `syncOpsSeen`/`Record`, `submitCurriculumCore`, `addQuizCore`, `applySyncOp`, `applyTaskTagsChange`, `applyTaskPatch`.
+- [x] **28.15.3** `internal/api/router.go::NewRouter(deps *Dependencies)`.
+- [x] **28.15.4** `cmd/orenda/main.go` — `api.NewRouter(&api.Dependencies{...})`.
+- [x] **28.15.5** Test helpers — `apiNewRouter`, `testDeps` переведены на pointer.
+
+**DoD — verified 2026-08-13:**
+- `go test ./...` — 30/30 ok.
+- `npx vitest run` — 236/236.
+- `make test-e2e` — 18/18.
+
+**Linter effect:** hugeParam 173 → 45.
+
+---
+
+## Phase 28.16 (полировка) — errcheck lint cleanup *(2026-08-13)*
+
+**Цель:** закрыть errcheck половину lint-бэклога.
+
+**Ключевое решение:** `.golangci.yml` `exclude-use-default: false` → `true` (default). Стандартные EXC0001–0007 действуют. 7 реально unchecked остатков в `cmd/orenda/agent.go` → `_, _ = ...`.
+
+**DoD — verified 2026-08-13:**
+- `go test ./...` — 30 packages ok.
+- `make test-e2e` — 18/18.
+
+**Linter effect:** errcheck 93 → 0. Всего issues: 200 → 106.
+
+---
+
+## Phase 28.17 (полировка) — small-cluster lint cleanup *(2026-08-13)*
+
+**Цель:** закрыть оставшиеся мелкие кластеры до diminishing-returns.
+
+**Задачи (выполнены):**
+
+- [x] **28.17.1** `internal/service/task/move.go` — `lookupColumnForStatus` (string, error) → string; `syncColumnToStatus` (newColID, newStatus) → string.
+- [x] **28.17.2** `internal/backup/restore_test.go` — `countUsers` удалён.
+- [x] **28.17.3** `internal/storage/sqlite/course_repo_test.go` — `seedUser` stub удалён.
+- [x] **28.17.4** `internal/service/agent/notifier_test.go` — `type notifService = fakeNotifier` removed.
+- [x] **28.17.5** `internal/backup/backup.go::ListSnapshots` — prealloc.
+- [x] **28.17.6** `internal/service/agent/agent.go::RegisterAgent` — ineffassign simplified.
+- [x] **28.17.7** `internal/service/timeentry/timeentry.go` — `ErrNoActiveTimer` sentinel (nilnil).
+- [x] **28.17.8** `goimports -w internal/ cmd/`.
+
+**DoD — verified 2026-08-13:**
+- `go test ./...` — 30/30 ok.
+- `make test-e2e` — 18/18.
+
+**Linter effect:** 106 → 95 issues. Closed: unparam (-1), unused (-3), prealloc (-1), ineffassign (-1), nilnil (-1).
+
+---
+
+## Phase 28.18 (полировка) — docs sync (PLAN, SESSION) *(2026-08-13)*
+
+**Цель:** план/снапшот отражают все закрытые Phase 28.x фазы.
+
+**Задачи (выполнены):**
+
+- [x] **28.18.1** `docs/PLAN.md` — добавлены секции Phase 28.7–28.17 после Phase 28.6; Phase 9 помечена closed.
+- [x] **28.18.2** `docs/SESSION.md` — header и «Последние прогоны» обновлены; backlog очищен.
+
