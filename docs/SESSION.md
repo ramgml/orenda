@@ -1,4 +1,4 @@
-# Session Snapshot — 2026-08-14 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.20 + Phase 10 subphase (Test send UI); «Полировка» + 28.19 + 28.20 + Phase 10 Test send закрыты)
+# Session Snapshot — 2026-08-14 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.20 + Phase 10 subphase (Test send UI) + Phase 15 (close-out); «Полировка» + 28.19 + 28.20 + Phase 10 Test send + Phase 15 close-out закрыты)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
@@ -255,8 +255,8 @@
 
 - **Дата снапшота:** 2026-08-14
 - **Ветка:** `dev`
-- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1–28.20 (полировка полностью закрыта + agent-type-labels + dev/dogfood separation), Phase 10 subphase (Test send UI), Phase 15 close-out (lock_taken holder + context blockers/lock + ready self-assigned). Multi-user / multi-device sync — следующая эра после полировки.
-- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1/.../28.20/phase-10-test-send/phase-15-agent-context)
+- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1–28.20 (полировка полностью закрыта + agent-type-labels + dev/dogfood separation), Phase 10 subphase (Test send UI), Phase 15 close-out (lock_taken holder + context blockers/lock + ready self-assigned), Phase doc-audit (PLAN.md 🟡 markers synced с кодом, CHANGELOG v0.1.0 заполнен). Multi-user / multi-device sync — следующая эра после полировки.
+- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1/.../28.20/phase-10-test-send/phase-15-agent-context/phase-doc-audit)
 
 ## Что сделано за сессию (кратко)
 
@@ -356,12 +356,14 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 
 ## Тесты
 
-**Последние зафиксированные прогоны** (Phase 15, 2026-08-14):
-- `make test` — Go (30/30 packages ok; новые `TestPhase15_*` 6 тестов проходят) + vitest (246/246, фронт не трогали).
-- `make test-e2e` — Playwright smoke против свежесобранного бинаря; 18/18 pass. Phase 15 — чисто бэкенд-контракт, фронт не задет.
+**Последние зафиксированные прогоны** (Phase doc-audit, 2026-08-14):
+- `make test` — Go (30/30 packages ok) + vitest (246/246). Phase doc-audit — docs-only, регрессий не было.
+- `make test-e2e` — 18/18 pass (docs-only PR, никаких API изменений).
 - `npx tsc --noEmit` — clean.
 - `go build ./...` — clean.
-- `TestOpenAPI_RouteCoverage` + `TestOpenAPI_RouteCoverage_FullRouter` — оба зелёные; `docs/openapi.yaml` ↔ `internal/api/openapi.yaml` синхронны.
+- `TestOpenAPI_RouteCoverage` + `TestOpenAPI_RouteCoverage_FullRouter` — оба зелёные; openapi.yaml не трогали.
+- **Audit sync:** 7 фаз (Phase 1/6/7/8/9/10/15/17) имели stale 🟡-маркеры; обновлены с явными ссылками на close-out фазы. Реально открытые gaps (Phase 1, 7, 8, 10, 17, multi-user) явно перечислены в PLAN.md audit block.
+- **CHANGELOG.md:** `[0.1.0] — 2026-08-14` заполнен полным Added/Changed/Security/Known gaps списком.
 - Coverage: domain 100%, services 70–100%, api 61%, storage 72%; фронт — компонентный/юнит (vitest + jsdom), e2e (Playwright + реальный бинарь).
 
 ### Запуск E2E локально
