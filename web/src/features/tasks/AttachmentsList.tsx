@@ -1,6 +1,6 @@
-import { ChangeEvent, useEffect, useRef, useState } from 'react'
+import { ChangeEvent, useEffect, useRef, useState } from 'react';
 
-import { api, type TaskAttachment } from '@/shared/api/client'
+import { api, type TaskAttachment } from '@/shared/api/client';
 
 /**
  * Attachments block on the task view. File picker → multipart upload
@@ -10,53 +10,53 @@ export function AttachmentsList({
   taskId,
   initial,
 }: {
-  taskId: string
-  initial: TaskAttachment[]
+  taskId: string;
+  initial: TaskAttachment[];
 }) {
-  const [items, setItems] = useState<TaskAttachment[]>(initial)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [items, setItems] = useState<TaskAttachment[]>(initial);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setItems(initial)
-  }, [initial])
+    setItems(initial);
+  }, [initial]);
 
   async function reload(): Promise<void> {
-    const r = await api.listTaskAttachments(taskId)
-    setItems(r.attachments ?? [])
+    const r = await api.listTaskAttachments(taskId);
+    setItems(r.attachments ?? []);
   }
 
   async function onPick(e: ChangeEvent<HTMLInputElement>): Promise<void> {
-    const f = e.target.files?.[0]
-    if (!f) return
-    setBusy(true)
-    setErr(null)
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setBusy(true);
+    setErr(null);
     try {
-      const a = await api.uploadTaskAttachment(taskId, f)
-      setItems((cur) => [...cur, a])
+      const a = await api.uploadTaskAttachment(taskId, f);
+      setItems((cur) => [...cur, a]);
     } catch (ex) {
-      setErr(ex instanceof Error ? ex.message : String(ex))
+      setErr(ex instanceof Error ? ex.message : String(ex));
     } finally {
-      setBusy(false)
-      if (inputRef.current) inputRef.current.value = ''
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = '';
     }
   }
 
   async function onDelete(a: TaskAttachment): Promise<void> {
-    if (!window.confirm(`Delete "${a.filename}"?`)) return
-    setItems((cur) => cur.filter((x) => x.id !== a.id))
+    if (!window.confirm(`Delete "${a.filename}"?`)) return;
+    setItems((cur) => cur.filter((x) => x.id !== a.id));
     try {
-      await api.deleteTaskAttachment(a.id)
+      await api.deleteTaskAttachment(a.id);
     } catch {
-      reload()
+      reload();
     }
   }
 
   function formatSize(n: number): string {
-    if (n < 1024) return `${n} B`
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-    return `${(n / 1024 / 1024).toFixed(1)} MB`
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1024 / 1024).toFixed(1)} MB`;
   }
 
   return (
@@ -83,13 +83,7 @@ export function AttachmentsList({
         </kbd>{' '}
         to paste a screenshot from the clipboard.
       </p>
-      <input
-        ref={inputRef}
-        type="file"
-        className="hidden"
-        onChange={onPick}
-        disabled={busy}
-      />
+      <input ref={inputRef} type="file" className="hidden" onChange={onPick} disabled={busy} />
       {err && <p className="text-xs text-red-600 mb-2">{err}</p>}
       {items.length === 0 ? (
         <p className="text-xs text-slate-400 italic">No attachments yet.</p>
@@ -100,7 +94,9 @@ export function AttachmentsList({
               key={a.id}
               className="flex items-center gap-2 group rounded px-2 py-1 hover:bg-slate-50 dark:hover:bg-slate-900"
             >
-              <span aria-hidden className="text-slate-400">📎</span>
+              <span aria-hidden className="text-slate-400">
+                📎
+              </span>
               <a
                 href={api.taskAttachmentDownloadUrl(a.id)}
                 download={a.filename}
@@ -125,5 +121,5 @@ export function AttachmentsList({
         </ul>
       )}
     </section>
-  )
+  );
 }

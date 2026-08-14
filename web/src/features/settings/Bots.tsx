@@ -1,16 +1,16 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react';
 
-import { api } from '@/shared/api/client'
+import { api } from '@/shared/api/client';
 
 interface Subscription {
-  id: string
-  bot_type: string
-  target_address: string
-  events: string[]
-  enabled: boolean
+  id: string;
+  bot_type: string;
+  target_address: string;
+  events: string[];
+  enabled: boolean;
 }
 
-const BOT_TYPES = ['console', 'webhook', 'email', 'telegram', 'vk']
+const BOT_TYPES = ['console', 'webhook', 'email', 'telegram', 'vk'];
 const EVENT_TYPES = [
   'task.review_needed',
   'task.assigned_to_me',
@@ -18,7 +18,7 @@ const EVENT_TYPES = [
   'task.commented',
   'agent.offline',
   'backup.failed',
-]
+];
 
 /**
  * /settings/bots — manage bot subscriptions (channel × events).
@@ -33,63 +33,63 @@ const EVENT_TYPES = [
  * manual form below).
  */
 export function BotsSettingsPage(): JSX.Element {
-  const [subs, setSubs] = useState<Subscription[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [info, setInfo] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
-  const [botType, setBotType] = useState('webhook')
-  const [target, setTarget] = useState('')
-  const [selectedEvents, setSelectedEvents] = useState<string[]>(['task.review_needed'])
+  const [subs, setSubs] = useState<Subscription[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [botType, setBotType] = useState('webhook');
+  const [target, setTarget] = useState('');
+  const [selectedEvents, setSelectedEvents] = useState<string[]>(['task.review_needed']);
   // Phase 22.3 follow-up: Telegram bind form state.
-  const [bindCode, setBindCode] = useState('')
-  const [binding, setBinding] = useState(false)
+  const [bindCode, setBindCode] = useState('');
+  const [binding, setBinding] = useState(false);
 
   async function load(): Promise<void> {
     try {
-      const res = await api.listSubscriptions()
-      setSubs(res.subscriptions)
-      setError(null)
+      const res = await api.listSubscriptions();
+      setSubs(res.subscriptions);
+      setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   useEffect(() => {
-    load()
-  }, [])
+    load();
+  }, []);
 
   function toggleEvent(name: string): void {
     setSelectedEvents((cur) =>
       cur.includes(name) ? cur.filter((e) => e !== name) : [...cur, name],
-    )
+    );
   }
 
   async function onCreate(e: FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    setError(null)
-    setInfo(null)
+    e.preventDefault();
+    setError(null);
+    setInfo(null);
     try {
       await api.createSubscription({
         bot_type: botType,
         target_address: target.trim(),
         events: selectedEvents,
         enabled: true,
-      })
-      setCreating(false)
-      setTarget('')
-      setInfo('Subscription added.')
-      await load()
+      });
+      setCreating(false);
+      setTarget('');
+      setInfo('Subscription added.');
+      await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function onDelete(id: string): Promise<void> {
     try {
-      await api.deleteSubscription(id)
-      await load()
+      await api.deleteSubscription(id);
+      await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -99,32 +99,36 @@ export function BotsSettingsPage(): JSX.Element {
   // resolved chat id (and username if the bot captured one) so
   // the user has immediate confirmation, then refresh the list.
   async function onBindTelegram(e: FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    if (binding || bindCode.length === 0) return
-    setBinding(true)
-    setError(null)
-    setInfo(null)
+    e.preventDefault();
+    if (binding || bindCode.length === 0) return;
+    setBinding(true);
+    setError(null);
+    setInfo(null);
     try {
-      const r = await api.bindTelegram({ code: bindCode })
-      setBindCode('')
-      const who = r.username ? ` (@${r.username})` : ''
-      setInfo(`Telegram bound to chat ${r.chat_id}${who}. Default event set active.`)
-      await load()
+      const r = await api.bindTelegram({ code: bindCode });
+      setBindCode('');
+      const who = r.username ? ` (@${r.username})` : '';
+      setInfo(`Telegram bound to chat ${r.chat_id}${who}. Default event set active.`);
+      await load();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
+      const msg = err instanceof Error ? err.message : String(err);
       // The server returns a friendly hint on 503. Surface that
       // instead of the raw JSON to the user.
       if (msg.includes('telegram_bot_not_running')) {
-        setError('Telegram bot is not running. Set the token in data/config.yaml and restart the server.')
+        setError(
+          'Telegram bot is not running. Set the token in data/config.yaml and restart the server.',
+        );
       } else if (msg.includes('code_expired')) {
-        setError('That code expired. Send /start to your bot again to get a fresh code.')
+        setError('That code expired. Send /start to your bot again to get a fresh code.');
       } else if (msg.includes('code_unknown')) {
-        setError('Code not recognised. Double-check the message from your bot, or send /start again.')
+        setError(
+          'Code not recognised. Double-check the message from your bot, or send /start again.',
+        );
       } else {
-        setError(msg)
+        setError(msg);
       }
     } finally {
-      setBinding(false)
+      setBinding(false);
     }
   }
 
@@ -157,14 +161,10 @@ export function BotsSettingsPage(): JSX.Element {
         <h2 className="font-semibold">Telegram</h2>
         <p className="text-sm text-slate-500">
           Open your Telegram app and message your bot the command{' '}
-          <code className="px-1 bg-slate-100 dark:bg-slate-800 rounded">/start</code>.
-          The bot replies with a 6-character code; paste it below and hit
-          Bind.
+          <code className="px-1 bg-slate-100 dark:bg-slate-800 rounded">/start</code>. The bot
+          replies with a 6-character code; paste it below and hit Bind.
         </p>
-        <form
-          onSubmit={onBindTelegram}
-          className="flex gap-2 items-center"
-        >
+        <form onSubmit={onBindTelegram} className="flex gap-2 items-center">
           <input
             type="text"
             data-testid="telegram-bind-input"
@@ -211,7 +211,9 @@ export function BotsSettingsPage(): JSX.Element {
                 className="px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
               >
                 {BOT_TYPES.map((t) => (
-                  <option key={t} value={t}>{t}</option>
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
                 ))}
               </select>
             </label>
@@ -285,20 +287,20 @@ export function BotsSettingsPage(): JSX.Element {
         </ul>
       )}
     </section>
-  )
+  );
 }
 
 function targetPlaceholder(botType: string): string {
   switch (botType) {
     case 'webhook':
-      return 'https://example.com/hook'
+      return 'https://example.com/hook';
     case 'email':
-      return 'you@example.com'
+      return 'you@example.com';
     case 'telegram':
-      return '123456789 (chat id)'
+      return '123456789 (chat id)';
     case 'vk':
-      return '2000000001 (peer id)'
+      return '2000000001 (peer id)';
     default:
-      return 'console'
+      return 'console';
   }
 }

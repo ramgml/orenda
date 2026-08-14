@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 
-import { api, type Notification } from '@/shared/api/client'
-import { useWebSocketTopic } from '@/shared/ws'
+import { api, type Notification } from '@/shared/api/client';
+import { useWebSocketTopic } from '@/shared/ws';
 
 interface Payload {
-  title?: string
-  body?: string
-  link?: string
+  title?: string;
+  body?: string;
+  link?: string;
 }
 
 /**
@@ -15,57 +15,57 @@ interface Payload {
  * notifications. Refreshes on every WS "notifications" event.
  */
 export function NotificationsBell(): JSX.Element {
-  const [open, setOpen] = useState(false)
-  const [unread, setUnread] = useState(0)
-  const [items, setItems] = useState<Notification[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const ref = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
+  const [items, setItems] = useState<Notification[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
 
   async function load(): Promise<void> {
     try {
-      const res = await api.listNotifications({ limit: 30 })
-      setItems(res.notifications)
-      setUnread(res.unread)
-      setError(null)
+      const res = await api.listNotifications({ limit: 30 });
+      setItems(res.notifications);
+      setUnread(res.unread);
+      setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   useEffect(() => {
-    load()
-  }, [])
+    load();
+  }, []);
 
   useWebSocketTopic('notifications', () => {
-    load()
-  })
+    load();
+  });
 
   // Close dropdown on outside click.
   useEffect(() => {
-    if (!open) return
+    if (!open) return;
     const onClick = (e: MouseEvent): void => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false)
+        setOpen(false);
       }
-    }
-    document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
-  }, [open])
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [open]);
 
   async function markRead(id: string): Promise<void> {
     try {
-      await api.markNotificationRead(id)
-      await load()
+      await api.markNotificationRead(id);
+      await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   function parsePayload(n: Notification): Payload {
     try {
-      return JSON.parse(n.payload) as Payload
+      return JSON.parse(n.payload) as Payload;
     } catch {
-      return {}
+      return {};
     }
   }
 
@@ -102,25 +102,22 @@ export function NotificationsBell(): JSX.Element {
           <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 text-xs text-slate-500">
             {unread} unread
           </div>
-          {error && (
-            <p className="px-3 py-2 text-xs text-red-600">{error}</p>
-          )}
+          {error && <p className="px-3 py-2 text-xs text-red-600">{error}</p>}
           <ul className="max-h-96 overflow-auto divide-y divide-slate-100 dark:divide-slate-800">
             {items.length === 0 ? (
               <li className="px-3 py-4 text-sm text-slate-500">No notifications.</li>
             ) : (
               items.map((n) => {
-                const p = parsePayload(n)
+                const p = parsePayload(n);
                 return (
-                  <li key={n.id} className="px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800">
+                  <li
+                    key={n.id}
+                    className="px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                  >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">
-                          {p.title || n.type}
-                        </p>
-                        {p.body && (
-                          <p className="text-xs text-slate-500 truncate">{p.body}</p>
-                        )}
+                        <p className="font-medium truncate">{p.title || n.type}</p>
+                        {p.body && <p className="text-xs text-slate-500 truncate">{p.body}</p>}
                         <p className="text-[10px] text-slate-400 mt-0.5">
                           {new Date(n.created_at).toLocaleString()}
                         </p>
@@ -147,12 +144,12 @@ export function NotificationsBell(): JSX.Element {
                       </div>
                     </div>
                   </li>
-                )
+                );
               })
             )}
           </ul>
         </div>
       )}
     </div>
-  )
+  );
 }

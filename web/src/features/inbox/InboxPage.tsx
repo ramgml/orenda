@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react';
 
-import { api, type Project, type Task } from '@/shared/api/client'
-import { TaskCard } from '@/features/projects/TaskCard'
-import { openTaskModal } from '@/features/tasks/TaskModal'
-import { queueUpdateTask } from '@/shared/offline/outbox'
+import { api, type Project, type Task } from '@/shared/api/client';
+import { TaskCard } from '@/features/projects/TaskCard';
+import { openTaskModal } from '@/features/tasks/TaskModal';
+import { queueUpdateTask } from '@/shared/offline/outbox';
 
 /**
  * Inbox — flat list of unfiled tasks.
@@ -24,82 +24,79 @@ import { queueUpdateTask } from '@/shared/offline/outbox'
  * alongside as sibling actions.
  */
 export function InboxPage(): JSX.Element {
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [projects, setProjects] = useState<Project[]>([])
-  const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      const [inboxR, projR] = await Promise.all([
-        api.listInboxTasks(),
-        api.listProjects(),
-      ])
-      setTasks(inboxR.tasks ?? [])
-      setProjects((projR ?? []).filter((p) => !p.archived))
+      const [inboxR, projR] = await Promise.all([api.listInboxTasks(), api.listProjects()]);
+      setTasks(inboxR.tasks ?? []);
+      setProjects((projR ?? []).filter((p) => !p.archived));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void load();
+  }, [load]);
 
   async function onQuickAdd(e: React.FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    const title = draft.trim()
-    if (!title) return
-    setBusy(true)
-    setError(null)
+    e.preventDefault();
+    const title = draft.trim();
+    if (!title) return;
+    setBusy(true);
+    setError(null);
     try {
-      const t = await api.createInboxTask({ title })
-      setTasks((cur) => [t, ...cur])
-      setDraft('')
+      const t = await api.createInboxTask({ title });
+      setTasks((cur) => [t, ...cur]);
+      setDraft('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   async function onFile(taskId: string, projectId: string): Promise<void> {
-    setError(null)
+    setError(null);
     try {
       // Phase Wave 4 PR 2: file-under-project goes through the
       // outbox when the client is offline. The dedicated
       // update_task path is better than the bare PATCH because
       // it carries an idempotency key.
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        await queueUpdateTask(taskId, { project_id: projectId || '' })
+        await queueUpdateTask(taskId, { project_id: projectId || '' });
         // Optimistic removal from the inbox list — the task is
         // no longer in the inbox on the server.
         if (projectId !== '') {
-          setTasks((cur) => cur.filter((t) => t.id !== taskId))
+          setTasks((cur) => cur.filter((t) => t.id !== taskId));
         }
-        return
+        return;
       }
-      await api.patchTask(taskId, { project_id: projectId || '' })
+      await api.patchTask(taskId, { project_id: projectId || '' });
       // If filing under a project, drop the card; if filing back to
       // "" (would happen only via an explicit empty value), keep it
       // (the server treats "" as "Inbox", so the card stays in the
       // current view).
       if (projectId !== '') {
-        setTasks((cur) => cur.filter((t) => t.id !== taskId))
+        setTasks((cur) => cur.filter((t) => t.id !== taskId));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function onDelete(taskId: string): Promise<void> {
-    if (!window.confirm('Delete this task? This cannot be undone.')) return
+    if (!window.confirm('Delete this task? This cannot be undone.')) return;
     try {
-      await api.deleteTask(taskId)
-      setTasks((cur) => cur.filter((t) => t.id !== taskId))
+      await api.deleteTask(taskId);
+      setTasks((cur) => cur.filter((t) => t.id !== taskId));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -112,10 +109,7 @@ export function InboxPage(): JSX.Element {
         </p>
       </header>
 
-      <form
-        onSubmit={(e) => void onQuickAdd(e)}
-        className="flex gap-2 items-start"
-      >
+      <form onSubmit={(e) => void onQuickAdd(e)} className="flex gap-2 items-start">
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -126,8 +120,8 @@ export function InboxPage(): JSX.Element {
           onKeyDown={(e) => {
             // Cmd/Ctrl+Enter submits without a trailing newline.
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-              e.preventDefault()
-              void onQuickAdd(e as unknown as React.FormEvent<HTMLFormElement>)
+              e.preventDefault();
+              void onQuickAdd(e as unknown as React.FormEvent<HTMLFormElement>);
             }
           }}
         />
@@ -149,18 +143,12 @@ export function InboxPage(): JSX.Element {
       ) : (
         <ul className="space-y-2">
           {tasks.map((t) => (
-            <InboxRow
-              key={t.id}
-              task={t}
-              projects={projects}
-              onFile={onFile}
-              onDelete={onDelete}
-            />
+            <InboxRow key={t.id} task={t} projects={projects} onFile={onFile} onDelete={onDelete} />
           ))}
         </ul>
       )}
     </section>
-  )
+  );
 }
 
 function InboxRow({
@@ -169,10 +157,10 @@ function InboxRow({
   onFile,
   onDelete,
 }: {
-  task: Task
-  projects: Project[]
-  onFile: (id: string, projectId: string) => Promise<void>
-  onDelete: (id: string) => Promise<void>
+  task: Task;
+  projects: Project[];
+  onFile: (id: string, projectId: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 }): JSX.Element {
   // Phase Wave 4 PR 2: delegate rendering to the shared TaskCard
   // (priority border, due badge, counters, awaiting/blocked/child
@@ -186,21 +174,28 @@ function InboxRow({
   return (
     <li className="flex gap-3 items-start">
       <div className="flex-1 min-w-0">
-        <TaskCard task={task} onOpen={() => void openTaskModal(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ((path: string) => { window.location.href = path }) as unknown as never,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          window.location as unknown as never,
-          task.id,
-        )} />
+        <TaskCard
+          task={task}
+          onOpen={() =>
+            void openTaskModal(
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              ((path: string) => {
+                window.location.href = path;
+              }) as unknown as never,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              window.location as unknown as never,
+              task.id,
+            )
+          }
+        />
       </div>
       <div className="flex flex-col gap-1 items-end shrink-0 pt-2">
         <label className="text-[10px] text-slate-500">File under</label>
         <select
           value=""
           onChange={(e) => {
-            const v = e.target.value
-            if (v) void onFile(task.id, v)
+            const v = e.target.value;
+            if (v) void onFile(task.id, v);
           }}
           className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-xs"
         >
@@ -220,5 +215,5 @@ function InboxRow({
         </button>
       </div>
     </li>
-  )
+  );
 }

@@ -14,9 +14,9 @@
  *    This keeps the hook cheap when the sidebar renders while still
  *    working from a partial cache.
  */
-import { useQueries } from '@tanstack/react-query'
+import { useQueries } from '@tanstack/react-query';
 
-import { api, type Task } from '@/shared/api/client'
+import { api, type Task } from '@/shared/api/client';
 
 /**
  * Hook that returns a Map of `projectId -> openTaskCount` for the
@@ -24,7 +24,7 @@ import { api, type Task } from '@/shared/api/client'
  * the map; an empty project gets 0.
  */
 export function useOpenTaskCounts(projectIds: string[]): Map<string, number | undefined> {
-  const sortedIds = [...projectIds].sort()
+  const sortedIds = [...projectIds].sort();
   const queries = useQueries({
     queries: sortedIds.map((id) => ({
       // Keyed by id so the same project id always resolves to the same
@@ -33,20 +33,17 @@ export function useOpenTaskCounts(projectIds: string[]): Map<string, number | un
       queryFn: () => api.listProjectTasks(id).catch(() => [] as Task[]),
       staleTime: 30_000,
     })),
-  })
+  });
 
-  const map = new Map<string, number | undefined>()
+  const map = new Map<string, number | undefined>();
   sortedIds.forEach((id, i) => {
-    const result = queries[i]
+    const result = queries[i];
     if (!result || result.isLoading) {
-      map.set(id, undefined)
-      return
+      map.set(id, undefined);
+      return;
     }
-    const tasks = (result.data ?? []) as Task[]
-    map.set(
-      id,
-      tasks.filter((t) => t.status !== 'done').length,
-    )
-  })
-  return map
+    const tasks = (result.data ?? []) as Task[];
+    map.set(id, tasks.filter((t) => t.status !== 'done').length);
+  });
+  return map;
 }

@@ -13,14 +13,14 @@
  *      modal always posted color, even when unchanged, so a later
  *      rename clobbered it with the default slate.
  */
-import { DndContext } from '@dnd-kit/core'
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DndContext } from '@dnd-kit/core';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { Column, Task } from '@/shared/api/client'
-import { api } from '@/shared/api/client'
-import { ColumnView } from '@/features/projects/ColumnView'
+import type { Column, Task } from '@/shared/api/client';
+import { api } from '@/shared/api/client';
+import { ColumnView } from '@/features/projects/ColumnView';
 
 function makeColumn(over: Partial<Column> = {}): Column {
   return {
@@ -29,7 +29,7 @@ function makeColumn(over: Partial<Column> = {}): Column {
     name: 'In progress',
     position: 1,
     ...over,
-  }
+  };
 }
 
 function makeTask(): Task {
@@ -47,7 +47,7 @@ function makeTask(): Task {
     updated_at: '2026-08-13T00:00:00Z',
     color: '',
     tags: [],
-  }
+  };
 }
 
 describe('ColumnView — Phase 27.10 colour wiring', () => {
@@ -55,16 +55,16 @@ describe('ColumnView — Phase 27.10 colour wiring', () => {
   // vi.spyOn's second argument to the concrete method signature.
   // Cast through `any` — the runtime call is type-checked by the
   // existing PATCH payload.
-  let updateColumnSpy: ReturnType<typeof vi.spyOn>
+  let updateColumnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    updateColumnSpy = vi.spyOn(api as never, 'updateColumn') as ReturnType<typeof vi.spyOn>
-  })
+    updateColumnSpy = vi.spyOn(api as never, 'updateColumn') as ReturnType<typeof vi.spyOn>;
+  });
 
   afterEach(() => {
-    cleanup()
-    vi.restoreAllMocks()
-  })
+    cleanup();
+    vi.restoreAllMocks();
+  });
 
   function renderColumn(props: { color?: string; wipLimit?: number } = {}) {
     return render(
@@ -81,97 +81,97 @@ describe('ColumnView — Phase 27.10 colour wiring', () => {
           />
         </MemoryRouter>
       </DndContext>,
-    )
+    );
   }
 
   it('renders the saved colour as a dot with the right background', () => {
-    const { getByTestId } = renderColumn({ color: '#ff8800' })
-    const dot = getByTestId('column-color-dot')
-    expect(dot.dataset.columnColor).toBe('#ff8800')
-    expect(dot.style.backgroundColor).toBe('rgb(255, 136, 0)')
-  })
+    const { getByTestId } = renderColumn({ color: '#ff8800' });
+    const dot = getByTestId('column-color-dot');
+    expect(dot.dataset.columnColor).toBe('#ff8800');
+    expect(dot.style.backgroundColor).toBe('rgb(255, 136, 0)');
+  });
 
   it('falls back to a neutral slate when no colour is saved', () => {
-    const { getByTestId } = renderColumn()
-    const dot = getByTestId('column-color-dot')
-    expect(dot.dataset.columnColor).toBe('')
+    const { getByTestId } = renderColumn();
+    const dot = getByTestId('column-color-dot');
+    expect(dot.dataset.columnColor).toBe('');
     // Slate fallback so the layout is stable across columns without
     // a colour set. #94a3b8 in rgb form.
-    expect(dot.style.backgroundColor).toBe('rgb(148, 163, 184)')
-  })
+    expect(dot.style.backgroundColor).toBe('rgb(148, 163, 184)');
+  });
 
   it('opens the edit modal with the saved colour, not the slate default', async () => {
     const { getByTitle, getByLabelText } = renderColumn({
       color: '#22c55e',
       wipLimit: 7,
-    })
+    });
 
     // ⚙ button opens the modal (title="Edit column").
-    fireEvent.click(getByTitle('Edit column'))
+    fireEvent.click(getByTitle('Edit column'));
 
-    const colourInput = getByLabelText('Color') as HTMLInputElement
-    expect(colourInput.value).toBe('#22c55e')
+    const colourInput = getByLabelText('Color') as HTMLInputElement;
+    expect(colourInput.value).toBe('#22c55e');
 
-    const wipInput = getByLabelText(/WIP limit/) as HTMLInputElement
-    expect(wipInput.value).toBe('7')
-  })
+    const wipInput = getByLabelText(/WIP limit/) as HTMLInputElement;
+    expect(wipInput.value).toBe('7');
+  });
 
   it('sends the colour in PATCH only when the user actually changed it', async () => {
     updateColumnSpy.mockResolvedValue({
       ...makeColumn(),
       color: '#22c55e',
       wip_limit: 7,
-    })
+    });
 
     const { getByTitle, getByLabelText, getByRole } = renderColumn({
       color: '#22c55e',
       wipLimit: 7,
-    })
+    });
 
-    fireEvent.click(getByTitle('Edit column'))
+    fireEvent.click(getByTitle('Edit column'));
 
     // User only edits the name — colour + WIP are untouched.
-    const nameInput = getByLabelText('Name') as HTMLInputElement
-    fireEvent.change(nameInput, { target: { value: 'Doing' } })
+    const nameInput = getByLabelText('Name') as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: 'Doing' } });
 
-    fireEvent.click(getByRole('button', { name: 'Save' }))
+    fireEvent.click(getByRole('button', { name: 'Save' }));
 
-    await waitFor(() => expect(updateColumnSpy).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(updateColumnSpy).toHaveBeenCalledTimes(1));
     const [id, payload] = updateColumnSpy.mock.calls[0] as [
       string,
       { name?: string; color?: string; wip_limit?: number | null },
-    ]
-    expect(id).toBe('col-1')
+    ];
+    expect(id).toBe('col-1');
     // Critical Phase 27.10 contract: a rename must not blank the
     // colour on the server. We omit `color` from the payload
     // because the picker wasn't touched.
-    expect(payload).not.toHaveProperty('color')
-    expect(payload.name).toBe('Doing')
-    expect(payload.wip_limit).toBe(7)
-  })
+    expect(payload).not.toHaveProperty('color');
+    expect(payload.name).toBe('Doing');
+    expect(payload.wip_limit).toBe(7);
+  });
 
   it('does send the new colour when the user actually picks one', async () => {
     updateColumnSpy.mockResolvedValue({
       ...makeColumn(),
       color: '#ef4444',
-    })
+    });
 
     const { getByTitle, getByLabelText, getByRole } = renderColumn({
       color: '#22c55e',
-    })
+    });
 
-    fireEvent.click(getByTitle('Edit column'))
+    fireEvent.click(getByTitle('Edit column'));
 
-    const colourInput = getByLabelText('Color') as HTMLInputElement
-    fireEvent.change(colourInput, { target: { value: '#ef4444' } })
+    const colourInput = getByLabelText('Color') as HTMLInputElement;
+    fireEvent.change(colourInput, { target: { value: '#ef4444' } });
 
-    fireEvent.click(getByRole('button', { name: 'Save' }))
+    fireEvent.click(getByRole('button', { name: 'Save' }));
 
-    await waitFor(() => expect(updateColumnSpy).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(updateColumnSpy).toHaveBeenCalledTimes(1));
     const [, payload] = updateColumnSpy.mock.calls[0] as [
       string,
       { name?: string; color?: string; wip_limit?: number | null },
-    ]
-    expect(payload.color).toBe('#ef4444')
-  })
-})
+    ];
+    expect(payload.color).toBe('#ef4444');
+  });
+});

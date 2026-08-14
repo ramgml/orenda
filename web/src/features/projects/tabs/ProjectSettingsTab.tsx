@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 
-import { api, type Project } from '@/shared/api/client'
+import { api, type Project } from '@/shared/api/client';
 
 /**
  * /projects/:id/settings — color, description, archive, delete.
@@ -16,82 +16,82 @@ import { api, type Project } from '@/shared/api/client'
  * and delete are uniform — no special-casing for a "system" project.
  */
 export function ProjectSettingsTab(): JSX.Element {
-  const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
-  const [project, setProject] = useState<Project | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [color, setColor] = useState('#3b82f6')
-  const [description, setDescription] = useState('')
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [project, setProject] = useState<Project | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [color, setColor] = useState('#3b82f6');
+  const [description, setDescription] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
-    if (!id) return
-    let cancelled = false
+    if (!id) return;
+    let cancelled = false;
     api
       .getProject(id)
       .then((p) => {
-        if (cancelled) return
-        setProject(p)
-        setColor(p.color || '#3b82f6')
-        setDescription(p.description || '')
+        if (cancelled) return;
+        setProject(p);
+        setColor(p.color || '#3b82f6');
+        setDescription(p.description || '');
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
-      })
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      });
     return () => {
-      cancelled = true
-    }
-  }, [id])
+      cancelled = true;
+    };
+  }, [id]);
 
   async function saveBasics(): Promise<void> {
-    if (!project) return
-    setBusy(true)
-    setError(null)
+    if (!project) return;
+    setBusy(true);
+    setError(null);
     try {
       const updated = await api.updateProject(project.id, {
         color,
         description,
-      })
-      setProject(updated)
+      });
+      setProject(updated);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   async function toggleArchive(): Promise<void> {
-    if (!project) return
-    setBusy(true)
-    setError(null)
+    if (!project) return;
+    setBusy(true);
+    setError(null);
     try {
       const updated = await api.updateProject(project.id, {
         archived: !project.archived,
-      })
-      setProject(updated)
+      });
+      setProject(updated);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   async function deleteProject(): Promise<void> {
-    if (!project) return
-    setBusy(true)
-    setError(null)
+    if (!project) return;
+    setBusy(true);
+    setError(null);
     try {
-      await api.deleteProject(project.id)
-      navigate('/projects', { replace: true })
+      await api.deleteProject(project.id);
+      navigate('/projects', { replace: true });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-      setBusy(false)
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
     }
   }
 
-  if (!project && !error) return <p className="text-slate-500">Loading…</p>
-  if (!project) return <p className="text-red-700">{error}</p>
+  if (!project && !error) return <p className="text-slate-500">Loading…</p>;
+  if (!project) return <p className="text-red-700">{error}</p>;
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -145,8 +145,8 @@ export function ProjectSettingsTab(): JSX.Element {
       <section className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 space-y-3">
         <h2 className="text-base font-semibold">Archive</h2>
         <p className="text-sm text-slate-500">
-          Archived projects stay in the list but are hidden from the Kanban view.
-          You can restore them later.
+          Archived projects stay in the list but are hidden from the Kanban view. You can restore
+          them later.
         </p>
         <button
           type="button"
@@ -159,12 +159,10 @@ export function ProjectSettingsTab(): JSX.Element {
       </section>
 
       <section className="rounded border border-red-300 bg-red-50/40 dark:bg-red-900/10 dark:border-red-800 p-4 space-y-3">
-        <h2 className="text-base font-semibold text-red-800 dark:text-red-300">
-          Danger zone
-        </h2>
+        <h2 className="text-base font-semibold text-red-800 dark:text-red-300">Danger zone</h2>
         <p className="text-sm text-slate-600 dark:text-slate-300">
-          Deleting a project removes its tasks, columns, comments, and attachments
-          permanently. This cannot be undone.
+          Deleting a project removes its tasks, columns, comments, and attachments permanently. This
+          cannot be undone.
         </p>
         {confirmDelete ? (
           <div className="flex items-center gap-2">
@@ -196,5 +194,5 @@ export function ProjectSettingsTab(): JSX.Element {
         )}
       </section>
     </div>
-  )
+  );
 }

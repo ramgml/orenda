@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
 
-import { api } from '@/shared/api/client'
-import { useWebSocketTopic } from '@/shared/ws'
+import { api } from '@/shared/api/client';
+import { useWebSocketTopic } from '@/shared/ws';
 import {
   CourseCurriculumEditor,
   type EditorModule,
   type EditorQuiz,
-} from './CourseCurriculumEditor'
+} from './CourseCurriculumEditor';
 
 /**
  * Phase 18.7: Course tree view.
@@ -25,88 +25,88 @@ import {
  * from the lesson page (LessonPage → updateLessonContent).
  */
 export function CourseDetailPage(): JSX.Element {
-  const { id } = useParams<{ id: string }>()
-  const [data, setData] = useState<CourseDetail | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [editing, setEditing] = useState(false)
+  const { id } = useParams<{ id: string }>();
+  const [data, setData] = useState<CourseDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const load = useCallback(async () => {
-    if (!id) return
+    if (!id) return;
     try {
-      const r = await api.getCourse(id)
-      setData(r)
+      const r = await api.getCourse(id);
+      setData(r);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [id])
+  }, [id]);
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void load();
+  }, [load]);
 
   // Re-fetch on task events (the agent may submit a curriculum while
   // we're staring at the page).
   useWebSocketTopic('tasks', () => {
-    void load()
-  })
+    void load();
+  });
 
   async function onApprove(): Promise<void> {
-    if (!id || busy) return
-    setBusy(true)
+    if (!id || busy) return;
+    setBusy(true);
     try {
-      await api.approveCourse(id)
-      void load()
+      await api.approveCourse(id);
+      void load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   async function onRequestChanges(): Promise<void> {
-    if (!id || busy) return
-    setBusy(true)
+    if (!id || busy) return;
+    setBusy(true);
     try {
-      await api.requestCourseChanges(id)
-      void load()
+      await api.requestCourseChanges(id);
+      void load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   if (loading) {
-    return <p className="p-6 text-sm text-slate-400 italic">Loading…</p>
+    return <p className="p-6 text-sm text-slate-400 italic">Loading…</p>;
   }
   if (error) {
-    return <p className="p-6 text-sm text-red-600">{error}</p>
+    return <p className="p-6 text-sm text-red-600">{error}</p>;
   }
-  if (!data) return <></>
+  if (!data) return <></>;
 
-  const { course, modules, lessons, quizzes, progress } = data
+  const { course, modules, lessons, quizzes, progress } = data;
 
   // Bucket lessons and quizzes by module so the editor can hydrate
   // from the tree shape without losing quizzes.
-  const lessonsByModule = new Map<string, typeof lessons>()
-  const quizzesByLesson = new Map<string, NonNullable<typeof quizzes>>()
+  const lessonsByModule = new Map<string, typeof lessons>();
+  const quizzesByLesson = new Map<string, NonNullable<typeof quizzes>>();
   for (const l of lessons) {
-    const arr = lessonsByModule.get(l.module_id) ?? []
-    arr.push(l)
-    lessonsByModule.set(l.module_id, arr)
+    const arr = lessonsByModule.get(l.module_id) ?? [];
+    arr.push(l);
+    lessonsByModule.set(l.module_id, arr);
   }
   for (const arr of lessonsByModule.values()) {
-    arr.sort((a, b) => a.position - b.position)
+    arr.sort((a, b) => a.position - b.position);
   }
   if (quizzes) {
     for (const q of quizzes) {
-      const arr = quizzesByLesson.get(q.lesson_id) ?? []
-      arr.push(q)
-      quizzesByLesson.set(q.lesson_id, arr)
+      const arr = quizzesByLesson.get(q.lesson_id) ?? [];
+      arr.push(q);
+      quizzesByLesson.set(q.lesson_id, arr);
     }
   }
 
@@ -116,7 +116,7 @@ export function CourseDetailPage(): JSX.Element {
     description: m.description ?? '',
     position: mi,
     lessons: (lessonsByModule.get(m.id) ?? []).map((l, li) => {
-      const qs = (quizzesByLesson.get(l.id) ?? []).slice().sort((a, b) => a.position - b.position)
+      const qs = (quizzesByLesson.get(l.id) ?? []).slice().sort((a, b) => a.position - b.position);
       return {
         id: l.id,
         title: l.title,
@@ -129,11 +129,11 @@ export function CourseDetailPage(): JSX.Element {
           expected_md: q.expected_md ?? '',
           kind: q.kind,
         })),
-      }
+      };
     }),
-  }))
+  }));
 
-  const editable = course.status === 'draft' || course.status === 'review'
+  const editable = course.status === 'draft' || course.status === 'review';
 
   return (
     <section className="p-6 max-w-3xl mx-auto space-y-6">
@@ -205,9 +205,7 @@ export function CourseDetailPage(): JSX.Element {
           >
             {editing ? 'Done editing' : 'Edit curriculum'}
           </button>
-          <span className="text-xs text-slate-500">
-            Modules, lessons, quizzes — atomic swap.
-          </span>
+          <span className="text-xs text-slate-500">Modules, lessons, quizzes — atomic swap.</span>
         </div>
       )}
 
@@ -217,8 +215,8 @@ export function CourseDetailPage(): JSX.Element {
           initialModules={initialModules}
           onCancel={() => setEditing(false)}
           onSaved={() => {
-            setEditing(false)
-            void load()
+            setEditing(false);
+            void load();
           }}
         />
       ) : modules.length === 0 ? (
@@ -230,7 +228,7 @@ export function CourseDetailPage(): JSX.Element {
       ) : (
         <ul className="space-y-4">
           {modules.map((m) => {
-            const ls = lessonsByModule.get(m.id) ?? []
+            const ls = lessonsByModule.get(m.id) ?? [];
             return (
               <li
                 key={m.id}
@@ -239,12 +237,10 @@ export function CourseDetailPage(): JSX.Element {
                 <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                   {m.title}
                 </h3>
-                {m.description && (
-                  <p className="text-xs text-slate-500 mt-1">{m.description}</p>
-                )}
+                {m.description && <p className="text-xs text-slate-500 mt-1">{m.description}</p>}
                 <ul className="mt-2 space-y-1">
                   {ls.map((l) => {
-                    const lessonQuizzes = quizzesByLesson.get(l.id) ?? []
+                    const lessonQuizzes = quizzesByLesson.get(l.id) ?? [];
                     return (
                       <li
                         key={l.id}
@@ -267,20 +263,18 @@ export function CourseDetailPage(): JSX.Element {
                             </span>
                           )}
                         </Link>
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          {l.status}
-                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">{l.status}</span>
                       </li>
-                    )
+                    );
                   })}
                 </ul>
               </li>
-            )
+            );
           })}
         </ul>
       )}
     </section>
-  )
+  );
 }
 
-type CourseDetail = Awaited<ReturnType<typeof api.getCourse>>
+type CourseDetail = Awaited<ReturnType<typeof api.getCourse>>;

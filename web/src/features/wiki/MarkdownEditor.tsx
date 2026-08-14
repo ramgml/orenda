@@ -1,9 +1,9 @@
-import { EditorContent, useEditor } from '@tiptap/react'
-import { BubbleMenu } from '@tiptap/react/menus'
-import StarterKit from '@tiptap/starter-kit'
-import Link from '@tiptap/extension-link'
-import { Markdown } from 'tiptap-markdown'
-import { useEffect } from 'react'
+import { EditorContent, useEditor } from '@tiptap/react';
+import { BubbleMenu } from '@tiptap/react/menus';
+import StarterKit from '@tiptap/starter-kit';
+import Link from '@tiptap/extension-link';
+import { Markdown } from 'tiptap-markdown';
+import { useEffect } from 'react';
 
 /**
  * Notion-style markdown editor built on Tiptap.
@@ -24,9 +24,9 @@ export function MarkdownEditor({
   onChange,
   placeholder,
 }: {
-  value: string
-  onChange: (md: string) => void
-  placeholder?: string
+  value: string;
+  onChange: (md: string) => void;
+  placeholder?: string;
 }): JSX.Element {
   const editor = useEditor({
     extensions: [
@@ -50,34 +50,37 @@ export function MarkdownEditor({
     content: value,
     editorProps: {
       attributes: {
-        class:
-          'prose dark:prose-invert max-w-none focus:outline-none min-h-[300px] px-4 py-3',
+        class: 'prose dark:prose-invert max-w-none focus:outline-none min-h-[300px] px-4 py-3',
         'data-placeholder': placeholder ?? 'Press / for commands…',
       },
     },
     onUpdate: ({ editor: ed }) => {
-      const md = (ed.storage as unknown as { markdown: { getMarkdown: () => string } }).markdown.getMarkdown()
-      onChange(md)
+      const md = (
+        ed.storage as unknown as { markdown: { getMarkdown: () => string } }
+      ).markdown.getMarkdown();
+      onChange(md);
     },
-  })
+  });
 
   // When the loaded value changes (page switch in the sidebar) push
   // the new markdown into the editor. We avoid an infinite loop by
   // comparing against the editor's current markdown view.
   useEffect(() => {
-    if (!editor) return
-    const md = (editor.storage as unknown as { markdown: { getMarkdown: () => string } }).markdown.getMarkdown()
+    if (!editor) return;
+    const md = (
+      editor.storage as unknown as { markdown: { getMarkdown: () => string } }
+    ).markdown.getMarkdown();
     if (value !== md) {
-      editor.commands.setContent(value || '', { emitUpdate: false })
+      editor.commands.setContent(value || '', { emitUpdate: false });
     }
-  }, [value, editor])
+  }, [value, editor]);
 
   if (!editor) {
     return (
       <div className="rounded border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-6 text-sm text-slate-500">
         Loading editor…
       </div>
-    )
+    );
   }
 
   return (
@@ -156,7 +159,7 @@ export function MarkdownEditor({
           onClick={() => editor.chain().focus().toggleCodeBlock().run()}
           title="Code block"
         >
-          { }
+          {}
         </Btn>
         <Sep />
         <LinkBtn editor={editor} />
@@ -164,7 +167,7 @@ export function MarkdownEditor({
 
       <EditorContent editor={editor} />
     </div>
-  )
+  );
 }
 
 function Btn({
@@ -173,10 +176,10 @@ function Btn({
   title,
   children,
 }: {
-  active?: boolean
-  onClick: () => void
-  title: string
-  children?: React.ReactNode
+  active?: boolean;
+  onClick: () => void;
+  title: string;
+  children?: React.ReactNode;
 }): JSX.Element {
   return (
     <button
@@ -189,32 +192,28 @@ function Btn({
     >
       {children}
     </button>
-  )
+  );
 }
 
 function Sep(): JSX.Element {
-  return <span className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />
+  return <span className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-0.5" />;
 }
 
-function LinkBtn({
-  editor,
-}: {
-  editor: ReturnType<typeof useEditor>
-}): JSX.Element {
-  if (!editor) return <></>
+function LinkBtn({ editor }: { editor: ReturnType<typeof useEditor> }): JSX.Element {
+  if (!editor) return <></>;
   return (
     <button
       type="button"
       title="Link"
       onClick={() => {
-        const prev = editor.getAttributes('link').href as string | undefined
-        const url = window.prompt('URL', prev ?? 'https://')
-        if (url === null) return
+        const prev = editor.getAttributes('link').href as string | undefined;
+        const url = window.prompt('URL', prev ?? 'https://');
+        if (url === null) return;
         if (url === '') {
-          editor.chain().focus().unsetLink().run()
-          return
+          editor.chain().focus().unsetLink().run();
+          return;
         }
-        editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
+        editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
       }}
       className={`px-2 py-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 ${
         editor.isActive('link') ? 'bg-orenda-100 dark:bg-orenda-900/40 text-orenda-700' : ''
@@ -222,5 +221,5 @@ function LinkBtn({
     >
       🔗
     </button>
-  )
+  );
 }

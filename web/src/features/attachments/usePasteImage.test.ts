@@ -10,99 +10,98 @@
  *   - Plain-text paste is left alone (no preventDefault) so a
  *     focused input still receives the text.
  */
-import { act, renderHook } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, renderHook } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { usePasteImage } from '@/features/attachments/usePasteImage'
+import { usePasteImage } from '@/features/attachments/usePasteImage';
 
 afterEach(() => {
-  vi.restoreAllMocks()
-})
+  vi.restoreAllMocks();
+});
 
 function firePasteWith(items: DataTransferItem[]): void {
-  const event = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent
+  const event = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent;
   // jsdom doesn't carry a real ClipboardEvent constructor; we
   // attach the minimum DataTransfer-like shape ourselves.
   Object.defineProperty(event, 'clipboardData', {
     value: { items, length: items.length },
-  })
-  Object.defineProperty(event, 'target', { value: document.body })
+  });
+  Object.defineProperty(event, 'target', { value: document.body });
   act(() => {
-    window.dispatchEvent(event)
-  })
+    window.dispatchEvent(event);
+  });
 }
 
 function makeFileItem(name: string, _type: string, mime: string): DataTransferItem {
   // jsdom doesn't construct DataTransferItem either; build a minimal
   // stand-in that matches the interface usePasteImage reads.
-  const blob = new Blob(['fake'], { type: mime })
+  const blob = new Blob(['fake'], { type: mime });
   return {
     kind: 'file',
     type: mime,
-    getAsFile: () =>
-      new File([blob], name, { type: mime }),
-  } as unknown as DataTransferItem
+    getAsFile: () => new File([blob], name, { type: mime }),
+  } as unknown as DataTransferItem;
 }
 
 describe('usePasteImage', () => {
   it('calls onImage with a screenshot-named File when an image is pasted', () => {
-    const onImage = vi.fn()
-    renderHook(() => usePasteImage(onImage))
+    const onImage = vi.fn();
+    renderHook(() => usePasteImage(onImage));
 
-    const item = makeFileItem('image.png', 'image.png', 'image/png')
-    firePasteWith([item])
+    const item = makeFileItem('image.png', 'image.png', 'image/png');
+    firePasteWith([item]);
 
-    expect(onImage).toHaveBeenCalledTimes(1)
-    const file = onImage.mock.calls[0][0] as File
-    expect(file.type).toBe('image/png')
-    expect(file.name).toMatch(/^screenshot-\d{4}-\d{2}-\d{2}-\d{6}\.png$/)
-  })
+    expect(onImage).toHaveBeenCalledTimes(1);
+    const file = onImage.mock.calls[0][0] as File;
+    expect(file.type).toBe('image/png');
+    expect(file.name).toMatch(/^screenshot-\d{4}-\d{2}-\d{2}-\d{6}\.png$/);
+  });
 
   it('uses the original filename when the clipboard file carries one', () => {
-    const onImage = vi.fn()
-    renderHook(() => usePasteImage(onImage))
+    const onImage = vi.fn();
+    renderHook(() => usePasteImage(onImage));
 
-    firePasteWith([makeFileItem('shot.png', 'shot.png', 'image/png')])
-    const file = onImage.mock.calls[0][0] as File
-    expect(file.name).toBe('shot.png')
-  })
+    firePasteWith([makeFileItem('shot.png', 'shot.png', 'image/png')]);
+    const file = onImage.mock.calls[0][0] as File;
+    expect(file.name).toBe('shot.png');
+  });
 
   it('maps the mime type to the correct extension for non-png images', () => {
-    const onImage = vi.fn()
-    renderHook(() => usePasteImage(onImage))
+    const onImage = vi.fn();
+    renderHook(() => usePasteImage(onImage));
 
-    firePasteWith([makeFileItem('a.jpg', 'a.jpg', 'image/jpeg')])
-    const file = onImage.mock.calls[0][0] as File
-    expect(file.name).toMatch(/\.jpg$/)
-  })
+    firePasteWith([makeFileItem('a.jpg', 'a.jpg', 'image/jpeg')]);
+    const file = onImage.mock.calls[0][0] as File;
+    expect(file.name).toMatch(/\.jpg$/);
+  });
 
   it('does not call onImage for non-image clipboard items', () => {
-    const onImage = vi.fn()
-    renderHook(() => usePasteImage(onImage))
+    const onImage = vi.fn();
+    renderHook(() => usePasteImage(onImage));
 
     const textItem = {
       kind: 'string',
       type: 'text/plain',
-    } as unknown as DataTransferItem
-    firePasteWith([textItem])
+    } as unknown as DataTransferItem;
+    firePasteWith([textItem]);
 
-    expect(onImage).not.toHaveBeenCalled()
-  })
+    expect(onImage).not.toHaveBeenCalled();
+  });
 
   it('does not call onImage for an empty clipboard', () => {
-    const onImage = vi.fn()
-    renderHook(() => usePasteImage(onImage))
+    const onImage = vi.fn();
+    renderHook(() => usePasteImage(onImage));
 
-    firePasteWith([])
-    expect(onImage).not.toHaveBeenCalled()
-  })
+    firePasteWith([]);
+    expect(onImage).not.toHaveBeenCalled();
+  });
 
   it('removes the paste listener on unmount', () => {
-    const onImage = vi.fn()
-    const { unmount } = renderHook(() => usePasteImage(onImage))
-    unmount()
+    const onImage = vi.fn();
+    const { unmount } = renderHook(() => usePasteImage(onImage));
+    unmount();
 
-    firePasteWith([makeFileItem('image.png', 'image.png', 'image/png')])
-    expect(onImage).not.toHaveBeenCalled()
-  })
-})
+    firePasteWith([makeFileItem('image.png', 'image.png', 'image/png')]);
+    expect(onImage).not.toHaveBeenCalled();
+  });
+});

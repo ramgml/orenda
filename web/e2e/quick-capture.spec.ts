@@ -11,45 +11,45 @@
  * under the suite's anonymous rate limit (20 req/sec per IP); the
  * open-on-button case below exercises the same modal code path.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test';
 
-import { E2E_PASSWORD, loginAsUser } from './helpers'
+import { E2E_PASSWORD, loginAsUser } from './helpers';
 
 test.describe('Quick capture', () => {
   test('"+" button opens modal; Cmd+Enter submits; toast surfaces "Open task"', async ({
     page,
   }) => {
-    const ctx = await loginAsUser()
+    const ctx = await loginAsUser();
 
     // Sign the browser in.
-    await page.goto('/login')
-    await page.getByLabel('Email').fill('e2e@orenda.local')
-    await page.getByLabel('Password').fill(E2E_PASSWORD)
-    await page.getByRole('button', { name: /sign in/i }).click()
-    await page.waitForURL((u) => u.pathname === '/')
-    await page.waitForLoadState('networkidle')
+    await page.goto('/login');
+    await page.getByLabel('Email').fill('e2e@orenda.local');
+    await page.getByLabel('Password').fill(E2E_PASSWORD);
+    await page.getByRole('button', { name: /sign in/i }).click();
+    await page.waitForURL((u) => u.pathname === '/');
+    await page.waitForLoadState('networkidle');
 
     // Click the floating "+" button — modal opens.
-    await page.getByTestId('quick-capture-toggle').click()
-    await expect(page.getByRole('dialog', { name: 'Quick capture' })).toBeVisible()
+    await page.getByTestId('quick-capture-toggle').click();
+    await expect(page.getByRole('dialog', { name: 'Quick capture' })).toBeVisible();
 
     // Cmd+Enter submits (no trailing newline).
-    const newTitle = `Captured via Cmd+Enter ${Date.now()}`
-    const textarea = page.getByTestId('quick-capture-input')
-    await textarea.fill(newTitle)
-    await textarea.press('Control+Enter')
+    const newTitle = `Captured via Cmd+Enter ${Date.now()}`;
+    const textarea = page.getByTestId('quick-capture-input');
+    await textarea.fill(newTitle);
+    await textarea.press('Control+Enter');
 
     // Success toast appears.
-    await expect(page.getByTestId('quick-capture-toast')).toBeVisible()
-    await expect(page.getByText('✓ Captured to Inbox')).toBeVisible()
+    await expect(page.getByTestId('quick-capture-toast')).toBeVisible();
+    await expect(page.getByText('✓ Captured to Inbox')).toBeVisible();
 
     // "Open task" is in the toast.
-    await expect(page.getByRole('button', { name: 'Open task' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Open task' })).toBeVisible();
 
     // The captured title also lands in /inbox.
-    await page.goto('/inbox')
-    await expect(page.getByText(newTitle)).toBeVisible()
+    await page.goto('/inbox');
+    await expect(page.getByText(newTitle)).toBeVisible();
 
-    await ctx.dispose()
-  })
-})
+    await ctx.dispose();
+  });
+});

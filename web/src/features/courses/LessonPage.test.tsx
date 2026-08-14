@@ -17,14 +17,22 @@
  * Network plumbing is mocked at the `api` boundary — we don't want
  * to spin up a runtime for what is a pure rendering test.
  */
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { LessonPage } from '@/features/courses/LessonPage'
-import { api } from '@/shared/api/client'
+import { LessonPage } from '@/features/courses/LessonPage';
+import { api } from '@/shared/api/client';
 
-function makeLesson(over: Partial<{ id: string; title: string; status: string; content_md: string; task_id: string }> = {}) {
+function makeLesson(
+  over: Partial<{
+    id: string;
+    title: string;
+    status: string;
+    content_md: string;
+    task_id: string;
+  }> = {},
+) {
   return {
     id: 'lesson-1',
     title: 'Variables and types',
@@ -32,7 +40,7 @@ function makeLesson(over: Partial<{ id: string; title: string; status: string; c
     content_md: '# Heading\n\nExplain **borrowing** in one sentence.',
     task_id: '',
     ...over,
-  }
+  };
 }
 
 const tree = (lessons: any[], quizzes: any[] = []) => ({
@@ -51,8 +59,11 @@ const tree = (lessons: any[], quizzes: any[] = []) => ({
   modules: [{ id: 'm-1', course_id: 'c-1', title: 'Intro', description: '', position: 0 }],
   lessons,
   quizzes,
-  progress: { lessons_total: lessons.length, lessons_done: lessons.filter((l) => l.status === 'done').length },
-})
+  progress: {
+    lessons_total: lessons.length,
+    lessons_done: lessons.filter((l) => l.status === 'done').length,
+  },
+});
 
 /**
  * Install fresh api mocks. We re-spy on every test instead of
@@ -60,16 +71,26 @@ const tree = (lessons: any[], quizzes: any[] = []) => ({
  * if you only mockReset (the next mockResolvedValue chains on
  * the previous queue). Rebinding the variable avoids that.
  */
-function setupApi(opts: {
-  treeResp: ReturnType<typeof tree>
-}) {
+function setupApi(opts: { treeResp: ReturnType<typeof tree> }) {
   vi.spyOn(api, 'listCourses').mockResolvedValue({
-    courses: [{ id: 'c-1', title: 'Learn Rust', intent_md: '', level: 'beginner', pace: 'casual', status: 'active', owner_id: 'u-1', created_at: '', updated_at: '' }],
+    courses: [
+      {
+        id: 'c-1',
+        title: 'Learn Rust',
+        intent_md: '',
+        level: 'beginner',
+        pace: 'casual',
+        status: 'active',
+        owner_id: 'u-1',
+        created_at: '',
+        updated_at: '',
+      },
+    ],
     count: 1,
-  })
-  vi.spyOn(api, 'getCourse').mockResolvedValue(opts.treeResp)
-  vi.spyOn(api, 'answerQuiz').mockResolvedValue({ correct: true })
-  vi.spyOn(api, 'completeLesson').mockResolvedValue({})
+  });
+  vi.spyOn(api, 'getCourse').mockResolvedValue(opts.treeResp);
+  vi.spyOn(api, 'answerQuiz').mockResolvedValue({ correct: true });
+  vi.spyOn(api, 'completeLesson').mockResolvedValue({});
 }
 
 function renderPage() {
@@ -79,43 +100,43 @@ function renderPage() {
         <Route path="/lessons/:id" element={<LessonPage />} />
       </Routes>
     </MemoryRouter>,
-  )
+  );
 }
 
 describe('LessonPage', () => {
   beforeEach(() => {
     // Always start with a clean slate. The previous test's
     // mockResolvedValue queues would otherwise chain on top.
-    vi.restoreAllMocks()
-  })
+    vi.restoreAllMocks();
+  });
 
   afterEach(() => {
-    cleanup()
-    vi.restoreAllMocks()
-  })
+    cleanup();
+    vi.restoreAllMocks();
+  });
 
   it('shows a locked placeholder when the lesson is locked', async () => {
     setupApi({
       treeResp: tree([
         { id: 'lesson-1', module_id: 'm-1', title: 'Locked', position: 0, status: 'locked' },
       ]),
-    })
-    const { findByTestId, queryByTestId } = renderPage()
-    expect(await findByTestId('lesson-locked')).toBeTruthy()
-    expect(queryByTestId('lesson-content')).toBeNull()
+    });
+    const { findByTestId, queryByTestId } = renderPage();
+    expect(await findByTestId('lesson-locked')).toBeTruthy();
+    expect(queryByTestId('lesson-content')).toBeNull();
     // The complete button is always rendered but disabled for
     // locked lessons — the lock is the source of truth.
-    const complete = await findByTestId('lesson-complete')
-    expect(complete.hasAttribute('disabled')).toBe(true)
-  })
+    const complete = await findByTestId('lesson-complete');
+    expect(complete.hasAttribute('disabled')).toBe(true);
+  });
 
   it('renders the markdown content for an open lesson', async () => {
-    setupApi({ treeResp: tree([makeLesson()]) })
-    const { findByTestId } = renderPage()
-    const content = await findByTestId('lesson-content')
-    expect(content.querySelector('h1')?.textContent).toBe('Heading')
-    expect(content.querySelector('strong')?.textContent).toBe('borrowing')
-  })
+    setupApi({ treeResp: tree([makeLesson()]) });
+    const { findByTestId } = renderPage();
+    const content = await findByTestId('lesson-content');
+    expect(content.querySelector('h1')?.textContent).toBe('Heading');
+    expect(content.querySelector('strong')?.textContent).toBe('borrowing');
+  });
 
   it('disables the complete button until every quiz has been answered', async () => {
     setupApi({
@@ -126,57 +147,58 @@ describe('LessonPage', () => {
           { id: 'q2', lesson_id: 'lesson-1', position: 1, question_md: '?', kind: 'exact' },
         ],
       ),
-    })
-    const answerSpy = vi.spyOn(api, 'answerQuiz').mockResolvedValue({ correct: true })
-    const { findByTestId, findAllByTestId } = renderPage()
-    const complete = await findByTestId('lesson-complete')
-    expect(complete.hasAttribute('disabled')).toBe(true)
+    });
+    const answerSpy = vi.spyOn(api, 'answerQuiz').mockResolvedValue({ correct: true });
+    const { findByTestId, findAllByTestId } = renderPage();
+    const complete = await findByTestId('lesson-complete');
+    expect(complete.hasAttribute('disabled')).toBe(true);
 
-    const inputs = await findAllByTestId('quiz-answer-input')
-    expect(inputs.length).toBe(2)
-    const submits = await findAllByTestId('quiz-submit')
-    fireEvent.change(inputs[0], { target: { value: 'answer-1' } })
-    fireEvent.click(submits[0])
-    await waitFor(() => expect(answerSpy).toHaveBeenCalledTimes(1))
-    fireEvent.change(inputs[1], { target: { value: 'answer-2' } })
-    fireEvent.click(submits[1])
-    await waitFor(() => expect(answerSpy).toHaveBeenCalledTimes(2))
-    const enabled = await findByTestId('lesson-complete')
-    expect(enabled.hasAttribute('disabled')).toBe(false)
-  })
+    const inputs = await findAllByTestId('quiz-answer-input');
+    expect(inputs.length).toBe(2);
+    const submits = await findAllByTestId('quiz-submit');
+    fireEvent.change(inputs[0], { target: { value: 'answer-1' } });
+    fireEvent.click(submits[0]);
+    await waitFor(() => expect(answerSpy).toHaveBeenCalledTimes(1));
+    fireEvent.change(inputs[1], { target: { value: 'answer-2' } });
+    fireEvent.click(submits[1]);
+    await waitFor(() => expect(answerSpy).toHaveBeenCalledTimes(2));
+    const enabled = await findByTestId('lesson-complete');
+    expect(enabled.hasAttribute('disabled')).toBe(false);
+  });
 
   it('shows the backend verdict after submit', async () => {
     setupApi({
-      treeResp: tree([makeLesson()], [
-        { id: 'q1', lesson_id: 'lesson-1', position: 0, question_md: '?', kind: 'exact' },
-      ]),
-    })
-    vi.spyOn(api, 'answerQuiz').mockResolvedValue({ correct: true, feedback_md: '' })
-    const { findByTestId, findAllByTestId } = renderPage()
-    const rows = await findAllByTestId('quiz-row')
-    expect(rows.length).toBe(1)
-    const input = (await findAllByTestId('quiz-answer-input'))[0]
-    fireEvent.change(input, { target: { value: 'hello' } })
-    fireEvent.click((await findAllByTestId('quiz-submit'))[0])
-    const result = await findByTestId('quiz-result')
-    expect(result.textContent).toContain('Correct')
-  })
+      treeResp: tree(
+        [makeLesson()],
+        [{ id: 'q1', lesson_id: 'lesson-1', position: 0, question_md: '?', kind: 'exact' }],
+      ),
+    });
+    vi.spyOn(api, 'answerQuiz').mockResolvedValue({ correct: true, feedback_md: '' });
+    const { findByTestId, findAllByTestId } = renderPage();
+    const rows = await findAllByTestId('quiz-row');
+    expect(rows.length).toBe(1);
+    const input = (await findAllByTestId('quiz-answer-input'))[0];
+    fireEvent.change(input, { target: { value: 'hello' } });
+    fireEvent.click((await findAllByTestId('quiz-submit'))[0]);
+    const result = await findByTestId('quiz-result');
+    expect(result.textContent).toContain('Correct');
+  });
 
   // ---- Phase 27.6: owner-edit affordance for active-course lessons ----
 
   it('shows the Edit content button when the course is active', async () => {
-    setupApi({ treeResp: tree([makeLesson()]) })
-    const { findByTestId, queryByTestId } = renderPage()
+    setupApi({ treeResp: tree([makeLesson()]) });
+    const { findByTestId, queryByTestId } = renderPage();
     // tree default has course.status='active' — the button is rendered
     // as a sibling of lesson-content.
-    expect(await findByTestId('lesson-content')).toBeTruthy()
-    expect(await findByTestId('lesson-edit-content')).toBeTruthy()
+    expect(await findByTestId('lesson-content')).toBeTruthy();
+    expect(await findByTestId('lesson-edit-content')).toBeTruthy();
     // No textarea before clicking.
-    expect(queryByTestId('lesson-edit-content-textarea')).toBeNull()
-  })
+    expect(queryByTestId('lesson-edit-content-textarea')).toBeNull();
+  });
 
   it('hides the Edit content button when the course is not active', async () => {
-    vi.restoreAllMocks()
+    vi.restoreAllMocks();
     vi.spyOn(api, 'listCourses').mockResolvedValue({
       courses: [
         {
@@ -192,7 +214,7 @@ describe('LessonPage', () => {
         },
       ],
       count: 1,
-    })
+    });
     vi.spyOn(api, 'getCourse').mockResolvedValue({
       course: {
         id: 'c-1',
@@ -218,30 +240,30 @@ describe('LessonPage', () => {
       ],
       quizzes: [],
       progress: { lessons_total: 1, lessons_done: 0 },
-    })
-    vi.spyOn(api, 'answerQuiz').mockResolvedValue({ correct: true })
-    vi.spyOn(api, 'completeLesson').mockResolvedValue({})
+    });
+    vi.spyOn(api, 'answerQuiz').mockResolvedValue({ correct: true });
+    vi.spyOn(api, 'completeLesson').mockResolvedValue({});
 
-    const { findByTestId, queryByTestId } = renderPage()
-    await findByTestId('lesson-content')
-    expect(queryByTestId('lesson-edit-content')).toBeNull()
-  })
+    const { findByTestId, queryByTestId } = renderPage();
+    await findByTestId('lesson-content');
+    expect(queryByTestId('lesson-edit-content')).toBeNull();
+  });
 
   it('saves content via api.updateLessonContent and reloads', async () => {
-    setupApi({ treeResp: tree([makeLesson()]) })
+    setupApi({ treeResp: tree([makeLesson()]) });
     const updateSpy = vi
       .spyOn(api, 'updateLessonContent')
-      .mockResolvedValue({} as unknown as Awaited<ReturnType<typeof api.updateLessonContent>>)
-    const { findByTestId } = renderPage()
-    await findByTestId('lesson-content')
-    const editBtn = await findByTestId('lesson-edit-content')
-    fireEvent.click(editBtn)
-    const saveBtn = await findByTestId('lesson-save-content')
-    fireEvent.click(saveBtn)
-    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1))
+      .mockResolvedValue({} as unknown as Awaited<ReturnType<typeof api.updateLessonContent>>);
+    const { findByTestId } = renderPage();
+    await findByTestId('lesson-content');
+    const editBtn = await findByTestId('lesson-edit-content');
+    fireEvent.click(editBtn);
+    const saveBtn = await findByTestId('lesson-save-content');
+    fireEvent.click(saveBtn);
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
     expect(updateSpy).toHaveBeenCalledWith(
       'lesson-1',
       expect.objectContaining({ content_md: expect.any(String) }),
-    )
-  })
-})
+    );
+  });
+});

@@ -34,62 +34,62 @@
  * Mounted inside the authenticated <Shell> only — the `<RequireAuth>`
  * gate handles the unauthenticated case.
  */
-import { useMemo } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { useMemo } from 'react';
+import { Link, useLocation, useParams } from 'react-router-dom';
 
-import { useAuth } from '@/features/auth/AuthContext'
-import { api } from '@/shared/api/client'
-import { useProjects } from '@/shared/hooks/useProjects'
-import { useOpenTaskCounts } from '@/shared/hooks/useOpenTaskCounts'
-import { usePinnedProjects } from '@/shared/hooks/usePinnedProjects'
+import { useAuth } from '@/features/auth/AuthContext';
+import { api } from '@/shared/api/client';
+import { useProjects } from '@/shared/hooks/useProjects';
+import { useOpenTaskCounts } from '@/shared/hooks/useOpenTaskCounts';
+import { usePinnedProjects } from '@/shared/hooks/usePinnedProjects';
 
-import { SidebarNav } from './SidebarNav'
-import { SidebarProjectItem } from './SidebarProjectItem'
-import { SidebarSection } from './SidebarSection'
-import { NewProjectInline } from './NewProjectInline'
-import { useSidebar } from './SidebarContext'
-import { partitionProjects } from './partitionProjects'
+import { SidebarNav } from './SidebarNav';
+import { SidebarProjectItem } from './SidebarProjectItem';
+import { SidebarSection } from './SidebarSection';
+import { NewProjectInline } from './NewProjectInline';
+import { useSidebar } from './SidebarContext';
+import { partitionProjects } from './partitionProjects';
 
-const SIDEBAR_WIDTH = 'w-60'        // ~240px in expanded mode
-const SIDEBAR_COLLAPSED = 'w-16'    // ~64px  in collapsed mode
+const SIDEBAR_WIDTH = 'w-60'; // ~240px in expanded mode
+const SIDEBAR_COLLAPSED = 'w-16'; // ~64px  in collapsed mode
 
 export function ProjectSidebar(): JSX.Element {
-  const { collapsed, toggle } = useSidebar()
-  const { user } = useAuth()
-  const { data: projects, isLoading } = useProjects()
-  const [pinnedIds, { isPinned, toggle: togglePin }] = usePinnedProjects()
-  const location = useLocation()
-  const { id: routeProjectId } = useParams<{ id?: string }>()
+  const { collapsed, toggle } = useSidebar();
+  const { user } = useAuth();
+  const { data: projects, isLoading } = useProjects();
+  const [pinnedIds, { isPinned, toggle: togglePin }] = usePinnedProjects();
+  const location = useLocation();
+  const { id: routeProjectId } = useParams<{ id?: string }>();
 
   // Active detection: we're on the project page if path matches /projects/:id
   const activeProjectId = useMemo(() => {
-    const m = location.pathname.match(/^\/projects\/([^/]+)/)
+    const m = location.pathname.match(/^\/projects\/([^/]+)/);
     if (m && m[1]) {
       // Prefer the route param over the regex when available — guards
       // against URL-encoding edge cases.
-      return routeProjectId ?? m[1]
+      return routeProjectId ?? m[1];
     }
-    return undefined
-  }, [location.pathname, routeProjectId])
+    return undefined;
+  }, [location.pathname, routeProjectId]);
 
-  const allProjects = useMemo(() => projects ?? [], [projects])
-  const projectIds = useMemo(() => allProjects.map((p) => p.id), [allProjects])
-  const openCounts = useOpenTaskCounts(projectIds)
+  const allProjects = useMemo(() => projects ?? [], [projects]);
+  const projectIds = useMemo(() => allProjects.map((p) => p.id), [allProjects]);
+  const openCounts = useOpenTaskCounts(projectIds);
 
   const partition = useMemo(
     () => partitionProjects(allProjects, pinnedIds),
     [allProjects, pinnedIds],
-  )
+  );
 
   // Inbox badge: number of open inbox tasks. The hook is per-project,
   // so we make a separate "all-inbox" count by fetching the inbox
   // list and counting locally. Cheap because the inbox is small in
   // practice and the hook is a tiny wrapper around useQuery.
-  const inboxCount = useInboxOpenCount()
+  const inboxCount = useInboxOpenCount();
 
   // Tailwind class lookup is dynamic (md: vs base); we build the
   // container class string once per render to keep JSX clean.
-  const containerWidth = collapsed ? SIDEBAR_COLLAPSED : SIDEBAR_WIDTH
+  const containerWidth = collapsed ? SIDEBAR_COLLAPSED : SIDEBAR_WIDTH;
 
   return (
     <aside
@@ -98,7 +98,9 @@ export function ProjectSidebar(): JSX.Element {
       aria-label="Project navigation"
     >
       {/* Header: brand + user identity (hidden when there's no room). */}
-      <div className={`flex items-center gap-2 px-3 h-12 border-b border-slate-200 dark:border-slate-800 ${collapsed ? 'justify-center' : ''}`}>
+      <div
+        className={`flex items-center gap-2 px-3 h-12 border-b border-slate-200 dark:border-slate-800 ${collapsed ? 'justify-center' : ''}`}
+      >
         <Link to="/" className="flex items-center gap-2 font-semibold text-lg">
           <span className="inline-block h-5 w-5 rounded bg-orenda-500" aria-hidden />
           {!collapsed && <span>Orenda</span>}
@@ -137,9 +139,7 @@ export function ProjectSidebar(): JSX.Element {
       {/* Project sections: Pinned / Active / Archived. */}
       <div className="flex-1 pb-2">
         {isLoading && !projects ? (
-          !collapsed && (
-            <p className="px-4 py-6 text-xs text-slate-400">Loading projects…</p>
-          )
+          !collapsed && <p className="px-4 py-6 text-xs text-slate-400">Loading projects…</p>
         ) : (
           <>
             {partition.pinned.length > 0 && (
@@ -221,7 +221,7 @@ export function ProjectSidebar(): JSX.Element {
         )}
       </div>
     </aside>
-  )
+  );
 }
 
 // useInboxOpenCount returns the number of inbox tasks whose status is
@@ -235,27 +235,25 @@ function useInboxOpenCount(): number | undefined {
   // because that's where the badge lives — moving it to InboxPage
   // would mean either duplicating the fetch or extracting a
   // dedicated hook.
-  const [count, setCount] = useState<number | undefined>(undefined)
+  const [count, setCount] = useState<number | undefined>(undefined);
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
     void (async () => {
       try {
-        const r = await api.listInboxTasks()
-        if (cancelled) return
-        setCount(
-          (r.tasks ?? []).filter((t) => t.status !== 'done').length,
-        )
+        const r = await api.listInboxTasks();
+        if (cancelled) return;
+        setCount((r.tasks ?? []).filter((t) => t.status !== 'done').length);
       } catch {
         // best-effort; leave the badge empty on error.
       }
-    })()
+    })();
     return () => {
-      cancelled = true
-    }
-  }, [])
-  return count
+      cancelled = true;
+    };
+  }, []);
+  return count;
 }
 
 // useState/useEffect imports — keep at the bottom so the module flow
 // stays top-down.
-import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react';

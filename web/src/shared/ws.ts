@@ -10,23 +10,23 @@
  * cost.
  */
 
-import { useEffect } from 'react'
+import { useEffect } from 'react';
 
-import { useAuth } from '@/features/auth/AuthContext'
+import { useAuth } from '@/features/auth/AuthContext';
 
 export interface WSMessage {
-  topic: string
-  body: unknown
+  topic: string;
+  body: unknown;
 }
 
-type Listener = (msg: WSMessage) => void
+type Listener = (msg: WSMessage) => void;
 
 class WSClient {
-  private ws: WebSocket | null = null
-  private listeners = new Map<string, Set<Listener>>()
-  private retryDelay = 1000
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  private closed = false
+  private ws: WebSocket | null = null;
+  private listeners = new Map<string, Set<Listener>>();
+  private retryDelay = 1000;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private closed = false;
 
   /**
    * Connect (or reconnect) to /api/v1/ws. Phase 27.2: no token
@@ -34,91 +34,91 @@ class WSClient {
    * the browser sends automatically with the WS upgrade handshake.
    */
   connect(): void {
-    this.closed = false
-    this.openSocket()
+    this.closed = false;
+    this.openSocket();
   }
 
   disconnect(): void {
-    this.closed = true
+    this.closed = true;
     if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
-    this.ws?.close()
-    this.ws = null
+    this.ws?.close();
+    this.ws = null;
   }
 
   /** Register a listener for a topic. Returns an unsubscribe function. */
   on(topic: string, fn: Listener): () => void {
-    let set = this.listeners.get(topic)
+    let set = this.listeners.get(topic);
     if (!set) {
-      set = new Set()
-      this.listeners.set(topic, set)
+      set = new Set();
+      this.listeners.set(topic, set);
     }
-    set.add(fn)
+    set.add(fn);
     return () => {
-      set?.delete(fn)
+      set?.delete(fn);
       if (set && set.size === 0) {
-        this.listeners.delete(topic)
+        this.listeners.delete(topic);
       }
-    }
+    };
   }
 
   private openSocket(): void {
-    if (this.closed) return
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const url = `${proto}://${window.location.host}/api/v1/ws`
-    const ws = new WebSocket(url)
-    this.ws = ws
+    if (this.closed) return;
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const url = `${proto}://${window.location.host}/api/v1/ws`;
+    const ws = new WebSocket(url);
+    this.ws = ws;
 
     ws.onmessage = (ev) => {
       try {
-        const msg = JSON.parse(ev.data) as WSMessage
-        const set = this.listeners.get(msg.topic)
-        if (!set) return
+        const msg = JSON.parse(ev.data) as WSMessage;
+        const set = this.listeners.get(msg.topic);
+        if (!set) return;
         // Dispatch each listener; they decide how to handle errors.
         for (const fn of set) {
           try {
-            fn(msg)
+            fn(msg);
           } catch (err) {
             // eslint-disable-next-line no-console
-            console.error('WS listener threw', err)
+            console.error('WS listener threw', err);
           }
         }
       } catch {
         // ignore malformed frames
       }
-    }
+    };
 
     ws.onclose = () => {
-      this.ws = null
-      if (this.closed) return
-      this.scheduleReconnect()
-    }
+      this.ws = null;
+      if (this.closed) return;
+      this.scheduleReconnect();
+    };
 
     ws.onerror = () => {
       // Let onclose handle reconnect; browsers fire onerror before close.
-    }
+    };
 
     // Reset retry delay on successful connection.
     ws.onopen = () => {
-      this.retryDelay = 1000
-    }
+      this.retryDelay = 1000;
+    };
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectTimer || this.closed) return
+    if (this.reconnectTimer || this.closed) return;
     this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null
+      this.reconnectTimer = null;
       if (!this.closed) {
-        this.openSocket()
-        this.retryDelay = Math.min(this.retryDelay * 2, 30_000)
+        this.openSocket();
+        this.retryDelay = Math.min(this.retryDelay * 2, 30_000);
       }
-    }, this.retryDelay)
+    }, this.retryDelay);
   }
 }
 
-export const wsClient = new WSClient()
+export const wsClient = new WSClient();
 
 /**
  * Hook that subscribes to a topic while the component is mounted.
@@ -128,8 +128,8 @@ export const wsClient = new WSClient()
  */
 export function useWebSocketTopic(topic: string, fn: Listener): void {
   useEffect(() => {
-    return wsClient.on(topic, fn)
-  }, [topic, fn])
+    return wsClient.on(topic, fn);
+  }, [topic, fn]);
 }
 
 /**
@@ -141,15 +141,15 @@ export function useWebSocketTopic(topic: string, fn: Listener): void {
  * cookie.
  */
 export function useWebSocketConnection(): void {
-  const { status } = useAuth()
+  const { status } = useAuth();
   useEffect(() => {
     if (status !== 'authenticated') {
-      wsClient.disconnect()
-      return
+      wsClient.disconnect();
+      return;
     }
-    wsClient.connect()
+    wsClient.connect();
     return () => {
-      wsClient.disconnect()
-    }
-  }, [status])
+      wsClient.disconnect();
+    };
+  }, [status]);
 }

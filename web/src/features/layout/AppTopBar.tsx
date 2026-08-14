@@ -5,12 +5,12 @@
  * this header only carries user-level affordances: notifications,
  * health, theme toggle, sign-out, and the page title context.
  */
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router-dom';
 
-import { useAuth } from '@/features/auth/AuthContext'
-import { NotificationsBell } from '@/features/notifications/NotificationsBell'
-import { HealthBadge } from '@/shared/ui/HealthBadge'
-import { ThemeToggle } from '@/shared/ui/ThemeToggle'
+import { useAuth } from '@/features/auth/AuthContext';
+import { NotificationsBell } from '@/features/notifications/NotificationsBell';
+import { HealthBadge } from '@/shared/ui/HealthBadge';
+import { ThemeToggle } from '@/shared/ui/ThemeToggle';
 
 /**
  * Mobile-only project rail entry point. On phones the sidebar is hidden
@@ -25,18 +25,21 @@ function HamburgerButton({ onClick }: { onClick: () => void }): JSX.Element {
       aria-label="Open navigation"
       className="md:hidden h-8 w-8 rounded flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
     >
-      <span aria-hidden className="block h-0.5 w-4 bg-current relative before:content-[''] before:absolute before:-top-1.5 before:left-0 before:h-0.5 before:w-4 before:bg-current after:content-[''] after:absolute after:top-1.5 after:left-0 after:h-0.5 after:w-4 after:bg-current" />
+      <span
+        aria-hidden
+        className="block h-0.5 w-4 bg-current relative before:content-[''] before:absolute before:-top-1.5 before:left-0 before:h-0.5 before:w-4 before:bg-current after:content-[''] after:absolute after:top-1.5 after:left-0 after:h-0.5 after:w-4 after:bg-current"
+      />
     </button>
-  )
+  );
 }
 
 interface AppTopBarProps {
   /** Optional click handler used by the mobile hamburger. */
-  onMobileMenuClick?: () => void
+  onMobileMenuClick?: () => void;
 }
 
 export function AppTopBar({ onMobileMenuClick }: AppTopBarProps): JSX.Element {
-  const { user, logout } = useAuth()
+  const { user, logout } = useAuth();
   return (
     <header className="h-12 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex items-center justify-between gap-3 px-4">
       <div className="flex items-center gap-2">
@@ -64,5 +67,5 @@ export function AppTopBar({ onMobileMenuClick }: AppTopBarProps): JSX.Element {
         </button>
       </div>
     </header>
-  )
+  );
 }

@@ -1,6 +1,6 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react';
 
-import { api, type Checklist, type ChecklistItem } from '@/shared/api/client'
+import { api, type Checklist, type ChecklistItem } from '@/shared/api/client';
 
 /**
  * Checklists block on the task view. Multiple checklists; each
@@ -12,44 +12,44 @@ export function ChecklistsList({
   initialLists,
   initialItems,
 }: {
-  taskId: string
-  initialLists: Checklist[]
-  initialItems: Record<string, ChecklistItem[]>
+  taskId: string;
+  initialLists: Checklist[];
+  initialItems: Record<string, ChecklistItem[]>;
 }) {
-  const [lists, setLists] = useState<Checklist[]>(initialLists)
-  const [itemsByList, setItems] = useState<Record<string, ChecklistItem[]>>(initialItems)
-  const [newListTitle, setNewListTitle] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [lists, setLists] = useState<Checklist[]>(initialLists);
+  const [itemsByList, setItems] = useState<Record<string, ChecklistItem[]>>(initialItems);
+  const [newListTitle, setNewListTitle] = useState('');
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setLists(initialLists)
-    setItems(initialItems)
-  }, [initialLists, initialItems])
+    setLists(initialLists);
+    setItems(initialItems);
+  }, [initialLists, initialItems]);
 
   async function addList(e: FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    if (!newListTitle.trim()) return
-    setBusy(true)
+    e.preventDefault();
+    if (!newListTitle.trim()) return;
+    setBusy(true);
     try {
-      const l = await api.addChecklist(taskId, { title: newListTitle.trim() })
-      setLists((cur) => [...cur, l])
-      setItems((cur) => ({ ...cur, [l.id]: [] }))
-      setNewListTitle('')
+      const l = await api.addChecklist(taskId, { title: newListTitle.trim() });
+      setLists((cur) => [...cur, l]);
+      setItems((cur) => ({ ...cur, [l.id]: [] }));
+      setNewListTitle('');
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   async function deleteList(l: Checklist): Promise<void> {
-    if (!window.confirm(`Delete checklist "${l.title}"?`)) return
-    setLists((cur) => cur.filter((x) => x.id !== l.id))
+    if (!window.confirm(`Delete checklist "${l.title}"?`)) return;
+    setLists((cur) => cur.filter((x) => x.id !== l.id));
     setItems((cur) => {
-      const next = { ...cur }
-      delete next[l.id]
-      return next
-    })
+      const next = { ...cur };
+      delete next[l.id];
+      return next;
+    });
     try {
-      await api.deleteChecklist(taskId, l.id)
+      await api.deleteChecklist(taskId, l.id);
     } catch {
       // ignore
     }
@@ -57,18 +57,14 @@ export function ChecklistsList({
 
   return (
     <section className="space-y-3">
-      {lists.length === 0 && (
-        <p className="text-xs text-slate-400 italic">No checklists.</p>
-      )}
+      {lists.length === 0 && <p className="text-xs text-slate-400 italic">No checklists.</p>}
       {lists.map((l) => (
         <ChecklistBlock
           key={l.id}
           taskId={taskId}
           list={l}
           items={itemsByList[l.id] ?? []}
-          onChange={(next) =>
-            setItems((cur) => ({ ...cur, [l.id]: next }))
-          }
+          onChange={(next) => setItems((cur) => ({ ...cur, [l.id]: next }))}
           onDelete={() => deleteList(l)}
         />
       ))}
@@ -88,7 +84,7 @@ export function ChecklistsList({
         </button>
       </form>
     </section>
-  )
+  );
 }
 
 function ChecklistBlock({
@@ -98,38 +94,38 @@ function ChecklistBlock({
   onChange,
   onDelete,
 }: {
-  taskId: string
-  list: Checklist
-  items: ChecklistItem[]
-  onChange: (next: ChecklistItem[]) => void
-  onDelete: () => void
+  taskId: string;
+  list: Checklist;
+  items: ChecklistItem[];
+  onChange: (next: ChecklistItem[]) => void;
+  onDelete: () => void;
 }) {
-  const [title, setTitle] = useState('')
-  const done = items.filter((i) => i.done).length
+  const [title, setTitle] = useState('');
+  const done = items.filter((i) => i.done).length;
 
   async function addItem(e: FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    if (!title.trim()) return
-    const it = await api.addChecklistItem(taskId, list.id, { title: title.trim() })
-    onChange([...items, it])
-    setTitle('')
+    e.preventDefault();
+    if (!title.trim()) return;
+    const it = await api.addChecklistItem(taskId, list.id, { title: title.trim() });
+    onChange([...items, it]);
+    setTitle('');
   }
 
   async function toggle(it: ChecklistItem): Promise<void> {
-    onChange(items.map((x) => (x.id === it.id ? { ...x, done: !x.done } : x)))
+    onChange(items.map((x) => (x.id === it.id ? { ...x, done: !x.done } : x)));
     try {
-      await api.updateChecklistItem(taskId, list.id, it.id, { done: !it.done })
+      await api.updateChecklistItem(taskId, list.id, it.id, { done: !it.done });
     } catch {
-      onChange(items.map((x) => (x.id === it.id ? { ...x, done: it.done } : x)))
+      onChange(items.map((x) => (x.id === it.id ? { ...x, done: it.done } : x)));
     }
   }
 
   async function del(it: ChecklistItem): Promise<void> {
-    onChange(items.filter((x) => x.id !== it.id))
+    onChange(items.filter((x) => x.id !== it.id));
     try {
-      await api.deleteChecklistItem(taskId, list.id, it.id)
+      await api.deleteChecklistItem(taskId, list.id, it.id);
     } catch {
-      onChange(items)
+      onChange(items);
     }
   }
 
@@ -137,7 +133,10 @@ function ChecklistBlock({
     <div className="rounded border border-slate-200 dark:border-slate-800 p-2">
       <div className="flex items-center justify-between mb-1">
         <h3 className="text-sm font-medium">
-          {list.title} <span className="text-xs text-slate-400">({done}/{items.length})</span>
+          {list.title}{' '}
+          <span className="text-xs text-slate-400">
+            ({done}/{items.length})
+          </span>
         </h3>
         <button
           type="button"
@@ -152,11 +151,7 @@ function ChecklistBlock({
         <ul className="space-y-1">
           {items.map((it) => (
             <li key={it.id} className="flex items-center gap-2 group">
-              <input
-                type="checkbox"
-                checked={it.done}
-                onChange={() => toggle(it)}
-              />
+              <input type="checkbox" checked={it.done} onChange={() => toggle(it)} />
               <span className={`flex-1 text-sm ${it.done ? 'line-through text-slate-400' : ''}`}>
                 {it.title}
               </span>
@@ -187,5 +182,5 @@ function ChecklistBlock({
         </button>
       </form>
     </div>
-  )
+  );
 }

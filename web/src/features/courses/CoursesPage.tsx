@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 
-import { api, type Course } from '@/shared/api/client'
+import { api, type Course } from '@/shared/api/client';
 
 /**
  * Phase 18.7: Courses list + create wizard.
@@ -16,51 +16,51 @@ import { api, type Course } from '@/shared/api/client'
  * the owner builds the program via the editor on /courses/:id.
  */
 export function CoursesPage(): JSX.Element {
-  const navigate = useNavigate()
-  const [courses, setCourses] = useState<Course[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [title, setTitle] = useState('')
-  const [intent, setIntent] = useState('')
-  const [skipGenerator, setSkipGenerator] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const navigate = useNavigate();
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [title, setTitle] = useState('');
+  const [intent, setIntent] = useState('');
+  const [skipGenerator, setSkipGenerator] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const r = await api.listCourses()
-      setCourses(r.courses ?? [])
+      const r = await api.listCourses();
+      setCourses(r.courses ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void load();
+  }, [load]);
 
   async function onCreate(e: React.FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    if (!title.trim() || busy) return
-    setBusy(true)
-    setError(null)
+    e.preventDefault();
+    if (!title.trim() || busy) return;
+    setBusy(true);
+    setError(null);
     try {
       const created = await api.createCourse({
         title: title.trim(),
         intent_md: intent,
         skip_generator: skipGenerator,
-      })
-      setTitle('')
-      setIntent('')
-      setSkipGenerator(false)
+      });
+      setTitle('');
+      setIntent('');
+      setSkipGenerator(false);
       // Jump straight into the editor for "I'll build it myself"
       // courses — the empty tree on the detail page is unhelpful.
-      navigate(`/courses/${created.id}`)
+      navigate(`/courses/${created.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
@@ -69,8 +69,8 @@ export function CoursesPage(): JSX.Element {
       <header>
         <h1 className="text-2xl font-semibold">Courses</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Personal learning paths built by an AI tutor. State the
-          intent; the tutor proposes a curriculum; approve to start.
+          Personal learning paths built by an AI tutor. State the intent; the tutor proposes a
+          curriculum; approve to start.
         </p>
       </header>
 
@@ -124,9 +124,7 @@ export function CoursesPage(): JSX.Element {
       {loading ? (
         <p className="text-sm text-slate-400 italic">Loading…</p>
       ) : courses.length === 0 ? (
-        <p className="text-sm text-slate-400 italic">
-          No courses yet. Create one above to start.
-        </p>
+        <p className="text-sm text-slate-400 italic">No courses yet. Create one above to start.</p>
       ) : (
         <ul className="space-y-2">
           {courses.map((c) => (
@@ -135,16 +133,17 @@ export function CoursesPage(): JSX.Element {
               data-testid="course-row"
               className="rounded border border-slate-200 dark:border-slate-800 p-3 bg-white dark:bg-slate-950"
             >
-              <Link to={`/courses/${c.id}`} className="text-slate-800 dark:text-slate-100 hover:underline">
+              <Link
+                to={`/courses/${c.id}`}
+                className="text-slate-800 dark:text-slate-100 hover:underline"
+              >
                 {c.title}
               </Link>
-              <span className="ml-2 text-[10px] text-slate-400 font-mono">
-                {c.status}
-              </span>
+              <span className="ml-2 text-[10px] text-slate-400 font-mono">{c.status}</span>
             </li>
           ))}
         </ul>
       )}
     </section>
-  )
+  );
 }

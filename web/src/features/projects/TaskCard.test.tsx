@@ -15,13 +15,13 @@
  *   2. A click on the card invokes `onOpen(taskId)` so the parent
  *      ColumnView routes via useNavigate.
  */
-import { DndContext } from '@dnd-kit/core'
-import { fireEvent, render } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { DndContext } from '@dnd-kit/core';
+import { fireEvent, render } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { describe, expect, it, vi } from 'vitest';
 
-import type { Task } from '@/shared/api/client'
-import { TaskCard } from '@/features/projects/TaskCard'
+import type { Task } from '@/shared/api/client';
+import { TaskCard } from '@/features/projects/TaskCard';
 
 function makeTask(): Task {
   return {
@@ -37,7 +37,7 @@ function makeTask(): Task {
     color: '',
     created_at: '',
     updated_at: '',
-  }
+  };
 }
 
 /**
@@ -50,21 +50,21 @@ function makeTask(): Task {
  */
 function getCardRoot(container: HTMLElement): HTMLElement {
   // Walk every text node for the exact title.
-  const iter = document.createNodeIterator(container, NodeFilter.SHOW_TEXT)
-  let node: Node | null
+  const iter = document.createNodeIterator(container, NodeFilter.SHOW_TEXT);
+  let node: Node | null;
   while ((node = iter.nextNode())) {
     if (node.textContent === 'Sample task') {
-      let el: HTMLElement | null = (node.parentElement as HTMLElement | null)
+      let el: HTMLElement | null = node.parentElement as HTMLElement | null;
       while (el && el.getAttribute('aria-roledescription') !== 'draggable') {
-        el = el.parentElement
+        el = el.parentElement;
       }
       if (!el) {
-        throw new Error('TaskCard draggable wrapper not found')
+        throw new Error('TaskCard draggable wrapper not found');
       }
-      return el
+      return el;
     }
   }
-  throw new Error('Sample task text not found in DOM')
+  throw new Error('Sample task text not found in DOM');
 }
 
 describe('TaskCard', () => {
@@ -75,29 +75,29 @@ describe('TaskCard', () => {
           <TaskCard task={makeTask()} />
         </DndContext>
       </MemoryRouter>,
-    )
+    );
     // The card must NOT be an anchor; the old impl wrapped TaskCard in
     // <a href="/tasks/:id"> which dnd-kit's pointer listeners would
     // steal clicks from.
-    expect(queryByRole('link')).toBeNull()
+    expect(queryByRole('link')).toBeNull();
     // …and it must be a clickable element (dnd-kit sets role=button
     // and tabindex=0 via its `attributes` spread).
-    expect(getCardRoot(container)).toBeTruthy()
-  })
+    expect(getCardRoot(container)).toBeTruthy();
+  });
 
   it('calls onOpen(taskId) on click instead of relying on href navigation', () => {
-    const onOpen = vi.fn()
+    const onOpen = vi.fn();
     const { container } = render(
       <MemoryRouter>
         <DndContext>
           <TaskCard task={makeTask()} onOpen={onOpen} />
         </DndContext>
       </MemoryRouter>,
-    )
-    fireEvent.click(getCardRoot(container))
-    expect(onOpen).toHaveBeenCalledTimes(1)
-    expect(onOpen).toHaveBeenCalledWith('task-42')
-  })
+    );
+    fireEvent.click(getCardRoot(container));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledWith('task-42');
+  });
 
   it('navigates to /tasks/:id via useNavigate when no onOpen is provided', () => {
     // We render the card inside a real Router + a Route that captures
@@ -117,10 +117,10 @@ describe('TaskCard', () => {
           </Routes>
         </DndContext>
       </MemoryRouter>,
-    )
-    fireEvent.click(getCardRoot(container))
-    expect(queryByText('ARRIVED')).toBeTruthy()
-  })
+    );
+    fireEvent.click(getCardRoot(container));
+    expect(queryByText('ARRIVED')).toBeTruthy();
+  });
 
   // Phase 13: the card's left stripe is derived from `task.color`.
   it('renders a left colour stripe when the task has a color', () => {
@@ -130,10 +130,10 @@ describe('TaskCard', () => {
           <TaskCard task={makeTask()} />
         </DndContext>
       </MemoryRouter>,
-    )
+    );
     // No colour → no stripe (borderLeftWidth default 0).
-    const cardNoColor = getCardRoot(container)
-    expect(cardNoColor.style.borderLeftWidth).toBe('')
+    const cardNoColor = getCardRoot(container);
+    expect(cardNoColor.style.borderLeftWidth).toBe('');
 
     const withColor = render(
       <MemoryRouter>
@@ -141,13 +141,13 @@ describe('TaskCard', () => {
           <TaskCard task={{ ...makeTask(), id: 't-coloured', color: '#0ea5e9' }} />
         </DndContext>
       </MemoryRouter>,
-    )
-    const cardColored = getCardRoot(withColor.container)
+    );
+    const cardColored = getCardRoot(withColor.container);
     // Phase 17: the stripe comes from the inline `borderLeftColor` (the
     // width is now a Tailwind class `border-l-4`, so the inline style
     // only covers the colour). The colour is the one the user picked.
-    expect(cardColored.style.borderLeftColor).toBe('rgb(14, 165, 233)')
-  })
+    expect(cardColored.style.borderLeftColor).toBe('rgb(14, 165, 233)');
+  });
 
   // Phase 13: tag chips render below the title when the task has tags.
   it('renders tag chips when the task has tags', () => {
@@ -165,10 +165,10 @@ describe('TaskCard', () => {
           />
         </DndContext>
       </MemoryRouter>,
-    )
-    expect(container.textContent).toContain('frontend')
-    expect(container.textContent).toContain('backend')
-  })
+    );
+    expect(container.textContent).toContain('frontend');
+    expect(container.textContent).toContain('backend');
+  });
 
   // Phase 27.3: the backend now populates task.tags on list payloads.
   // The chip's background colour must come from the tag's colour, not
@@ -189,16 +189,14 @@ describe('TaskCard', () => {
           />
         </DndContext>
       </MemoryRouter>,
-    )
-    const chips = container.querySelectorAll(
-      'span.inline-flex.items-center.px-1\\.5.py-0\\.5',
-    )
-    expect(chips.length).toBeGreaterThanOrEqual(2)
+    );
+    const chips = container.querySelectorAll('span.inline-flex.items-center.px-1\\.5.py-0\\.5');
+    expect(chips.length).toBeGreaterThanOrEqual(2);
     // Each chip should pick up the colour from its tag.
-    const colors = Array.from(chips).map((c) => (c as HTMLElement).style.backgroundColor)
-    expect(colors).toContain('rgb(34, 197, 94)') // #22c55e
-    expect(colors).toContain('rgb(37, 99, 235)') // #2563eb
-  })
+    const colors = Array.from(chips).map((c) => (c as HTMLElement).style.backgroundColor);
+    expect(colors).toContain('rgb(34, 197, 94)'); // #22c55e
+    expect(colors).toContain('rgb(37, 99, 235)'); // #2563eb
+  });
 
   it('omits tag chips when the task has no tags', () => {
     const { container } = render(
@@ -207,12 +205,12 @@ describe('TaskCard', () => {
           <TaskCard task={{ ...makeTask(), tags: [] }} />
         </DndContext>
       </MemoryRouter>,
-    )
+    );
     // The title is rendered; no tag-pill spans should be present.
     // We anchor on the TaskTagChip class signature: inline-flex items-center
     // px-1.5 py-0.5 text-[10px] font-medium rounded border max-w-[8rem].
-    const card = getCardRoot(container)
-    const tagPills = card.querySelectorAll('span.inline-flex.items-center')
-    expect(tagPills.length).toBe(0)
-  })
-})
+    const card = getCardRoot(container);
+    const tagPills = card.querySelectorAll('span.inline-flex.items-center');
+    expect(tagPills.length).toBe(0);
+  });
+});

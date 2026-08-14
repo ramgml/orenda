@@ -13,21 +13,21 @@
  * overlay (state lifted into this component). The Outlet lives in
  * `<main>` with horizontal padding and overflow-y scrolling.
  */
-import { Suspense, useCallback, useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Suspense, useCallback, useState } from 'react';
+import { Outlet } from 'react-router-dom';
 
-import { ProjectSidebar } from '@/features/sidebar/ProjectSidebar'
-import { SidebarProvider, useSidebar } from '@/features/sidebar/SidebarContext'
-import { useWebSocketConnection } from '@/shared/ws'
+import { ProjectSidebar } from '@/features/sidebar/ProjectSidebar';
+import { SidebarProvider, useSidebar } from '@/features/sidebar/SidebarContext';
+import { useWebSocketConnection } from '@/shared/ws';
 
-import { AppTopBar } from './AppTopBar'
+import { AppTopBar } from './AppTopBar';
 
 export function AppLayout(): JSX.Element {
   return (
     <SidebarProvider>
       <AppLayoutInner />
     </SidebarProvider>
-  )
+  );
 }
 
 function AppLayoutInner(): JSX.Element {
@@ -35,13 +35,13 @@ function AppLayoutInner(): JSX.Element {
   // authenticated route gets realtime updates without each component
   // having to subscribe. The connection itself is owned by the
   // singleton wsClient; this hook only drives connect/disconnect.
-  useWebSocketConnection()
+  useWebSocketConnection();
 
-  const { collapsed } = useSidebar()
-  const [mobileOpen, setMobileOpen] = useState(false)
+  const { collapsed } = useSidebar();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  const openMobile = useCallback(() => setMobileOpen(true), [])
-  const closeMobile = useCallback(() => setMobileOpen(false), [])
+  const openMobile = useCallback(() => setMobileOpen(true), []);
+  const closeMobile = useCallback(() => setMobileOpen(false), []);
 
   return (
     <div className="min-h-full flex flex-col md:flex-row h-screen">
@@ -78,7 +78,7 @@ function AppLayoutInner(): JSX.Element {
       {/* Sidebar empty space on mobile when sidebar collapsed on desktop */}
       {collapsed && null}
     </div>
-  )
+  );
 }
 
 /**
@@ -103,5 +103,5 @@ function MobileSidebar({ onClose }: { onClose: () => void }): JSX.Element {
         <ProjectSidebar />
       </div>
     </div>
-  )
+  );
 }

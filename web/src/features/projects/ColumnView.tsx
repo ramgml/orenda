@@ -1,11 +1,11 @@
-import { FormEvent, useState } from 'react'
-import { useDroppable } from '@dnd-kit/core'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { FormEvent, useState } from 'react';
+import { useDroppable } from '@dnd-kit/core';
+import { useLocation, useNavigate } from 'react-router-dom';
 
-import { TaskCard } from './TaskCard'
-import { openTaskModal } from '@/features/tasks/TaskModal'
-import { api, type Column, type Task } from '@/shared/api/client'
-import { queueCreateTask } from '@/shared/offline/outbox'
+import { TaskCard } from './TaskCard';
+import { openTaskModal } from '@/features/tasks/TaskModal';
+import { api, type Column, type Task } from '@/shared/api/client';
+import { queueCreateTask } from '@/shared/offline/outbox';
 
 /**
  * One kanban column with its droppable zone and inline task creation.
@@ -25,26 +25,26 @@ export function ColumnView({
   onColumnDeleted,
   dragHandleProps,
 }: {
-  columnId: string
-  name: string
-  projectId: string
-  tasks: Task[]
+  columnId: string;
+  name: string;
+  projectId: string;
+  tasks: Task[];
   /** Phase 27.10: saved colour from the column row. Rendered as a
    *  small dot left of the column header; null/undefined falls back
    *  to a neutral slate dot so the header layout stays stable. */
-  color?: string
+  color?: string;
   /** Saved WIP limit. Used to initialise the EditColumnModal so the
    *  field doesn't reset to "unlimited" on every reopen. */
-  wipLimit?: number
-  onCreate: (title: string) => Promise<void>
-  onColumnUpdated?: (col: Column) => void
+  wipLimit?: number;
+  onCreate: (title: string) => Promise<void>;
+  onColumnUpdated?: (col: Column) => void;
   /**
    * Optional callback fired after the backend confirms a column
    * delete. Phase 12.6 uses it to drop the column from local state
    * without a full board refetch; the WS broadcast will also remove
    * the column from every other tab.
    */
-  onColumnDeleted?: (colId: string) => void
+  onColumnDeleted?: (colId: string) => void;
   /**
    * Optional dnd-kit props for the column-as-a-whole drag handle (the
    * header area). When present, the header becomes draggable so the
@@ -53,35 +53,35 @@ export function ColumnView({
    // this component stays usable standalone (tests, future board
    // layouts that don't support column reordering).
    */
-  dragHandleProps?: Record<string, unknown>
+  dragHandleProps?: Record<string, unknown>;
 }): JSX.Element {
-  const { setNodeRef, isOver } = useDroppable({ id: columnId })
-  const navigate = useNavigate()
-  const location = useLocation()
-  const [creating, setCreating] = useState(false)
-  const [title, setTitle] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [editing, setEditing] = useState(false)
+  const { setNodeRef, isOver } = useDroppable({ id: columnId });
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [creating, setCreating] = useState(false);
+  const [title, setTitle] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
 
   async function submit(e: FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    if (!title.trim()) return
+    e.preventDefault();
+    if (!title.trim()) return;
     try {
       if (navigator.onLine) {
-        await onCreate(title.trim())
+        await onCreate(title.trim());
       } else {
-        await queueCreateTask(projectId, { title: title.trim(), column_id: columnId })
+        await queueCreateTask(projectId, { title: title.trim(), column_id: columnId });
       }
-      setTitle('')
-      setCreating(false)
-      setError(null)
+      setTitle('');
+      setCreating(false);
+      setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   function openTask(taskId: string): void {
-    openTaskModal(navigate, location, taskId)
+    openTaskModal(navigate, location, taskId);
   }
 
   return (
@@ -127,8 +127,8 @@ export function ColumnView({
             type="button"
             onClick={(e) => {
               // Clicks on ⚙ shouldn't start a column drag.
-              e.stopPropagation()
-              setEditing(true)
+              e.stopPropagation();
+              setEditing(true);
             }}
             title="Edit column"
             className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-sm leading-none"
@@ -155,10 +155,7 @@ export function ColumnView({
             placeholder="New task"
             className="flex-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
           />
-          <button
-            type="submit"
-            className="px-2 py-1 rounded bg-orenda-600 text-white text-xs"
-          >
+          <button type="submit" className="px-2 py-1 rounded bg-orenda-600 text-white text-xs">
             Add
           </button>
           {error && <span className="text-xs text-red-600">{error}</span>}
@@ -182,36 +179,36 @@ export function ColumnView({
           currentTaskCount={tasks.length}
           onClose={() => setEditing(false)}
           onSaved={(col) => {
-            setEditing(false)
-            onColumnUpdated?.(col)
+            setEditing(false);
+            onColumnUpdated?.(col);
           }}
           onDeleted={() => {
-            setEditing(false)
-            onColumnDeleted?.(columnId)
+            setEditing(false);
+            onColumnDeleted?.(columnId);
           }}
         />
       )}
     </div>
-  )
+  );
 }
 
 interface EditColumnModalProps {
-  columnId: string
-  initialName: string
+  columnId: string;
+  initialName: string;
   /** Phase 27.10: saved colour from the column row. Falls back to a
    *  neutral slate so the picker still has a sane initial value for
    *  legacy rows without a colour set. */
-  initialColor?: string
+  initialColor?: string;
   /** Saved WIP limit (number) or undefined for "no limit". The empty
    *  string in the input represents the same state. */
-  initialWipLimit?: number
+  initialWipLimit?: number;
   /** Number of tasks currently in the column — shown as a hint before
    * the user confirms the delete. Mirrors what the server will
    * enforce (422 when non-zero). */
-  currentTaskCount: number
-  onClose: () => void
-  onSaved: (col: Column) => void
-  onDeleted: () => void
+  currentTaskCount: number;
+  onClose: () => void;
+  onSaved: (col: Column) => void;
+  onDeleted: () => void;
 }
 
 /** Small inline form to rename a column, change its color, set WIP
@@ -228,40 +225,40 @@ function EditColumnModal({
   onSaved,
   onDeleted,
 }: EditColumnModalProps): JSX.Element {
-  const [name, setName] = useState(initialName)
+  const [name, setName] = useState(initialName);
   // Phase 27.10: previously hardcoded to '#94a3b8' — the bug was that
   // re-opening the modal after picking a colour reset the field to
   // slate, and any subsequent Save (e.g. just to rename the column)
   // then overwrote the saved colour on the server with slate.
-  const [color, setColor] = useState<string>(initialColor ?? '#94a3b8')
+  const [color, setColor] = useState<string>(initialColor ?? '#94a3b8');
   const [wip, setWip] = useState<string>(
     initialWipLimit === undefined ? '' : String(initialWipLimit),
-  )
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   // Two-step confirm: first click arms the button ("Delete column"),
   // second click actually fires. Resets if the user changes their mind
   // or types in the form fields.
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   async function submit(e: FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
+    e.preventDefault();
     if (!name.trim()) {
-      setError('Name is required')
-      return
+      setError('Name is required');
+      return;
     }
-    setBusy(true)
-    setError(null)
+    setBusy(true);
+    setError(null);
     try {
       // Parse WIP. Empty input = "no limit" (server treats null as
       // clear; the API client also accepts undefined for "unchanged"
       // — here we always send an explicit value because the user is
       // editing the row).
-      const wipNum = wip === '' ? null : parseInt(wip, 10)
+      const wipNum = wip === '' ? null : parseInt(wip, 10);
       if (wip !== '' && Number.isNaN(wipNum)) {
-        setError('WIP limit must be a number')
-        setBusy(false)
-        return
+        setError('WIP limit must be a number');
+        setBusy(false);
+        return;
       }
       // Send the colour only when the user changed it from the
       // saved value — this preserves the saved colour across a
@@ -271,19 +268,21 @@ function EditColumnModal({
       const payload: Parameters<typeof api.updateColumn>[1] = {
         name: name.trim(),
         wip_limit: wipNum,
-      }
-      const savedColor = initialColor ?? ''
+      };
+      const savedColor = initialColor ?? '';
       if (color !== savedColor) {
-        payload.color = color
+        payload.color = color;
       }
-      const col = await api.updateColumn(columnId, payload)
-      onSaved(col)
+      const col = await api.updateColumn(columnId, payload);
+      onSaved(col);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
+      const msg = err instanceof Error ? err.message : String(err);
       // axios 422: extract server message if present
-      setError(/wip_limit_too_small/.test(msg) ? 'WIP limit is below the current task count.' : msg)
+      setError(
+        /wip_limit_too_small/.test(msg) ? 'WIP limit is below the current task count.' : msg,
+      );
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
@@ -293,25 +292,29 @@ function EditColumnModal({
       // failing fast here saves a round-trip and makes the UX clearer.
       setError(
         `Move the ${currentTaskCount} task${currentTaskCount === 1 ? '' : 's'} in this column to another column first.`,
-      )
-      setConfirmDelete(false)
-      return
+      );
+      setConfirmDelete(false);
+      return;
     }
     if (!confirmDelete) {
-      setConfirmDelete(true)
-      return
+      setConfirmDelete(true);
+      return;
     }
-    setBusy(true)
-    setError(null)
+    setBusy(true);
+    setError(null);
     try {
-      await api.deleteColumn(columnId)
-      onDeleted()
+      await api.deleteColumn(columnId);
+      onDeleted();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      setError(/column_not_empty/.test(msg) ? 'Tasks were added to this column while you were editing. Move them out first.' : msg)
-      setConfirmDelete(false)
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(
+        /column_not_empty/.test(msg)
+          ? 'Tasks were added to this column while you were editing. Move them out first.'
+          : msg,
+      );
+      setConfirmDelete(false);
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
@@ -326,8 +329,8 @@ function EditColumnModal({
               autoFocus
               value={name}
               onChange={(e) => {
-                setName(e.target.value)
-                setConfirmDelete(false)
+                setName(e.target.value);
+                setConfirmDelete(false);
               }}
               className="mt-1 block w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
             />
@@ -389,12 +392,10 @@ function EditColumnModal({
                 : 'w-full px-3 py-1.5 rounded border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 disabled:opacity-50 text-sm'
             }
           >
-            {confirmDelete
-              ? `Click again to delete "${initialName}"`
-              : 'Delete column'}
+            {confirmDelete ? `Click again to delete "${initialName}"` : 'Delete column'}
           </button>
         </div>
       </div>
     </div>
-  )
+  );
 }

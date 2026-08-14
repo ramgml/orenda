@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect } from 'react';
 
 /**
  * Phase 28.3 (polish): lock the document body from scrolling while
@@ -39,10 +39,10 @@ import { useEffect } from 'react'
  */
 export function useBodyScrollLock(): void {
   useEffect(() => {
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     return () => {
-      document.body.style.overflow = previous
-    }
-  }, [])
+      document.body.style.overflow = previous;
+    };
+  }, []);
 }

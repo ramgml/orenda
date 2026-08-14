@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
-import { api } from '@/shared/api/client'
+import { api } from '@/shared/api/client';
 
 /**
  * /lessons/:id — single lesson view (Phase 27.4).
@@ -31,120 +31,117 @@ import { api } from '@/shared/api/client'
  *               the lesson complete button stays enabled.
  */
 export function LessonPage(): JSX.Element {
-  const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
-  const [data, setData] = useState<LessonLoad | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-  const [completing, setCompleting] = useState(false)
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [data, setData] = useState<LessonLoad | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [completing, setCompleting] = useState(false);
   // Per-quiz answer state — keyed by quiz id so the student can
   // fill out multiple questions without losing their input.
-  const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   // Per-quiz result state — backend verdict after submit.
   const [results, setResults] = useState<
     Record<string, { correct: boolean; feedback_md?: string; review_task_id?: string }>
-  >({})
+  >({});
   // Phase 27.6: owner-edit affordance for active-course lessons.
   // We don't fetch /courses/{id} a second time — the tree endpoint
   // is the source of truth and we already pulled the course status
   // from it.
-  const [editingContent, setEditingContent] = useState(false)
-  const [draftContent, setDraftContent] = useState('')
-  const [savingContent, setSavingContent] = useState(false)
+  const [editingContent, setEditingContent] = useState(false);
+  const [draftContent, setDraftContent] = useState('');
+  const [savingContent, setSavingContent] = useState(false);
 
   const load = useCallback(async () => {
-    if (!id) return
+    if (!id) return;
     try {
-      const r = await loadLesson(id)
-      setData(r)
-      setDraftContent(r.lesson.content_md ?? '')
+      const r = await loadLesson(id);
+      setData(r);
+      setDraftContent(r.lesson.content_md ?? '');
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [id])
+  }, [id]);
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void load();
+  }, [load]);
 
   async function onAnswer(quizId: string): Promise<void> {
-    if (!id || submitting) return
-    const answer = answers[quizId] ?? ''
-    setSubmitting(true)
+    if (!id || submitting) return;
+    const answer = answers[quizId] ?? '';
+    setSubmitting(true);
     try {
-      const r = await api.answerQuiz(id, quizId, answer)
-      setResults((prev) => ({ ...prev, [quizId]: r }))
+      const r = await api.answerQuiz(id, quizId, answer);
+      setResults((prev) => ({ ...prev, [quizId]: r }));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
   }
 
   async function onComplete(): Promise<void> {
-    if (!id || completing) return
-    setCompleting(true)
+    if (!id || completing) return;
+    setCompleting(true);
     try {
-      await api.completeLesson(id)
+      await api.completeLesson(id);
       // Navigate back to the course so the user sees the next
       // unlock. The page itself would 200 yet the lesson status
       // would say "done" — the user needs the course tree to
       // see the next lesson appear.
       if (data?.course) {
-        navigate(`/courses/${data.course.id}`)
+        navigate(`/courses/${data.course.id}`);
       } else {
-        void load()
+        void load();
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setCompleting(false)
+      setCompleting(false);
     }
   }
 
   async function onSaveContent(): Promise<void> {
-    if (!id || savingContent) return
-    setSavingContent(true)
+    if (!id || savingContent) return;
+    setSavingContent(true);
     try {
-      await api.updateLessonContent(id, { content_md: draftContent })
-      setEditingContent(false)
-      void load()
+      await api.updateLessonContent(id, { content_md: draftContent });
+      setEditingContent(false);
+      void load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setSavingContent(false)
+      setSavingContent(false);
     }
   }
 
   if (loading) {
-    return <p className="p-6 text-sm text-slate-400 italic">Loading…</p>
+    return <p className="p-6 text-sm text-slate-400 italic">Loading…</p>;
   }
   if (error) {
-    return <p className="p-6 text-sm text-red-600">{error}</p>
+    return <p className="p-6 text-sm text-red-600">{error}</p>;
   }
-  if (!data) return <></>
+  if (!data) return <></>;
 
-  const { lesson, course, quizzes } = data
-  const isLocked = lesson.status === 'locked'
-  const isDone = lesson.status === 'done'
-  const allAnswered = quizzes.length === 0 || quizzes.every((q) => results[q.id])
-  const canComplete = !isDone && !isLocked && allAnswered
+  const { lesson, course, quizzes } = data;
+  const isLocked = lesson.status === 'locked';
+  const isDone = lesson.status === 'done';
+  const allAnswered = quizzes.length === 0 || quizzes.every((q) => results[q.id]);
+  const canComplete = !isDone && !isLocked && allAnswered;
   // Owner-edit is only available for active-course lessons (closed
   // in active; structural changes would clobber progress). Locked
   // lessons are owned by the agent — the owner edits them through
   // the curriculum swap path.
-  const canEditContent = !isLocked && !editingContent && course.status === 'active'
+  const canEditContent = !isLocked && !editingContent && course.status === 'active';
 
   return (
     <section className="p-6 max-w-3xl mx-auto space-y-6">
       <header className="space-y-2">
-        <Link
-          to={`/courses/${course.id}`}
-          className="text-xs text-slate-500 hover:text-slate-700"
-        >
+        <Link to={`/courses/${course.id}`} className="text-xs text-slate-500 hover:text-slate-700">
           ← {course.title}
         </Link>
         <div className="flex items-baseline gap-2">
@@ -169,13 +166,13 @@ export function LessonPage(): JSX.Element {
           data-testid="lesson-locked"
           className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-slate-50 dark:bg-slate-900 text-sm text-slate-600"
         >
-          🔒 This lesson is locked. The tutor hasn't written the
-          content yet — check back once the agent has materialised it.
+          🔒 This lesson is locked. The tutor hasn't written the content yet — check back once the
+          agent has materialised it.
         </div>
       )}
 
-      {!isLocked && (
-        editingContent ? (
+      {!isLocked &&
+        (editingContent ? (
           <div className="space-y-2" data-testid="lesson-edit-content">
             <textarea
               value={draftContent}
@@ -197,8 +194,8 @@ export function LessonPage(): JSX.Element {
               <button
                 type="button"
                 onClick={() => {
-                  setEditingContent(false)
-                  setDraftContent(lesson.content_md ?? '')
+                  setEditingContent(false);
+                  setDraftContent(lesson.content_md ?? '');
                 }}
                 disabled={savingContent}
                 className="px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm"
@@ -214,9 +211,7 @@ export function LessonPage(): JSX.Element {
               className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-6 py-5 prose dark:prose-invert max-w-none text-sm"
             >
               {lesson.content_md ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {lesson.content_md}
-                </ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{lesson.content_md}</ReactMarkdown>
               ) : (
                 <p className="text-slate-400 italic">No content yet.</p>
               )}
@@ -232,8 +227,7 @@ export function LessonPage(): JSX.Element {
               </button>
             )}
           </>
-        )
-      )}
+        ))}
 
       {lesson.task_id && (
         <div className="text-xs text-slate-500">
@@ -249,11 +243,9 @@ export function LessonPage(): JSX.Element {
 
       {!isLocked && quizzes.length > 0 && (
         <div className="space-y-4">
-          <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-            Quizzes
-          </h2>
+          <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Quizzes</h2>
           {quizzes.map((q) => {
-            const result = results[q.id]
+            const result = results[q.id];
             return (
               <div
                 key={q.id}
@@ -261,9 +253,7 @@ export function LessonPage(): JSX.Element {
                 className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950 space-y-2"
               >
                 <div className="prose dark:prose-invert max-w-none text-sm">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {q.question_md}
-                  </ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{q.question_md}</ReactMarkdown>
                 </div>
                 {isDone ? (
                   <p className="text-xs text-slate-400 italic">
@@ -298,10 +288,7 @@ export function LessonPage(): JSX.Element {
                         <span
                           data-testid="quiz-result"
                           className={
-                            'text-xs ' +
-                            (result.correct
-                              ? 'text-emerald-700'
-                              : 'text-amber-700')
+                            'text-xs ' + (result.correct ? 'text-emerald-700' : 'text-amber-700')
                           }
                         >
                           {result.correct
@@ -310,9 +297,7 @@ export function LessonPage(): JSX.Element {
                               ? '⏳ Pending tutor review'
                               : '✗ Try again'}
                           {result.feedback_md && !result.correct && !result.review_task_id && (
-                            <span className="text-slate-400 ml-2">
-                              ({result.feedback_md})
-                            </span>
+                            <span className="text-slate-400 ml-2">({result.feedback_md})</span>
                           )}
                         </span>
                       )}
@@ -320,7 +305,7 @@ export function LessonPage(): JSX.Element {
                   </>
                 )}
               </div>
-            )
+            );
           })}
         </div>
       )}
@@ -345,13 +330,11 @@ export function LessonPage(): JSX.Element {
           {isDone ? 'Completed' : 'Complete lesson'}
         </button>
         {!isLocked && !isDone && quizzes.length > 0 && !allAnswered && (
-          <span className="text-xs text-slate-500">
-            Answer all quizzes to enable completion.
-          </span>
+          <span className="text-xs text-slate-500">Answer all quizzes to enable completion.</span>
         )}
       </div>
     </section>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -360,19 +343,19 @@ export function LessonPage(): JSX.Element {
 
 interface LessonLoad {
   lesson: {
-    id: string
-    title: string
-    status: string
-    content_md: string
-    task_id?: string
-  }
-  course: { id: string; title: string; status: string }
+    id: string;
+    title: string;
+    status: string;
+    content_md: string;
+    task_id?: string;
+  };
+  course: { id: string; title: string; status: string };
   quizzes: {
-    id: string
-    question_md: string
-    expected_md?: string
-    kind: 'open' | 'exact'
-  }[]
+    id: string;
+    question_md: string;
+    expected_md?: string;
+    kind: 'open' | 'exact';
+  }[];
 }
 
 /**
@@ -386,11 +369,11 @@ interface LessonLoad {
  * `GET /lessons/{id}` for direct fetch.
  */
 async function loadLesson(lessonId: string): Promise<LessonLoad> {
-  const list = await api.listCourses()
+  const list = await api.listCourses();
   for (const c of list.courses) {
-    const tree = await api.getCourse(c.id)
-    const found = tree.lessons.find((l) => l.id === lessonId)
-    if (!found) continue
+    const tree = await api.getCourse(c.id);
+    const found = tree.lessons.find((l) => l.id === lessonId);
+    if (!found) continue;
     const ourQuizzes = (tree.quizzes ?? [])
       .filter((q) => q.lesson_id === lessonId)
       .map((q) => ({
@@ -398,7 +381,7 @@ async function loadLesson(lessonId: string): Promise<LessonLoad> {
         question_md: q.question_md,
         expected_md: q.expected_md,
         kind: q.kind,
-      }))
+      }));
     return {
       lesson: {
         id: found.id,
@@ -409,7 +392,7 @@ async function loadLesson(lessonId: string): Promise<LessonLoad> {
       },
       course: { id: c.id, title: c.title, status: c.status },
       quizzes: ourQuizzes,
-    }
+    };
   }
-  throw new Error('lesson not found')
+  throw new Error('lesson not found');
 }

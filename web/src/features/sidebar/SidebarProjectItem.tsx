@@ -16,31 +16,31 @@
  * Accessibility: link element gets the project name as its accessible
  * label, and the pin button announces via title attribute.
  */
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router-dom';
 
-import type { Project } from '@/shared/api/client'
+import type { Project } from '@/shared/api/client';
 
 interface SidebarProjectItemProps {
-  project: Project
+  project: Project;
   /** Open task count; undefined while still loading. */
-  openTaskCount: number | undefined
-  active: boolean
-  pinned: boolean
-  collapsed: boolean
+  openTaskCount: number | undefined;
+  active: boolean;
+  pinned: boolean;
+  collapsed: boolean;
   /**
    * Phase 16: the item is a synthetic "Inbox" row that links to
    * /inbox (not /projects/:id). When true we swap the link target
    * and skip the pin button (the Inbox is always first; pinning it
    * would be redundant).
    */
-  inboxLink?: boolean
+  inboxLink?: boolean;
   /**
    * Kept for backward compat with the old "system project" badge;
    * no longer used because Phase 16 dropped the system Inbox project.
    * Ignored — the item still works without it.
    */
-  isSystem?: boolean
-  onTogglePin: (projectId: string) => void
+  isSystem?: boolean;
+  onTogglePin: (projectId: string) => void;
 }
 
 export function SidebarProjectItem({
@@ -55,10 +55,10 @@ export function SidebarProjectItem({
 }: SidebarProjectItemProps): JSX.Element {
   // Where does the row link to? Inbox rows go to /inbox, everything
   // else goes to /projects/:id.
-  const linkTarget = inboxLink ? '/inbox' : `/projects/${project.id}`
+  const linkTarget = inboxLink ? '/inbox' : `/projects/${project.id}`;
   // Inbox rows can't be pinned — they're a single first-class rail
   // item, not a project you might or might not want to surface.
-  const showPin = !inboxLink && !isSystem
+  const showPin = !inboxLink && !isSystem;
 
   // When the sidebar is collapsed we render a tiny icon-only tile that
   // links straight to the project. The dot carries the project's
@@ -81,7 +81,7 @@ export function SidebarProjectItem({
           style={{ backgroundColor: project.color }}
         />
       </Link>
-    )
+    );
   }
 
   return (
@@ -134,9 +134,9 @@ export function SidebarProjectItem({
           onClick={(e) => {
             // The link above is the more likely click target; suppress
             // navigation when the user explicitly pins/unpins.
-            e.preventDefault()
-            e.stopPropagation()
-            onTogglePin(project.id)
+            e.preventDefault();
+            e.stopPropagation();
+            onTogglePin(project.id);
           }}
           title={pinned ? 'Unpin from sidebar' : 'Pin to top of sidebar'}
           aria-label={pinned ? 'Unpin project' : 'Pin project'}
@@ -151,5 +151,5 @@ export function SidebarProjectItem({
         </button>
       )}
     </div>
-  )
+  );
 }

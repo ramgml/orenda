@@ -1,6 +1,6 @@
-import { useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom';
 
-import { TaskViewBody } from './TaskViewBody'
+import { TaskViewBody } from './TaskViewBody';
 
 /**
  * /tasks/:id — full task view (deep-link fallback).
@@ -12,7 +12,7 @@ import { TaskViewBody } from './TaskViewBody'
  * was passed in navigation state.
  */
 export function TaskViewPage(): JSX.Element {
-  const { id } = useParams<{ id: string }>()
-  if (!id) return <p className="text-slate-500">Loading…</p>
-  return <TaskViewBody taskId={id} />
+  const { id } = useParams<{ id: string }>();
+  if (!id) return <p className="text-slate-500">Loading…</p>;
+  return <TaskViewBody taskId={id} />;
 }

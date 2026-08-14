@@ -14,23 +14,23 @@ import {
   useMemo,
   useState,
   type ReactNode,
-} from 'react'
+} from 'react';
 
-const STORAGE_KEY = 'orenda.sidebar.collapsed'
+const STORAGE_KEY = 'orenda.sidebar.collapsed';
 
 function readCollapsed(): boolean {
   try {
-    if (typeof window === 'undefined') return false
-    return window.localStorage.getItem(STORAGE_KEY) === '1'
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(STORAGE_KEY) === '1';
   } catch {
-    return false
+    return false;
   }
 }
 
 function writeCollapsed(v: boolean): void {
   try {
-    if (typeof window === 'undefined') return
-    window.localStorage.setItem(STORAGE_KEY, v ? '1' : '0')
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(STORAGE_KEY, v ? '1' : '0');
   } catch {
     // Storage may be disabled in private mode; fail silently.
   }
@@ -38,59 +38,60 @@ function writeCollapsed(v: boolean): void {
 
 interface SidebarContextValue {
   /** True when the sidebar is collapsed to its narrow (icon-only) width. */
-  collapsed: boolean
+  collapsed: boolean;
   /** Toggle the current state. */
-  toggle: () => void
+  toggle: () => void;
   /** Force a particular state (used by the overlay-close button). */
-  set: (next: boolean) => void
+  set: (next: boolean) => void;
 }
 
-const SidebarContext = createContext<SidebarContextValue | null>(null)
+const SidebarContext = createContext<SidebarContextValue | null>(null);
 
 export function SidebarProvider({
   children,
   initialCollapsed = false,
 }: {
-  children: ReactNode
-  initialCollapsed?: boolean
+  children: ReactNode;
+  initialCollapsed?: boolean;
 }): JSX.Element {
-  const [collapsed, setCollapsed] = useState<boolean>(() =>
-    // The `initialCollapsed` prop wins over localStorage when supplied
-    // (used in tests). Production mounts defer to localStorage.
-    initialCollapsed || readCollapsed(),
-  )
+  const [collapsed, setCollapsed] = useState<boolean>(
+    () =>
+      // The `initialCollapsed` prop wins over localStorage when supplied
+      // (used in tests). Production mounts defer to localStorage.
+      initialCollapsed || readCollapsed(),
+  );
 
   useEffect(() => {
     function onStorage(ev: StorageEvent): void {
-      if (ev.key !== STORAGE_KEY) return
-      setCollapsed(readCollapsed())
+      if (ev.key !== STORAGE_KEY) return;
+      setCollapsed(readCollapsed());
     }
     if (typeof window !== 'undefined') {
-      window.addEventListener('storage', onStorage)
-      return () => window.removeEventListener('storage', onStorage)
+      window.addEventListener('storage', onStorage);
+      return () => window.removeEventListener('storage', onStorage);
     }
-    return undefined
-  }, [])
+    return undefined;
+  }, []);
 
   const toggle = useCallback(() => {
     setCollapsed((prev) => {
-      const next = !prev
-      writeCollapsed(next)
-      return next
-    })
-  }, [])
+      const next = !prev;
+      writeCollapsed(next);
+      return next;
+    });
+  }, []);
 
   const set = useCallback((next: boolean) => {
-    setCollapsed(next)
-    writeCollapsed(next)
-  }, [])
+    setCollapsed(next);
+    writeCollapsed(next);
+  }, []);
 
   const value = useMemo<SidebarContextValue>(
     () => ({ collapsed, toggle, set }),
     [collapsed, toggle, set],
-  )
+  );
 
-  return <SidebarContext.Provider value={value}>{children}</SidebarContext.Provider>
+  return <SidebarContext.Provider value={value}>{children}</SidebarContext.Provider>;
 }
 
 /**
@@ -99,9 +100,9 @@ export function SidebarProvider({
  * to a default at runtime.
  */
 export function useSidebar(): SidebarContextValue {
-  const ctx = useContext(SidebarContext)
+  const ctx = useContext(SidebarContext);
   if (!ctx) {
-    throw new Error('useSidebar must be used inside a <SidebarProvider>')
+    throw new Error('useSidebar must be used inside a <SidebarProvider>');
   }
-  return ctx
+  return ctx;
 }

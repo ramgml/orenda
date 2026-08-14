@@ -17,13 +17,13 @@
  * API directly — no real socket needed; we just register a listener
  * the same way useWebSocketTopic does and verify it gets called.
  */
-import { AxiosError } from 'axios'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AxiosError } from 'axios';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { TodayPage } from '@/features/today/TodayPage'
-import { wsClient } from '@/shared/ws'
+import { TodayPage } from '@/features/today/TodayPage';
+import { wsClient } from '@/shared/ws';
 
 const { stubHttp } = vi.hoisted(() => ({
   stubHttp: {
@@ -34,45 +34,45 @@ const { stubHttp } = vi.hoisted(() => ({
     delete: vi.fn(),
     interceptors: { response: { use: vi.fn() } },
   },
-}))
+}));
 
 vi.mock('axios', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('axios')>()
+  const actual = await importOriginal<typeof import('axios')>();
   return {
     ...actual,
     default: { ...actual.default, create: vi.fn(() => stubHttp) },
-  }
-})
+  };
+});
 
 beforeEach(() => {
-  vi.clearAllMocks()
-})
+  vi.clearAllMocks();
+});
 
 afterEach(() => {
-  cleanup()
-})
+  cleanup();
+});
 
 function mount() {
   return render(
     <MemoryRouter>
       <TodayPage />
     </MemoryRouter>,
-  )
+  );
 }
 
 function makeTask(overrides: Partial<{ id: string; title: string }> = {}): {
-  id: string
-  title: string
-  project_id: string
-  column_id: string | null
-  status: string
-  priority: string
-  awaiting: string
-  time_spent_s: number
-  position: number
-  color: string
-  created_at: string
-  updated_at: string
+  id: string;
+  title: string;
+  project_id: string;
+  column_id: string | null;
+  status: string;
+  priority: string;
+  awaiting: string;
+  time_spent_s: number;
+  position: number;
+  color: string;
+  created_at: string;
+  updated_at: string;
 } {
   return {
     id: 'task-1',
@@ -88,7 +88,7 @@ function makeTask(overrides: Partial<{ id: string; title: string }> = {}): {
     created_at: '2026-08-12T00:00:00Z',
     updated_at: '2026-08-12T00:00:00Z',
     ...overrides,
-  }
+  };
 }
 
 const emptyToday = {
@@ -97,26 +97,26 @@ const emptyToday = {
   scheduled_today: [],
   upcoming_week: [],
   awaiting_count: 0,
-}
+};
 
 describe('TodayPage', () => {
   it('renders the loading placeholder while /today is in flight', () => {
     // Never-resolving promise keeps the page in its initial loading state.
-    stubHttp.get.mockReturnValue(new Promise(() => {}))
+    stubHttp.get.mockReturnValue(new Promise(() => {}));
 
-    mount()
+    mount();
 
-    expect(screen.getByText('Loading…')).toBeTruthy()
-  })
+    expect(screen.getByText('Loading…')).toBeTruthy();
+  });
 
   it('renders the empty state when nothing is owed', async () => {
-    stubHttp.get.mockResolvedValueOnce({ data: emptyToday })
+    stubHttp.get.mockResolvedValueOnce({ data: emptyToday });
 
-    mount()
+    mount();
 
-    expect(await screen.findByText(/Day is clear\./)).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'Today' })).toBeTruthy()
-  })
+    expect(await screen.findByText(/Day is clear\./)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Today' })).toBeTruthy();
+  });
 
   it('shows the "X things need attention" header and three section counts', async () => {
     stubHttp.get.mockResolvedValueOnce({
@@ -130,17 +130,17 @@ describe('TodayPage', () => {
         upcoming_week: [],
         awaiting_count: 0,
       },
-    })
+    });
 
-    mount()
+    mount();
 
     // Header counts the total of all three sections (1 + 2 + 0 = 3).
-    expect(await screen.findByText('3 things need attention.')).toBeTruthy()
+    expect(await screen.findByText('3 things need attention.')).toBeTruthy();
     // Section titles include their own count in parens.
-    expect(screen.getByText('Overdue (1)')).toBeTruthy()
-    expect(screen.getByText('Due today (2)')).toBeTruthy()
-    expect(screen.getByText('Scheduled today (0)')).toBeTruthy()
-  })
+    expect(screen.getByText('Overdue (1)')).toBeTruthy();
+    expect(screen.getByText('Due today (2)')).toBeTruthy();
+    expect(screen.getByText('Scheduled today (0)')).toBeTruthy();
+  });
 
   it('renders the awaiting banner linking to /review when count > 0', async () => {
     stubHttp.get.mockResolvedValueOnce({
@@ -151,26 +151,26 @@ describe('TodayPage', () => {
         upcoming_week: [],
         awaiting_count: 3,
       },
-    })
+    });
 
-    mount()
+    mount();
 
     // The banner text is "⏳ 3 task[s] awaiting your review → /review"
     // with the count inside <strong>; match on the tail so the
     // multi-node split doesn't break the assertion.
-    const banner = await screen.findByText(/awaiting your review/)
-    expect(banner).toBeTruthy()
-    expect(banner.closest('a')?.getAttribute('href')).toBe('/review')
-  })
+    const banner = await screen.findByText(/awaiting your review/);
+    expect(banner).toBeTruthy();
+    expect(banner.closest('a')?.getAttribute('href')).toBe('/review');
+  });
 
   it('does not render the awaiting banner when awaiting_count is 0', async () => {
-    stubHttp.get.mockResolvedValueOnce({ data: emptyToday })
+    stubHttp.get.mockResolvedValueOnce({ data: emptyToday });
 
-    mount()
+    mount();
 
-    await screen.findByText(/Day is clear\./)
-    expect(screen.queryByText(/awaiting your review/)).toBeNull()
-  })
+    await screen.findByText(/Day is clear\./);
+    expect(screen.queryByText(/awaiting your review/)).toBeNull();
+  });
 
   it('renders the active timer row when active_timer is present', async () => {
     stubHttp.get.mockResolvedValueOnce({
@@ -178,12 +178,12 @@ describe('TodayPage', () => {
         ...emptyToday,
         active_timer: { task_id: 'abc12345-deadbeef', started_at: '2026-08-12T10:00:00Z' },
       },
-    })
+    });
 
-    mount()
+    mount();
 
-    expect(await screen.findByTestId('active-timer-row')).toBeTruthy()
-  })
+    expect(await screen.findByTestId('active-timer-row')).toBeTruthy();
+  });
 
   it('renders one upcoming_week row per date with the due count', async () => {
     stubHttp.get.mockResolvedValueOnce({
@@ -194,42 +194,40 @@ describe('TodayPage', () => {
           { date: '2026-08-14', count: 1 },
         ],
       },
-    })
+    });
 
-    mount()
+    mount();
 
-    const rows = await screen.findAllByTestId('upcoming-day-row')
-    expect(rows.length).toBe(2)
-    expect(rows[0].textContent).toContain('2 due')
-    expect(rows[1].textContent).toContain('1 due')
-  })
+    const rows = await screen.findAllByTestId('upcoming-day-row');
+    expect(rows.length).toBe(2);
+    expect(rows[0].textContent).toContain('2 due');
+    expect(rows[1].textContent).toContain('1 due');
+  });
 
   it('renders the error message when /today rejects', async () => {
-    stubHttp.get.mockRejectedValueOnce(new AxiosError('boom'))
+    stubHttp.get.mockRejectedValueOnce(new AxiosError('boom'));
 
-    mount()
+    mount();
 
-    expect(await screen.findByText('boom')).toBeTruthy()
-  })
+    expect(await screen.findByText('boom')).toBeTruthy();
+  });
 
   it('re-fetches when a WS "tasks" event arrives', async () => {
     // First call: empty payload; second call (after WS event): same.
-    stubHttp.get.mockResolvedValue({ data: emptyToday })
+    stubHttp.get.mockResolvedValue({ data: emptyToday });
 
     // wsClient is a module singleton; pre-clear the 'tasks' topic so
     // we only count the listener that TodayPage itself registers.
-    wsClient.disconnect()
-    const before = stubHttp.get.mock.calls.length
+    wsClient.disconnect();
+    const before = stubHttp.get.mock.calls.length;
 
-    mount()
-    await screen.findByText(/Day is clear\./)
+    mount();
+    await screen.findByText(/Day is clear\./);
 
     // TodayPage subscribed to the 'tasks' topic via useWebSocketTopic;
     // dispatching that topic via the singleton should trigger load().
-    wsClient['listeners'].get('tasks')?.forEach((fn) =>
-      fn({ topic: 'tasks', body: {} }),
-    )
+    wsClient['listeners'].get('tasks')?.forEach((fn) => fn({ topic: 'tasks', body: {} }));
 
-    await waitFor(() => expect(stubHttp.get.mock.calls.length).toBeGreaterThan(before + 1))
-  })
-})
+    await waitFor(() => expect(stubHttp.get.mock.calls.length).toBeGreaterThan(before + 1));
+  });
+});

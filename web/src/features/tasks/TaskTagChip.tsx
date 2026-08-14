@@ -1,4 +1,4 @@
-import type { Tag } from '@/shared/api/client'
+import type { Tag } from '@/shared/api/client';
 
 /**
  * Small coloured chip representing one task tag.
@@ -17,8 +17,8 @@ import type { Tag } from '@/shared/api/client'
  *     so the UI still renders something for untagged work.
  */
 export function TaskTagChip({ tag }: { tag: Tag }): JSX.Element {
-  const bg = tag.color && tag.color.length > 0 ? tag.color : undefined
-  const fg = bg ? (isDarkHex(bg) ? '#ffffff' : '#0f172a') : undefined
+  const bg = tag.color && tag.color.length > 0 ? tag.color : undefined;
+  const fg = bg ? (isDarkHex(bg) ? '#ffffff' : '#0f172a') : undefined;
 
   return (
     <span
@@ -32,16 +32,22 @@ export function TaskTagChip({ tag }: { tag: Tag }): JSX.Element {
     >
       {tag.name}
     </span>
-  )
+  );
 }
 
 /**
  * List-of-chips wrapper. Renders nothing when the list is empty so
  * callers don't have to gate the import.
  */
-export function TaskTagChips({ tags, className }: { tags: Tag[] | undefined; className?: string }): JSX.Element {
+export function TaskTagChips({
+  tags,
+  className,
+}: {
+  tags: Tag[] | undefined;
+  className?: string;
+}): JSX.Element {
   if (!tags || tags.length === 0) {
-    return <></>
+    return <></>;
   }
   return (
     <div className={`flex flex-wrap gap-1 ${className ?? ''}`}>
@@ -49,7 +55,7 @@ export function TaskTagChips({ tags, className }: { tags: Tag[] | undefined; cla
         <TaskTagChip key={t.id} tag={t} />
       ))}
     </div>
-  )
+  );
 }
 
 // isDarkHex returns true when the perceived luminance of the hex
@@ -62,22 +68,22 @@ export function TaskTagChips({ tags, className }: { tags: Tag[] | undefined; cla
 // the side of "light" (dark text), which matches Tailwind's default
 // body text colour.
 function isDarkHex(hex: string): boolean {
-  const h = hex.startsWith('#') ? hex.slice(1) : hex
-  let r = 0
-  let g = 0
-  let b = 0
+  const h = hex.startsWith('#') ? hex.slice(1) : hex;
+  let r = 0;
+  let g = 0;
+  let b = 0;
   if (h.length === 3) {
-    r = parseInt(h[0] + h[0], 16)
-    g = parseInt(h[1] + h[1], 16)
-    b = parseInt(h[2] + h[2], 16)
+    r = parseInt(h[0] + h[0], 16);
+    g = parseInt(h[1] + h[1], 16);
+    b = parseInt(h[2] + h[2], 16);
   } else if (h.length === 6) {
-    r = parseInt(h.slice(0, 2), 16)
-    g = parseInt(h.slice(2, 4), 16)
-    b = parseInt(h.slice(4, 6), 16)
+    r = parseInt(h.slice(0, 2), 16);
+    g = parseInt(h.slice(2, 4), 16);
+    b = parseInt(h.slice(4, 6), 16);
   } else {
-    return false
+    return false;
   }
   // Standard sRGB luminance (ITU-R BT.601).
-  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-  return lum < 0.55
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum < 0.55;
 }

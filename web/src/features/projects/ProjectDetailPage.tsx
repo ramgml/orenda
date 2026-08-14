@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
-import { NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react';
+import { NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
 
-import { api, type Project } from '@/shared/api/client'
+import { api, type Project } from '@/shared/api/client';
 
 /**
  * /projects/:id — header + tab nav. The actual tab content is rendered
@@ -27,37 +27,34 @@ import { api, type Project } from '@/shared/api/client'
  * owns the project header + tab strip.
  */
 export function ProjectDetailPage(): JSX.Element {
-  const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
-  const [project, setProject] = useState<Project | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [project, setProject] = useState<Project | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!id) return
-    let cancelled = false
+    if (!id) return;
+    let cancelled = false;
     api
       .getProject(id)
       .then((p) => {
-        if (!cancelled) setProject(p)
+        if (!cancelled) setProject(p);
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
-      })
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      });
     return () => {
-      cancelled = true
-    }
-  }, [id])
+      cancelled = true;
+    };
+  }, [id]);
 
-  if (error) return <p className="text-red-700">{error}</p>
+  if (error) return <p className="text-red-700">{error}</p>;
 
   return (
     <section>
       <div className="flex items-center justify-between mb-4 gap-4">
         <h1 className="text-2xl font-semibold flex items-center gap-2 min-w-0">
-          <InlineProjectName
-            project={project}
-            onRename={(updated) => setProject(updated)}
-          />
+          <InlineProjectName project={project} onRename={(updated) => setProject(updated)} />
           {project?.archived && (
             <span className="text-xs uppercase tracking-wide text-slate-500 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 flex-shrink-0">
               archived
@@ -88,17 +85,13 @@ export function ProjectDetailPage(): JSX.Element {
         </p>
       )}
     </section>
-  )
+  );
 }
 
 /** The project-level tab strip. Sits directly under the header. */
-function ProjectTabs({
-  projectId,
-}: {
-  projectId: string
-}): JSX.Element | null {
-  if (!projectId) return null
-  const base = `/projects/${projectId}`
+function ProjectTabs({ projectId }: { projectId: string }): JSX.Element | null {
+  if (!projectId) return null;
+  const base = `/projects/${projectId}`;
   const tab = (to: string, label: string): JSX.Element => (
     <NavLink
       to={to}
@@ -113,7 +106,7 @@ function ProjectTabs({
     >
       {label}
     </NavLink>
-  )
+  );
   return (
     <nav className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-800">
       {tab(base, 'Kanban')}
@@ -121,7 +114,7 @@ function ProjectTabs({
       {tab(`${base}/attachments`, 'Attachments')}
       {tab(`${base}/settings`, 'Settings')}
     </nav>
-  )
+  );
 }
 
 /**
@@ -136,63 +129,61 @@ function InlineProjectName({
   project,
   onRename,
 }: {
-  project: Project | null
-  onRename: (p: Project) => void
+  project: Project | null;
+  onRename: (p: Project) => void;
 }): JSX.Element {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [localError, setLocalError] = useState<string | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   // editingRef mirrors `editing` so onBlur can tell "user actually
   // blurred" apart from "Escape just cancelled us, which also blurs
   // the input as a side-effect". Without this guard, pressing Escape
   // would commit the (unchanged) draft via the blur handler.
-  const editingRef = useRef(editing)
-  editingRef.current = editing
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
 
   function beginEdit(): void {
-    if (!project) return
-    setDraft(project.name)
-    setLocalError(null)
-    setEditing(true)
+    if (!project) return;
+    setDraft(project.name);
+    setLocalError(null);
+    setEditing(true);
     // Auto-focus + select happens on the next tick once the input is
     // mounted; a microtask is enough for React 18.
     queueMicrotask(() => {
-      inputRef.current?.focus()
-      inputRef.current?.select()
-    })
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
   }
 
   async function commit(): Promise<void> {
-    if (!project) return
-    const trimmed = draft.trim()
+    if (!project) return;
+    const trimmed = draft.trim();
     if (trimmed === '' || trimmed === project.name) {
-      setEditing(false)
-      return
+      setEditing(false);
+      return;
     }
-    setSaving(true)
-    setLocalError(null)
+    setSaving(true);
+    setLocalError(null);
     try {
-      const updated = await api.updateProject(project.id, { name: trimmed })
-      onRename(updated)
-      setEditing(false)
+      const updated = await api.updateProject(project.id, { name: trimmed });
+      onRename(updated);
+      setEditing(false);
     } catch (e) {
-      setLocalError(e instanceof Error ? e.message : String(e))
+      setLocalError(e instanceof Error ? e.message : String(e));
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
 
   function cancel(): void {
-    setEditing(false)
-    setLocalError(null)
+    setEditing(false);
+    setLocalError(null);
   }
 
   if (!project) {
-    return (
-      <span className="font-mono text-base text-slate-500">Project …</span>
-    )
+    return <span className="font-mono text-base text-slate-500">Project …</span>;
   }
 
   if (editing) {
@@ -209,26 +200,24 @@ function InlineProjectName({
             // Escape flips `editing` to false before focus leaves, and
             // blur would otherwise commit the cancelled draft.
             if (editingRef.current) {
-              void commit()
+              void commit();
             }
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
-              e.preventDefault()
-              void commit()
+              e.preventDefault();
+              void commit();
             } else if (e.key === 'Escape') {
-              e.preventDefault()
-              cancel()
+              e.preventDefault();
+              cancel();
             }
           }}
           aria-label="Project name"
           className="text-2xl font-semibold px-2 py-1 rounded border border-orenda-500 bg-white dark:bg-slate-950 outline-none min-w-0"
         />
-        {localError && (
-          <span className="text-xs text-red-700">{localError}</span>
-        )}
+        {localError && <span className="text-xs text-red-700">{localError}</span>}
       </span>
-    )
+    );
   }
 
   return (
@@ -240,5 +229,5 @@ function InlineProjectName({
     >
       {project.name}
     </button>
-  )
+  );
 }

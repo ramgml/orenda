@@ -12,11 +12,11 @@
  *   5. Save validation: missing titles / questions / expected answers
  *      block the save and surface an inline error.
  */
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CourseCurriculumEditor } from '@/features/courses/CourseCurriculumEditor'
-import { api, type Course } from '@/shared/api/client'
+import { CourseCurriculumEditor } from '@/features/courses/CourseCurriculumEditor';
+import { api, type Course } from '@/shared/api/client';
 
 function makeCourse(over: Partial<Course> = {}): Course {
   return {
@@ -30,18 +30,18 @@ function makeCourse(over: Partial<Course> = {}): Course {
     created_at: '',
     updated_at: '',
     ...over,
-  }
+  };
 }
 
 describe('CourseCurriculumEditor', () => {
   beforeEach(() => {
-    vi.restoreAllMocks()
-  })
+    vi.restoreAllMocks();
+  });
 
   afterEach(() => {
-    cleanup()
-    vi.restoreAllMocks()
-  })
+    cleanup();
+    vi.restoreAllMocks();
+  });
 
   it('renders an empty state when no modules are supplied', () => {
     const { getByText } = render(
@@ -51,9 +51,9 @@ describe('CourseCurriculumEditor', () => {
         onCancel={() => {}}
         onSaved={() => {}}
       />,
-    )
-    expect(getByText(/no modules yet/i)).toBeTruthy()
-  })
+    );
+    expect(getByText(/no modules yet/i)).toBeTruthy();
+  });
 
   it('adds a module on demand', () => {
     const { getByTestId } = render(
@@ -63,10 +63,10 @@ describe('CourseCurriculumEditor', () => {
         onCancel={() => {}}
         onSaved={() => {}}
       />,
-    )
-    fireEvent.click(getByTestId('editor-add-module'))
-    expect(getByTestId('editor-module')).toBeTruthy()
-  })
+    );
+    fireEvent.click(getByTestId('editor-add-module'));
+    expect(getByTestId('editor-module')).toBeTruthy();
+  });
 
   it('adds a lesson within a module', () => {
     const { getByTestId } = render(
@@ -84,14 +84,14 @@ describe('CourseCurriculumEditor', () => {
         onCancel={() => {}}
         onSaved={() => {}}
       />,
-    )
-    fireEvent.click(getByTestId('editor-add-lesson'))
-    expect(getByTestId('editor-lesson')).toBeTruthy()
-  })
+    );
+    fireEvent.click(getByTestId('editor-add-lesson'));
+    expect(getByTestId('editor-lesson')).toBeTruthy();
+  });
 
   it('saves a structured tree via api.submitCurriculum', async () => {
-    const spy = vi.spyOn(api, 'submitCurriculum').mockResolvedValue({ status: 'review' })
-    const onSaved = vi.fn()
+    const spy = vi.spyOn(api, 'submitCurriculum').mockResolvedValue({ status: 'review' });
+    const onSaved = vi.fn();
     const { getByTestId } = render(
       <CourseCurriculumEditor
         course={makeCourse()}
@@ -123,9 +123,9 @@ describe('CourseCurriculumEditor', () => {
         onCancel={() => {}}
         onSaved={onSaved}
       />,
-    )
-    fireEvent.click(getByTestId('editor-save'))
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
+    );
+    fireEvent.click(getByTestId('editor-save'));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     expect(spy).toHaveBeenCalledWith(
       'c-1',
       expect.objectContaining({
@@ -137,20 +137,18 @@ describe('CourseCurriculumEditor', () => {
               expect.objectContaining({
                 id: 'l-1',
                 title: 'Hello',
-                quizzes: [
-                  expect.objectContaining({ kind: 'exact', question_md: '2+2?' }),
-                ],
+                quizzes: [expect.objectContaining({ kind: 'exact', question_md: '2+2?' })],
               }),
             ],
           }),
         ],
       }),
-    )
-    expect(onSaved).toHaveBeenCalled()
-  })
+    );
+    expect(onSaved).toHaveBeenCalled();
+  });
 
   it('refuses save when a module is missing a title', async () => {
-    const spy = vi.spyOn(api, 'submitCurriculum').mockResolvedValue({ status: 'review' })
+    const spy = vi.spyOn(api, 'submitCurriculum').mockResolvedValue({ status: 'review' });
     const { getByTestId, getByText } = render(
       <CourseCurriculumEditor
         course={makeCourse()}
@@ -166,11 +164,11 @@ describe('CourseCurriculumEditor', () => {
         onCancel={() => {}}
         onSaved={() => {}}
       />,
-    )
-    fireEvent.click(getByTestId('editor-save'))
-    await waitFor(() => expect(getByText(/every module needs a title/i)).toBeTruthy())
-    expect(spy).not.toHaveBeenCalled()
-  })
+    );
+    fireEvent.click(getByTestId('editor-save'));
+    await waitFor(() => expect(getByText(/every module needs a title/i)).toBeTruthy());
+    expect(spy).not.toHaveBeenCalled();
+  });
 
   it('is read-only when the course is not draft/review', () => {
     const { getByTestId } = render(
@@ -180,7 +178,7 @@ describe('CourseCurriculumEditor', () => {
         onCancel={() => {}}
         onSaved={() => {}}
       />,
-    )
-    expect(getByTestId('editor-readonly')).toBeTruthy()
-  })
-})
+    );
+    expect(getByTestId('editor-readonly')).toBeTruthy();
+  });
+});

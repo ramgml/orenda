@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 
-import { TaskLink } from '@/features/tasks/TaskModal'
-import { api, type SearchHit } from '@/shared/api/client'
+import { TaskLink } from '@/features/tasks/TaskModal';
+import { api, type SearchHit } from '@/shared/api/client';
 
 /**
  * /search — full-text search results across pages, tasks, comments.
@@ -11,34 +11,34 @@ import { api, type SearchHit } from '@/shared/api/client'
  * Cmd+K hotkey + a modal launcher.
  */
 export function SearchPage(): JSX.Element {
-  const [q, setQ] = useState('')
-  const [hits, setHits] = useState<SearchHit[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [q, setQ] = useState('');
+  const [hits, setHits] = useState<SearchHit[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        const input = document.querySelector<HTMLInputElement>('input[name="search"]')
-        input?.focus()
+        e.preventDefault();
+        const input = document.querySelector<HTMLInputElement>('input[name="search"]');
+        input?.focus();
       }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   async function run(): Promise<void> {
-    if (!q.trim()) return
-    setBusy(true)
+    if (!q.trim()) return;
+    setBusy(true);
     try {
-      const res = await api.search({ q: q.trim(), limit: 50 })
-      setHits(res.hits)
-      setError(null)
+      const res = await api.search({ q: q.trim(), limit: 50 });
+      setHits(res.hits);
+      setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
@@ -51,8 +51,8 @@ export function SearchPage(): JSX.Element {
 
       <form
         onSubmit={(e) => {
-          e.preventDefault()
-          run()
+          e.preventDefault();
+          run();
         }}
         className="flex gap-2 mb-4"
       >
@@ -92,17 +92,11 @@ export function SearchPage(): JSX.Element {
             >
               <div className="flex items-center justify-between mb-1">
                 {h.type === 'page' ? (
-                  <Link
-                    to={hitHref(h)}
-                    className="font-medium text-orenda-600 hover:underline"
-                  >
+                  <Link to={hitHref(h)} className="font-medium text-orenda-600 hover:underline">
                     {h.title || h.id.slice(0, 12)}
                   </Link>
                 ) : (
-                  <TaskLink
-                    taskId={h.id}
-                    className="font-medium text-orenda-600 hover:underline"
-                  >
+                  <TaskLink taskId={h.id} className="font-medium text-orenda-600 hover:underline">
                     {h.title || h.id.slice(0, 12)}
                   </TaskLink>
                 )}
@@ -119,19 +113,19 @@ export function SearchPage(): JSX.Element {
         </ul>
       )}
     </section>
-  )
+  );
 }
 
 function hitHref(h: SearchHit): string {
   switch (h.type) {
     case 'page':
-      return `/wiki/${h.id}` // slug-vs-id: the backend returns the id for FTS rows
+      return `/wiki/${h.id}`; // slug-vs-id: the backend returns the id for FTS rows
     case 'task':
-      return `/tasks/${h.id}`
+      return `/tasks/${h.id}`;
     case 'comment':
       // Comments don't have a dedicated route; link to the parent task.
-      return `/tasks/${h.id}`
+      return `/tasks/${h.id}`;
     default:
-      return '/'
+      return '/';
   }
 }

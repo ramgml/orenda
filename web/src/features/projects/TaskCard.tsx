@@ -1,9 +1,9 @@
-import { useLocation, useNavigate } from 'react-router-dom'
-import { useDraggable } from '@dnd-kit/core'
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useDraggable } from '@dnd-kit/core';
 
-import { openTaskModal } from '@/features/tasks/TaskModal'
-import { TaskTagChips } from '@/features/tasks/TaskTagChip'
-import type { Task } from '@/shared/api/client'
+import { openTaskModal } from '@/features/tasks/TaskModal';
+import { TaskTagChips } from '@/features/tasks/TaskTagChip';
+import type { Task } from '@/shared/api/client';
 
 import {
   dueStateClasses,
@@ -12,7 +12,7 @@ import {
   priorityBorderClass,
   progressLabel,
   taskDueState,
-} from './taskCardBadges'
+} from './taskCardBadges';
 
 /**
  * Single draggable task card.
@@ -36,44 +36,44 @@ export function TaskCard({
   task,
   onOpen,
 }: {
-  task: Task
+  task: Task;
   /**
    * Called when the user clicks the card without starting a drag.
    * Left optional so non-kanban consumers can render read-only cards.
    */
-  onOpen?: (taskId: string) => void
+  onOpen?: (taskId: string) => void;
 }): JSX.Element {
-  const navigate = useNavigate()
-  const location = useLocation()
+  const navigate = useNavigate();
+  const location = useLocation();
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
-  })
+  });
 
-  const detailed = !useCompactMode()
+  const detailed = !useCompactMode();
 
   function handleClick(): void {
     if (onOpen) {
-      onOpen(task.id)
+      onOpen(task.id);
     } else {
-      openTaskModal(navigate, location, task.id)
+      openTaskModal(navigate, location, task.id);
     }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
     if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      handleClick()
+      e.preventDefault();
+      handleClick();
     }
   }
 
   const stripeStyle: React.CSSProperties | undefined = task.color
     ? { borderLeftColor: task.color }
-    : undefined
+    : undefined;
 
-  const priorityBorder = priorityBorderClass(task.priority)
-  const dueState = taskDueState(task)
-  const counters = task.counters
-  const blockedBy = task.blocked_by_count ?? 0
+  const priorityBorder = priorityBorderClass(task.priority);
+  const dueState = taskDueState(task);
+  const counters = task.counters;
+  const blockedBy = task.blocked_by_count ?? 0;
 
   return (
     <div
@@ -158,7 +158,7 @@ export function TaskCard({
         </div>
       )}
     </div>
-  )
+  );
 }
 
 /**
@@ -166,7 +166,7 @@ export function TaskCard({
  * initials. Hidden when no assignee.
  */
 function AssigneeChip({ task }: { task: Task }): JSX.Element | null {
-  if (!task.assignee_type || !task.assignee_id) return null
+  if (!task.assignee_type || !task.assignee_id) return null;
   if (task.assignee_type === 'agent') {
     return (
       <span
@@ -176,9 +176,9 @@ function AssigneeChip({ task }: { task: Task }): JSX.Element | null {
       >
         🤖 <span className="ml-0.5 truncate max-w-[6rem]">{task.assignee_id.slice(0, 6)}</span>
       </span>
-    )
+    );
   }
-  const initials = task.assignee_id.replace(/-/g, '').slice(0, 2).toUpperCase()
+  const initials = task.assignee_id.replace(/-/g, '').slice(0, 2).toUpperCase();
   return (
     <span
       data-testid="assignee-user"
@@ -187,7 +187,7 @@ function AssigneeChip({ task }: { task: Task }): JSX.Element | null {
     >
       {initials}
     </span>
-  )
+  );
 }
 
 /**
@@ -195,10 +195,10 @@ function AssigneeChip({ task }: { task: Task }): JSX.Element | null {
  * Returns false (detailed) for SSR / non-browser contexts.
  */
 function useCompactMode(): boolean {
-  if (typeof window === 'undefined') return false
+  if (typeof window === 'undefined') return false;
   try {
-    return window.localStorage.getItem('orenda.kanban.cardDensity') === 'compact'
+    return window.localStorage.getItem('orenda.kanban.cardDensity') === 'compact';
   } catch {
-    return false
+    return false;
   }
 }

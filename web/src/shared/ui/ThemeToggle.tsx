@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react';
 
 /**
  * Dark/light theme toggle. Persists to localStorage; respects the
@@ -7,28 +7,28 @@ import { useEffect, useState } from 'react'
 export function ThemeToggle(): JSX.Element {
   const [dark, setDark] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem('orenda.theme')
-      if (saved === 'dark') return true
-      if (saved === 'light') return false
+      const saved = localStorage.getItem('orenda.theme');
+      if (saved === 'dark') return true;
+      if (saved === 'light') return false;
     } catch {
       // storage blocked
     }
-    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
-  })
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+  });
 
   useEffect(() => {
-    const root = document.documentElement
+    const root = document.documentElement;
     if (dark) {
-      root.classList.add('dark')
+      root.classList.add('dark');
     } else {
-      root.classList.remove('dark')
+      root.classList.remove('dark');
     }
     try {
-      localStorage.setItem('orenda.theme', dark ? 'dark' : 'light')
+      localStorage.setItem('orenda.theme', dark ? 'dark' : 'light');
     } catch {
       // storage blocked
     }
-  }, [dark])
+  }, [dark]);
 
   return (
     <button
@@ -40,5 +40,5 @@ export function ThemeToggle(): JSX.Element {
     >
       {dark ? '☾' : '☀'}
     </button>
-  )
+  );
 }

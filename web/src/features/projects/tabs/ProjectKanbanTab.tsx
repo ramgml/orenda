@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
 
-import { api, type Project, type ProjectBoard } from '@/shared/api/client'
+import { api, type Project, type ProjectBoard } from '@/shared/api/client';
 
-import { KanbanBoard } from '../KanbanBoard'
+import { KanbanBoard } from '../KanbanBoard';
 
 /**
  * /projects/:id — Kanban tab.
@@ -14,30 +14,30 @@ import { KanbanBoard } from '../KanbanBoard'
  * just the Kanban surface.
  */
 export function ProjectKanbanTab(): JSX.Element {
-  const { id } = useParams<{ id: string }>()
-  const [board, setBoard] = useState<ProjectBoard | null>(null)
-  const [project, setProject] = useState<Project | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const { id } = useParams<{ id: string }>();
+  const [board, setBoard] = useState<ProjectBoard | null>(null);
+  const [project, setProject] = useState<Project | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!id) return
-    let cancelled = false
+    if (!id) return;
+    let cancelled = false;
     Promise.all([api.getBoard(id), api.listProjects()])
       .then(([b, list]) => {
-        if (cancelled) return
-        setBoard(b)
-        setProject(list.find((p) => p.id === id) ?? null)
+        if (cancelled) return;
+        setBoard(b);
+        setProject(list.find((p) => p.id === id) ?? null);
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
-      })
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      });
     return () => {
-      cancelled = true
-    }
-  }, [id])
+      cancelled = true;
+    };
+  }, [id]);
 
-  if (error) return <p className="text-red-700">{error}</p>
-  if (!board) return <p className="text-slate-500">Loading…</p>
+  if (error) return <p className="text-red-700">{error}</p>;
+  if (!board) return <p className="text-slate-500">Loading…</p>;
 
   return (
     <>
@@ -48,5 +48,5 @@ export function ProjectKanbanTab(): JSX.Element {
       )}
       <KanbanBoard projectId={board.board.project_id} columns={board.columns} />
     </>
-  )
+  );
 }

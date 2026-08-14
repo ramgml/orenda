@@ -13,15 +13,15 @@
  * AuthProvider too; we mock the api client so AuthProvider settles in
  * 'anonymous' without making a real /me call.
  */
-import { AxiosError } from 'axios'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { lazy } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AxiosError } from 'axios';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { lazy } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AuthProvider } from '@/features/auth/AuthContext'
-import { AppLayout } from '@/features/layout/AppLayout'
+import { AuthProvider } from '@/features/auth/AuthContext';
+import { AppLayout } from '@/features/layout/AppLayout';
 
 const { stubHttp } = vi.hoisted(() => ({
   stubHttp: {
@@ -32,29 +32,29 @@ const { stubHttp } = vi.hoisted(() => ({
     delete: vi.fn(),
     interceptors: { response: { use: vi.fn() } },
   },
-}))
+}));
 
 vi.mock('axios', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('axios')>()
+  const actual = await importOriginal<typeof import('axios')>();
   return {
     ...actual,
     default: { ...actual.default, create: vi.fn(() => stubHttp) },
-  }
-})
+  };
+});
 
 beforeEach(() => {
-  vi.clearAllMocks()
-})
+  vi.clearAllMocks();
+});
 
 afterEach(() => {
-  cleanup()
-})
+  cleanup();
+});
 
 function mountShell(entry: string) {
   // AuthProvider calls api.me() on mount; pre-seed the rejection so
   // the auth state lands in 'anonymous' and never makes a real request.
-  stubHttp.get.mockRejectedValue(new AxiosError('no session'))
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  stubHttp.get.mockRejectedValue(new AxiosError('no session'));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <AuthProvider>
@@ -68,30 +68,30 @@ function mountShell(entry: string) {
         </MemoryRouter>
       </AuthProvider>
     </QueryClientProvider>,
-  )
+  );
 }
 
 describe('AppLayout', () => {
   it('renders the matched child route through <Outlet />', async () => {
-    mountShell('/')
+    mountShell('/');
 
-    expect(await screen.findByText('CHILD HOME')).toBeTruthy()
-  })
+    expect(await screen.findByText('CHILD HOME')).toBeTruthy();
+  });
 
-  it('does not render a sibling route\'s content', () => {
-    mountShell('/')
+  it("does not render a sibling route's content", () => {
+    mountShell('/');
 
-    expect(screen.queryByText('CHILD PAGE A')).toBeNull()
-  })
+    expect(screen.queryByText('CHILD PAGE A')).toBeNull();
+  });
 
   it('shows the Suspense fallback when a lazy child suspends', async () => {
     // Lazy components suspend on first render until their module
     // resolves. We never resolve it, so the fallback ("Loading…")
     // stays visible.
-    const LazyChild = lazy(() => new Promise<never>(() => {}))
+    const LazyChild = lazy(() => new Promise<never>(() => {}));
 
-    stubHttp.get.mockRejectedValue(new AxiosError('no session'))
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    stubHttp.get.mockRejectedValue(new AxiosError('no session'));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
         <AuthProvider>
@@ -104,12 +104,12 @@ describe('AppLayout', () => {
           </MemoryRouter>
         </AuthProvider>
       </QueryClientProvider>,
-    )
+    );
 
     // AppLayout's inner <Suspense> shows "Loading…" until the lazy
     // module resolves; we never resolve, so the fallback is what we see.
     await waitFor(() => {
-      expect(screen.getByText('Loading…')).toBeTruthy()
-    })
-  })
-})
+      expect(screen.getByText('Loading…')).toBeTruthy();
+    });
+  });
+});

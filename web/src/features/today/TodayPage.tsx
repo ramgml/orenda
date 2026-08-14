@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 
-import { api, type Task } from '@/shared/api/client'
-import { useWebSocketTopic } from '@/shared/ws'
+import { api, type Task } from '@/shared/api/client';
+import { useWebSocketTopic } from '@/shared/ws';
 
 /**
  * Phase 20: "Today" dashboard. One screen with everything the user
@@ -21,52 +21,56 @@ import { useWebSocketTopic } from '@/shared/ws'
  * without a refresh.
  */
 export function TodayPage(): JSX.Element {
-  const [data, setData] = useState<TodayResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [now, setNow] = useState(() => Date.now())
+  const [data, setData] = useState<TodayResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      const r = await api.getToday()
-      setData(r)
+      const r = await api.getToday();
+      setData(r);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void load();
+  }, [load]);
 
   // Re-fetch on any task event — the today list reflects tasks across
   // every project, so any mutation might add or remove an entry.
   useWebSocketTopic('tasks', () => {
-    void load()
-  })
+    void load();
+  });
 
   // Tick the "active timer elapsed" display once a minute so the
   // number doesn't go stale. The timer data itself is from the API;
   // only the relative timestamp is recomputed locally.
   useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), 60_000)
-    return () => window.clearInterval(id)
-  }, [])
+    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   if (loading) {
-    return <p className="p-6 text-sm text-slate-400 italic">Loading…</p>
+    return <p className="p-6 text-sm text-slate-400 italic">Loading…</p>;
   }
   if (error) {
-    return <p className="p-6 text-sm text-red-600">{error}</p>
+    return <p className="p-6 text-sm text-red-600">{error}</p>;
   }
-  if (!data) return <></>
+  if (!data) return <></>;
 
-  const total =
-    data.overdue.length + data.due_today.length + data.scheduled_today.length
+  const total = data.overdue.length + data.due_today.length + data.scheduled_today.length;
 
-  if (total === 0 && data.awaiting_count === 0 && !data.active_timer && (data.upcoming_week ?? []).length === 0) {
+  if (
+    total === 0 &&
+    data.awaiting_count === 0 &&
+    !data.active_timer &&
+    (data.upcoming_week ?? []).length === 0
+  ) {
     return (
       <section className="p-6 max-w-3xl mx-auto">
         <header>
@@ -77,10 +81,12 @@ export function TodayPage(): JSX.Element {
         </header>
         <div className="mt-6 rounded border border-emerald-200 bg-emerald-50 p-6 text-center text-emerald-800">
           <p className="text-3xl mb-2">✓</p>
-          <p className="text-sm">Day is clear. Capture a thought with <kbd>q</kbd>.</p>
+          <p className="text-sm">
+            Day is clear. Capture a thought with <kbd>q</kbd>.
+          </p>
         </div>
       </section>
-    )
+    );
   }
 
   return (
@@ -92,9 +98,7 @@ export function TodayPage(): JSX.Element {
         </p>
       </header>
 
-      {data.active_timer && (
-        <ActiveTimerRow timer={data.active_timer} now={now} />
-      )}
+      {data.active_timer && <ActiveTimerRow timer={data.active_timer} now={now} />}
 
       {data.awaiting_count > 0 && (
         <Link
@@ -106,12 +110,7 @@ export function TodayPage(): JSX.Element {
         </Link>
       )}
 
-      <TodaySection
-        title="Overdue"
-        color="red"
-        tasks={data.overdue}
-        emptyText="Nothing overdue."
-      />
+      <TodaySection title="Overdue" color="red" tasks={data.overdue} emptyText="Nothing overdue." />
       <TodaySection
         title="Due today"
         color="amber"
@@ -128,17 +127,17 @@ export function TodayPage(): JSX.Element {
 
       <UpcomingWeek days={data.upcoming_week ?? []} />
     </section>
-  )
+  );
 }
 
 type TodayResponse = {
-  overdue: Task[]
-  due_today: Task[]
-  scheduled_today: Task[]
-  upcoming_week?: { date: string; count: number }[]
-  awaiting_count: number
-  active_timer?: { task_id: string; started_at: string }
-}
+  overdue: Task[];
+  due_today: Task[];
+  scheduled_today: Task[];
+  upcoming_week?: { date: string; count: number }[];
+  awaiting_count: number;
+  active_timer?: { task_id: string; started_at: string };
+};
 
 function TodaySection({
   title,
@@ -147,14 +146,14 @@ function TodaySection({
   emptyText,
   showTime,
 }: {
-  title: string
-  color: 'red' | 'amber' | 'slate'
-  tasks: Task[]
-  emptyText: string
-  showTime?: boolean
+  title: string;
+  color: 'red' | 'amber' | 'slate';
+  tasks: Task[];
+  emptyText: string;
+  showTime?: boolean;
 }): JSX.Element {
   const dotColor =
-    color === 'red' ? 'bg-red-500' : color === 'amber' ? 'bg-amber-500' : 'bg-slate-400'
+    color === 'red' ? 'bg-red-500' : color === 'amber' ? 'bg-amber-500' : 'bg-slate-400';
 
   return (
     <div>
@@ -169,23 +168,32 @@ function TodaySection({
       ) : (
         <ul className="space-y-1">
           {tasks.map((t) => (
-            <li key={t.id} className="rounded border border-slate-200 dark:border-slate-800 p-2 text-sm bg-white dark:bg-slate-950">
-              <Link to={`/tasks/${t.id}`} className="text-slate-800 dark:text-slate-100 hover:underline">
+            <li
+              key={t.id}
+              className="rounded border border-slate-200 dark:border-slate-800 p-2 text-sm bg-white dark:bg-slate-950"
+            >
+              <Link
+                to={`/tasks/${t.id}`}
+                className="text-slate-800 dark:text-slate-100 hover:underline"
+              >
                 {t.title}
               </Link>
               <span className="ml-2 text-[10px] text-slate-400 font-mono">
                 {showTime && t.start_at
-                  ? new Date(t.start_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  ? new Date(t.start_at).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })
                   : t.due_at
-                  ? new Date(t.due_at).toLocaleDateString()
-                  : t.status}
+                    ? new Date(t.due_at).toLocaleDateString()
+                    : t.status}
               </span>
             </li>
           ))}
         </ul>
       )}
     </div>
-  )
+  );
 }
 
 /**
@@ -197,16 +205,15 @@ function ActiveTimerRow({
   timer,
   now,
 }: {
-  timer: { task_id: string; started_at: string }
-  now: number
+  timer: { task_id: string; started_at: string };
+  now: number;
 }): JSX.Element {
-  const startedMs = new Date(timer.started_at).getTime()
-  const elapsedMs = Math.max(0, now - startedMs)
-  const elapsedMin = Math.floor(elapsedMs / 60_000)
-  const elapsedH = Math.floor(elapsedMin / 60)
-  const elapsedM = elapsedMin % 60
-  const elapsedLabel =
-    elapsedH > 0 ? `${elapsedH}h ${elapsedM}m` : `${elapsedM}m`
+  const startedMs = new Date(timer.started_at).getTime();
+  const elapsedMs = Math.max(0, now - startedMs);
+  const elapsedMin = Math.floor(elapsedMs / 60_000);
+  const elapsedH = Math.floor(elapsedMin / 60);
+  const elapsedM = elapsedMin % 60;
+  const elapsedLabel = elapsedH > 0 ? `${elapsedH}h ${elapsedM}m` : `${elapsedM}m`;
 
   return (
     <div
@@ -214,7 +221,10 @@ function ActiveTimerRow({
       className="rounded border border-emerald-300 bg-emerald-50 p-3 text-emerald-900 text-sm flex items-center justify-between"
     >
       <div>
-        <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 mr-2 animate-pulse" aria-hidden />
+        <span
+          className="inline-block h-2 w-2 rounded-full bg-emerald-500 mr-2 animate-pulse"
+          aria-hidden
+        />
         Working on{' '}
         <Link to={`/tasks/${timer.task_id}`} className="underline font-medium">
           {timer.task_id.slice(0, 8)}
@@ -222,14 +232,11 @@ function ActiveTimerRow({
         {' · '}
         <span className="font-mono">{elapsedLabel}</span>
       </div>
-      <Link
-        to={`/tasks/${timer.task_id}#timer`}
-        className="text-xs underline"
-      >
+      <Link to={`/tasks/${timer.task_id}#timer`} className="text-xs underline">
         stop
       </Link>
     </div>
-  )
+  );
 }
 
 /**
@@ -240,25 +247,19 @@ function ActiveTimerRow({
  * have to deal with TZ arithmetic. We render it as a localised
  * weekday + day-of-month for readability.
  */
-function UpcomingWeek({
-  days,
-}: {
-  days: { date: string; count: number }[]
-}): JSX.Element {
-  if (days.length === 0) return <></>
+function UpcomingWeek({ days }: { days: { date: string; count: number }[] }): JSX.Element {
+  if (days.length === 0) return <></>;
   return (
     <div>
-      <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">
-        Next 7 days
-      </h2>
+      <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Next 7 days</h2>
       <ul className="space-y-1">
         {days.map((d) => {
-          const date = new Date(d.date + 'T00:00:00')
+          const date = new Date(d.date + 'T00:00:00');
           const label = date.toLocaleDateString(undefined, {
             weekday: 'short',
             day: 'numeric',
             month: 'short',
-          })
+          });
           return (
             <li
               key={d.date}
@@ -266,13 +267,11 @@ function UpcomingWeek({
               className="flex justify-between items-center rounded border border-slate-200 dark:border-slate-800 px-3 py-1 text-sm bg-white dark:bg-slate-950"
             >
               <span className="text-slate-700 dark:text-slate-200">{label}</span>
-              <span className="text-slate-500 font-mono">
-                {d.count} due
-              </span>
+              <span className="text-slate-500 font-mono">{d.count} due</span>
             </li>
-          )
+          );
         })}
       </ul>
     </div>
-  )
+  );
 }

@@ -20,33 +20,31 @@
  *  - Archived bucket is the remaining archived projects, sorted A→Z.
  *    The bucket is rendered collapsed by default by the sidebar.
  */
-import type { Project } from '@/shared/api/client'
+import type { Project } from '@/shared/api/client';
 
 export interface ProjectPartition {
-  pinned: Project[]
-  active: Project[]
-  archived: Project[]
+  pinned: Project[];
+  active: Project[];
+  archived: Project[];
 }
 
 export function partitionProjects(
   projects: Project[],
   pinnedIds: readonly string[],
 ): ProjectPartition {
-  const byId = new Map(projects.map((p) => [p.id, p]))
-  const seen = new Set<string>()
-  const pinned: Project[] = []
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  const seen = new Set<string>();
+  const pinned: Project[] = [];
   for (const id of pinnedIds) {
-    const p = byId.get(id)
+    const p = byId.get(id);
     if (p && !p.archived) {
-      pinned.push(p)
-      seen.add(id)
+      pinned.push(p);
+      seen.add(id);
     }
   }
   const active = projects
     .filter((p) => !p.archived && !seen.has(p.id))
-    .sort((a, b) => a.name.localeCompare(b.name))
-  const archived = projects
-    .filter((p) => p.archived)
-    .sort((a, b) => a.name.localeCompare(b.name))
-  return { pinned, active, archived }
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const archived = projects.filter((p) => p.archived).sort((a, b) => a.name.localeCompare(b.name));
+  return { pinned, active, archived };
 }

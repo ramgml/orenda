@@ -1,8 +1,8 @@
-import { FormEvent, useState } from 'react'
-import { Navigate, useLocation } from 'react-router-dom'
+import { FormEvent, useState } from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
 
-import { AxiosError } from '@/shared/api/client'
-import { useAuth } from '@/features/auth/AuthContext'
+import { AxiosError } from '@/shared/api/client';
+import { useAuth } from '@/features/auth/AuthContext';
 
 /**
  * /login page — email + password form. Submits to POST /api/v1/auth/login.
@@ -11,33 +11,33 @@ import { useAuth } from '@/features/auth/AuthContext'
  * server, and we navigate to the originally-requested URL (or /).
  */
 export function LoginPage(): JSX.Element {
-  const { status, login } = useAuth()
-  const location = useLocation()
-  const from = (location.state as { from?: string } | null)?.from ?? '/'
+  const { status, login } = useAuth();
+  const location = useLocation();
+  const from = (location.state as { from?: string } | null)?.from ?? '/';
 
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (status === 'authenticated') {
-    return <Navigate to={from} replace />
+    return <Navigate to={from} replace />;
   }
 
   async function onSubmit(e: FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    setError(null)
-    setSubmitting(true)
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
     try {
-      await login(email.trim(), password)
+      await login(email.trim(), password);
     } catch (err) {
       if (err instanceof AxiosError && err.response?.status === 401) {
-        setError('Invalid email or password.')
+        setError('Invalid email or password.');
       } else {
-        setError('Login failed. Please try again.')
+        setError('Login failed. Please try again.');
       }
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
   }
 
@@ -101,5 +101,5 @@ export function LoginPage(): JSX.Element {
         </p>
       </form>
     </div>
-  )
+  );
 }

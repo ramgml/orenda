@@ -1,8 +1,8 @@
-import { FormEvent, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { FormEvent, useState } from 'react';
+import { Link } from 'react-router-dom';
 
-import { useAuth } from '@/features/auth/AuthContext'
-import { api, type Project } from '@/shared/api/client'
+import { useAuth } from '@/features/auth/AuthContext';
+import { api, type Project } from '@/shared/api/client';
 
 /**
  * /projects — list of projects owned by the authenticated user.
@@ -10,36 +10,36 @@ import { api, type Project } from '@/shared/api/client'
  * Phase 1 ships list + create. Phase 6+ adds the show-archived toggle.
  */
 export function ProjectsPage(): JSX.Element {
-  const { user } = useAuth()
-  const [projects, setProjects] = useState<Project[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
-  const [name, setName] = useState('')
-  const [showArchived, setShowArchived] = useState(false)
+  const { user } = useAuth();
+  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
 
   async function load(): Promise<void> {
     try {
-      setProjects(await api.listProjects())
-      setError(null)
+      setProjects(await api.listProjects());
+      setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   if (projects === null && !error) {
-    load()
+    load();
   }
 
   async function onCreate(e: FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    if (!name.trim()) return
+    e.preventDefault();
+    if (!name.trim()) return;
     try {
-      const p = await api.createProject({ name: name.trim() })
-      setProjects((prev) => (prev ? [p, ...prev] : [p]))
-      setName('')
-      setCreating(false)
+      const p = await api.createProject({ name: name.trim() });
+      setProjects((prev) => (prev ? [p, ...prev] : [p]));
+      setName('');
+      setCreating(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -92,9 +92,7 @@ export function ProjectsPage(): JSX.Element {
       {projects === null ? (
         <p className="text-slate-500">Loading…</p>
       ) : projects.length === 0 ? (
-        <p className="text-slate-500">
-          No projects yet. Create your first one above.
-        </p>
+        <p className="text-slate-500">No projects yet. Create your first one above.</p>
       ) : (
         <>
           <div className="mb-3 text-xs text-slate-500 flex items-center gap-2">
@@ -107,7 +105,8 @@ export function ProjectsPage(): JSX.Element {
               Show archived
             </label>
             <span className="ml-auto">
-              {projects.filter((p) => showArchived || !p.archived).length} shown · {projects.length} total
+              {projects.filter((p) => showArchived || !p.archived).length} shown · {projects.length}{' '}
+              total
             </span>
           </div>
           <ul className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -147,5 +146,5 @@ export function ProjectsPage(): JSX.Element {
         </>
       )}
     </section>
-  )
+  );
 }

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react';
 
-import { api, type Tag } from '@/shared/api/client'
-import { TaskTagChip } from './TaskTagChip'
+import { api, type Tag } from '@/shared/api/client';
+import { TaskTagChip } from './TaskTagChip';
 
 /**
  * Tag editor for the task sidebar.
@@ -27,91 +27,91 @@ import { TaskTagChip } from './TaskTagChip'
  *     user doesn't double-save when clicking fast.
  */
 export function TagsList({ taskId, initial }: { taskId: string; initial: Tag[] }): JSX.Element {
-  const [catalogue, setCatalogue] = useState<Tag[]>([])
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(initial.map((t) => t.id)))
-  const [saving, setSaving] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [newColor, setNewColor] = useState('#3b82f6')
-  const [creating, setCreating] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [catalogue, setCatalogue] = useState<Tag[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(initial.map((t) => t.id)));
+  const [saving, setSaving] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newColor, setNewColor] = useState('#3b82f6');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
     void (async () => {
       try {
-        const r = await api.listTags()
-        if (cancelled) return
-        setCatalogue(r.tags ?? [])
+        const r = await api.listTags();
+        if (cancelled) return;
+        setCatalogue(r.tags ?? []);
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : String(e))
+          setError(e instanceof Error ? e.message : String(e));
         }
       }
-    })()
+    })();
     return () => {
-      cancelled = true
-    }
-  }, [])
+      cancelled = true;
+    };
+  }, []);
 
   // Keep `selected` in sync when the parent task reloads (e.g. WS
   // event). Use the tag id set rather than full equality so we
   // tolerate reorderings and the chip render staying stable.
   useEffect(() => {
-    setSelected(new Set(initial.map((t) => t.id)))
-  }, [initial])
+    setSelected(new Set(initial.map((t) => t.id)));
+  }, [initial]);
 
   async function persist(next: Set<string>): Promise<void> {
-    setSaving(true)
-    setError(null)
+    setSaving(true);
+    setError(null);
     try {
-      const ids = Array.from(next)
-      const r = await api.setTaskTags(taskId, ids)
-      setSelected(new Set((r.tags ?? []).map((t) => t.id)))
+      const ids = Array.from(next);
+      const r = await api.setTaskTags(taskId, ids);
+      setSelected(new Set((r.tags ?? []).map((t) => t.id)));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
 
   async function toggle(tag: Tag): Promise<void> {
-    const next = new Set(selected)
+    const next = new Set(selected);
     if (next.has(tag.id)) {
-      next.delete(tag.id)
+      next.delete(tag.id);
     } else {
-      next.add(tag.id)
+      next.add(tag.id);
     }
-    setSelected(next)
-    await persist(next)
+    setSelected(next);
+    await persist(next);
   }
 
   async function createAndAttach(): Promise<void> {
-    const name = newName.trim()
-    if (!name) return
-    setCreating(true)
-    setError(null)
+    const name = newName.trim();
+    if (!name) return;
+    setCreating(true);
+    setError(null);
     try {
-      const created = await api.createTag({ name, color: newColor })
+      const created = await api.createTag({ name, color: newColor });
       // Add to local catalogue so the toggle appears immediately.
       setCatalogue((cur) => {
-        if (cur.some((t) => t.id === created.id)) return cur
-        const next = [...cur, created]
-        next.sort((a, b) => a.name.localeCompare(b.name))
-        return next
-      })
-      const next = new Set(selected)
-      next.add(created.id)
-      setSelected(next)
-      await persist(next)
-      setNewName('')
+        if (cur.some((t) => t.id === created.id)) return cur;
+        const next = [...cur, created];
+        next.sort((a, b) => a.name.localeCompare(b.name));
+        return next;
+      });
+      const next = new Set(selected);
+      next.add(created.id);
+      setSelected(next);
+      await persist(next);
+      setNewName('');
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setCreating(false)
+      setCreating(false);
     }
   }
 
-  const selectedList = catalogue.filter((t) => selected.has(t.id))
+  const selectedList = catalogue.filter((t) => selected.has(t.id));
 
   return (
     <div className="rounded border border-slate-200 dark:border-slate-800 p-3 space-y-2">
@@ -165,8 +165,8 @@ export function TagsList({ taskId, initial }: { taskId: string; initial: Tag[] }
 
       <form
         onSubmit={(e) => {
-          e.preventDefault()
-          void createAndAttach()
+          e.preventDefault();
+          void createAndAttach();
         }}
         className="flex gap-1 items-center pt-1 border-t border-slate-100 dark:border-slate-800"
       >
@@ -197,5 +197,5 @@ export function TagsList({ taskId, initial }: { taskId: string; initial: Tag[] }
 
       {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
-  )
+  );
 }

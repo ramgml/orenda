@@ -16,17 +16,17 @@
  * the user. We don't bother with the full AuthProvider — the
  * component reads only `useAuth().user`, which is what we stub.
  */
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { TaskFieldControls } from '@/features/tasks/TaskFieldControls'
-import { api, type BoardColumn, type ProjectBoard } from '@/shared/api/client'
+import { TaskFieldControls } from '@/features/tasks/TaskFieldControls';
+import { api, type BoardColumn, type ProjectBoard } from '@/shared/api/client';
 
 // AuthContext mock: provide a user with id 'u-me' so the "me"
 // branch of the Assignee select is exercisable.
 vi.mock('@/features/auth/AuthContext', () => ({
   useAuth: () => ({ user: { user_id: 'u-me', email: 'me@x.io', display_name: 'Me' } }),
-}))
+}));
 
 // Default board used by project-aware tests. Five canonical columns
 // — order matters (sorted by position by the component).
@@ -36,7 +36,7 @@ const defaultBoardColumns: BoardColumn[] = [
   { id: 'c-ip', board_id: 'b1', name: 'In progress', position: 2048, status: 'in_progress' },
   { id: 'c-rv', board_id: 'b1', name: 'Review', position: 3072, status: 'review' },
   { id: 'c-dn', board_id: 'b1', name: 'Done', position: 4096, status: 'done' },
-]
+];
 
 const defaultBoard: ProjectBoard = {
   board: {
@@ -47,27 +47,27 @@ const defaultBoard: ProjectBoard = {
     created_at: '2026-01-01T00:00:00Z',
   },
   columns: defaultBoardColumns,
-}
+};
 
 function mockBoard(cols: BoardColumn[] = defaultBoardColumns): void {
   vi.spyOn(api, 'getBoard').mockResolvedValue({
     board: defaultBoard.board,
     columns: cols,
-  })
+  });
 }
 
 beforeEach(() => {
-  vi.restoreAllMocks()
-})
+  vi.restoreAllMocks();
+});
 
 afterEach(() => {
-  cleanup()
-})
+  cleanup();
+});
 
 describe('TaskFieldControls', () => {
   it('renders all three controls with the current values', async () => {
-    vi.spyOn(api, 'listAgents').mockResolvedValue([])
-    mockBoard()
+    vi.spyOn(api, 'listAgents').mockResolvedValue([]);
+    mockBoard();
     const { getByTestId } = render(
       <TaskFieldControls
         status="todo"
@@ -80,20 +80,20 @@ describe('TaskFieldControls', () => {
         onChanged={() => {}}
         onError={() => {}}
       />,
-    )
+    );
     // Wait for the board to load so the Status select is present.
-    await waitFor(() => expect(getByTestId('task-status')).toBeTruthy())
-    const status = getByTestId('task-status') as HTMLSelectElement
-    const priority = getByTestId('task-priority') as HTMLSelectElement
-    expect(status.value).toBe('todo')
-    expect(priority.value).toBe('medium')
+    await waitFor(() => expect(getByTestId('task-status')).toBeTruthy());
+    const status = getByTestId('task-status') as HTMLSelectElement;
+    const priority = getByTestId('task-priority') as HTMLSelectElement;
+    expect(status.value).toBe('todo');
+    expect(priority.value).toBe('medium');
     // Assignee defaults to "unassigned" for an unassigned task.
-    const assignee = getByTestId('task-assignee').querySelector('select') as HTMLSelectElement
-    expect(assignee.value).toBe('unassigned')
-  })
+    const assignee = getByTestId('task-assignee').querySelector('select') as HTMLSelectElement;
+    expect(assignee.value).toBe('unassigned');
+  });
 
   it('Status select renders project columns sorted by position', async () => {
-    vi.spyOn(api, 'listAgents').mockResolvedValue([])
+    vi.spyOn(api, 'listAgents').mockResolvedValue([]);
     // Deliberately unsorted + a custom column to verify both
     // ordering and that custom statuses show up.
     mockBoard([
@@ -101,7 +101,7 @@ describe('TaskFieldControls', () => {
       { id: 'c-td', board_id: 'b1', name: 'Todo', position: 1024, status: 'todo' },
       { id: 'c-qa', board_id: 'b1', name: 'QA', position: 5120, status: 'qa' },
       { id: 'c-bl', board_id: 'b1', name: 'Backlog', position: 0, status: 'backlog' },
-    ])
+    ]);
     const { getByTestId } = render(
       <TaskFieldControls
         status="todo"
@@ -114,22 +114,22 @@ describe('TaskFieldControls', () => {
         onChanged={() => {}}
         onError={() => {}}
       />,
-    )
-    const status = await waitFor(() => getByTestId('task-status') as HTMLSelectElement)
-    const labels = Array.from(status.options).map((o) => `${o.value}=${o.text}`)
+    );
+    const status = await waitFor(() => getByTestId('task-status') as HTMLSelectElement);
+    const labels = Array.from(status.options).map((o) => `${o.value}=${o.text}`);
     // Position-ordered: backlog, todo, done, qa.
-    expect(labels).toEqual(['backlog=Backlog', 'todo=Todo', 'done=Done', 'qa=QA'])
-  })
+    expect(labels).toEqual(['backlog=Backlog', 'todo=Todo', 'done=Done', 'qa=QA']);
+  });
 
   it('Patches the task when status changes', async () => {
-    vi.spyOn(api, 'listAgents').mockResolvedValue([])
-    mockBoard()
+    vi.spyOn(api, 'listAgents').mockResolvedValue([]);
+    mockBoard();
     const spy = vi.spyOn(api, 'patchTask').mockResolvedValue({
       id: 't1',
       status: 'in_progress',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any)
-    const onChanged = vi.fn()
+    } as any);
+    const onChanged = vi.fn();
     const { getByTestId } = render(
       <TaskFieldControls
         status="todo"
@@ -142,18 +142,18 @@ describe('TaskFieldControls', () => {
         onChanged={onChanged}
         onError={() => {}}
       />,
-    )
-    const status = await waitFor(() => getByTestId('task-status') as HTMLSelectElement)
-    fireEvent.change(status, { target: { value: 'in_progress' } })
-    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
-    expect(spy).toHaveBeenCalledWith('t1', expect.objectContaining({ status: 'in_progress' }))
-    expect(onChanged).toHaveBeenCalled()
-  })
+    );
+    const status = await waitFor(() => getByTestId('task-status') as HTMLSelectElement);
+    fireEvent.change(status, { target: { value: 'in_progress' } });
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(spy).toHaveBeenCalledWith('t1', expect.objectContaining({ status: 'in_progress' }));
+    expect(onChanged).toHaveBeenCalled();
+  });
 
   it('Patches priority with the new value', async () => {
-    vi.spyOn(api, 'listAgents').mockResolvedValue([])
-    mockBoard()
-    const spy = vi.spyOn(api, 'patchTask').mockResolvedValue({} as never)
+    vi.spyOn(api, 'listAgents').mockResolvedValue([]);
+    mockBoard();
+    const spy = vi.spyOn(api, 'patchTask').mockResolvedValue({} as never);
     const { getByTestId } = render(
       <TaskFieldControls
         status="todo"
@@ -166,15 +166,17 @@ describe('TaskFieldControls', () => {
         onChanged={() => {}}
         onError={() => {}}
       />,
-    )
-    fireEvent.change(getByTestId('task-priority'), { target: { value: 'urgent' } })
-    await waitFor(() => expect(spy).toHaveBeenCalledWith('t1', expect.objectContaining({ priority: 'urgent' })))
-  })
+    );
+    fireEvent.change(getByTestId('task-priority'), { target: { value: 'urgent' } });
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith('t1', expect.objectContaining({ priority: 'urgent' })),
+    );
+  });
 
   it('Assignee "Unassigned" sends empty assignee pair', async () => {
-    vi.spyOn(api, 'listAgents').mockResolvedValue([])
-    mockBoard()
-    const spy = vi.spyOn(api, 'patchTask').mockResolvedValue({} as never)
+    vi.spyOn(api, 'listAgents').mockResolvedValue([]);
+    mockBoard();
+    const spy = vi.spyOn(api, 'patchTask').mockResolvedValue({} as never);
     const { getByTestId } = render(
       <TaskFieldControls
         status="todo"
@@ -187,18 +189,21 @@ describe('TaskFieldControls', () => {
         onChanged={() => {}}
         onError={() => {}}
       />,
-    )
-    const select = getByTestId('task-assignee').querySelector('select') as HTMLSelectElement
-    fireEvent.change(select, { target: { value: 'unassigned' } })
+    );
+    const select = getByTestId('task-assignee').querySelector('select') as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: 'unassigned' } });
     await waitFor(() =>
-      expect(spy).toHaveBeenCalledWith('t1', expect.objectContaining({ assignee_type: '', assignee_id: '' })),
-    )
-  })
+      expect(spy).toHaveBeenCalledWith(
+        't1',
+        expect.objectContaining({ assignee_type: '', assignee_id: '' }),
+      ),
+    );
+  });
 
   it('Assignee "Me" sends user / user_id', async () => {
-    vi.spyOn(api, 'listAgents').mockResolvedValue([])
-    mockBoard()
-    const spy = vi.spyOn(api, 'patchTask').mockResolvedValue({} as never)
+    vi.spyOn(api, 'listAgents').mockResolvedValue([]);
+    mockBoard();
+    const spy = vi.spyOn(api, 'patchTask').mockResolvedValue({} as never);
     const { getByTestId } = render(
       <TaskFieldControls
         status="todo"
@@ -211,21 +216,24 @@ describe('TaskFieldControls', () => {
         onChanged={() => {}}
         onError={() => {}}
       />,
-    )
-    const select = getByTestId('task-assignee').querySelector('select') as HTMLSelectElement
-    fireEvent.change(select, { target: { value: 'me' } })
+    );
+    const select = getByTestId('task-assignee').querySelector('select') as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: 'me' } });
     await waitFor(() =>
-      expect(spy).toHaveBeenCalledWith('t1', expect.objectContaining({ assignee_type: 'user', assignee_id: 'u-me' })),
-    )
-  })
+      expect(spy).toHaveBeenCalledWith(
+        't1',
+        expect.objectContaining({ assignee_type: 'user', assignee_id: 'u-me' }),
+      ),
+    );
+  });
 
   it('Lists agents in the Assignee dropdown by name', async () => {
     vi.spyOn(api, 'listAgents').mockResolvedValue([
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       { id: 'a1', name: 'QA-bot', status: 'online' } as any,
-    ])
-    mockBoard()
-    vi.spyOn(api, 'patchTask').mockResolvedValue({} as never)
+    ]);
+    mockBoard();
+    vi.spyOn(api, 'patchTask').mockResolvedValue({} as never);
     const { getByTestId } = render(
       <TaskFieldControls
         status="todo"
@@ -238,19 +246,19 @@ describe('TaskFieldControls', () => {
         onChanged={() => {}}
         onError={() => {}}
       />,
-    )
-    const select = getByTestId('task-assignee').querySelector('select') as HTMLSelectElement
+    );
+    const select = getByTestId('task-assignee').querySelector('select') as HTMLSelectElement;
     await waitFor(() => {
-      const opts = Array.from(select.options).map((o) => o.value)
-      expect(opts).toContain('agent:a1')
-    })
-  })
+      const opts = Array.from(select.options).map((o) => o.value);
+      expect(opts).toContain('agent:a1');
+    });
+  });
 
   it('surfaces api errors via onError', async () => {
-    vi.spyOn(api, 'listAgents').mockResolvedValue([])
-    mockBoard()
-    vi.spyOn(api, 'patchTask').mockRejectedValue(new Error('boom'))
-    const onError = vi.fn()
+    vi.spyOn(api, 'listAgents').mockResolvedValue([]);
+    mockBoard();
+    vi.spyOn(api, 'patchTask').mockRejectedValue(new Error('boom'));
+    const onError = vi.fn();
     const { getByTestId } = render(
       <TaskFieldControls
         status="todo"
@@ -263,17 +271,17 @@ describe('TaskFieldControls', () => {
         onChanged={() => {}}
         onError={onError}
       />,
-    )
-    const status = await waitFor(() => getByTestId('task-status') as HTMLSelectElement)
-    fireEvent.change(status, { target: { value: 'done' } })
-    await waitFor(() => expect(onError).toHaveBeenCalledWith('boom'))
-  })
+    );
+    const status = await waitFor(() => getByTestId('task-status') as HTMLSelectElement);
+    fireEvent.change(status, { target: { value: 'done' } });
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('boom'));
+  });
 
   // Phase 27.8.4: Inbox tasks have no project, hence no board —
   // Status renders as a read-only label, no select, no API call.
   it('renders Status as read-only when projectID is empty (Inbox)', async () => {
-    const getBoardSpy = vi.spyOn(api, 'getBoard')
-    vi.spyOn(api, 'listAgents').mockResolvedValue([])
+    const getBoardSpy = vi.spyOn(api, 'getBoard');
+    vi.spyOn(api, 'listAgents').mockResolvedValue([]);
     const { queryByTestId, getByTestId } = render(
       <TaskFieldControls
         status="todo"
@@ -286,12 +294,12 @@ describe('TaskFieldControls', () => {
         onChanged={() => {}}
         onError={() => {}}
       />,
-    )
+    );
     // No select — read-only instead.
-    expect(queryByTestId('task-status')).toBeNull()
-    expect(getByTestId('task-status-readonly')).toBeTruthy()
-    expect(getByTestId('task-status-value').textContent).toBe('todo')
+    expect(queryByTestId('task-status')).toBeNull();
+    expect(getByTestId('task-status-readonly')).toBeTruthy();
+    expect(getByTestId('task-status-value').textContent).toBe('todo');
     // And the component must not have tried to fetch a board.
-    expect(getBoardSpy).not.toHaveBeenCalled()
-  })
-})
+    expect(getBoardSpy).not.toHaveBeenCalled();
+  });
+});

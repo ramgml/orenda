@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { api, type Course } from '@/shared/api/client'
+import { api, type Course } from '@/shared/api/client';
 
 /**
  * Phase 27.6: inline curriculum editor for the owner.
@@ -20,46 +20,46 @@ import { api, type Course } from '@/shared/api/client'
  * initial tree and is called back on success.
  */
 export interface EditorQuiz {
-  id: string
-  position: number
-  question_md: string
-  expected_md: string
-  kind: 'exact' | 'open'
+  id: string;
+  position: number;
+  question_md: string;
+  expected_md: string;
+  kind: 'exact' | 'open';
 }
 
 export interface EditorLesson {
-  id: string
-  title: string
-  position: number
-  content_md: string
-  quizzes: EditorQuiz[]
+  id: string;
+  title: string;
+  position: number;
+  content_md: string;
+  quizzes: EditorQuiz[];
 }
 
 export interface EditorModule {
-  id: string
-  title: string
-  description: string
-  position: number
-  lessons: EditorLesson[]
+  id: string;
+  title: string;
+  description: string;
+  position: number;
+  lessons: EditorLesson[];
 }
 
 export function CourseCurriculumEditor(props: {
-  course: Course
-  initialModules: EditorModule[]
-  onCancel: () => void
-  onSaved: () => void
+  course: Course;
+  initialModules: EditorModule[];
+  onCancel: () => void;
+  onSaved: () => void;
 }): JSX.Element {
-  const { course, onCancel, onSaved } = props
-  const [modules, setModules] = useState<EditorModule[]>(props.initialModules)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { course, onCancel, onSaved } = props;
+  const [modules, setModules] = useState<EditorModule[]>(props.initialModules);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Re-seed when the parent reloads (e.g. after cancel-save).
   useEffect(() => {
-    setModules(props.initialModules)
-  }, [props.initialModules])
+    setModules(props.initialModules);
+  }, [props.initialModules]);
 
-  const isReadOnly = course.status !== 'draft' && course.status !== 'review'
+  const isReadOnly = course.status !== 'draft' && course.status !== 'review';
 
   const addModule = useCallback(() => {
     setModules((prev) => [
@@ -71,16 +71,16 @@ export function CourseCurriculumEditor(props: {
         position: prev.length,
         lessons: [],
       },
-    ])
-  }, [])
+    ]);
+  }, []);
 
   const updateModule = useCallback((id: string, patch: Partial<EditorModule>) => {
-    setModules((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)))
-  }, [])
+    setModules((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+  }, []);
 
   const removeModule = useCallback((id: string) => {
-    setModules((prev) => prev.filter((m) => m.id !== id))
-  }, [])
+    setModules((prev) => prev.filter((m) => m.id !== id));
+  }, []);
 
   const addLesson = useCallback((moduleID: string) => {
     setModules((prev) =>
@@ -101,8 +101,8 @@ export function CourseCurriculumEditor(props: {
             }
           : m,
       ),
-    )
-  }, [])
+    );
+  }, []);
 
   const updateLesson = useCallback(
     (moduleID: string, lessonID: string, patch: Partial<EditorLesson>) => {
@@ -115,18 +115,18 @@ export function CourseCurriculumEditor(props: {
               }
             : m,
         ),
-      )
+      );
     },
     [],
-  )
+  );
 
   const removeLesson = useCallback((moduleID: string, lessonID: string) => {
     setModules((prev) =>
       prev.map((m) =>
         m.id === moduleID ? { ...m, lessons: m.lessons.filter((l) => l.id !== lessonID) } : m,
       ),
-    )
-  }, [])
+    );
+  }, []);
 
   const addQuiz = useCallback((moduleID: string, lessonID: string) => {
     setModules((prev) =>
@@ -154,8 +154,8 @@ export function CourseCurriculumEditor(props: {
             }
           : m,
       ),
-    )
-  }, [])
+    );
+  }, []);
 
   const updateQuiz = useCallback(
     (moduleID: string, lessonID: string, quizID: string, patch: Partial<EditorQuiz>) => {
@@ -175,35 +175,30 @@ export function CourseCurriculumEditor(props: {
               }
             : m,
         ),
-      )
+      );
     },
     [],
-  )
+  );
 
-  const removeQuiz = useCallback(
-    (moduleID: string, lessonID: string, quizID: string) => {
-      setModules((prev) =>
-        prev.map((m) =>
-          m.id === moduleID
-            ? {
-                ...m,
-                lessons: m.lessons.map((l) =>
-                  l.id === lessonID
-                    ? { ...l, quizzes: l.quizzes.filter((q) => q.id !== quizID) }
-                    : l,
-                ),
-              }
-            : m,
-        ),
-      )
-    },
-    [],
-  )
+  const removeQuiz = useCallback((moduleID: string, lessonID: string, quizID: string) => {
+    setModules((prev) =>
+      prev.map((m) =>
+        m.id === moduleID
+          ? {
+              ...m,
+              lessons: m.lessons.map((l) =>
+                l.id === lessonID ? { ...l, quizzes: l.quizzes.filter((q) => q.id !== quizID) } : l,
+              ),
+            }
+          : m,
+      ),
+    );
+  }, []);
 
   const onSave = useCallback(async () => {
-    if (busy) return
-    setBusy(true)
-    setError(null)
+    if (busy) return;
+    setBusy(true);
+    setError(null);
     try {
       const payload = {
         modules: modules.map((m, mi) => ({
@@ -225,59 +220,59 @@ export function CourseCurriculumEditor(props: {
             })),
           })),
         })),
-      }
+      };
       for (const m of payload.modules) {
         if (!m.title.trim()) {
-          setError('Every module needs a title.')
-          setBusy(false)
-          return
+          setError('Every module needs a title.');
+          setBusy(false);
+          return;
         }
         for (const l of m.lessons) {
           if (!l.title.trim()) {
-            setError('Every lesson needs a title.')
-            setBusy(false)
-            return
+            setError('Every lesson needs a title.');
+            setBusy(false);
+            return;
           }
           for (const q of l.quizzes) {
             if (!q.question_md.trim()) {
-              setError('Every quiz needs a question.')
-              setBusy(false)
-              return
+              setError('Every quiz needs a question.');
+              setBusy(false);
+              return;
             }
             if (q.kind === 'exact' && !q.expected_md.trim()) {
-              setError('Exact quizzes need an expected answer.')
-              setBusy(false)
-              return
+              setError('Exact quizzes need an expected answer.');
+              setBusy(false);
+              return;
             }
           }
         }
       }
-      await api.submitCurriculum(course.id, payload)
-      onSaved()
+      await api.submitCurriculum(course.id, payload);
+      onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }, [busy, course.id, modules, onSaved])
+  }, [busy, course.id, modules, onSaved]);
 
-  const moduleCount = modules.length
+  const moduleCount = modules.length;
   const lessonCount = useMemo(
     () => modules.reduce((acc, m) => acc + m.lessons.length, 0),
     [modules],
-  )
+  );
   const quizCount = useMemo(
     () => modules.reduce((acc, m) => acc + m.lessons.reduce((b, l) => b + l.quizzes.length, 0), 0),
     [modules],
-  )
+  );
 
   if (isReadOnly) {
     return (
       <p className="text-sm text-slate-500 italic" data-testid="editor-readonly">
-        Curriculum is locked once the course is active. Edit individual
-        lessons from the lesson page.
+        Curriculum is locked once the course is active. Edit individual lessons from the lesson
+        page.
       </p>
-    )
+    );
   }
 
   return (
@@ -288,8 +283,7 @@ export function CourseCurriculumEditor(props: {
 
       {modules.length === 0 && (
         <p className="text-sm text-slate-400 italic">
-          No modules yet. Add the first one to start shaping the
-          program.
+          No modules yet. Add the first one to start shaping the program.
         </p>
       )}
 
@@ -462,5 +456,5 @@ export function CourseCurriculumEditor(props: {
         </button>
       </div>
     </div>
-  )
+  );
 }

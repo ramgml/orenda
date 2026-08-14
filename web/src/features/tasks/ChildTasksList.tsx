@@ -1,7 +1,7 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react';
 
-import { api, type ChildTaskProgress, type Task } from '@/shared/api/client'
-import { TaskLink } from './TaskModal'
+import { api, type ChildTaskProgress, type Task } from '@/shared/api/client';
+import { TaskLink } from './TaskModal';
 
 /**
  * Status badge colour for a child task. Mirrors the kanban palette so
@@ -11,15 +11,15 @@ import { TaskLink } from './TaskModal'
 function statusBadgeClass(s: string): string {
   switch (s) {
     case 'done':
-      return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+      return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
     case 'in_progress':
-      return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+      return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
     case 'review':
-      return 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'
+      return 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200';
     case 'backlog':
-      return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
+      return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200';
     default:
-      return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
+      return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200';
   }
 }
 
@@ -39,31 +39,31 @@ export function ChildTasksList({
   initialTasks,
   initialProgress,
 }: {
-  taskId: string
-  projectId: string
-  initialTasks: Task[]
-  initialProgress: ChildTaskProgress
+  taskId: string;
+  projectId: string;
+  initialTasks: Task[];
+  initialProgress: ChildTaskProgress;
 }) {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks)
-  const [progress, setProgress] = useState<ChildTaskProgress>(initialProgress)
-  const [title, setTitle] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [progress, setProgress] = useState<ChildTaskProgress>(initialProgress);
+  const [title, setTitle] = useState('');
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setTasks(initialTasks)
-    setProgress(initialProgress)
-  }, [initialTasks, initialProgress])
+    setTasks(initialTasks);
+    setProgress(initialProgress);
+  }, [initialTasks, initialProgress]);
 
   async function reload(): Promise<void> {
-    const r = await api.listChildTasks(taskId)
-    setTasks(r.tasks ?? [])
-    setProgress(r.progress ?? { total: 0, done: 0 })
+    const r = await api.listChildTasks(taskId);
+    setTasks(r.tasks ?? []);
+    setProgress(r.progress ?? { total: 0, done: 0 });
   }
 
   async function onAdd(e: FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    if (!title.trim()) return
-    setBusy(true)
+    e.preventDefault();
+    if (!title.trim()) return;
+    setBusy(true);
     try {
       // Phase 16: projectId may be empty (the parent is an Inbox
       // task). Use the dedicated inbox endpoint so the server stores
@@ -76,30 +76,30 @@ export function ChildTasksList({
         : await api.createInboxTask({
             title: title.trim(),
             parent_task_id: taskId,
-          })
-      setTasks((cur) => [...cur, t])
-      setProgress((p) => ({ total: p.total + 1, done: t.status === 'done' ? p.done + 1 : p.done }))
-      setTitle('')
+          });
+      setTasks((cur) => [...cur, t]);
+      setProgress((p) => ({ total: p.total + 1, done: t.status === 'done' ? p.done + 1 : p.done }));
+      setTitle('');
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   async function onDelete(t: Task): Promise<void> {
-    if (!window.confirm(`Delete child task "${t.title}"?`)) return
-    setTasks((cur) => cur.filter((x) => x.id !== t.id))
+    if (!window.confirm(`Delete child task "${t.title}"?`)) return;
+    setTasks((cur) => cur.filter((x) => x.id !== t.id));
     setProgress((p) => ({
       total: Math.max(0, p.total - 1),
       done: Math.max(0, p.done - (t.status === 'done' ? 1 : 0)),
-    }))
+    }));
     try {
-      await api.deleteChildTask(t.id)
+      await api.deleteChildTask(t.id);
     } catch {
-      reload()
+      reload();
     }
   }
 
-  const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0
+  const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
 
   return (
     <section>
@@ -137,15 +137,10 @@ export function ChildTasksList({
               key={t.id}
               className="flex items-center gap-2 group rounded border border-transparent hover:border-slate-200 dark:hover:border-slate-700 px-2 py-1"
             >
-              <TaskLink
-                taskId={t.id}
-                className="flex-1 text-sm hover:underline truncate"
-              >
+              <TaskLink taskId={t.id} className="flex-1 text-sm hover:underline truncate">
                 {t.title}
               </TaskLink>
-              <span
-                className={`text-xs px-1.5 py-0.5 rounded ${statusBadgeClass(t.status)}`}
-              >
+              <span className={`text-xs px-1.5 py-0.5 rounded ${statusBadgeClass(t.status)}`}>
                 {t.status}
               </span>
               {t.assignee_type && (
@@ -182,5 +177,5 @@ export function ChildTasksList({
         </button>
       </form>
     </section>
-  )
+  );
 }

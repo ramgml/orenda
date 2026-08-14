@@ -5,21 +5,21 @@
  * lose access to global views like Calendar or Wiki. Active route is
  * highlighted via `useLocation`.
  */
-import { useCallback, useEffect, useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react';
+import { NavLink } from 'react-router-dom';
 
-import { api } from '@/shared/api/client'
-import { useWebSocketTopic } from '@/shared/ws'
+import { api } from '@/shared/api/client';
+import { useWebSocketTopic } from '@/shared/ws';
 
 interface NavEntry {
-  to: string
-  label: string
+  to: string;
+  label: string;
   /** Single unicode glyph used as an icon (no extra deps). */
-  glyph: string
+  glyph: string;
   /** Short matchers so children paths count as active too. */
-  matchPrefix?: string
+  matchPrefix?: string;
   /** Phase 19: which entry carries a live badge. */
-  badge?: 'review'
+  badge?: 'review';
 }
 
 const NAV: NavEntry[] = [
@@ -36,7 +36,7 @@ const NAV: NavEntry[] = [
   { to: '/courses', label: 'Courses', glyph: '🎓', matchPrefix: '/courses' },
   { to: '/reports', label: 'Reports', glyph: '▤' },
   { to: '/settings', label: 'Settings', glyph: '⚙', matchPrefix: '/settings' },
-]
+];
 
 export function SidebarNav({ collapsed }: { collapsed: boolean }): JSX.Element {
   return (
@@ -45,7 +45,7 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }): JSX.Element {
         <SidebarNavItem key={entry.to} entry={entry} collapsed={collapsed} />
       ))}
     </nav>
-  )
+  );
 }
 
 /**
@@ -57,15 +57,14 @@ function SidebarNavItem({
   entry,
   collapsed,
 }: {
-  entry: NavEntry
-  collapsed: boolean
+  entry: NavEntry;
+  collapsed: boolean;
 }): JSX.Element {
   // Phase 19: badge for the review queue. Loaded once on mount + on
   // every WS "tasks" event (cheap endpoint, the badge lives at the
   // top of the rail where it has to be current).
-  const reviewCount = useReviewBadgeCount()
-  const badge =
-    entry.badge === 'review' && reviewCount && reviewCount > 0 ? reviewCount : null
+  const reviewCount = useReviewBadgeCount();
+  const badge = entry.badge === 'review' && reviewCount && reviewCount > 0 ? reviewCount : null;
 
   if (collapsed) {
     return (
@@ -93,7 +92,7 @@ function SidebarNavItem({
           </span>
         )}
       </NavLink>
-    )
+    );
   }
 
   return (
@@ -101,17 +100,17 @@ function SidebarNavItem({
       to={entry.to}
       end={entry.to === '/'}
       className={({ isActive }) => {
-        const active = entry.to === '/' ? isActive : isActive
+        const active = entry.to === '/' ? isActive : isActive;
         return [
           'relative flex items-center gap-3 px-3 py-1.5 text-sm rounded mx-2',
           active
             ? 'bg-slate-100 dark:bg-slate-800 text-orenda-600 dark:text-orenda-400'
             : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800',
-        ].join(' ')
+        ].join(' ');
       }}
     >
       {({ isActive }) => {
-        const active = entry.to === '/' ? isActive : isActive
+        const active = entry.to === '/' ? isActive : isActive;
         return (
           <>
             <span
@@ -134,10 +133,10 @@ function SidebarNavItem({
               </span>
             )}
           </>
-        )
+        );
       }}
     </NavLink>
-  )
+  );
 }
 
 /**
@@ -149,20 +148,20 @@ function SidebarNavItem({
  * notifications" state).
  */
 function useReviewBadgeCount(): number | undefined {
-  const [count, setCount] = useState<number | undefined>(undefined)
+  const [count, setCount] = useState<number | undefined>(undefined);
   const refresh = useCallback(async (): Promise<void> => {
     try {
-      const r = await api.getReviewQueueCount()
-      setCount(r.count)
+      const r = await api.getReviewQueueCount();
+      setCount(r.count);
     } catch {
       // best-effort: leave the previous value on error.
     }
-  }, [])
+  }, []);
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    void refresh();
+  }, [refresh]);
   useWebSocketTopic('tasks', () => {
-    void refresh()
-  })
-  return count
+    void refresh();
+  });
+  return count;
 }

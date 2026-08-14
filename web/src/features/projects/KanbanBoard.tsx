@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -8,22 +8,22 @@ import {
   closestCenter,
   useSensor,
   useSensors,
-} from '@dnd-kit/core'
+} from '@dnd-kit/core';
 import {
   SortableContext,
   arrayMove,
   horizontalListSortingStrategy,
   useSortable,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
-import { useAuth } from '@/features/auth/AuthContext'
-import { api, type Column, type Task } from '@/shared/api/client'
-import { useWebSocketTopic } from '@/shared/ws'
-import { queueMoveTask } from '@/shared/offline/outbox'
+import { useAuth } from '@/features/auth/AuthContext';
+import { api, type Column, type Task } from '@/shared/api/client';
+import { useWebSocketTopic } from '@/shared/ws';
+import { queueMoveTask } from '@/shared/offline/outbox';
 
-import { ColumnView } from './ColumnView'
-import { TaskCard } from './TaskCard'
+import { ColumnView } from './ColumnView';
+import { TaskCard } from './TaskCard';
 
 /**
  * Kanban board for one project: drag-and-drop columns AND tasks via
@@ -58,88 +58,86 @@ export function KanbanBoard({
   projectId,
   columns,
 }: {
-  projectId: string
-  columns: Column[]
+  projectId: string;
+  columns: Column[];
 }): JSX.Element {
   // useAuth is consumed only to keep the WS hook's context alive.
-  useAuth()
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [cols, setCols] = useState<Column[]>(columns)
-  const [activeTask, setActiveTask] = useState<Task | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  useAuth();
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [cols, setCols] = useState<Column[]>(columns);
+  const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [error, setError] = useState<string | null>(null);
   // Persist the toggle in localStorage so the user's choice survives
   // navigation. Defaults to true (show) per Phase 14 UX request.
   const [showChildren, setShowChildren] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true
-    const v = window.localStorage.getItem('orenda.kanban.showChildren')
-    return v === null ? true : v === 'true'
-  })
+    if (typeof window === 'undefined') return true;
+    const v = window.localStorage.getItem('orenda.kanban.showChildren');
+    return v === null ? true : v === 'true';
+  });
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    window.localStorage.setItem('orenda.kanban.showChildren', String(showChildren))
-  }, [showChildren])
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('orenda.kanban.showChildren', String(showChildren));
+  }, [showChildren]);
 
   // Keep local cols in sync if the parent re-fetches the board.
   useEffect(() => {
-    setCols(columns)
-  }, [columns])
+    setCols(columns);
+  }, [columns]);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-  )
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   async function load(): Promise<void> {
     try {
-      setTasks(await api.listProjectTasks(projectId))
-      setError(null)
+      setTasks(await api.listProjectTasks(projectId));
+      setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   useEffect(() => {
-    load()
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId])
+  }, [projectId]);
 
   // Re-fetch on every task/column event. Simple, correct, and
   // acceptable at Phase 2/12 scale (one owner, one board, <1k tasks).
   useWebSocketTopic('tasks', () => {
-    load()
-  })
+    load();
+  });
 
   function isColumnId(id: string): boolean {
-    return cols.some((c) => c.id === id)
+    return cols.some((c) => c.id === id);
   }
 
   function onDragStart(ev: DragStartEvent): void {
-    if (isColumnId(String(ev.active.id))) return // column drag handled in onDragEnd
-    const t = tasks.find((x) => x.id === ev.active.id)
-    if (t) setActiveTask(t)
+    if (isColumnId(String(ev.active.id))) return; // column drag handled in onDragEnd
+    const t = tasks.find((x) => x.id === ev.active.id);
+    if (t) setActiveTask(t);
   }
 
   async function onDragEnd(ev: DragEndEvent): Promise<void> {
-    setActiveTask(null)
-    const activeId = String(ev.active.id)
-    const overId = ev.over ? String(ev.over.id) : null
-    if (!overId) return
+    setActiveTask(null);
+    const activeId = String(ev.active.id);
+    const overId = ev.over ? String(ev.over.id) : null;
+    if (!overId) return;
 
     // Column reorder: both endpoints are columns.
     if (isColumnId(activeId) && isColumnId(overId) && activeId !== overId) {
-      await reorderColumns(activeId, overId)
-      return
+      await reorderColumns(activeId, overId);
+      return;
     }
 
     // Task move into a column.
-    const targetColumnId = overId
-    const current = tasks.find((t) => t.id === activeId)
-    if (!current || current.column_id === targetColumnId) return
+    const targetColumnId = overId;
+    const current = tasks.find((t) => t.id === activeId);
+    if (!current || current.column_id === targetColumnId) return;
 
-    const prev = tasks
+    const prev = tasks;
     setTasks((cur) =>
       cur.map((t) => (t.id === activeId ? { ...t, column_id: targetColumnId } : t)),
-    )
+    );
 
     try {
       // Phase Wave 4 PR 2: route the move through the offline
@@ -148,13 +146,13 @@ export function KanbanBoard({
       // returns. Online path is the same as before (axios call
       // catches the error and the optimistic update stays in place).
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        await queueMoveTask(activeId, targetColumnId)
+        await queueMoveTask(activeId, targetColumnId);
       } else {
-        await api.moveTask(activeId, targetColumnId)
+        await api.moveTask(activeId, targetColumnId);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-      setTasks(prev)
+      setError(e instanceof Error ? e.message : String(e));
+      setTasks(prev);
     }
   }
 
@@ -165,37 +163,37 @@ export function KanbanBoard({
    * it anyway, but doing it inline makes the failure feel immediate).
    */
   async function reorderColumns(activeId: string, overId: string): Promise<void> {
-    const fromIdx = cols.findIndex((c) => c.id === activeId)
-    const toIdx = cols.findIndex((c) => c.id === overId)
-    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return
+    const fromIdx = cols.findIndex((c) => c.id === activeId);
+    const toIdx = cols.findIndex((c) => c.id === overId);
+    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
 
-    const reordered = arrayMove(cols, fromIdx, toIdx)
-    const prev = cols
-    setCols(reordered)
+    const reordered = arrayMove(cols, fromIdx, toIdx);
+    const prev = cols;
+    setCols(reordered);
 
     // Midpoint between the columns now surrounding the moved one.
-    const before = toIdx > 0 ? reordered[toIdx - 1].position : null
-    const after = toIdx < reordered.length - 1 ? reordered[toIdx + 1].position : null
-    let newPos: number
+    const before = toIdx > 0 ? reordered[toIdx - 1].position : null;
+    const after = toIdx < reordered.length - 1 ? reordered[toIdx + 1].position : null;
+    let newPos: number;
     if (before != null && after != null) {
-      newPos = (before + after) / 2
+      newPos = (before + after) / 2;
     } else if (before != null) {
       // Moved to the very end.
-      newPos = before + 1024
+      newPos = before + 1024;
     } else if (after != null) {
       // Moved to the very front.
-      newPos = after - 1024
+      newPos = after - 1024;
     } else {
       // Single-column board — position is moot.
-      newPos = 1024
+      newPos = 1024;
     }
 
     try {
-      const updated = await api.updateColumn(activeId, { position: newPos })
-      setCols((cur) => cur.map((c) => (c.id === updated.id ? updated : c)))
+      const updated = await api.updateColumn(activeId, { position: newPos });
+      setCols((cur) => cur.map((c) => (c.id === updated.id ? updated : c)));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-      setCols(prev)
+      setError(e instanceof Error ? e.message : String(e));
+      setCols(prev);
     }
   }
 
@@ -203,20 +201,20 @@ export function KanbanBoard({
   // column so they're still visible (defensive — should be rare
   // since the backend defaults child tasks to the parent's column).
   const tasksByCol = useMemo(() => {
-    const map = new Map<string, Task[]>()
-    const fallback = cols[0]?.id
-    const visible = showChildren ? tasks : tasks.filter((t) => !t.parent_task_id)
+    const map = new Map<string, Task[]>();
+    const fallback = cols[0]?.id;
+    const visible = showChildren ? tasks : tasks.filter((t) => !t.parent_task_id);
     for (const t of visible) {
-      const k = t.column_id ?? fallback ?? ''
-      if (!k) continue
-      const list = map.get(k) ?? []
-      list.push(t)
-      map.set(k, list)
+      const k = t.column_id ?? fallback ?? '';
+      if (!k) continue;
+      const list = map.get(k) ?? [];
+      list.push(t);
+      map.set(k, list);
     }
-    return map
-  }, [tasks, cols, showChildren])
+    return map;
+  }, [tasks, cols, showChildren]);
 
-  const childCount = useMemo(() => tasks.filter((t) => !!t.parent_task_id).length, [tasks])
+  const childCount = useMemo(() => tasks.filter((t) => !!t.parent_task_id).length, [tasks]);
 
   return (
     <div className="space-y-3">
@@ -234,10 +232,7 @@ export function KanbanBoard({
             className="rounded border-slate-300"
           />
           <span>
-            Show child tasks{' '}
-            <span className="text-slate-400">
-              ({childCount})
-            </span>
+            Show child tasks <span className="text-slate-400">({childCount})</span>
           </span>
         </label>
       </div>
@@ -247,10 +242,7 @@ export function KanbanBoard({
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
       >
-        <SortableContext
-          items={cols.map((c) => c.id)}
-          strategy={horizontalListSortingStrategy}
-        >
+        <SortableContext items={cols.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
           <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
             {cols.map((col) => (
               <SortableColumnView
@@ -259,8 +251,8 @@ export function KanbanBoard({
                 projectId={projectId}
                 tasks={tasksByCol.get(col.id) ?? []}
                 onCreate={async (title) => {
-                  const t = await api.createTask(projectId, { title, column_id: col.id })
-                  setTasks((cur) => [...cur, t])
+                  const t = await api.createTask(projectId, { title, column_id: col.id });
+                  setTasks((cur) => [...cur, t]);
                 }}
                 onColumnUpdated={(updated) =>
                   setCols((cur) => cur.map((c) => (c.id === updated.id ? updated : c)))
@@ -269,20 +261,18 @@ export function KanbanBoard({
                   // Phase 12.6: drop the column locally so the UI
                   // updates immediately; the WS broadcast does the
                   // same on every other tab.
-                  setCols((cur) => cur.filter((c) => c.id !== colId))
-                  setTasks((cur) => cur.filter((t) => t.column_id !== colId))
+                  setCols((cur) => cur.filter((c) => c.id !== colId));
+                  setTasks((cur) => cur.filter((t) => t.column_id !== colId));
                 }}
               />
             ))}
             <AddColumnTile projectId={projectId} onCreated={(c) => setCols((cur) => [...cur, c])} />
           </div>
         </SortableContext>
-        <DragOverlay>
-          {activeTask ? <TaskCard task={activeTask} /> : null}
-        </DragOverlay>
+        <DragOverlay>{activeTask ? <TaskCard task={activeTask} /> : null}</DragOverlay>
       </DndContext>
     </div>
-  )
+  );
 }
 
 /**
@@ -300,26 +290,21 @@ function SortableColumnView({
   onColumnUpdated,
   onColumnDeleted,
 }: {
-  column: Column
-  projectId: string
-  tasks: Task[]
-  onCreate: (title: string) => Promise<void>
-  onColumnUpdated: (col: Column) => void
-  onColumnDeleted: (colId: string) => void
+  column: Column;
+  projectId: string;
+  tasks: Task[];
+  onCreate: (title: string) => Promise<void>;
+  onColumnUpdated: (col: Column) => void;
+  onColumnDeleted: (colId: string) => void;
 }): JSX.Element {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: column.id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: column.id,
+  });
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
-  }
+  };
   return (
     <div ref={setNodeRef} style={style} {...attributes}>
       <ColumnView
@@ -339,7 +324,7 @@ function SortableColumnView({
         dragHandleProps={listeners}
       />
     </div>
-  )
+  );
 }
 
 /**
@@ -351,34 +336,34 @@ function AddColumnTile({
   projectId,
   onCreated,
 }: {
-  projectId: string
-  onCreated: (col: Column) => void
+  projectId: string;
+  onCreated: (col: Column) => void;
 }): JSX.Element {
-  const [open, setOpen] = useState(false)
-  const [name, setName] = useState('')
-  const [color, setColor] = useState('#94a3b8')
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [color, setColor] = useState('#94a3b8');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   async function submit(e: FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    const trimmed = name.trim()
+    e.preventDefault();
+    const trimmed = name.trim();
     if (!trimmed) {
-      setError('Name is required')
-      return
+      setError('Name is required');
+      return;
     }
-    setBusy(true)
-    setError(null)
+    setBusy(true);
+    setError(null);
     try {
-      const col = await api.createColumn(projectId, { name: trimmed, color })
-      onCreated(col)
-      setName('')
-      setColor('#94a3b8')
-      setOpen(false)
+      const col = await api.createColumn(projectId, { name: trimmed, color });
+      onCreated(col);
+      setName('');
+      setColor('#94a3b8');
+      setOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
@@ -392,7 +377,7 @@ function AddColumnTile({
       >
         + Add column
       </button>
-    )
+    );
   }
 
   return (
@@ -429,9 +414,9 @@ function AddColumnTile({
         <button
           type="button"
           onClick={() => {
-            setOpen(false)
-            setError(null)
-            setName('')
+            setOpen(false);
+            setError(null);
+            setName('');
           }}
           className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 text-xs"
         >
@@ -439,5 +424,5 @@ function AddColumnTile({
         </button>
       </div>
     </form>
-  )
+  );
 }

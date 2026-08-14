@@ -1,13 +1,13 @@
-import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
-import { api, type WikiPage, type WikiTreeNode } from '@/shared/api/client'
-import { useWebSocketTopic } from '@/shared/ws'
-import { slugify } from '@/shared/util/slug'
+import { api, type WikiPage, type WikiTreeNode } from '@/shared/api/client';
+import { useWebSocketTopic } from '@/shared/ws';
+import { slugify } from '@/shared/util/slug';
 
-import { MarkdownEditor } from './MarkdownEditor'
+import { MarkdownEditor } from './MarkdownEditor';
 
 /**
  * /wiki — sidebar tree + markdown editor + preview.
@@ -24,32 +24,32 @@ import { MarkdownEditor } from './MarkdownEditor'
  * form (slug input) and a proper markdown editor with live preview.
  */
 export function WikiPage(): JSX.Element {
-  const { slug } = useParams<{ slug: string }>()
-  const navigate = useNavigate()
-  const [tree, setTree] = useState<WikiTreeNode[]>([])
-  const [page, setPage] = useState<WikiPage | null>(null)
-  const [backlinks, setBacklinks] = useState<WikiPage[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [dirty, setDirty] = useState(false)
+  const { slug } = useParams<{ slug: string }>();
+  const navigate = useNavigate();
+  const [tree, setTree] = useState<WikiTreeNode[]>([]);
+  const [page, setPage] = useState<WikiPage | null>(null);
+  const [backlinks, setBacklinks] = useState<WikiPage[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [dirty, setDirty] = useState(false);
 
   async function loadTree(): Promise<void> {
     try {
-      const t = await api.listPages()
-      setTree(t.tree ?? [])
+      const t = await api.listPages();
+      setTree(t.tree ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   async function loadPage(slugVal: string): Promise<void> {
     try {
-      const p = await api.getPageBySlug(slugVal)
-      const bl = await api.getPageBacklinks(slugVal)
-      setPage(p)
-      setBacklinks(bl.backlinks ?? [])
-      setError(null)
+      const p = await api.getPageBySlug(slugVal);
+      const bl = await api.getPageBacklinks(slugVal);
+      setPage(p);
+      setBacklinks(bl.backlinks ?? []);
+      setError(null);
     } catch (e) {
       if ((e as { response?: { status?: number } }).response?.status === 404) {
         // Slug not yet present — show an empty editor to create it.
@@ -61,66 +61,66 @@ export function WikiPage(): JSX.Element {
           position: 0,
           created_at: '',
           updated_at: '',
-        })
-        setBacklinks([])
-        setError(null)
+        });
+        setBacklinks([]);
+        setError(null);
       } else {
-        setError(e instanceof Error ? e.message : String(e))
+        setError(e instanceof Error ? e.message : String(e));
       }
     }
   }
 
   useEffect(() => {
-    loadTree()
-    if (slug) loadPage(slug)
+    loadTree();
+    if (slug) loadPage(slug);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug])
+  }, [slug]);
 
   useWebSocketTopic('wiki', () => {
-    loadTree()
-    if (slug) loadPage(slug)
-  })
+    loadTree();
+    if (slug) loadPage(slug);
+  });
 
   async function onSave(): Promise<void> {
-    if (!page || !page.slug) return
-    setSaving(true)
+    if (!page || !page.slug) return;
+    setSaving(true);
     try {
       if (page.id) {
         await api.updatePage(page.slug, {
           title: page.title,
           content_md: page.content_md,
-        })
+        });
       } else {
         await api.savePage({
           slug: page.slug,
           title: page.title,
           content_md: page.content_md,
-        })
+        });
       }
-      setDirty(false)
-      await loadPage(page.slug)
-      await loadTree()
+      setDirty(false);
+      await loadPage(page.slug);
+      await loadTree();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
 
   async function onDelete(): Promise<void> {
-    if (!page || !page.id) return
-    if (!window.confirm(`Delete "${page.title}"? This cannot be undone.`)) return
-    setDeleting(true)
-    setError(null)
+    if (!page || !page.id) return;
+    if (!window.confirm(`Delete "${page.title}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    setError(null);
     try {
-      await api.deletePage(page.slug)
-      setPage(null)
-      await loadTree()
-      navigate('/wiki')
+      await api.deletePage(page.slug);
+      setPage(null);
+      await loadTree();
+      navigate('/wiki');
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setDeleting(false)
+      setDeleting(false);
     }
   }
 
@@ -150,8 +150,8 @@ export function WikiPage(): JSX.Element {
             saving={saving}
             deleting={deleting}
             onChange={(p) => {
-              setPage(p)
-              setDirty(true)
+              setPage(p);
+              setDirty(true);
             }}
             onSave={onSave}
             onDelete={onDelete}
@@ -159,7 +159,7 @@ export function WikiPage(): JSX.Element {
         )}
       </main>
     </section>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -172,33 +172,33 @@ function WikiSidebar({
   onCreated,
   onRefresh,
 }: {
-  tree: WikiTreeNode[]
-  current?: string
-  onCreated: (newSlug: string) => void
-  onRefresh: () => void
+  tree: WikiTreeNode[];
+  current?: string;
+  onCreated: (newSlug: string) => void;
+  onRefresh: () => void;
 }): JSX.Element {
   // The form accepts a free-text title (any language). We auto-derive
   // the slug via slugify() and let the user override it if they want a
   // custom URL. Once the user touches the slug field we stop
   // regenerating it from the title.
-  const [title, setTitle] = useState('')
-  const [slugOverride, setSlugOverride] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
+  const [title, setTitle] = useState('');
+  const [slugOverride, setSlugOverride] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  const autoSlug = slugify(title)
-  const slug = (slugOverride ?? autoSlug).trim().toLowerCase()
+  const autoSlug = slugify(title);
+  const slug = (slugOverride ?? autoSlug).trim().toLowerCase();
 
   async function submitNewPage(e: React.FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    const t = title.trim()
-    if (!t) return
+    e.preventDefault();
+    const t = title.trim();
+    if (!t) return;
     if (!/^[a-z0-9_-]+$/.test(slug)) {
-      setErr('Slug must contain only [a-z0-9_-].')
-      return
+      setErr('Slug must contain only [a-z0-9_-].');
+      return;
     }
-    setCreating(true)
-    setErr(null)
+    setCreating(true);
+    setErr(null);
     try {
       // Pre-create so the page is visible in the tree immediately.
       // The slug is what we sent; the backend echoes it back.
@@ -206,15 +206,15 @@ function WikiSidebar({
         slug,
         title: t,
         content_md: '',
-      })
-      setTitle('')
-      setSlugOverride(null)
-      onCreated(slug)
+      });
+      setTitle('');
+      setSlugOverride(null);
+      onCreated(slug);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      setErr(/slug_taken/.test(msg) ? 'A page with this slug already exists.' : msg)
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(/slug_taken/.test(msg) ? 'A page with this slug already exists.' : msg);
     } finally {
-      setCreating(false)
+      setCreating(false);
     }
   }
 
@@ -236,12 +236,12 @@ function WikiSidebar({
             type="text"
             value={slug}
             onChange={(e) => {
-              const v = e.target.value
+              const v = e.target.value;
               // If the user edits the slug we treat it as an explicit
               // override and stop regenerating from the title. If they
               // clear it back to the auto value we follow along again.
-              const isAuto = v === autoSlug
-              setSlugOverride(isAuto ? null : v)
+              const isAuto = v === autoSlug;
+              setSlugOverride(isAuto ? null : v);
             }}
             placeholder="auto-generated"
             className="flex-1 min-w-0 px-2 py-1 text-xs font-mono rounded border border-slate-200 dark:border-slate-700 bg-transparent"
@@ -262,7 +262,7 @@ function WikiSidebar({
         <WikiTree tree={tree} current={current} onRefresh={onRefresh} />
       </div>
     </aside>
-  )
+  );
 }
 
 function EmptyState(): JSX.Element {
@@ -270,11 +270,10 @@ function EmptyState(): JSX.Element {
     <div className="rounded border border-dashed border-slate-300 dark:border-slate-700 p-8 text-center text-slate-500">
       <p className="text-lg mb-1">No page selected</p>
       <p className="text-sm">
-        Pick a page from the tree, or type a slug in <em>New page</em> on the left
-        to create one.
+        Pick a page from the tree, or type a slug in <em>New page</em> on the left to create one.
       </p>
     </div>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -293,16 +292,16 @@ function PageEditor({
   onSave,
   onDelete,
 }: {
-  page: WikiPage
-  backlinks: WikiPage[]
-  dirty: boolean
-  saving: boolean
-  deleting: boolean
-  onChange: (p: WikiPage) => void
-  onSave: () => void
-  onDelete: () => void
+  page: WikiPage;
+  backlinks: WikiPage[];
+  dirty: boolean;
+  saving: boolean;
+  deleting: boolean;
+  onChange: (p: WikiPage) => void;
+  onSave: () => void;
+  onDelete: () => void;
 }): JSX.Element {
-  const [tab, setTab] = useState<'edit' | 'preview' | 'source'>('preview')
+  const [tab, setTab] = useState<'edit' | 'preview' | 'source'>('preview');
 
   return (
     <>
@@ -362,9 +361,7 @@ function PageEditor({
         <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-6 py-5 min-h-[300px]">
           {page.content_md ? (
             <article className="prose dark:prose-invert max-w-none text-sm">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {page.content_md}
-              </ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{page.content_md}</ReactMarkdown>
             </article>
           ) : (
             <p className="text-slate-400 italic text-sm">Nothing to preview yet.</p>
@@ -386,10 +383,7 @@ function PageEditor({
           <ul className="space-y-1 text-sm">
             {backlinks.map((b) => (
               <li key={b.id}>
-                <Link
-                  to={`/wiki/${b.slug}`}
-                  className="text-orenda-600 hover:underline"
-                >
+                <Link to={`/wiki/${b.slug}`} className="text-orenda-600 hover:underline">
                   {b.title}
                 </Link>
               </li>
@@ -398,7 +392,7 @@ function PageEditor({
         </section>
       )}
     </>
-  )
+  );
 }
 
 function TabBtn({
@@ -406,9 +400,9 @@ function TabBtn({
   onClick,
   children,
 }: {
-  active: boolean
-  onClick: () => void
-  children: React.ReactNode
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
 }): JSX.Element {
   return (
     <button
@@ -422,7 +416,7 @@ function TabBtn({
     >
       {children}
     </button>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -440,12 +434,12 @@ function WikiTree({
   current,
   onRefresh,
 }: {
-  tree: WikiTreeNode[]
-  current?: string
-  onRefresh: () => void
+  tree: WikiTreeNode[];
+  current?: string;
+  onRefresh: () => void;
 }): JSX.Element {
   if (tree.length === 0) {
-    return <p className="text-xs text-slate-400">No pages yet.</p>
+    return <p className="text-xs text-slate-400">No pages yet.</p>;
   }
   return (
     <ul className="space-y-0.5 text-sm">
@@ -453,7 +447,7 @@ function WikiTree({
         <TreeNode key={n.page.id} node={n} current={current} onRefresh={onRefresh} depth={0} />
       ))}
     </ul>
-  )
+  );
 }
 
 function TreeNode({
@@ -462,53 +456,53 @@ function TreeNode({
   onRefresh,
   depth,
 }: {
-  node: WikiTreeNode
-  current?: string
-  onRefresh: () => void
-  depth: number
+  node: WikiTreeNode;
+  current?: string;
+  onRefresh: () => void;
+  depth: number;
 }): JSX.Element {
-  const hasChildren = (node.children?.length ?? 0) > 0
-  const [open, setOpen] = useState(true)
-  const [addingChild, setAddingChild] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [moveTarget, setMoveTarget] = useState<string | null>(null) // null = closed, '' = root picker
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
+  const hasChildren = (node.children?.length ?? 0) > 0;
+  const [open, setOpen] = useState(true);
+  const [addingChild, setAddingChild] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [moveTarget, setMoveTarget] = useState<string | null>(null); // null = closed, '' = root picker
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   const onCreatedChild = (newSlug: string): void => {
-    setAddingChild(false)
-    onRefresh()
+    setAddingChild(false);
+    onRefresh();
     // Navigate to the newly created child.
-    window.location.assign(`/wiki/${newSlug}`)
-  }
+    window.location.assign(`/wiki/${newSlug}`);
+  };
 
   async function onDelete(): Promise<void> {
-    if (!window.confirm(`Delete "${node.page.title}" and all its sub-pages?`)) return
-    setBusy(true)
+    if (!window.confirm(`Delete "${node.page.title}" and all its sub-pages?`)) return;
+    setBusy(true);
     try {
-      await api.deletePage(node.page.slug)
-      setMenuOpen(false)
-      onRefresh()
+      await api.deletePage(node.page.slug);
+      setMenuOpen(false);
+      onRefresh();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   async function onMoveTo(parentId: string): Promise<void> {
-    setBusy(true)
-    setErr(null)
+    setBusy(true);
+    setErr(null);
     try {
-      await api.movePage(node.page.slug, parentId)
-      setMoveTarget(null)
-      setMenuOpen(false)
-      onRefresh()
+      await api.movePage(node.page.slug, parentId);
+      setMoveTarget(null);
+      setMenuOpen(false);
+      onRefresh();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      setErr(/cycle|invalid/.test(msg) ? "Can't move there (would create a cycle)." : msg)
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(/cycle|invalid/.test(msg) ? "Can't move there (would create a cycle)." : msg);
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
@@ -577,14 +571,12 @@ function TreeNode({
       )}
 
       {menuOpen && (
-        <div
-          className="ml-6 my-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm p-2 text-xs space-y-1"
-        >
+        <div className="ml-6 my-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm p-2 text-xs space-y-1">
           <button
             type="button"
             onClick={() => {
-              setMoveTarget('pick')
-              setMenuOpen(false)
+              setMoveTarget('pick');
+              setMenuOpen(false);
             }}
             className="block w-full text-left px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
             disabled={busy}
@@ -627,7 +619,7 @@ function TreeNode({
         </ul>
       )}
     </li>
-  )
+  );
 }
 
 // NewPageForm — inline title input + auto-slug, used both at the
@@ -638,39 +630,39 @@ function NewPageForm({
   onCreated,
   onCancel,
 }: {
-  placeholder: string
-  parentId?: string
-  onCreated: (slug: string) => void
-  onCancel: () => void
+  placeholder: string;
+  parentId?: string;
+  onCreated: (slug: string) => void;
+  onCancel: () => void;
 }): JSX.Element {
-  const [title, setTitle] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-  const autoSlug = slugify(title)
+  const [title, setTitle] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const autoSlug = slugify(title);
 
   async function submit(e: React.FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    const t = title.trim()
-    if (!t) return
+    e.preventDefault();
+    const t = title.trim();
+    if (!t) return;
     if (!/^[a-z0-9_-]+$/.test(autoSlug)) {
-      setErr('Title must contain at least one a-z/0-9/-/_ character.')
-      return
+      setErr('Title must contain at least one a-z/0-9/-/_ character.');
+      return;
     }
-    setCreating(true)
-    setErr(null)
+    setCreating(true);
+    setErr(null);
     try {
       const saved = await api.savePage({
         slug: autoSlug,
         title: t,
         content_md: '',
         ...(parentId ? { parent_id: parentId } : {}),
-      })
-      onCreated(saved.slug)
+      });
+      onCreated(saved.slug);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      setErr(/slug_taken/.test(msg) ? 'A page with this slug already exists.' : msg)
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(/slug_taken/.test(msg) ? 'A page with this slug already exists.' : msg);
     } finally {
-      setCreating(false)
+      setCreating(false);
     }
   }
 
@@ -679,7 +671,7 @@ function NewPageForm({
       onSubmit={submit}
       className="rounded border border-orenda-300 bg-orenda-50/40 dark:bg-orenda-900/20 p-2 space-y-1"
       onKeyDown={(e) => {
-        if (e.key === 'Escape') onCancel()
+        if (e.key === 'Escape') onCancel();
       }}
     >
       <input
@@ -689,9 +681,7 @@ function NewPageForm({
         placeholder={placeholder}
         className="w-full px-2 py-1 text-sm rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950"
       />
-      {title && (
-        <div className="text-[10px] text-slate-500 font-mono">→ /wiki/{autoSlug}</div>
-      )}
+      {title && <div className="text-[10px] text-slate-500 font-mono">→ /wiki/{autoSlug}</div>}
       {err && <div className="text-xs text-red-600">{err}</div>}
       <div className="flex items-center gap-1 text-xs">
         <button
@@ -710,7 +700,7 @@ function NewPageForm({
         </button>
       </div>
     </form>
-  )
+  );
 }
 
 // MoveTargetPicker — list every other page (flat) the user can move
@@ -724,14 +714,14 @@ function MoveTargetPicker({
   err,
   busy,
 }: {
-  tree: WikiTreeNode[]
-  currentNodeId: string
-  onPick: (parentId: string) => void
-  onCancel: () => void
-  err: string | null
-  busy: boolean
+  tree: WikiTreeNode[];
+  currentNodeId: string;
+  onPick: (parentId: string) => void;
+  onCancel: () => void;
+  err: string | null;
+  busy: boolean;
 }): JSX.Element {
-  const [pages, setPages] = useState<WikiPage[] | null>(null)
+  const [pages, setPages] = useState<WikiPage[] | null>(null);
   useEffect(() => {
     // Fetch the flat list once when the picker opens — the existing
     // /pages endpoint returns the tree, so we call getPage for each
@@ -739,15 +729,15 @@ function MoveTargetPicker({
     // via /pages/{slug} would be N requests; instead reuse the tree
     // by flattening it.
     api.listPages().then((r) => {
-      const out: WikiPage[] = []
+      const out: WikiPage[] = [];
       const walk = (n: WikiTreeNode): void => {
-        if (n.page.id !== currentNodeId) out.push(n.page)
-        ;(n.children ?? []).forEach(walk)
-      }
-      ;(r.tree ?? []).forEach(walk)
-      setPages(out)
-    })
-  }, [currentNodeId])
+        if (n.page.id !== currentNodeId) out.push(n.page);
+        (n.children ?? []).forEach(walk);
+      };
+      (r.tree ?? []).forEach(walk);
+      setPages(out);
+    });
+  }, [currentNodeId]);
 
   return (
     <div className="ml-6 my-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm p-2 text-xs">
@@ -786,5 +776,5 @@ function MoveTargetPicker({
         </button>
       </div>
     </div>
-  )
+  );
 }

@@ -1,7 +1,7 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useState } from 'react';
 
-import { useAuth } from '@/features/auth/AuthContext'
-import { api, type Agent } from '@/shared/api/client'
+import { useAuth } from '@/features/auth/AuthContext';
+import { api, type Agent } from '@/shared/api/client';
 
 /**
  * /agents — list registered agents + create new ones.
@@ -12,52 +12,52 @@ import { api, type Agent } from '@/shared/api/client'
  * live under /api/v1/agent/* and are documented in the API client.
  */
 export function AgentsPage(): JSX.Element {
-  const { user } = useAuth()
-  const [agents, setAgents] = useState<Agent[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
-  const [name, setName] = useState('')
-  const [type, setType] = useState('qwen')
-  const [description, setDescription] = useState('')
-  const [createdToken, setCreatedToken] = useState<string | null>(null)
+  const { user } = useAuth();
+  const [agents, setAgents] = useState<Agent[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [type, setType] = useState('qwen');
+  const [description, setDescription] = useState('');
+  const [createdToken, setCreatedToken] = useState<string | null>(null);
 
   async function load(): Promise<void> {
     try {
-      setAgents(await api.listAgents())
-      setError(null)
+      setAgents(await api.listAgents());
+      setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
-  if (agents === null && !error) load()
+  if (agents === null && !error) load();
 
   async function onCreate(e: FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    if (!name.trim()) return
+    e.preventDefault();
+    if (!name.trim()) return;
     try {
       const { agent, plain_token } = await api.createAgent({
         name: name.trim(),
         type,
         description: description.trim() || undefined,
-      })
-      setCreatedToken(plain_token)
-      setAgents((prev) => (prev ? [agent, ...prev] : [agent]))
-      setName('')
-      setDescription('')
-      setCreating(false)
+      });
+      setCreatedToken(plain_token);
+      setAgents((prev) => (prev ? [agent, ...prev] : [agent]));
+      setName('');
+      setDescription('');
+      setCreating(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function onDelete(id: string): Promise<void> {
-    if (!confirm('Delete this agent? Its API token stops working immediately.')) return
+    if (!confirm('Delete this agent? Its API token stops working immediately.')) return;
     try {
-      await api.deleteAgent(id)
-      setAgents((prev) => (prev ?? []).filter((a) => a.id !== id))
+      await api.deleteAgent(id);
+      setAgents((prev) => (prev ?? []).filter((a) => a.id !== id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -192,5 +192,5 @@ export function AgentsPage(): JSX.Element {
         </table>
       )}
     </section>
-  )
+  );
 }

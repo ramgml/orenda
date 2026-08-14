@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react';
 
-import { api, type ReviewQueueItem, type Task } from '@/shared/api/client'
-import { useWebSocketTopic } from '@/shared/ws'
+import { api, type ReviewQueueItem, type Task } from '@/shared/api/client';
+import { useWebSocketTopic } from '@/shared/ws';
 
 /**
  * Phase 19: review queue — one screen with every task waiting on the
@@ -19,82 +19,77 @@ import { useWebSocketTopic } from '@/shared/ws'
  * an empty queue is the steady state.
  */
 export function ReviewPage(): JSX.Element {
-  const [items, setItems] = useState<ReviewQueueItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [busyId, setBusyId] = useState<string | null>(null)
+  const [items, setItems] = useState<ReviewQueueItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      const r = await api.listReviewQueue()
-      setItems(r.tasks ?? [])
+      const r = await api.listReviewQueue();
+      setItems(r.tasks ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void load();
+  }, [load]);
 
   // Re-fetch on any task event (move, status change, comment, review).
   // The full list is cheap to refresh and we don't track per-task
   // membership here, so a blanket re-fetch is the simplest correct
   // approach.
   useWebSocketTopic('tasks', () => {
-    void load()
-  })
+    void load();
+  });
 
   async function onAccept(item: ReviewQueueItem): Promise<void> {
-    if (!item.task) return
-    setBusyId(item.task.id)
-    setError(null)
+    if (!item.task) return;
+    setBusyId(item.task.id);
+    setError(null);
     try {
-      await api.reviewTask(item.task.id, 'approve')
+      await api.reviewTask(item.task.id, 'approve');
       // Optimistic remove; the WS event will reconcile if needed.
-      setItems((cur) => cur.filter((i) => i.task.id !== item.task.id))
+      setItems((cur) => cur.filter((i) => i.task.id !== item.task.id));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusyId(null)
+      setBusyId(null);
     }
   }
 
   async function onReject(item: ReviewQueueItem): Promise<void> {
-    if (!item.task) return
-    const comment = window.prompt(
-      'What needs to change? (the agent will see your feedback)',
-      '',
-    )
-    if (comment === null) return // cancelled
-    setBusyId(item.task.id)
-    setError(null)
+    if (!item.task) return;
+    const comment = window.prompt('What needs to change? (the agent will see your feedback)', '');
+    if (comment === null) return; // cancelled
+    setBusyId(item.task.id);
+    setError(null);
     try {
-      await api.reviewTask(item.task.id, 'reject', comment)
+      await api.reviewTask(item.task.id, 'reject', comment);
       // Task is now awaiting the agent — drop it from the human queue.
-      setItems((cur) => cur.filter((i) => i.task.id !== item.task.id))
+      setItems((cur) => cur.filter((i) => i.task.id !== item.task.id));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusyId(null)
+      setBusyId(null);
     }
   }
 
   function openTask(t: Task): void {
     // Inline navigation; the queue page itself doesn't preserve scroll
     // across modal closes, so a full nav is fine here.
-    window.location.href = `/tasks/${t.id}`
+    window.location.href = `/tasks/${t.id}`;
   }
 
   return (
     <section className="space-y-6 p-6 max-w-3xl mx-auto">
       <header>
         <h1 className="text-2xl font-semibold">Review queue</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Tasks waiting for your verdict. Newest first.
-        </p>
+        <p className="text-sm text-slate-500 mt-1">Tasks waiting for your verdict. Newest first.</p>
       </header>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -121,7 +116,7 @@ export function ReviewPage(): JSX.Element {
         </ul>
       )}
     </section>
-  )
+  );
 }
 
 function ReviewRow({
@@ -131,24 +126,20 @@ function ReviewRow({
   onReject,
   onOpen,
 }: {
-  item: ReviewQueueItem
-  busy: boolean
-  onAccept: () => void
-  onReject: () => void
-  onOpen: () => void
+  item: ReviewQueueItem;
+  busy: boolean;
+  onAccept: () => void;
+  onReject: () => void;
+  onOpen: () => void;
 }): JSX.Element {
-  const projectLabel = item.project_name || 'Inbox'
-  const projectColor = item.project_color || '#6b7280'
+  const projectLabel = item.project_name || 'Inbox';
+  const projectColor = item.project_color || '#6b7280';
   return (
     <li
       data-testid="review-row"
       className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-3 flex gap-3 items-start"
     >
-      <button
-        type="button"
-        onClick={onOpen}
-        className="flex-1 min-w-0 text-left"
-      >
+      <button type="button" onClick={onOpen} className="flex-1 min-w-0 text-left">
         <div className="flex items-center gap-2 text-xs text-slate-500">
           <span
             aria-hidden
@@ -161,9 +152,7 @@ function ReviewRow({
         </div>
         <p className="text-slate-800 dark:text-slate-100 mt-1">{item.task.title}</p>
         {item.task.description && (
-          <p className="text-xs text-slate-500 mt-1 line-clamp-2">
-            {item.task.description}
-          </p>
+          <p className="text-xs text-slate-500 mt-1 line-clamp-2">{item.task.description}</p>
         )}
         <div className="flex gap-3 text-[10px] text-slate-400 mt-1 font-mono">
           <span>{item.task.status}</span>
@@ -196,5 +185,5 @@ function ReviewRow({
         </button>
       </div>
     </li>
-  )
+  );
 }

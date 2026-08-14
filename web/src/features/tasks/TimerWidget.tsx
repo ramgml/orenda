@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react';
 
-import { useAuth } from '@/features/auth/AuthContext'
-import { api, type Task } from '@/shared/api/client'
-import { useWebSocketTopic } from '@/shared/ws'
+import { useAuth } from '@/features/auth/AuthContext';
+import { api, type Task } from '@/shared/api/client';
+import { useWebSocketTopic } from '@/shared/ws';
 
 /**
  * Floating timer widget — sticky at the bottom-right of the screen.
@@ -14,87 +14,91 @@ import { useWebSocketTopic } from '@/shared/ws'
  * localStorage + server; the actual duration is computed by the server.
  */
 interface ActiveTimer {
-  taskId: string
-  taskTitle: string
-  startedAt: string // ISO
+  taskId: string;
+  taskTitle: string;
+  startedAt: string; // ISO
 }
 
 export function TimerWidget(): JSX.Element {
-  const { status } = useAuth()
-  const [active, setActive] = useState<ActiveTimer | null>(null)
-  const [elapsed, setElapsed] = useState(0)
-  const [error, setError] = useState<string | null>(null)
+  const { status } = useAuth();
+  const [active, setActive] = useState<ActiveTimer | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   // Load on mount.
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('orenda.activeTimer')
-      if (saved) setActive(JSON.parse(saved))
+      const saved = localStorage.getItem('orenda.activeTimer');
+      if (saved) setActive(JSON.parse(saved));
     } catch {
       // ignore malformed storage
     }
-  }, [])
+  }, []);
 
   // Persist on change.
   useEffect(() => {
     try {
-      if (active) localStorage.setItem('orenda.activeTimer', JSON.stringify(active))
-      else localStorage.removeItem('orenda.activeTimer')
+      if (active) localStorage.setItem('orenda.activeTimer', JSON.stringify(active));
+      else localStorage.removeItem('orenda.activeTimer');
     } catch {
       // ignore quota errors
     }
-  }, [active])
+  }, [active]);
 
   // Tick every second while active.
   useEffect(() => {
-    if (!active) return
+    if (!active) return;
     const id = setInterval(() => {
-      const start = new Date(active.startedAt).getTime()
-      setElapsed(Math.floor((Date.now() - start) / 1000))
-    }, 1000)
-    return () => clearInterval(id)
-  }, [active])
+      const start = new Date(active.startedAt).getTime();
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [active]);
 
   // Listen for timer events from other tabs (started/stopped).
   useWebSocketTopic('timers', () => {
     // Reload state on every event.
     // The active timer lives in localStorage; an event could mean the
     // other tab stopped it. We reconcile optimistically.
-  })
+  });
 
-  if (status !== 'authenticated') return <></>
+  if (status !== 'authenticated') return <></>;
 
   async function startOn(task: Task): Promise<void> {
     try {
-      await api.startTimer(task.id)
+      await api.startTimer(task.id);
       setActive({
         taskId: task.id,
         taskTitle: task.title,
         startedAt: new Date().toISOString(),
-      })
-      setError(null)
+      });
+      setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   async function stop(): Promise<void> {
-    if (!active) return
+    if (!active) return;
     try {
-      await api.stopTimer(active.taskId)
-      setActive(null)
-      setElapsed(0)
+      await api.stopTimer(active.taskId);
+      setActive(null);
+      setElapsed(0);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   const fmt = (s: number): string => {
-    const h = Math.floor(s / 3600).toString().padStart(2, '0')
-    const m = Math.floor((s % 3600) / 60).toString().padStart(2, '0')
-    const sec = (s % 60).toString().padStart(2, '0')
-    return `${h}:${m}:${sec}`
-  }
+    const h = Math.floor(s / 3600)
+      .toString()
+      .padStart(2, '0');
+    const m = Math.floor((s % 3600) / 60)
+      .toString()
+      .padStart(2, '0');
+    const sec = (s % 60).toString().padStart(2, '0');
+    return `${h}:${m}:${sec}`;
+  };
 
   return (
     <div className="fixed bottom-4 right-4 z-40">
@@ -128,25 +132,25 @@ export function TimerWidget(): JSX.Element {
       {/* expose startOn so other components can call it */}
       <TimerLauncher startOn={startOn} />
     </div>
-  )
+  );
 }
 
 // TimerLauncher is a tiny pub-sub handle other components use to start
 // timers without prop-drilling through the widget.
 interface LauncherProps {
-  startOn: (task: Task) => Promise<void>
+  startOn: (task: Task) => Promise<void>;
 }
 
-let launcherRef: LauncherProps | null = null
+let launcherRef: LauncherProps | null = null;
 
 function TimerLauncher({ startOn }: LauncherProps): JSX.Element {
   useEffect(() => {
-    launcherRef = { startOn }
+    launcherRef = { startOn };
     return () => {
-      launcherRef = null
-    }
-  }, [startOn])
-  return <></>
+      launcherRef = null;
+    };
+  }, [startOn]);
+  return <></>;
 }
 
 /**
@@ -157,8 +161,8 @@ function TimerLauncher({ startOn }: LauncherProps): JSX.Element {
 export function StartTimer(task: Task): void {
   if (!launcherRef) {
     // eslint-disable-next-line no-console
-    console.warn('StartTimer called but no TimerWidget is mounted')
-    return
+    console.warn('StartTimer called but no TimerWidget is mounted');
+    return;
   }
-  void launcherRef.startOn(task)
+  void launcherRef.startOn(task);
 }

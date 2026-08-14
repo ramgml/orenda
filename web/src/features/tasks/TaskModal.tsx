@@ -1,4 +1,4 @@
-import { useCallback, useEffect, type ReactNode } from 'react'
+import { useCallback, useEffect, type ReactNode } from 'react';
 import {
   Link,
   useLocation,
@@ -6,10 +6,10 @@ import {
   useParams,
   type Location,
   type NavigateFunction,
-} from 'react-router-dom'
+} from 'react-router-dom';
 
-import { TaskViewBody } from './TaskViewBody'
-import { useBodyScrollLock } from '@/shared/hooks/useBodyScrollLock'
+import { TaskViewBody } from './TaskViewBody';
+import { useBodyScrollLock } from '@/shared/hooks/useBodyScrollLock';
 
 /**
  * Trello-style modal overlay for a single task.
@@ -50,8 +50,8 @@ import { useBodyScrollLock } from '@/shared/hooks/useBodyScrollLock'
  *      previous host app could have set its own value.
  */
 export function TaskModal(): JSX.Element | null {
-  const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
 
   const close = useCallback(() => {
     // `navigate(-1)` pops the entry the modal pushed when opening, so
@@ -59,8 +59,8 @@ export function TaskModal(): JSX.Element | null {
     // opened the modal from outside any history (e.g. pasted a deep
     // link that the router still resolved here), -1 lands at "/"
     // which is the dashboard — still a sane place to be.
-    navigate(-1)
-  }, [navigate])
+    navigate(-1);
+  }, [navigate]);
 
   // Esc closes. We attach to `window` (not the modal) so a focused
   // input doesn't swallow the keydown — `Escape` already means
@@ -70,13 +70,13 @@ export function TaskModal(): JSX.Element | null {
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
       if (e.key === 'Escape') {
-        e.stopPropagation()
-        close()
+        e.stopPropagation();
+        close();
       }
     }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [close])
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [close]);
 
   // Phase 28.3: lock the background page from scrolling while the
   // modal is mounted — implementation lives in `@/shared/hooks/useBodyScrollLock`
@@ -87,9 +87,9 @@ export function TaskModal(): JSX.Element | null {
   // Closing (any path) unmounts the component and the hook restores
   // the previous overflow value — not just "visible", because a
   // previous host could have set its own value.
-  useBodyScrollLock()
+  useBodyScrollLock();
 
-  if (!id) return null
+  if (!id) return null;
 
   return (
     <div
@@ -122,7 +122,7 @@ export function TaskModal(): JSX.Element | null {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -132,7 +132,7 @@ export function TaskModal(): JSX.Element | null {
 // caller having to remember the magic option.
 // ---------------------------------------------------------------------------
 
-type BackgroundState = { backgroundLocation?: Location }
+type BackgroundState = { backgroundLocation?: Location };
 
 // isInModal reports whether the current location was reached through
 // a backgroundLocation state — i.e. the user is already looking at a
@@ -147,8 +147,8 @@ type BackgroundState = { backgroundLocation?: Location }
 //
 // `location.state` may be `null`; the optional-chain handles that.
 function isInModal(location: Location): boolean {
-  const s = (location.state ?? null) as BackgroundState | null
-  return Boolean(s?.backgroundLocation)
+  const s = (location.state ?? null) as BackgroundState | null;
+  return Boolean(s?.backgroundLocation);
 }
 
 /**
@@ -174,7 +174,7 @@ export function openTaskModal(
   navigate(`/tasks/${taskId}`, {
     replace: isInModal(location),
     state: { backgroundLocation: location } satisfies BackgroundState,
-  })
+  });
 }
 
 /**
@@ -193,13 +193,13 @@ export function TaskLink({
   className,
   title,
 }: {
-  taskId: string
-  children: ReactNode
-  className?: string
-  title?: string
+  taskId: string;
+  children: ReactNode;
+  className?: string;
+  title?: string;
 }): JSX.Element {
-  const location = useLocation()
-  const replace = isInModal(location)
+  const location = useLocation();
+  const replace = isInModal(location);
   return (
     <Link
       to={`/tasks/${taskId}`}
@@ -210,5 +210,5 @@ export function TaskLink({
     >
       {children}
     </Link>
-  )
+  );
 }

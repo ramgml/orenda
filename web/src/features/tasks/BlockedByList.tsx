@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 
-import { api, type BlockerRow } from '@/shared/api/client'
-import { useWebSocketTopic } from '@/shared/ws'
+import { api, type BlockerRow } from '@/shared/api/client';
+import { useWebSocketTopic } from '@/shared/ws';
 
 /**
  * Phase 15: Blocked-by list on the task page.
@@ -17,37 +17,43 @@ import { useWebSocketTopic } from '@/shared/ws'
  * WS auto-refresh: any change to the deps emits "task.deps_changed" so
  * other tabs stay in sync without polling.
  */
-export function BlockedByList({ taskId, projectId }: { taskId: string; projectId: string }): JSX.Element {
-  const [blockers, setBlockers] = useState<BlockerRow[]>([])
-  const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+export function BlockedByList({
+  taskId,
+  projectId,
+}: {
+  taskId: string;
+  projectId: string;
+}): JSX.Element {
+  const [blockers, setBlockers] = useState<BlockerRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      const r = await api.listTaskBlockers(taskId)
-      setBlockers(r.blockers ?? [])
+      const r = await api.listTaskBlockers(taskId);
+      setBlockers(r.blockers ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [taskId])
+  }, [taskId]);
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void load();
+  }, [load]);
 
   // Refresh on any task event (covers dep changes, blocker status
   // flips, etc.). The event body has a `task_id` for filter; we keep
   // it simple here and refetch on every event for our task.
   useWebSocketTopic('tasks', () => {
-    void load()
-  })
+    void load();
+  });
 
-  if (loading) return <p className="text-xs text-slate-400 italic">Loading…</p>
+  if (loading) return <p className="text-xs text-slate-400 italic">Loading…</p>;
 
-  const open = blockers.filter((b) => !b.done)
+  const open = blockers.filter((b) => !b.done);
 
   return (
     <div>
@@ -75,8 +81,8 @@ export function BlockedByList({ taskId, projectId }: { taskId: string; projectId
           projectId={projectId}
           initial={blockers.map((b) => b.blocker_id)}
           onDone={() => {
-            setEditing(false)
-            void load()
+            setEditing(false);
+            void load();
           }}
           onCancel={() => setEditing(false)}
         />
@@ -92,21 +98,16 @@ export function BlockedByList({ taskId, projectId }: { taskId: string; projectId
                 b.done ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200'
               }`}
             >
-              <Link
-                to={`/tasks/${b.blocker_id}`}
-                className="hover:underline"
-              >
+              <Link to={`/tasks/${b.blocker_id}`} className="hover:underline">
                 {b.title}
               </Link>
-              <span className="ml-2 text-[10px] text-slate-400 font-mono">
-                {b.status}
-              </span>
+              <span className="ml-2 text-[10px] text-slate-400 font-mono">{b.status}</span>
             </li>
           ))}
         </ul>
       )}
     </div>
-  )
+  );
 }
 
 /**
@@ -126,57 +127,55 @@ function DependencyEditor({
   onDone,
   onCancel,
 }: {
-  taskId: string
-  projectId: string
-  initial: string[]
-  onDone: () => void
-  onCancel: () => void
+  taskId: string;
+  projectId: string;
+  initial: string[];
+  onDone: () => void;
+  onCancel: () => void;
 }): JSX.Element {
-  const [taskChoices, setTaskChoices] = useState<Array<{ id: string; title: string }>>([])
-  const [selected, setSelected] = useState<Set<string>>(new Set(initial))
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [taskChoices, setTaskChoices] = useState<Array<{ id: string; title: string }>>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set(initial));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!projectId) {
       // Inbox task: skip the editor (no project-scoped tasks to pick).
-      setTaskChoices([])
-      return
+      setTaskChoices([]);
+      return;
     }
     void (async () => {
       try {
         // listProjectTasks returns everything; we exclude self.
-        const items = await api.listProjectTasks(projectId)
+        const items = await api.listProjectTasks(projectId);
         setTaskChoices(
-          (items ?? [])
-            .filter((t) => t.id !== taskId)
-            .map((t) => ({ id: t.id, title: t.title })),
-        )
+          (items ?? []).filter((t) => t.id !== taskId).map((t) => ({ id: t.id, title: t.title })),
+        );
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
+        setError(e instanceof Error ? e.message : String(e));
       }
-    })()
-  }, [projectId, taskId])
+    })();
+  }, [projectId, taskId]);
 
   function toggle(id: string): void {
     setSelected((cur) => {
-      const next = new Set(cur)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   async function onSubmit(): Promise<void> {
-    setBusy(true)
-    setError(null)
+    setBusy(true);
+    setError(null);
     try {
-      await api.setTaskDependencies(taskId, Array.from(selected))
-      onDone()
+      await api.setTaskDependencies(taskId, Array.from(selected));
+      onDone();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
@@ -199,7 +198,10 @@ function DependencyEditor({
                 onChange={() => toggle(t.id)}
                 className="rounded"
               />
-              <label htmlFor={`dep-${t.id}`} className="text-slate-700 dark:text-slate-200 truncate">
+              <label
+                htmlFor={`dep-${t.id}`}
+                className="text-slate-700 dark:text-slate-200 truncate"
+              >
                 {t.title}
               </label>
             </li>
@@ -226,5 +228,5 @@ function DependencyEditor({
         </button>
       </div>
     </div>
-  )
+  );
 }

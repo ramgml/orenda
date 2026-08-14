@@ -7,22 +7,22 @@
  * the invalidation lands. The collapsed-mode equivalent is a small
  * "+" button that toggles a transient form slide-down.
  */
-import { FormEvent, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { FormEvent, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
-import { api, type Project } from '@/shared/api/client'
-import { projectsQueryKey } from '@/shared/hooks/useProjects'
+import { api, type Project } from '@/shared/api/client';
+import { projectsQueryKey } from '@/shared/hooks/useProjects';
 
 interface NewProjectInlineProps {
   /** Hide the form (default true). The component manages its own open state. */
-  collapsed?: boolean
+  collapsed?: boolean;
 }
 
 export function NewProjectInline({ collapsed = false }: NewProjectInlineProps): JSX.Element {
-  const [open, setOpen] = useState(false)
-  const [name, setName] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const qc = useQueryClient()
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
 
   const mutation = useMutation({
     mutationFn: (n: string) => api.createProject({ name: n }),
@@ -30,22 +30,22 @@ export function NewProjectInline({ collapsed = false }: NewProjectInlineProps): 
       // Optimistic prepend so the new project appears immediately.
       qc.setQueryData<Project[]>(projectsQueryKey, (prev) =>
         prev ? [created, ...prev] : [created],
-      )
+      );
       // Re-sync from the server to pick up boards/columns and any
       // server-assigned timestamps we might have missed.
-      void qc.invalidateQueries({ queryKey: projectsQueryKey })
-      setName('')
-      setError(null)
-      setOpen(false)
+      void qc.invalidateQueries({ queryKey: projectsQueryKey });
+      setName('');
+      setError(null);
+      setOpen(false);
     },
     onError: (e: Error) => setError(e.message),
-  })
+  });
 
   async function submit(e: FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    const trimmed = name.trim()
-    if (!trimmed) return
-    mutation.mutate(trimmed)
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    mutation.mutate(trimmed);
   }
 
   if (collapsed) {
@@ -72,7 +72,7 @@ export function NewProjectInline({ collapsed = false }: NewProjectInlineProps): 
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Escape') setOpen(false)
+                if (e.key === 'Escape') setOpen(false);
               }}
               className="px-2 py-1 text-sm w-40 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
             />
@@ -86,7 +86,7 @@ export function NewProjectInline({ collapsed = false }: NewProjectInlineProps): 
           </form>
         )}
       </div>
-    )
+    );
   }
 
   if (!open) {
@@ -99,7 +99,7 @@ export function NewProjectInline({ collapsed = false }: NewProjectInlineProps): 
         <span aria-hidden>+</span>
         <span>New project</span>
       </button>
-    )
+    );
   }
 
   return (
@@ -114,7 +114,7 @@ export function NewProjectInline({ collapsed = false }: NewProjectInlineProps): 
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Escape') setOpen(false)
+          if (e.key === 'Escape') setOpen(false);
         }}
         className="w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
       />
@@ -130,9 +130,9 @@ export function NewProjectInline({ collapsed = false }: NewProjectInlineProps): 
         <button
           type="button"
           onClick={() => {
-            setOpen(false)
-            setError(null)
-            setName('')
+            setOpen(false);
+            setError(null);
+            setName('');
           }}
           className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 text-xs"
         >
@@ -140,5 +140,5 @@ export function NewProjectInline({ collapsed = false }: NewProjectInlineProps): 
         </button>
       </div>
     </form>
-  )
+  );
 }

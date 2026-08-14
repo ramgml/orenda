@@ -1,6 +1,6 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 
-import { useAuth } from '@/features/auth/AuthContext'
+import { useAuth } from '@/features/auth/AuthContext';
 import {
   api,
   type ChildTaskProgress,
@@ -11,20 +11,20 @@ import {
   type Task,
   type TaskActivity,
   type TaskAttachment,
-} from '@/shared/api/client'
-import { queueUpdateTask } from '@/shared/offline/outbox'
-import { useWebSocketTopic } from '@/shared/ws'
-import { StartTimer } from '@/features/tasks/TimerWidget'
-import { usePasteImage } from '@/features/attachments/usePasteImage'
+} from '@/shared/api/client';
+import { queueUpdateTask } from '@/shared/offline/outbox';
+import { useWebSocketTopic } from '@/shared/ws';
+import { StartTimer } from '@/features/tasks/TimerWidget';
+import { usePasteImage } from '@/features/attachments/usePasteImage';
 
-import { CommentsList } from './CommentsList'
-import { ChildTasksList } from './ChildTasksList'
-import { AttachmentsList } from './AttachmentsList'
-import { ChecklistsList } from './ChecklistsList'
-import { TagsList } from './TagsList'
-import { BlockedByList } from './BlockedByList'
-import { TaskLink } from './TaskModal'
-import { TaskFieldControls } from './TaskFieldControls'
+import { CommentsList } from './CommentsList';
+import { ChildTasksList } from './ChildTasksList';
+import { AttachmentsList } from './AttachmentsList';
+import { ChecklistsList } from './ChecklistsList';
+import { TagsList } from './TagsList';
+import { BlockedByList } from './BlockedByList';
+import { TaskLink } from './TaskModal';
+import { TaskFieldControls } from './TaskFieldControls';
 
 /**
  * Shared task-detail content.
@@ -55,38 +55,38 @@ import { TaskFieldControls } from './TaskFieldControls'
  */
 async function patchTaskOrQueue(taskId: string, patch: Record<string, unknown>): Promise<Task> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
-    await queueUpdateTask(taskId, patch)
+    await queueUpdateTask(taskId, patch);
     // Optimistic local merge — the queue will replace it on sync.
-    return { ...(patch as unknown as Task), id: taskId } as Task
+    return { ...(patch as unknown as Task), id: taskId } as Task;
   }
-  return api.patchTask(taskId, patch)
+  return api.patchTask(taskId, patch);
 }
 
 export function TaskViewBody({
   taskId,
   onClose,
 }: {
-  taskId: string
+  taskId: string;
   /** Optional hook fired after a successful destructive action (e.g. delete). */
-  onClose?: () => void
+  onClose?: () => void;
 }): JSX.Element {
-  const { user } = useAuth()
-  const [task, setTask] = useState<Task | null>(null)
+  const { user } = useAuth();
+  const [task, setTask] = useState<Task | null>(null);
   // Parent task is fetched lazily (only when the current task has a
   // parent_task_id) so top-level tasks don't pay for an extra GET.
-  const [parentTask, setParentTask] = useState<Task | null>(null)
-  const [childTasks, setChildTasks] = useState<Task[]>([])
-  const [childProgress, setChildProgress] = useState<ChildTaskProgress>({ total: 0, done: 0 })
-  const [attachments, setAttachments] = useState<TaskAttachment[]>([])
-  const [checklists, setChecklists] = useState<Checklist[]>([])
-  const [checklistItems, setChecklistItems] = useState<Record<string, ChecklistItem[]>>({})
-  const [activity, setActivity] = useState<TaskActivity[]>([])
-  const [comments, setComments] = useState<TaskComment[]>([])
-  const [tags, setTags] = useState<Tag[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [composer, setComposer] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [reviewComment, setReviewComment] = useState('')
+  const [parentTask, setParentTask] = useState<Task | null>(null);
+  const [childTasks, setChildTasks] = useState<Task[]>([]);
+  const [childProgress, setChildProgress] = useState<ChildTaskProgress>({ total: 0, done: 0 });
+  const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
+  const [checklists, setChecklists] = useState<Checklist[]>([]);
+  const [checklistItems, setChecklistItems] = useState<Record<string, ChecklistItem[]>>({});
+  const [activity, setActivity] = useState<TaskActivity[]>([]);
+  const [comments, setComments] = useState<TaskComment[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [composer, setComposer] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [reviewComment, setReviewComment] = useState('');
 
   async function load(): Promise<void> {
     try {
@@ -98,60 +98,60 @@ export function TaskViewBody({
         api.listTaskComments(taskId),
         api.listChecklists(taskId),
         api.listTaskTags(taskId),
-      ])
-      setTask(t)
+      ]);
+      setTask(t);
       // Lazily fetch the parent for the breadcrumb. Done after
       // setTask so we know the parent id; failures are silent
       // (the breadcrumb just won't render).
       if (t.parent_task_id) {
         try {
-          setParentTask(await api.getTask(t.parent_task_id))
+          setParentTask(await api.getTask(t.parent_task_id));
         } catch {
-          setParentTask(null)
+          setParentTask(null);
         }
       } else {
-        setParentTask(null)
+        setParentTask(null);
       }
-      setChildTasks(childrenR.tasks ?? [])
-      setChildProgress(childrenR.progress ?? { total: 0, done: 0 })
-      setAttachments(attR.attachments ?? [])
-      setActivity(actR.activity ?? [])
-      setComments(comments.comments ?? [])
-      const cls = clR.checklists ?? []
-      setChecklists(cls)
+      setChildTasks(childrenR.tasks ?? []);
+      setChildProgress(childrenR.progress ?? { total: 0, done: 0 });
+      setAttachments(attR.attachments ?? []);
+      setActivity(actR.activity ?? []);
+      setComments(comments.comments ?? []);
+      const cls = clR.checklists ?? [];
+      setChecklists(cls);
       // Hydrate items per list in parallel; skip a list silently if
       // its items can't load — better to show an empty list than to
       // nuke the rest of the page.
       const pairs = await Promise.all(
         cls.map(async (l) => {
           try {
-            const r = await api.listChecklistItems(taskId, l.id)
-            return [l.id, r.items ?? []] as const
+            const r = await api.listChecklistItems(taskId, l.id);
+            return [l.id, r.items ?? []] as const;
           } catch {
-            return [l.id, [] as ChecklistItem[]] as const
+            return [l.id, [] as ChecklistItem[]] as const;
           }
         }),
-      )
-      const next: Record<string, ChecklistItem[]> = {}
-      for (const [id, its] of pairs) next[id] = its
-      setChecklistItems(next)
-      setTags(tagsR.tags ?? [])
-      setError(null)
+      );
+      const next: Record<string, ChecklistItem[]> = {};
+      for (const [id, its] of pairs) next[id] = its;
+      setChecklistItems(next);
+      setTags(tagsR.tags ?? []);
+      setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   useEffect(() => {
-    setTask(null) // Reset between taskIds so loading state is honest.
-    void load()
+    setTask(null); // Reset between taskIds so loading state is honest.
+    void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskId])
+  }, [taskId]);
 
   // Live updates on any task event.
   useWebSocketTopic('tasks', () => {
-    load()
-  })
+    load();
+  });
 
   // Ctrl+V anywhere on the page → drop a screenshot into this task's
   // attachments, as long as focus is not inside an editable surface
@@ -159,109 +159,108 @@ export function TaskViewBody({
   const onPasteImage = useCallback(
     async (file: File) => {
       try {
-        const a = await api.uploadTaskAttachment(taskId, file)
-        setAttachments((cur) => [...cur, a])
+        const a = await api.uploadTaskAttachment(taskId, file);
+        setAttachments((cur) => [...cur, a]);
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err))
+        setError(err instanceof Error ? err.message : String(err));
       }
     },
     [taskId],
-  )
-  usePasteImage(onPasteImage)
+  );
+  usePasteImage(onPasteImage);
 
   async function onPostComment(e: FormEvent<HTMLFormElement>): Promise<void> {
-    e.preventDefault()
-    if (!composer.trim()) return
-    setBusy(true)
+    e.preventDefault();
+    if (!composer.trim()) return;
+    setBusy(true);
     try {
-      await api.createTaskComment(taskId, composer.trim())
-      setComposer('')
-      const list = await api.listTaskComments(taskId)
-      setComments(list.comments ?? [])
+      await api.createTaskComment(taskId, composer.trim());
+      setComposer('');
+      const list = await api.listTaskComments(taskId);
+      setComments(list.comments ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   async function onReview(decision: 'approve' | 'reject'): Promise<void> {
-    setBusy(true)
+    setBusy(true);
     try {
-      await api.reviewTask(taskId, decision, reviewComment)
-      setReviewComment('')
-      await load()
+      await api.reviewTask(taskId, decision, reviewComment);
+      setReviewComment('');
+      await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   // Description patch.
   const onSaveDescription = async (description: string): Promise<void> => {
-    setBusy(true)
+    setBusy(true);
     try {
-      const t = await patchTaskOrQueue(taskId, { description })
-      setTask(t)
+      const t = await patchTaskOrQueue(taskId, { description });
+      setTask(t);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   // Title patch.
   const onSaveTitle = async (title: string): Promise<void> => {
-    if (!title.trim()) return
-    setBusy(true)
+    if (!title.trim()) return;
+    setBusy(true);
     try {
-      const t = await patchTaskOrQueue(taskId, { title: title.trim() })
-      setTask(t)
+      const t = await patchTaskOrQueue(taskId, { title: title.trim() });
+      setTask(t);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   // Color patch. Empty string explicitly clears the colour label
   // (per the *string semantics in the backend). The picker always
   // shows a value; "clear" is its own button so users have an
   // obvious path to remove the stripe.
   const onSaveColor = async (color: string): Promise<void> => {
-    setBusy(true)
+    setBusy(true);
     try {
-      const t = await patchTaskOrQueue(taskId, { color })
-      setTask(t)
+      const t = await patchTaskOrQueue(taskId, { color });
+      setTask(t);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   async function onDelete(): Promise<void> {
-    if (!window.confirm('Delete this task? This cannot be undone.')) return
-    setBusy(true)
+    if (!window.confirm('Delete this task? This cannot be undone.')) return;
+    setBusy(true);
     try {
-      await api.deleteTask(taskId)
-      onClose?.()
+      await api.deleteTask(taskId);
+      onClose?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
-  const canReview =
-    task?.status === 'review' && (task.assignee_type === 'agent' || user !== null)
+  const canReview = task?.status === 'review' && (task.assignee_type === 'agent' || user !== null);
 
   if (error && !task) {
-    return <p className="text-red-700">{error}</p>
+    return <p className="text-red-700">{error}</p>;
   }
   if (!task) {
-    return <p className="text-slate-500">Loading…</p>
+    return <p className="text-slate-500">Loading…</p>;
   }
 
   return (
@@ -282,20 +281,12 @@ export function TaskViewBody({
 
         <EditableTitle value={task.title} onSave={onSaveTitle} busy={busy} />
 
-        <DescriptionEditor
-          value={task.description ?? ''}
-          onSave={onSaveDescription}
-          busy={busy}
-        />
+        <DescriptionEditor value={task.description ?? ''} onSave={onSaveDescription} busy={busy} />
 
         {task.context_md && (
           <details className="rounded border border-slate-200 dark:border-slate-800 p-3">
-            <summary className="cursor-pointer text-sm text-slate-500">
-              Agent context (md)
-            </summary>
-            <pre className="mt-2 text-xs whitespace-pre-wrap font-mono">
-              {task.context_md}
-            </pre>
+            <summary className="cursor-pointer text-sm text-slate-500">Agent context (md)</summary>
+            <pre className="mt-2 text-xs whitespace-pre-wrap font-mono">{task.context_md}</pre>
           </details>
         )}
 
@@ -346,11 +337,7 @@ export function TaskViewBody({
 
         <AttachmentsList taskId={task.id} initial={attachments} />
 
-        <ChecklistsList
-          taskId={task.id}
-          initialLists={checklists}
-          initialItems={checklistItems}
-        />
+        <ChecklistsList taskId={task.id} initialLists={checklists} initialItems={checklistItems} />
 
         <div>
           <h2 className="text-sm font-semibold mb-2 text-slate-500">
@@ -425,7 +412,7 @@ export function TaskViewBody({
         </div>
       </aside>
     </section>
-  )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -437,16 +424,16 @@ function EditableTitle({
   onSave,
   busy,
 }: {
-  value: string
-  onSave: (s: string) => Promise<void>
-  busy: boolean
+  value: string;
+  onSave: (s: string) => Promise<void>;
+  busy: boolean;
 }): JSX.Element {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
 
   useEffect(() => {
-    setDraft(value)
-  }, [value])
+    setDraft(value);
+  }, [value]);
 
   if (!editing) {
     return (
@@ -457,16 +444,16 @@ function EditableTitle({
       >
         {value}
       </h1>
-    )
+    );
   }
   return (
     <form
       onSubmit={(e) => {
-        e.preventDefault()
+        e.preventDefault();
         if (draft.trim() && draft !== value) {
-          void onSave(draft)
+          void onSave(draft);
         }
-        setEditing(false)
+        setEditing(false);
       }}
       className="flex gap-2"
     >
@@ -476,8 +463,8 @@ function EditableTitle({
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
-            setDraft(value)
-            setEditing(false)
+            setDraft(value);
+            setEditing(false);
           }
         }}
         className="text-2xl font-semibold bg-transparent border-b border-orenda-500 focus:outline-none flex-1"
@@ -492,15 +479,15 @@ function EditableTitle({
       <button
         type="button"
         onClick={() => {
-          setDraft(value)
-          setEditing(false)
+          setDraft(value);
+          setEditing(false);
         }}
         className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 text-xs"
       >
         Cancel
       </button>
     </form>
-  )
+  );
 }
 
 function DescriptionEditor({
@@ -508,16 +495,16 @@ function DescriptionEditor({
   onSave,
   busy,
 }: {
-  value: string
-  onSave: (s: string) => Promise<void>
-  busy: boolean
+  value: string;
+  onSave: (s: string) => Promise<void>;
+  busy: boolean;
 }): JSX.Element {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
 
   useEffect(() => {
-    setDraft(value)
-  }, [value])
+    setDraft(value);
+  }, [value]);
 
   if (!editing) {
     if (!value) {
@@ -529,7 +516,7 @@ function DescriptionEditor({
         >
           + Add description
         </button>
-      )
+      );
     }
     return (
       <button
@@ -539,16 +526,16 @@ function DescriptionEditor({
       >
         {value}
       </button>
-    )
+    );
   }
   return (
     <form
       onSubmit={(e) => {
-        e.preventDefault()
+        e.preventDefault();
         if (draft !== value) {
-          void onSave(draft)
+          void onSave(draft);
         }
-        setEditing(false)
+        setEditing(false);
       }}
       className="space-y-2"
     >
@@ -558,12 +545,12 @@ function DescriptionEditor({
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-            e.preventDefault()
-            if (draft !== value) void onSave(draft)
-            setEditing(false)
+            e.preventDefault();
+            if (draft !== value) void onSave(draft);
+            setEditing(false);
           } else if (e.key === 'Escape') {
-            setDraft(value)
-            setEditing(false)
+            setDraft(value);
+            setEditing(false);
           }
         }}
         rows={4}
@@ -581,8 +568,8 @@ function DescriptionEditor({
         <button
           type="button"
           onClick={() => {
-            setDraft(value)
-            setEditing(false)
+            setDraft(value);
+            setEditing(false);
           }}
           className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 text-xs"
         >
@@ -593,7 +580,7 @@ function DescriptionEditor({
         </span>
       </div>
     </form>
-  )
+  );
 }
 
 function SidebarField({ label, value }: { label: string; value: string }): JSX.Element {
@@ -602,7 +589,7 @@ function SidebarField({ label, value }: { label: string; value: string }): JSX.E
       <p className="text-xs text-slate-500">{label}</p>
       <p className="font-mono">{value}</p>
     </div>
-  )
+  );
 }
 
 /**
@@ -623,23 +610,23 @@ function ColorPicker({
   onSave,
   busy,
 }: {
-  value: string
-  onSave: (color: string) => Promise<void>
-  busy: boolean
+  value: string;
+  onSave: (color: string) => Promise<void>;
+  busy: boolean;
 }): JSX.Element {
-  const [draft, setDraft] = useState(value)
+  const [draft, setDraft] = useState(value);
 
   // Re-sync draft when the parent task reloads (WS event, save
   // round-trip, etc.). Without this, an external colour change
   // wouldn't show up until the user unfocused the picker.
   useEffect(() => {
-    setDraft(value)
-  }, [value])
+    setDraft(value);
+  }, [value]);
 
   function commit(next: string): void {
-    if (next === value) return
-    setDraft(next)
-    void onSave(next)
+    if (next === value) return;
+    setDraft(next);
+    void onSave(next);
   }
 
   return (
@@ -671,7 +658,7 @@ function ColorPicker({
         )}
       </div>
     </div>
-  )
+  );
 }
 
 function ActivityLog({ items }: { items: TaskActivity[] }): JSX.Element {
@@ -710,17 +697,15 @@ function ActivityLog({ items }: { items: TaskActivity[] }): JSX.Element {
     'task.checklist_item_done': 'completed a checklist item',
     'task.tags_replaced': 'changed the tag set',
     'task.color_changed': 'changed the colour label',
-  }
+  };
   // Most recent first.
   const sorted = useMemo(
     () => [...items].sort((a, b) => b.created_at.localeCompare(a.created_at)),
     [items],
-  )
+  );
   return (
     <section>
-      <h2 className="text-sm font-semibold mb-2 text-slate-500">
-        Activity ({items.length})
-      </h2>
+      <h2 className="text-sm font-semibold mb-2 text-slate-500">Activity ({items.length})</h2>
       {sorted.length === 0 ? (
         <p className="text-xs text-slate-400 italic">No activity yet.</p>
       ) : (
@@ -735,14 +720,12 @@ function ActivityLog({ items }: { items: TaskActivity[] }): JSX.Element {
               </span>
               <span>{verb[a.action] ?? a.action}</span>
               {a.payload && a.payload !== '{}' && (
-                <span className="text-xs text-slate-400 truncate">
-                  · {a.payload}
-                </span>
+                <span className="text-xs text-slate-400 truncate">· {a.payload}</span>
               )}
             </li>
           ))}
         </ul>
       )}
     </section>
-  )
+  );
 }

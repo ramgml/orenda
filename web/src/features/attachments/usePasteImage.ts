@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect } from 'react';
 
 /**
  * Listens for a paste of image data anywhere on the page and hands the
@@ -20,63 +20,63 @@ import { useEffect } from 'react'
 export function usePasteImage(onImage: (file: File) => void | Promise<void>): void {
   useEffect(() => {
     function onPaste(e: ClipboardEvent): void {
-      const items = e.clipboardData?.items
-      if (!items) return
+      const items = e.clipboardData?.items;
+      if (!items) return;
 
       // Look for an image in the payload first; only that branch hijacks
       // paste regardless of focus.
       for (let i = 0; i < items.length; i++) {
-        const item = items[i]
-        if (item.kind !== 'file') continue
-        if (!item.type.startsWith('image/')) continue
+        const item = items[i];
+        if (item.kind !== 'file') continue;
+        if (!item.type.startsWith('image/')) continue;
 
-        const blob = item.getAsFile()
-        if (!blob) continue
+        const blob = item.getAsFile();
+        if (!blob) continue;
 
         const name =
           blob.name && blob.name !== 'image.png'
             ? blob.name
-            : `screenshot-${stamp(new Date())}.${ext(blob.type)}`
-        const file = new File([blob], name, { type: blob.type || 'image/png' })
-        e.preventDefault()
-        void onImage(file)
-        return
+            : `screenshot-${stamp(new Date())}.${ext(blob.type)}`;
+        const file = new File([blob], name, { type: blob.type || 'image/png' });
+        e.preventDefault();
+        void onImage(file);
+        return;
       }
 
       // No image: if focus is inside an editable surface, leave the
       // event alone so the user can paste text into a comment / search
       // field. Otherwise there's nothing for us to do.
-      const target = e.target as HTMLElement | null
+      const target = e.target as HTMLElement | null;
       if (target) {
-        const tag = target.tagName
+        const tag = target.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) {
-          return
+          return;
         }
       }
     }
 
-    window.addEventListener('paste', onPaste)
-    return () => window.removeEventListener('paste', onPaste)
-  }, [onImage])
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [onImage]);
 }
 
 function stamp(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0')
+  const pad = (n: number) => String(n).padStart(2, '0');
   return (
     `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
     `-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
-  )
+  );
 }
 
 function ext(mime: string): string {
   switch (mime) {
     case 'image/jpeg':
-      return 'jpg'
+      return 'jpg';
     case 'image/webp':
-      return 'webp'
+      return 'webp';
     case 'image/gif':
-      return 'gif'
+      return 'gif';
     default:
-      return 'png'
+      return 'png';
   }
 }

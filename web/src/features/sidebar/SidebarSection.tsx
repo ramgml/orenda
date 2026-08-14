@@ -9,18 +9,18 @@
  *    persisted — sections reset to expanded on reload, matching the
  *    Weeek default.
  */
-import { ReactNode, useState } from 'react'
+import { ReactNode, useState } from 'react';
 
 interface SidebarSectionProps {
-  label: string
+  label: string;
   /** Optional count badge to the right of the label (e.g. total items). */
-  count?: number
+  count?: number;
   /**
    * Starting collapsed state. Defaults to false (expanded). The Archived
    * section uses true so the list stays tidy when most projects are active.
    */
-  defaultCollapsed?: boolean
-  children: ReactNode
+  defaultCollapsed?: boolean;
+  children: ReactNode;
 }
 
 export function SidebarSection({
@@ -29,7 +29,7 @@ export function SidebarSection({
   defaultCollapsed = false,
   children,
 }: SidebarSectionProps): JSX.Element {
-  const [open, setOpen] = useState(!defaultCollapsed)
+  const [open, setOpen] = useState(!defaultCollapsed);
 
   return (
     <div className="px-2 pt-3">
@@ -41,12 +41,9 @@ export function SidebarSection({
       >
         <span
           aria-hidden
-          className={`inline-block transition-transform duration-150 ${
-            open ? 'rotate-90' : ''
-          }`}
+          className={`inline-block transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
         >
-          {/* Simple chevron tip drawn with CSS to avoid an extra dep. */}
-          ▶
+          {/* Simple chevron tip drawn with CSS to avoid an extra dep. */}▶
         </span>
         <span className="font-semibold">{label}</span>
         {typeof count === 'number' && count > 0 && (
@@ -57,5 +54,5 @@ export function SidebarSection({
       </button>
       {open && <div className="mt-1 space-y-0.5">{children}</div>}
     </div>
-  )
+  );
 }

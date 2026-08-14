@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 
-import { api, type StatsResponse } from '@/shared/api/client'
+import { api, type StatsResponse } from '@/shared/api/client';
 
 /**
  * /settings — hub page for everything in the Settings tree.
@@ -33,14 +33,14 @@ import { api, type StatsResponse } from '@/shared/api/client'
  */
 
 interface CardSpec {
-  to: string
-  title: string
-  description: string
+  to: string;
+  title: string;
+  description: string;
   // Single unicode glyph (no icon library — convention in the
   // sidebar: ◉ ▦ ✎ ◐ ⌕ ✓ 🎓 ▤ ⚙).
-  glyph: string
+  glyph: string;
   /** data-testid hook for the E2E spec. */
-  testId: string
+  testId: string;
 }
 
 const CARDS: CardSpec[] = [
@@ -72,31 +72,31 @@ const CARDS: CardSpec[] = [
     glyph: '▤',
     testId: 'settings-card-reports',
   },
-]
+];
 
 /**
  * Format seconds as "Xd Yh" / "Xh Ym" / "Xm Ys" — the in-process
  * uptime is what /api/v1/stats returns, nothing fancy.
  */
 function formatUptime(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds < 0) return '—'
-  const d = Math.floor(seconds / 86400)
-  const h = Math.floor((seconds % 86400) / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  if (d > 0) return `${d}d ${h}h`
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
+  if (!Number.isFinite(seconds) || seconds < 0) return '—';
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
 }
 
 /** Format bytes as "1.2 MiB" / "456 KiB" / "789 B". The Settings
  *  About block uses Kibibytes to match the operator's mental model
  *  (Glances / `du -h` style). */
 function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return '—'
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MiB`
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GiB`
+  if (!Number.isFinite(bytes) || bytes < 0) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GiB`;
 }
 
 /** Group thousands with a comma. We deliberately avoid
@@ -106,31 +106,31 @@ function formatBytes(bytes: number): string {
  *  output and breaks the snapshot). Locale-aware rendering is
  *  plausible later but isn't worth the test flake today. */
 function formatCount(n: number): string {
-  if (!Number.isFinite(n) || n < 0) return '—'
-  return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  if (!Number.isFinite(n) || n < 0) return '—';
+  return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 /** "—" until the network call resolves, then a real value. We
  *  mount a placeholder rather than throwing on stats failure —
  *  stats is best-effort. */
 export function SettingsHome(): JSX.Element {
-  const [stats, setStats] = useState<StatsResponse | null>(null)
+  const [stats, setStats] = useState<StatsResponse | null>(null);
 
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
     api
       .getStats()
       .then((s) => {
-        if (!cancelled) setStats(s)
+        if (!cancelled) setStats(s);
       })
       .catch(() => {
         // best-effort: leave stats null and the About block renders
         // "—" for the fields that come from /api/v1/stats.
-      })
+      });
     return () => {
-      cancelled = true
-    }
-  }, [])
+      cancelled = true;
+    };
+  }, []);
 
   // The version is already loaded by the Shell (`info` is fetched
   // on mount) and rendered in the footer. We don't need a second
@@ -147,10 +147,7 @@ export function SettingsHome(): JSX.Element {
         </p>
       </header>
 
-      <div
-        className="grid gap-3 sm:grid-cols-2"
-        data-testid="settings-cards"
-      >
+      <div className="grid gap-3 sm:grid-cols-2" data-testid="settings-cards">
         {CARDS.map((card) => (
           <Link
             key={card.to}
@@ -159,16 +156,11 @@ export function SettingsHome(): JSX.Element {
             className="block rounded-lg border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950 hover:border-orenda-500 hover:shadow-sm transition-colors"
           >
             <div className="flex items-start gap-3">
-              <span
-                aria-hidden
-                className="text-orenda-500 text-xl leading-none mt-0.5"
-              >
+              <span aria-hidden className="text-orenda-500 text-xl leading-none mt-0.5">
                 {card.glyph}
               </span>
               <div className="flex-1 min-w-0">
-                <h2 className="font-semibold text-slate-800 dark:text-slate-100">
-                  {card.title}
-                </h2>
+                <h2 className="font-semibold text-slate-800 dark:text-slate-100">{card.title}</h2>
                 <p className="text-sm text-slate-500 mt-1">{card.description}</p>
               </div>
             </div>
@@ -209,5 +201,5 @@ export function SettingsHome(): JSX.Element {
         </dl>
       </div>
     </section>
-  )
+  );
 }

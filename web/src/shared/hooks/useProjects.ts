@@ -13,11 +13,11 @@
  * projects (createProject, updateProject) should `invalidateQueries`
  * with this key after the mutation settles.
  */
-import { useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query';
 
-import { api, type Project } from '@/shared/api/client'
+import { api, type Project } from '@/shared/api/client';
 
-export const projectsQueryKey = ['projects'] as const
+export const projectsQueryKey = ['projects'] as const;
 
 /**
  * Returns the cached list of projects owned by the authenticated user.
@@ -25,10 +25,10 @@ export const projectsQueryKey = ['projects'] as const
  * refetched automatically when invalidated.
  */
 export function useProjects(): {
-  data: Project[] | undefined
-  isLoading: boolean
-  error: Error | null
-  refetch: () => void
+  data: Project[] | undefined;
+  isLoading: boolean;
+  error: Error | null;
+  refetch: () => void;
 } {
   const q = useQuery({
     queryKey: projectsQueryKey,
@@ -36,13 +36,13 @@ export function useProjects(): {
     // The list endpoint is cheap and stable; rely on explicit
     // invalidation from mutators instead of background polling.
     refetchOnWindowFocus: true,
-  })
+  });
   return {
     data: q.data,
     isLoading: q.isLoading,
     error: q.error as Error | null,
     refetch: () => {
-      void q.refetch()
+      void q.refetch();
     },
-  }
+  };
 }

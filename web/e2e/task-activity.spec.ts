@@ -17,52 +17,48 @@
  * Coverage for the symmetric path lives in the broader integration
  * suite (course.spec / task-fields.spec exercise attachments).
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test';
 
-import {
-  createProject,
-  createTask,
-  loginAsUser,
-} from './helpers'
+import { createProject, createTask, loginAsUser } from './helpers';
 
 test.describe('Task activity emission (Phase 28.5)', () => {
   test('POST /comments shows up in /activity as task.commented', async () => {
-    const ctx = await loginAsUser()
-    const project = await createProject(ctx)
+    const ctx = await loginAsUser();
+    const project = await createProject(ctx);
     const task = await createTask(ctx, project.id, {
       title: `Activity emission ${Date.now()}`,
-    })
+    });
 
     // Comment #1 (user side — exercises createTaskCommentHandler).
     const commentResp = await ctx.post(`/api/v1/tasks/${task.id}/comments`, {
       data: { body_md: 'first comment — should emit task.commented' },
-    })
-    expect(commentResp.status(), `comment: ${await commentResp.text()}`).toBe(201)
+    });
+    expect(commentResp.status(), `comment: ${await commentResp.text()}`).toBe(201);
 
     // Read the activity feed — Phase 3 endpoint, also wired into
     // the task sidebar via TaskFieldControls.
-    const activityResp = await ctx.get(`/api/v1/tasks/${task.id}/activity`)
-    expect(activityResp.status()).toBe(200)
+    const activityResp = await ctx.get(`/api/v1/tasks/${task.id}/activity`);
+    expect(activityResp.status()).toBe(200);
     const body = (await activityResp.json()) as {
-      activity: { action: string; actor_type: string; payload?: string }[]
-    }
+      activity: { action: string; actor_type: string; payload?: string }[];
+    };
 
-    const actions = body.activity.map((a) => a.action)
+    const actions = body.activity.map((a) => a.action);
     // Phase 28.5 contract: the new emission lands in the feed
     // (server sorts newest-first internally).
-    expect(actions).toContain('task.commented')
+    expect(actions).toContain('task.commented');
 
     // Sanity: the row carries a payload we can decode + the
     // expected actor type. Catches the regression where a
     // future refactor swaps the actor to "system" or strips
     // the payload.
-    const commentedRow = body.activity.find((a) => a.action === 'task.commented')
-    expect(commentedRow).toBeDefined()
-    expect(commentedRow!.actor_type).toBe('user')
-    const payload = JSON.parse(commentedRow!.payload ?? '{}')
-    expect(payload.length).toBeGreaterThan(0)
-    expect(payload.comment_id).toBeTruthy()
+    const commentedRow = body.activity.find((a) => a.action === 'task.commented');
+    expect(commentedRow).toBeDefined();
+    expect(commentedRow!.actor_type).toBe('user');
+    const payload = JSON.parse(commentedRow!.payload ?? '{}');
+    expect(payload.length).toBeGreaterThan(0);
+    expect(payload.comment_id).toBeTruthy();
 
-    await ctx.dispose()
-  })
-})
+    await ctx.dispose();
+  });
+});

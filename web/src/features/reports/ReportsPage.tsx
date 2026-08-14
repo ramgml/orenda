@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react';
 
-import { api, type TimeReport } from '@/shared/api/client'
+import { api, type TimeReport } from '@/shared/api/client';
 
 /**
  * /reports — time aggregation per task over a window.
@@ -10,38 +10,38 @@ import { api, type TimeReport } from '@/shared/api/client'
  */
 export function ReportsPage(): JSX.Element {
   // Default: today and 7 days back.
-  const today = useMemo(() => isoDate(new Date()), [])
+  const today = useMemo(() => isoDate(new Date()), []);
   const sevenAgo = useMemo(() => {
-    const d = new Date()
-    d.setDate(d.getDate() - 6) // 7 days inclusive of today
-    return isoDate(d)
-  }, [])
+    const d = new Date();
+    d.setDate(d.getDate() - 6); // 7 days inclusive of today
+    return isoDate(d);
+  }, []);
 
-  const [from, setFrom] = useState(sevenAgo)
-  const [to, setTo] = useState(today)
-  const [report, setReport] = useState<TimeReport | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [from, setFrom] = useState(sevenAgo);
+  const [to, setTo] = useState(today);
+  const [report, setReport] = useState<TimeReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function load(): Promise<void> {
-    setError(null)
+    setError(null);
     try {
       const r = await api.getTimeReport({
         from: `${from}T00:00:00Z`,
         to: `${to}T23:59:59Z`,
-      })
-      setReport(r)
+      });
+      setReport(r);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   useEffect(() => {
-    load()
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to])
+  }, [from, to]);
 
-  const tasks = report?.tasks ?? []
-  const max = tasks.reduce((m, t) => Math.max(m, t.total_sec), 0)
+  const tasks = report?.tasks ?? [];
+  const max = tasks.reduce((m, t) => Math.max(m, t.total_sec), 0);
 
   return (
     <section className="space-y-4">
@@ -97,7 +97,11 @@ export function ReportsPage(): JSX.Element {
               {tasks.map((t) => (
                 <tr key={t.task_id} className="border-b border-slate-100 dark:border-slate-800">
                   <td className="py-2">
-                    {t.title ?? <span className="text-slate-400 font-mono text-xs">{t.task_id.slice(0, 8)}…</span>}
+                    {t.title ?? (
+                      <span className="text-slate-400 font-mono text-xs">
+                        {t.task_id.slice(0, 8)}…
+                      </span>
+                    )}
                   </td>
                   <td className="font-mono">{formatHM(t.total_sec)}</td>
                   <td>
@@ -116,19 +120,19 @@ export function ReportsPage(): JSX.Element {
         )}
       </div>
     </section>
-  )
+  );
 }
 
 function formatHM(sec: number): string {
-  const h = Math.floor(sec / 3600)
-  const m = Math.floor((sec % 3600) / 60)
-  if (h === 0) return `${m}m`
-  return `${h}h ${m}m`
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (h === 0) return `${m}m`;
+  return `${h}h ${m}m`;
 }
 
 function isoDate(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }

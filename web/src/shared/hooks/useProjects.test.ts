@@ -5,29 +5,29 @@
  * is a one-liner above the query client and is exercised manually in
  * the app.
  */
-import { QueryClient } from '@tanstack/react-query'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { QueryClient } from '@tanstack/react-query';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-import { projectsQueryKey } from '@/shared/hooks/useProjects'
+import { projectsQueryKey } from '@/shared/hooks/useProjects';
 
 // We bypass the hook entirely and only assert that the cache key
 // is stable and that `listProjects` is what the queryFn calls.
-const mockListProjects = vi.fn()
+const mockListProjects = vi.fn();
 
 vi.mock('@/shared/api/client', () => ({
   api: {
     listProjects: () => mockListProjects(),
   },
-}))
+}));
 
 describe('useProjects cache contract', () => {
   beforeEach(() => {
-    mockListProjects.mockReset()
-  })
+    mockListProjects.mockReset();
+  });
 
   it('uses a stable queryKey for cross-component invalidation', () => {
-    expect(projectsQueryKey).toEqual(['projects'])
-  })
+    expect(projectsQueryKey).toEqual(['projects']);
+  });
 
   it('fetchQuery calls api.listProjects exactly once per fresh cache', async () => {
     mockListProjects.mockResolvedValue([
@@ -40,16 +40,16 @@ describe('useProjects cache contract', () => {
         created_at: '',
         updated_at: '',
       },
-    ])
+    ]);
 
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: 0 } } })
-    const projects = await qc.fetchQuery({ queryKey: projectsQueryKey, queryFn: mockListProjects })
-    expect(projects).toHaveLength(1)
-    expect(mockListProjects).toHaveBeenCalledTimes(1)
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: 0 } } });
+    const projects = await qc.fetchQuery({ queryKey: projectsQueryKey, queryFn: mockListProjects });
+    expect(projects).toHaveLength(1);
+    expect(mockListProjects).toHaveBeenCalledTimes(1);
 
     // A second fetch from the same cache should NOT call the API again.
-    const cached = qc.getQueryData(projectsQueryKey)
-    expect(cached).toBeDefined()
-    expect(mockListProjects).toHaveBeenCalledTimes(1)
-  })
-})
+    const cached = qc.getQueryData(projectsQueryKey);
+    expect(cached).toBeDefined();
+    expect(mockListProjects).toHaveBeenCalledTimes(1);
+  });
+});

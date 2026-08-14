@@ -1,39 +1,39 @@
-import { ReactNode, useEffect, useState } from 'react'
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { ReactNode, useEffect, useState } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
-import { AuthProvider, useAuth } from '@/features/auth/AuthContext'
-import { LoginPage } from '@/features/auth/LoginPage'
-import { ProjectsPage } from '@/features/projects/ProjectsPage'
-import { ProjectDetailPage } from '@/features/projects/ProjectDetailPage'
-import { ProjectKanbanTab } from '@/features/projects/tabs/ProjectKanbanTab'
-import { ProjectActivityTab } from '@/features/projects/tabs/ProjectActivityTab'
-import { ProjectAttachmentsTab } from '@/features/projects/tabs/ProjectAttachmentsTab'
-import { ProjectSettingsTab } from '@/features/projects/tabs/ProjectSettingsTab'
-import { AgentsPage } from '@/features/agents/AgentsPage'
-import { TaskViewPage } from '@/features/tasks/TaskViewPage'
-import { TaskModal } from '@/features/tasks/TaskModal'
-import { CalendarPage } from '@/features/calendar/CalendarPage'
-import { TimerWidget } from '@/features/tasks/TimerWidget'
-import { WikiPage } from '@/features/wiki/WikiPage'
-import { SearchPage } from '@/features/search/SearchPage'
-import { BackupsSettingsPage } from '@/features/settings/Backups'
-import { BotsSettingsPage } from '@/features/settings/Bots'
-import { SettingsHome } from '@/features/settings/SettingsHome'
-import { ReportsPage } from '@/features/reports/ReportsPage'
-import { InboxPage } from '@/features/inbox/InboxPage'
-import { QuickCapture } from '@/features/inbox/QuickCapture'
-import { ReviewPage } from '@/features/review/ReviewPage'
-import { TodayPage } from '@/features/today/TodayPage'
-import { CoursesPage } from '@/features/courses/CoursesPage'
-import { CourseDetailPage } from '@/features/courses/CourseDetailPage'
-import { LessonPage } from '@/features/courses/LessonPage'
-import { api, type InfoResponse } from '@/shared/api/client'
+import { AuthProvider, useAuth } from '@/features/auth/AuthContext';
+import { LoginPage } from '@/features/auth/LoginPage';
+import { ProjectsPage } from '@/features/projects/ProjectsPage';
+import { ProjectDetailPage } from '@/features/projects/ProjectDetailPage';
+import { ProjectKanbanTab } from '@/features/projects/tabs/ProjectKanbanTab';
+import { ProjectActivityTab } from '@/features/projects/tabs/ProjectActivityTab';
+import { ProjectAttachmentsTab } from '@/features/projects/tabs/ProjectAttachmentsTab';
+import { ProjectSettingsTab } from '@/features/projects/tabs/ProjectSettingsTab';
+import { AgentsPage } from '@/features/agents/AgentsPage';
+import { TaskViewPage } from '@/features/tasks/TaskViewPage';
+import { TaskModal } from '@/features/tasks/TaskModal';
+import { CalendarPage } from '@/features/calendar/CalendarPage';
+import { TimerWidget } from '@/features/tasks/TimerWidget';
+import { WikiPage } from '@/features/wiki/WikiPage';
+import { SearchPage } from '@/features/search/SearchPage';
+import { BackupsSettingsPage } from '@/features/settings/Backups';
+import { BotsSettingsPage } from '@/features/settings/Bots';
+import { SettingsHome } from '@/features/settings/SettingsHome';
+import { ReportsPage } from '@/features/reports/ReportsPage';
+import { InboxPage } from '@/features/inbox/InboxPage';
+import { QuickCapture } from '@/features/inbox/QuickCapture';
+import { ReviewPage } from '@/features/review/ReviewPage';
+import { TodayPage } from '@/features/today/TodayPage';
+import { CoursesPage } from '@/features/courses/CoursesPage';
+import { CourseDetailPage } from '@/features/courses/CourseDetailPage';
+import { LessonPage } from '@/features/courses/LessonPage';
+import { api, type InfoResponse } from '@/shared/api/client';
 
-import { AppLayout } from '@/features/layout/AppLayout'
+import { AppLayout } from '@/features/layout/AppLayout';
 
 // State carried in navigation when opening a task as a modal.
 // See features/tasks/TaskModal.tsx for the open/close contract.
-type BackgroundLocationState = { backgroundLocation?: { pathname: string } }
+type BackgroundLocationState = { backgroundLocation?: { pathname: string } };
 
 /**
  * Top-level shell. The authenticated surface is now wrapped in
@@ -46,11 +46,11 @@ export function App(): JSX.Element {
     <AuthProvider>
       <Shell />
     </AuthProvider>
-  )
+  );
 }
 
 function Shell(): JSX.Element {
-  const [info, setInfo] = useState<InfoResponse | null>(null)
+  const [info, setInfo] = useState<InfoResponse | null>(null);
 
   useEffect(() => {
     api
@@ -58,8 +58,8 @@ function Shell(): JSX.Element {
       .then(setInfo)
       .catch(() => {
         /* info stays null; Footer renders '…' for the version */
-      })
-  }, [])
+      });
+  }, []);
 
   // Modal-on-top trick: when the current location was reached with a
   // `backgroundLocation` in its state (i.e. the user clicked a card /
@@ -71,20 +71,28 @@ function Shell(): JSX.Element {
   // Direct deep-links to /tasks/:id don't carry `backgroundLocation`,
   // so the main <Routes> falls back to TaskViewPage (full-page view)
   // and the modal block is skipped.
-  const location = useLocation()
-  const state = (location.state ?? null) as BackgroundLocationState | null
-  const backgroundLocation = state?.backgroundLocation
-  const backgroundPathname = backgroundLocation?.pathname ?? null
+  const location = useLocation();
+  const state = (location.state ?? null) as BackgroundLocationState | null;
+  const backgroundLocation = state?.backgroundLocation;
+  const backgroundPathname = backgroundLocation?.pathname ?? null;
 
   return (
     <>
-      <Routes location={backgroundPathname ? { ...location, pathname: backgroundPathname } : location}>
+      <Routes
+        location={backgroundPathname ? { ...location, pathname: backgroundPathname } : location}
+      >
         {/* Login has its own chrome (no sidebar / top bar). */}
         <Route path="/login" element={<LoginPage />} />
 
         {/* Authenticated app: sidebar + page content (Phase pre-11),
             with the Phase 11 nested project tabs. */}
-        <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
+        <Route
+          element={
+            <RequireAuth>
+              <AppLayout />
+            </RequireAuth>
+          }
+        >
           <Route path="/" element={<TodayPage />} />
           <Route path="/inbox" element={<InboxPage />} />
           <Route path="/review" element={<ReviewPage />} />
@@ -136,7 +144,7 @@ function Shell(): JSX.Element {
       {/* Footer lives outside AppLayout so it shows on login too. */}
       <Footer info={info} />
     </>
-  )
+  );
 }
 
 /**
@@ -144,19 +152,17 @@ function Shell(): JSX.Element {
  * preserving the requested path so the user lands back where they started.
  */
 export function RequireAuth({ children }: { children: ReactNode }): JSX.Element {
-  const { status } = useAuth()
+  const { status } = useAuth();
   // While /me is in flight, render a placeholder so react-router doesn't
   // bounce the user to /login (and then back to / from LoginPage) on every
   // hard reload. Only redirect once we *know* the session is anonymous.
   if (status === 'loading') {
-    return (
-      <div className="p-6 text-sm text-slate-500">Loading…</div>
-    )
+    return <div className="p-6 text-sm text-slate-500">Loading…</div>;
   }
   if (status !== 'authenticated') {
-    return <Navigate to="/login" replace />
+    return <Navigate to="/login" replace />;
   }
-  return <>{children}</>
+  return <>{children}</>;
 }
 
 // Phase 20: Dashboard was the home route; replaced by TodayPage
@@ -170,7 +176,7 @@ function Placeholder({ title }: { title: string }): JSX.Element {
       <h1 className="text-2xl font-semibold mb-2">{title}</h1>
       <p className="text-slate-600 dark:text-slate-300">Coming in a later phase.</p>
     </section>
-  )
+  );
 }
 
 function Footer({ info }: { info: InfoResponse | null }): JSX.Element {
@@ -178,5 +184,5 @@ function Footer({ info }: { info: InfoResponse | null }): JSX.Element {
     <footer className="border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 text-center py-3">
       Orenda {info?.version ?? '…'} · local-first productivity
     </footer>
-  )
+  );
 }

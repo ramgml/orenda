@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useParams } from 'react-router-dom';
 
-import { api, type TaskAttachment } from '@/shared/api/client'
-import { usePasteImage } from '@/features/attachments/usePasteImage'
+import { api, type TaskAttachment } from '@/shared/api/client';
+import { usePasteImage } from '@/features/attachments/usePasteImage';
 
 /**
  * /projects/:id/attachments — files attached directly to the
@@ -14,62 +14,62 @@ import { usePasteImage } from '@/features/attachments/usePasteImage'
  * same handler serves both task and project attachments.
  */
 export function ProjectAttachmentsTab(): JSX.Element {
-  const { id } = useParams<{ id: string }>()
-  const [items, setItems] = useState<TaskAttachment[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const { id } = useParams<{ id: string }>();
+  const [items, setItems] = useState<TaskAttachment[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function reload(): Promise<void> {
-    if (!id) return
+    if (!id) return;
     try {
-      const r = await api.listProjectAttachments(id)
-      setItems(r.attachments)
+      const r = await api.listProjectAttachments(id);
+      setItems(r.attachments);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   useEffect(() => {
-    void reload()
+    void reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id])
+  }, [id]);
 
   const uploadFiles = useCallback(
     async (files: FileList | File[]) => {
-      if (!id) return
-      setBusy(true)
-      setError(null)
+      if (!id) return;
+      setBusy(true);
+      setError(null);
       try {
         for (const f of Array.from(files)) {
-          await api.uploadProjectAttachment(id, f)
+          await api.uploadProjectAttachment(id, f);
         }
-        await reload()
+        await reload();
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e))
+        setError(e instanceof Error ? e.message : String(e));
       } finally {
-        setBusy(false)
+        setBusy(false);
       }
     },
     // reload closes over id; rebuild whenever id changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [id],
-  )
+  );
 
   // Ctrl+V anywhere on the page while this tab is mounted → drop the
   // screenshot here. The hook skips pastes that originate inside any
   // editable element so we don't hijack comment / search input.
   const onPasteImage = useCallback(
     async (file: File) => {
-      await uploadFiles([file])
+      await uploadFiles([file]);
     },
     [uploadFiles],
-  )
-  usePasteImage(onPasteImage)
+  );
+  usePasteImage(onPasteImage);
 
   if (items === null && !error) {
-    return <p className="text-slate-500">Loading attachments…</p>
+    return <p className="text-slate-500">Loading attachments…</p>;
   }
 
   return (
@@ -82,15 +82,15 @@ export function ProjectAttachmentsTab(): JSX.Element {
 
       <div
         onDragOver={(e) => {
-          e.preventDefault()
-          setDragOver(true)
+          e.preventDefault();
+          setDragOver(true);
         }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => {
-          e.preventDefault()
-          setDragOver(false)
+          e.preventDefault();
+          setDragOver(false);
           if (e.dataTransfer.files.length) {
-            void uploadFiles(e.dataTransfer.files)
+            void uploadFiles(e.dataTransfer.files);
           }
         }}
         onClick={() => fileInputRef.current?.click()}
@@ -118,8 +118,8 @@ export function ProjectAttachmentsTab(): JSX.Element {
           multiple
           className="hidden"
           onChange={(e) => {
-            if (e.target.files?.length) void uploadFiles(e.target.files)
-            e.target.value = ''
+            if (e.target.files?.length) void uploadFiles(e.target.files);
+            e.target.value = '';
           }}
         />
       </div>
@@ -154,12 +154,12 @@ export function ProjectAttachmentsTab(): JSX.Element {
         </ul>
       )}
     </div>
-  )
+  );
 }
 
 function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
-  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
