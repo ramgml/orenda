@@ -1,12 +1,20 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import { VitePWA } from 'vite-plugin-pwa'
-import { fileURLToPath, URL } from 'node:url'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
+import { fileURLToPath, URL } from 'node:url';
 
 // Vite + React + TS configuration for Orenda.
 //
-// Dev server proxies /api and /ws to the Go backend on :2137 so the SPA can
-// call the REST API directly with no CORS gymnastics.
+// Dev server proxies /api and /ws to the Go backend. The backend port is
+// driven by ORENDA_SERVER__PORT — the same env var Makefile `dev` exports —
+// so the two sides stay in sync without hardcoding. Default is :2138, which
+// is the dev channel (Phase 28.20): the usage/dogfood systemd instance keeps
+// :2137 for itself, so make dev never collides with what you're actually
+// using day-to-day. E2E lives on a separate :21371 (see web/playwright.config.ts).
+const backendPort = process.env.ORENDA_SERVER__PORT ?? '2138';
+const backendOrigin = `http://127.0.0.1:${backendPort}`;
+const backendWs = `ws://127.0.0.1:${backendPort}`;
+
 export default defineConfig({
   plugins: [
     react(),
@@ -66,18 +74,19 @@ export default defineConfig({
     strictPort: false,
     // Proxy backend endpoints before the SPA history fallback can swallow them.
     // Anything not matched here falls through to Vite's dev middleware
-    // (which serves the React shell).
+    // (which serves the React shell). Targets derive from ORENDA_SERVER__PORT
+    // so they track whichever backend `make dev` is running.
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:2137',
+        target: backendOrigin,
         changeOrigin: true,
       },
       '/healthz': {
-        target: 'http://127.0.0.1:2137',
+        target: backendOrigin,
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://127.0.0.1:2137',
+        target: backendWs,
         ws: true,
         changeOrigin: true,
       },
@@ -88,4 +97,4 @@ export default defineConfig({
     sourcemap: true,
     target: 'es2022',
   },
-})
+});

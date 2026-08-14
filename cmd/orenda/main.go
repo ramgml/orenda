@@ -958,7 +958,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	serverErr := make(chan error, 1)
 	go func() {
-		logger.Info("http listening", zap.String("addr", srv.Addr))
+		// Phase 28.20: db_path in the startup log makes "which instance is
+		// this?" answerable from `journalctl --user -u orenda` alone —
+		// important when dev (./data/) and usage (~/.local/share/orenda/)
+		// both run on the same box under the same operator.
+		logger.Info("http listening",
+			zap.String("addr", srv.Addr),
+			zap.String("db_path", cfg.ResolveDBPath(".")),
+		)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 		}

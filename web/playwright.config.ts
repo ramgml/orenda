@@ -1,4 +1,4 @@
-import { defineConfig, devices } from '@playwright/test'
+import { defineConfig, devices } from '@playwright/test';
 
 /**
  * Playwright config for the Orenda web SPA E2E suite.
@@ -11,17 +11,18 @@ import { defineConfig, devices } from '@playwright/test'
  *     Playwright runs `webServer` BEFORE any globalSetup, so any DB prep
  *     that the server depends on MUST live in the same command line.
  *   - Reusing an already-running server is forbidden: the suite needs a
- *     clean DB and we don't want to clobber a real dev instance on :2137
+ *     clean DB and we don't want to clobber either the usage instance
+ *     on :2137 or the dev instance on :2138 (Phase 28.20).
  *
  * The `webServer.url` readiness probe is /healthz (Phase 0 endpoint).
  *
  * All paths are deterministic under /tmp/orenda-e2e so the config string
  * stays the same on every run.
  */
-const E2E_DIR = '/tmp/orenda-e2e'
-const DATA_DIR = `${E2E_DIR}/data`
-const DB_PATH = `${DATA_DIR}/orenda.db`
-const PORT = 21371
+const E2E_DIR = '/tmp/orenda-e2e';
+const DATA_DIR = `${E2E_DIR}/data`;
+const DB_PATH = `${DATA_DIR}/orenda.db`;
+const PORT = 21371;
 
 export default defineConfig({
   testDir: './e2e',
@@ -67,4 +68,4 @@ export default defineConfig({
     stdout: 'pipe',
     stderr: 'pipe',
   },
-})
+});

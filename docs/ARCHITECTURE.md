@@ -421,8 +421,8 @@ Conventions:
 ## 9. Build pipeline
 
 ```
-make dev            air (Go hot-reload)   on :2137
-                    + npm run dev (Vite)  on :5173 → proxy → :2137
+make dev            air (Go hot-reload)   on :2138
+                    + npm run dev (Vite)  on :5173 → proxy → :2138
 
 make build          npm run build → web/dist/* (Vite production)
                     rsync dist → internal/embed/web/dist/  (`embed-dists` target)
@@ -527,6 +527,46 @@ The deployment model: one user, one machine, one binary. No
 multi-tenancy, no remote database. The license file is MIT and
 the install script (`scripts/install.sh`) creates a `systemd --user`
 unit that the running user owns.
+
+### 12.4. Dev vs dogfood instance (Phase 28.20)
+
+Two checkouts live on the same box by design:
+
+| Channel    | Checkout                        | Port  | Data dir                       | Started by                |
+|------------|---------------------------------|-------|--------------------------------|---------------------------|
+| **Usage**  | `~/opt/orenda` (clone of GitHub, branch `main`) | 2137 | `~/.local/share/orenda/`       | `systemd --user` unit `orenda` |
+| **Dev**    | The repo you develop in         | 2138 | `./data/`                      | `make dev`                |
+| **E2E**    | Same as dev, but spawned by Playwright | 21371 | ephemeral tmp dir        | `make test-e2e`           |
+
+The numbers are deliberate: usage holds the canonical 2137 so anyone
+hitting `http://127.0.0.1:2137` gets the dogfooded binary, not whatever
+happens to be open in your editor. Dev shifts to 2138 to avoid the
+silent-conflict failure mode where Vite proxies your dev frontend into
+the production database — exactly the bug Phase 28.20 was created to
+prevent.
+
+The `scripts/install.sh` channel guard refuses to overwrite the
+global `~/.local/bin/orenda` binary from anywhere except a clean
+checkout on `main`. This is how we keep dogfood and development from
+colliding: `git pull` in `~/opt/orenda` tracks only origin/main, so
+whatever you install there is exactly what's been tagged for use.
+`--force` exists for emergencies and tells you what it's doing.
+
+`scripts/update-dogfood.sh` is the one-command refresh: from
+`~/opt/orenda`, it does `git pull --ff-only origin main`, reinstalls
+via `install.sh --systemd`, and restarts the unit. `--ff-only` keeps
+the usage channel linear — if upstream diverged, you find out
+immediately instead of accidentally merging `dev` into your daily-use
+binary.
+
+**Residual risk (documented, not mechanically guarded):** if you run
+the dev binary with `--config ~/.local/share/orenda/config.yaml`, the
+dev process *will* auto-migrate the usage database. This is destructive
+on schema divergence. The guard is discipline: never point dev at the
+usage data dir. The startup log line `db_path` (added in Phase 28.20)
+is the easy way to catch this — `journalctl --user -u orenda` shows
+the usage DB, your terminal shows the dev DB, and they should never
+match.
 
 ## 13. Where to start reading
 

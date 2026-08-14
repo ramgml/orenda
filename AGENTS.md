@@ -4,7 +4,7 @@
 
 ## What is Orenda?
 
-Local-first productivity suite (tasks, calendar, wiki) where **AI-agents are first-class citizens**. Single Go binary + React SPA, SQLite, port **2137**. Backup via git + sqlite snapshots.
+Local-first productivity suite (tasks, calendar, wiki) where **AI-agents are first-class citizens**. Single Go binary + React SPA, SQLite, port **2137** (usage/dogfood instance) / **2138** (`make dev`). Backup via git + sqlite snapshots.
 
 ## Stack
 
@@ -173,7 +173,7 @@ Rules:
 - One branch = one worktree. A branch cannot be checked out in two places; create the task branch with `git worktree add -b`.
 - Placement: **always nested `.worktrees/<task>`** — never a sibling `../` directory next to the repo. This is safe **only because** `.worktrees/` is in `.gitignore`: the leading dot keeps Go tooling out (`go test ./...` skips dot-dirs) and gitignore keeps `git add -A`, search and watchers clean. Any other location is forbidden: sibling checkouts pollute the shared parent directory seen by every project and agent, and an unignored nested checkout breaks the main tree (embedded-repo index garbage, duplicate module builds, watcher storms).
 - Gitignored content is not copied. In a fresh worktree run `npm install` in `web/` and `./bin/orenda migrate up` (each worktree gets its own `data/orenda.db`).
-- Port 2137 is singleton: run a second instance with `ORENDA_SERVER__PORT=<other>` or don't run it at all.
+- **Ports:** `:2137` is reserved for the usage/dogfood systemd instance (from `~/opt/orenda`). `:2138` is the dev default (`make dev`); `:21371` is E2E. Don't run two instances on the same port; pick one or set `ORENDA_SERVER__PORT` to something free. Phase 28.20 split these so dev and usage can co-exist.
 - Merge to `dev` is a deliberate act: only after review, and never against someone's uncommitted work in the main tree.
 - Remove the worktree right after its branch is merged; run `git worktree prune` occasionally.
 
