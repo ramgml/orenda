@@ -87,18 +87,25 @@ type infoResponse struct {
 // Constructing this struct lives in cmd/orenda so the api package stays
 // independent of the storage layer.
 type Dependencies struct {
-	Logger       *zap.Logger
-	Signer       *auth.Signer
-	Users        user.Repository
-	Projects     project.Repository
-	Tasks        task.Repository
-	Tokens       APITokenLookup
-	TaskService  *taskservice.Service
-	Agents       agent.Repository
-	AgentService *agentservice.Service
-	Comments     CommentService
-	Attachments  AttachmentService
-	Activities   ActivityService
+	Logger      *zap.Logger
+	Signer      *auth.Signer
+	Users       user.Repository
+	Projects    project.Repository
+	Tasks       task.Repository
+	Tokens      APITokenLookup
+	TaskService *taskservice.Service
+	// TaskLockHolder is the narrow seam for looking up who's
+	// holding a task_locks row. Phase 15: previously the repo
+	// had the Holder method but nothing in the API layer called
+	// it — 409 lock_taken returned just "lock_taken" with no
+	// holder name, and /tasks/:id/context didn't surface who's
+	// currently holding the lock. nil-safe (handlers must guard).
+	TaskLockHolder TaskLockHolder
+	Agents         agent.Repository
+	AgentService   *agentservice.Service
+	Comments       CommentService
+	Attachments    AttachmentService
+	Activities     ActivityService
 	// ActivityRecorder is the write side for task_activity rows.
 	// nil-safe (handlers must guard). Phase 28.5: wired so
 	// createTaskCommentHandler / addTaskAttachmentHandler can emit

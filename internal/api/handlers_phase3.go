@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,10 +39,11 @@ func claimTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		tr, err := deps.TaskService.Claim(r.Context(), chi.URLParam(r, "id"), req.AgentID)
+		taskID := chi.URLParam(r, "id")
+		tr, err := deps.TaskService.Claim(r.Context(), taskID, req.AgentID)
 		if err != nil {
 			if errors.Is(err, taskservice.ErrLockTaken) {
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "lock_taken"})
+				writeJSON(w, http.StatusConflict, lockTakenResponse(deps, r.Context(), taskID))
 				return
 			}
 			writeError(w, err)
@@ -51,6 +53,95 @@ func claimTaskHandler(deps *Dependencies) http.HandlerFunc {
 		notifyTaskAssignee(r.Context(), deps, "task.assigned_to_me",
 			"task.assigned_to_me:"+tr.ID, tr, req.AgentID)
 		writeJSON(w, http.StatusOK, tr)
+	}
+}
+
+// lockTakenResponse builds the JSON body for a 409 response when a
+// Claim collides with an existing task_locks row.
+//
+// Phase 15: the old response was just {"error":"lock_taken"} with
+// no holder info — the agent had no way to know who to ask. Now
+// we look up the holder (if the TaskLockHolder seam is wired) and
+// include agent_id / agent_name / acquired_at. The lookup is
+// best-effort: if the holder row was deleted between the failed
+// Claim and our response, or if the repo isn't wired, we fall
+// back to the bare error payload — backwards-compatible with
+// anything that was matching on the {error: "lock_taken"} shape.
+func lockTakenResponse(deps *Dependencies, ctx context.Context, taskID string) map[string]any {
+	out := map[string]any{"error": "lock_taken"}
+	if deps.TaskLockHolder == nil {
+		return out
+	}
+	holderID, acquiredAt, err := deps.TaskLockHolder.Holder(ctx, taskID)
+	if err != nil || holderID == "" {
+		return out
+	}
+	out["holder_agent_id"] = holderID
+	out["claimed_at"] = acquiredAt
+	if deps.Agents != nil {
+		if a, err := deps.Agents.GetByID(ctx, holderID); err == nil && a != nil {
+			out["holder_agent_name"] = a.Name
+		}
+	}
+	return out
+}
+
+// populateContextBlockers fills TaskContext.BlockedBy with the
+// list of blocker ids whose status is NOT 'done'. The repo returns
+// both open and satisfied blockers; we filter to open ones so an
+// agent reading the context sees only what's still standing in
+// the way.
+//
+// Phase 15: an agent resuming work needs to know "why can't I
+// move this forward?" — the list of unfinished blockers answers
+// that directly. Without this, the agent would either claim the
+// task and hit a 422 task_blocked later, or have to fetch each
+// dependency id separately to figure that out.
+func populateContextBlockers(deps *Dependencies, ctx context.Context, taskID string, out *TaskContext) {
+	if deps.Tasks == nil {
+		return
+	}
+	rows, err := deps.Tasks.Blockers(ctx, taskID)
+	if err != nil {
+		return
+	}
+	ids := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if !r.Done {
+			ids = append(ids, r.BlockerID)
+		}
+	}
+	if len(ids) == 0 {
+		// Leave nil so the JSON encoder omits the key entirely —
+		// the wire shape is then "no blocked_by" rather than
+		// "blocked_by: []" which is the same shape as before Phase 15.
+		return
+	}
+	out.BlockedBy = ids
+}
+
+// populateContextLockHolder fills TaskContext.LockHolder with the
+// current task_locks holder, if any. Phase 15: previously the
+// context snapshot had no way to tell the agent "someone else is
+// currently working on this" — agents would discover that
+// only by failing a claim and reading a 409. Now it's right
+// there in the snapshot.
+func populateContextLockHolder(deps *Dependencies, ctx context.Context, taskID string, out *TaskContext) {
+	if deps.TaskLockHolder == nil {
+		return
+	}
+	holderID, acquiredAt, err := deps.TaskLockHolder.Holder(ctx, taskID)
+	if err != nil || holderID == "" {
+		return
+	}
+	out.LockHolder = &LockHolder{
+		AgentID:    holderID,
+		AcquiredAt: acquiredAt,
+	}
+	if deps.Agents != nil {
+		if a, err := deps.Agents.GetByID(ctx, holderID); err == nil && a != nil {
+			out.LockHolder.AgentName = a.Name
+		}
 	}
 }
 
@@ -453,6 +544,12 @@ func getTaskContextHandler(deps *Dependencies) http.HandlerFunc {
 				}
 			}
 		}
+		// Phase 15: open blockers and current lock holder. Both are
+		// best-effort lookups — empty/nil leaves the field off the
+		// wire (the agent reading the context can tell "no blockers"
+		// from "this is a free task" without inspecting a sentinel).
+		populateContextBlockers(deps, ctx, taskID, out)
+		populateContextLockHolder(deps, ctx, taskID, out)
 		writeJSON(w, http.StatusOK, out)
 	}
 }

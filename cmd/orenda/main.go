@@ -864,16 +864,20 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Build the router.
 	api.Version = version
 	router := api.NewRouter(&api.Dependencies{
-		Logger:       logger,
-		Signer:       signer,
-		Users:        users,
-		Projects:     projects,
-		Tasks:        tasksRepo,
-		Tokens:       tokens,
-		TaskService:  taskSvc,
-		AgentService: agentSvc,
-		Agents:       sqlite.NewAgentRepository(db),
-		Comments:     commentSvc,
+		Logger:      logger,
+		Signer:      signer,
+		Users:       users,
+		Projects:    projects,
+		Tasks:       tasksRepo,
+		Tokens:      tokens,
+		TaskService: taskSvc,
+		// Phase 15: wire task_locks Holder() so 409 lock_taken
+		// and /tasks/:id/context can surface the current holder
+		// instead of a bare "lock_taken".
+		TaskLockHolder: taskLocks,
+		AgentService:   agentSvc,
+		Agents:         sqlite.NewAgentRepository(db),
+		Comments:       commentSvc,
 		Attachments: attachmentServiceFor(attachmentsvc.New(sqlite.NewAttachmentRepository(db), attachmentsvc.Config{
 			UploadDir:    cfg.ResolveUploadsDir(cwdOr(absCfg, ".")),
 			MaxSizeBytes: int64(cfg.Uploads.MaxSizeMB) * 1024 * 1024,
