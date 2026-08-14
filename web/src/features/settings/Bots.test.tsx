@@ -124,7 +124,11 @@ describe('BotsSettingsPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: /add subscription/i }));
 
     // Change bot type to telegram so the placeholder makes sense.
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'telegram' } });
+    // Use a testid because the page now has two bot-type selects
+    // (add-subscription form + Test send UI).
+    fireEvent.change(screen.getByTestId('add-subscription-bot-type'), {
+      target: { value: 'telegram' },
+    });
     fireEvent.change(screen.getByPlaceholderText(/chat id/i), { target: { value: '123' } });
     // Add mention.created.
     fireEvent.click(screen.getByRole('checkbox', { name: /mention\.created/ }));
@@ -150,7 +154,9 @@ describe('BotsSettingsPage', () => {
     render(<BotsSettingsPage />);
     fireEvent.click(await screen.findByRole('button', { name: /add subscription/i }));
     // Switch to telegram so the target placeholder is "chat id".
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'telegram' } });
+    fireEvent.change(screen.getByTestId('add-subscription-bot-type'), {
+      target: { value: 'telegram' },
+    });
     fireEvent.change(screen.getByPlaceholderText(/chat id/i), { target: { value: 'x' } });
 
     const formButton = screen.getAllByRole('button', { name: /add subscription/i })[0];
@@ -274,5 +280,93 @@ describe('BotsSettingsPage', () => {
         code: 'ABC123',
       });
     });
+  });
+
+  // ---- Phase 10 (Test send UI): one-off bot message ----
+
+  it('Test send: dropdown omits console (no user-facing signal)', async () => {
+    stubSubs([]);
+
+    render(<BotsSettingsPage />);
+
+    const select = (await screen.findByTestId('bot-test-type')) as HTMLSelectElement;
+    const options = Array.from(select.options).map((o) => o.value);
+    expect(options).toEqual(['webhook', 'email', 'telegram', 'vk']);
+    expect(options).not.toContain('console');
+  });
+
+  it('Test send: success surfaces the green confirmation banner', async () => {
+    stubSubs([]);
+    stubHttp.post.mockResolvedValueOnce({
+      data: {
+        ok: true,
+        bot_type: 'webhook',
+        target: 'https://example.com/hook',
+        sentinel: 'If you got this, your bot is configured correctly.',
+        sent_at: '2026-08-14T00:00:00Z',
+      },
+    });
+
+    render(<BotsSettingsPage />);
+    fireEvent.change(await screen.findByTestId('bot-test-target'), {
+      target: { value: 'https://example.com/hook' },
+    });
+    fireEvent.click(screen.getByTestId('bot-test-submit'));
+
+    await waitFor(() => {
+      expect(stubHttp.post).toHaveBeenCalledWith('/api/v1/bots/test', {
+        bot_type: 'webhook',
+        target_address: 'https://example.com/hook',
+      });
+    });
+    expect(await screen.findByTestId('bot-test-result-ok')).toBeTruthy();
+  });
+
+  it('Test send: bot_not_running error renders the friendly hint', async () => {
+    stubSubs([]);
+    stubHttp.post.mockRejectedValueOnce(
+      new Error(
+        '{"error":"bot_not_running","hint":"Bot telegram is not running. Set its credentials in data/config.yaml and restart the server."}',
+      ),
+    );
+
+    render(<BotsSettingsPage />);
+    fireEvent.change(await screen.findByTestId('bot-test-type'), {
+      target: { value: 'telegram' },
+    });
+    fireEvent.change(screen.getByTestId('bot-test-target'), {
+      target: { value: '123456' },
+    });
+    fireEvent.click(screen.getByTestId('bot-test-submit'));
+
+    expect(await screen.findByTestId('bot-test-result-err')).toBeTruthy();
+    expect(await screen.findByText(/bot_not_running/)).toBeTruthy();
+  });
+
+  it('Test send: send_failed (502) shows the transport error hint', async () => {
+    stubSubs([]);
+    stubHttp.post.mockRejectedValueOnce(
+      new Error('{"error":"send_failed","hint":"smtp: dial: connection refused"}'),
+    );
+
+    render(<BotsSettingsPage />);
+    fireEvent.change(await screen.findByTestId('bot-test-type'), {
+      target: { value: 'email' },
+    });
+    fireEvent.change(screen.getByTestId('bot-test-target'), {
+      target: { value: 'me@example.com' },
+    });
+    fireEvent.click(screen.getByTestId('bot-test-submit'));
+
+    expect(await screen.findByTestId('bot-test-result-err')).toBeTruthy();
+    expect(await screen.findByText(/smtp: dial/)).toBeTruthy();
+  });
+
+  it('Test send: submit is disabled while target is empty', async () => {
+    stubSubs([]);
+
+    render(<BotsSettingsPage />);
+    const submit = (await screen.findByTestId('bot-test-submit')) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
   });
 });

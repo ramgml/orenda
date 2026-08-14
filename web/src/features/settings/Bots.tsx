@@ -11,6 +11,12 @@ interface Subscription {
 }
 
 const BOT_TYPES = ['console', 'webhook', 'email', 'telegram', 'vk'];
+// Phase 10 Test send UI: the dropdown deliberately omits "console" —
+// a console bot writes to server stderr and has no user-facing
+// signal, so a "test send" through it would look like a silent
+// failure. The backend enforces the same exclusion via
+// knownTestBotTypes.
+const TEST_BOT_TYPES = ['webhook', 'email', 'telegram', 'vk'] as const;
 const EVENT_TYPES = [
   'task.review_needed',
   'task.assigned_to_me',
@@ -43,6 +49,17 @@ export function BotsSettingsPage(): JSX.Element {
   // Phase 22.3 follow-up: Telegram bind form state.
   const [bindCode, setBindCode] = useState('');
   const [binding, setBinding] = useState(false);
+
+  // Phase 10 Test send UI: one-off message through any configured bot,
+  // independent of the subscription store. Used to verify that bot
+  // credentials are wired correctly before binding a subscription.
+  const [testBotType, setTestBotType] = useState<(typeof TEST_BOT_TYPES)[number]>('webhook');
+  const [testTarget, setTestTarget] = useState('');
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    kind: 'ok' | 'err';
+    msg: string;
+  } | null>(null);
 
   async function load(): Promise<void> {
     try {
@@ -132,6 +149,46 @@ export function BotsSettingsPage(): JSX.Element {
     }
   }
 
+  // Phase 10 Test send UI: deliver a single test message through the
+  // chosen bot. The server returns a structured error payload; we
+  // pattern-match against `error: '<key>'` to map to a friendly hint
+  // without swallowing the raw text (operator wants to see the
+  // transport error when something is wrong with the wiring).
+  async function onTestSend(e: FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault();
+    if (testing || testTarget.trim().length === 0) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await api.testBot({
+        bot_type: testBotType,
+        target_address: testTarget.trim(),
+      });
+      setTestResult({
+        kind: 'ok',
+        msg: `Sent. If you got a message with "Orenda test message" at ${testTarget.trim()}, the bot is wired correctly.`,
+      });
+      // r is unused beyond the side effect; keep the call so test
+      // closures can spy on it.
+      void r;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Server returns {error: ..., hint?: ...} on failure. The
+      // axios error message contains the JSON; surface the most
+      // useful part.
+      const codeMatch = msg.match(/"error"\s*:\s*"([^"]+)"/);
+      const hintMatch = msg.match(/"hint"\s*:\s*"([^"]+)"/);
+      const code = codeMatch?.[1] ?? 'send_failed';
+      const hint = hintMatch?.[1];
+      setTestResult({
+        kind: 'err',
+        msg: hint ? `${code}: ${hint}` : `${code}: ${msg}`,
+      });
+    } finally {
+      setTesting(false);
+    }
+  }
+
   return (
     <section className="space-y-4">
       <header className="flex items-center justify-between">
@@ -150,6 +207,78 @@ export function BotsSettingsPage(): JSX.Element {
           {creating ? 'Cancel' : 'Add subscription'}
         </button>
       </header>
+
+      {/* Phase 10 Test send UI: deliver a one-off message through any
+       * configured bot. Independent of the subscription store — the
+       * user can verify wiring before they bind a real subscription.
+       * The form is intentionally separate from the "Add subscription"
+       * form above so the operator can sanity-check the channel
+       * they're about to subscribe to. */}
+      <section
+        data-testid="bot-test-send"
+        className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950 space-y-3"
+      >
+        <div>
+          <h2 className="font-semibold">Test send</h2>
+          <p className="text-sm text-slate-500">
+            Send a one-off message through a configured bot. Use this to verify credentials and
+            routing before binding a subscription.
+          </p>
+        </div>
+        <form onSubmit={onTestSend} className="grid sm:grid-cols-3 gap-3 items-end">
+          <label className="grid gap-1 text-sm">
+            <span className="text-slate-500">Bot type</span>
+            <select
+              data-testid="bot-test-type"
+              value={testBotType}
+              onChange={(e) => setTestBotType(e.target.value as typeof testBotType)}
+              className="px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+            >
+              {TEST_BOT_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-sm sm:col-span-2">
+            <span className="text-slate-500">Target address</span>
+            <input
+              type="text"
+              data-testid="bot-test-target"
+              value={testTarget}
+              onChange={(e) => setTestTarget(e.target.value)}
+              placeholder={targetPlaceholder(testBotType)}
+              className="px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+              required
+            />
+          </label>
+          <button
+            type="submit"
+            data-testid="bot-test-submit"
+            disabled={testing || testTarget.trim().length === 0}
+            className="sm:col-span-3 px-3 py-2 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
+          >
+            {testing ? 'Sending…' : 'Send test'}
+          </button>
+        </form>
+        {testResult && testResult.kind === 'ok' && (
+          <div
+            data-testid="bot-test-result-ok"
+            className="rounded border border-green-300 bg-green-50 text-green-800 px-3 py-2 text-sm"
+          >
+            {testResult.msg}
+          </div>
+        )}
+        {testResult && testResult.kind === 'err' && (
+          <div
+            data-testid="bot-test-result-err"
+            className="rounded border border-red-300 bg-red-50 text-red-800 px-3 py-2 text-sm"
+          >
+            {testResult.msg}
+          </div>
+        )}
+      </section>
 
       {/* Phase 22.3 follow-up: Telegram bind handshake. The bot
        * sends a one-shot code on /start; the user pastes it here
@@ -206,6 +335,7 @@ export function BotsSettingsPage(): JSX.Element {
             <label className="grid gap-1 text-sm">
               <span className="text-slate-500">Bot type</span>
               <select
+                data-testid="add-subscription-bot-type"
                 value={botType}
                 onChange={(e) => setBotType(e.target.value)}
                 className="px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"

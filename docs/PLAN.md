@@ -753,7 +753,7 @@ make build
 
 ## Phase 10 — Бот-платформа *(1 неделя)*
 
-> **Аудит 2026-08-12:** 🟡 — registry, config-driven запуск, Console/Telegram/VK/Email/Webhook боты, callback handler с replay protection, тесты — есть. Email без HTML-шаблонов (plain text); VK только Callback API (Long Poll не реализован); нет «Test send» в UI; нет weekly digest (DoD); `Bot.Stop()` не вызывается при shutdown.
+> **Аудит 2026-08-12:** 🟡 — registry, config-driven запуск, Console/Telegram/VK/Email/Webhook боты, callback handler с replay protection, тесты — есть. Email без HTML-шаблонов (plain text); VK только Callback API (Long Poll не реализован); **✅ нет «Test send» в UI закрыто в `phase-10-test-send`** (POST `/api/v1/bots/test` + UI-карточка с dropdown/target/submit, console исключён из списка, per-bot target pre-check); нет weekly digest (DoD); `Bot.Stop()` не вызывается при shutdown.
 
 **Цель:** реальные боты по интерфейсу Bot.
 
@@ -788,9 +788,9 @@ make build
 - [ ] **10.9** Callback handler:
   - `internal/bot/callback.go` — верификация, маппинг в API-вызовы
   - Защита от replay (timestamp + nonce)
-- [ ] **10.10** Frontend `web/src/features/settings/Bots.tsx`:
+- [x] **10.10** Frontend `web/src/features/settings/Bots.tsx`:
   - Список подключённых ботов, статус
-  - Кнопка «Test send»
+  - **Кнопка «Test send»** — закрыто в `phase-10-test-send` (POST `/api/v1/bots/test`, UI-карточка с dropdown/target/submit, success+error banners, console исключён из списка)
   - Форма добавления
 - [ ] **10.11** Тесты:
   - Каждый бот изолированно (mock HTTP server для VK/TG)

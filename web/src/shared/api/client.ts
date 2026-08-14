@@ -1195,6 +1195,42 @@ class ApiClient {
       }>('/api/v1/bots/telegram/bind', input)
       .then((r) => r.data);
   }
+
+  /**
+   * Phase 10 Test send UI: deliver a one-off message through any
+   * configured bot. The handler ignores the subscription store —
+   * the address is whatever the user types in the form, even if
+   * no subscription exists yet. Returns the server's
+   * `ok: true` payload on success.
+   *
+   * On failure the server returns one of:
+   *   - 400 `invalid_input`        (missing bot_type / target_address)
+   *   - 400 `unknown_bot_type`     (bot_type not in knownTestBotTypes)
+   *   - 400 per-bot target pre-check (e.g. webhook must be http(s))
+   *   - 503 `bot_not_running`      (bot not registered in the live registry)
+   *   - 502 `send_failed`          (transport-level error after registry hit)
+   *
+   * Errors (.catch) here surface the raw axios message — the UI
+   * pattern-matches against `error.response.data.error` to render
+   * a friendly hint.
+   */
+  testBot(input: { bot_type: string; target_address: string }): Promise<{
+    ok: boolean;
+    bot_type: string;
+    target: string;
+    sentinel: string;
+    sent_at: string;
+  }> {
+    return this.http
+      .post<{
+        ok: boolean;
+        bot_type: string;
+        target: string;
+        sentinel: string;
+        sent_at: string;
+      }>('/api/v1/bots/test', input)
+      .then((r) => r.data);
+  }
 }
 
 export interface BotSubscription {
