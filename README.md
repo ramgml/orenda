@@ -12,9 +12,13 @@
 
 - **Backend:** Go 1.22+ (chi, modernc.org/sqlite, JWT, gorilla/websocket, cobra)
 - **Frontend:** React 18 + TypeScript + Vite + Tailwind + shadcn/ui
-- **DB:** SQLite (WAL, FTS5)
-- **Backup:** git mirror + sqlite snapshots (configurable remote)
+- **DB:** SQLite (WAL, FTS5, pure-Go via modernc.org/sqlite, no CGO)
+- **Backup:** git mirror + sqlite snapshots (configurable remote; hot-reloadable since 28.9)
 - **Notifications:** Pluggable bots (VK, Telegram, Email, Webhook, Console)
+- **Realtime:** WebSocket hub (cookie-auth, 8 topics) + long-poll fallback for agents
+- **Agent DX:** REST + MCP server (Streamable HTTP) + `orenda agent` cobra CLI
+- **Security defaults:** bcrypt-12 passwords, opaque API tokens, JWT cookie 24h, rate-limited, CSP-locked, opt-in pprof on 127.0.0.1 only
+- **PWA:** Workbox service worker, IndexedDB outbox, `/api/v1/sync` flush
 
 ## Quickstart
 
@@ -47,30 +51,49 @@ make dev
 # → Go server: http://127.0.0.1:2137
 ```
 
+Validate the codebase before opening a PR:
+
+```bash
+make test              # Go + vitest (236 tests, ~5s)
+make lint              # golangci-lint + eslint + prettier check
+make test-e2e          # Playwright against a fresh embedded build on :21371 (18 specs)
+make govulncheck       # Go vulnerability DB scan
+```
+
+A `pre-commit` hook is installed via `simple-git-hooks` on
+`npm install` in `web/` — it auto-formats staged `.ts/.tsx/.css` files
+with Prettier before each commit. Skip with
+`SKIP_SIMPLE_GIT_HOOKS=1 git commit ...` when you're mid-edit.
+
 ## Features
 
-- 📋 Projects, boards, kanban with drag-and-drop
+- 📋 Projects, boards, kanban with drag-and-drop, columns-as-statuses (Phase 27.8)
 - ✅ Tasks with statuses (backlog → todo → in_progress → review → done)
-- 🤖 AI-agents with API tokens, atomic claim, heartbeat
-- 💬 Comments, attachments, mentions between user and agents
-- 📅 Calendar (events + tasks with due dates)
-- 📚 Wiki with markdown, wiki-links, backlinks, FTS5 search
-- 🎓 Personal LMS courses — built by an AI tutor or by hand
+- 🤖 AI-agents with API tokens, atomic claim, heartbeat, blocked-by-graph
+- 💬 Comments, attachments, mentions between user and agents, agent-author audit
+- 📅 Calendar (events + tasks with due dates, RRULE expansion, WIP limits)
+- 📚 Wiki with markdown, wiki-links, backlinks, FTS5 BM25 search
+- 🎓 Personal LMS courses — built by an AI tutor or by hand (LessonPage, quizzes exact/open)
 - 🔍 Review queue — agent work awaiting your decision, one click away
-- ⏱️ Time tracking with timer + manual entries
+- ⏱️ Time tracking with timer + manual entries, /today driver page
 - 🔔 Pluggable notifications (VK, Telegram, Email, Webhook, Console)
-- 💾 Git-based backups (GitHub, Bitbucket, SourceCraft, custom)
-- 📱 PWA (offline-first)
+- 💾 Git-based backups (GitHub, Bitbucket, SourceCraft, custom) + sqlite .backup + WAL archive + UI restore
+- 📱 PWA (offline-first) — IndexedDB outbox, sync flush
+- ⚡ Live UI updates via WebSocket on 8 topics (tasks, agents, attachments, comments, events, notifications, timers, wiki)
+- 🔐 Two parallel auth models: cookie JWT (UI) vs Bearer API-token (agents)
+- 🛠️ `orenda agent` CLI + MCP server (Streamable HTTP) for tool-using agents
 
 ## Documentation
 
-- [PRD](docs/PRD.md) — Product Requirements Document
+- [PRD](docs/PRD.md) — Product Requirements Document (vision)
 - [PLAN](docs/PLAN.md) — Development phases and tasks
+- [ARCHITECTURE](docs/ARCHITECTURE.md) — what's in the binary, data-flow reference
 - [CONTEXT](docs/CONTEXT.md) — Domain concepts (kanban, courses, delegation)
 - [API](docs/API.md) — REST API reference (+ [openapi.yaml](docs/openapi.yaml))
-- [DB](docs/DB.md) — Database schema
-- [AGENTS.md](AGENTS.md) — Guidelines for AI agents working on this codebase
-- [SKILL](docs/skills/orenda/SKILL.md) — Agent workflow + etiquette
+- [DB](docs/DB.md) — Database schema (per migration)
+- [SESSION](docs/SESSION.md) — session snapshot (current state, recent decisions)
+- [AGENTS.md](AGENTS.md) — guidelines for AI agents extending the codebase
+- [SKILL](docs/skills/orenda/SKILL.md) — agent workflow + etiquette
 
 ## Roadmap
 
@@ -83,11 +106,16 @@ make dev
 | 4 — Calendar + Time | ✅ | Events, recurrence, timer |
 | 5 — Wiki + Search | ✅ | Pages, wiki-links, FTS5 |
 | 6 — Notifications (facade) | ✅ | In-app + bot abstraction |
-| 7 — Backups | ✅ | Git mirror + sqlite snapshots |
-| 8 — PWA | ✅ | Offline support, IndexedDB outbox |
-| 9 — Polish | 🚧 | Tests, docs, installer (остаток — фаза «Полировка») |
+| 7 — Backups | ✅ | Git mirror + sqlite snapshots + restore |
+| 8 — PWA | ✅ | Offline support, IndexedDB outbox, /sync flush |
+| 9 — Polish (initial) | ✅ | Tests, security headers, installer, dark mode |
 | 10 — Bot platform | ✅ | VK, Telegram, Email, Webhook |
-| 11–27 | ✅ | Projects UI, kanban columns, tags, dependencies, inbox, rich cards, LMS courses, review queue, today, quick capture, restore, OpenAPI, agent CLI + MCP, E2E suite — детали в [PLAN](docs/PLAN.md) |
+| 11–27 | ✅ | Projects UI, kanban columns, tags, dependencies, inbox, rich cards, LMS courses, review queue, today, quick capture, restore, OpenAPI, agent CLI + MCP, E2E suite — see [PLAN](docs/PLAN.md) |
+| 28 (Polish backlog close-out) | ✅ | Settings hub, TaskModal scroll, security defaults (JWT 24h, Secure from config), activity emission, Bot.Stop on shutdown, opt-in pprof, govulncheck target, Prettier, hot-reload backup, CSP tightening, ARCHITECTURE.md |
+
+> Screenshots: not bundled in the repo (kept light — no binary blobs).
+> Run `make build && bin/orenda serve` and visit the four key pages:
+> `/`, `/inbox`, `/courses`, `/settings` to see the current UI.
 
 ## License
 
