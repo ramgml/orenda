@@ -180,8 +180,8 @@ func printJSON(cmd *cobra.Command, v any) error {
 	if err != nil {
 		return err
 	}
-	cmd.OutOrStdout().Write(raw)
-	cmd.OutOrStdout().Write([]byte("\n"))
+	_, _ = cmd.OutOrStdout().Write(raw)
+	_, _ = cmd.OutOrStdout().Write([]byte("\n"))
 	return nil
 }
 
@@ -283,14 +283,14 @@ func newAgentNextCmd() *cobra.Command {
 				return err
 			}
 			if resp.Count == 0 {
-				cmd.OutOrStdout().Write([]byte("no work\n"))
+				_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
 				// Exit code 2 — convention from the spec.
 				os.Exit(2)
 			}
 			first := resp.Tasks[0]
 			if !first.Ready {
 				// Shouldn't happen with ?ready=true, but defensive.
-				cmd.OutOrStdout().Write([]byte("no work\n"))
+				_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
 				os.Exit(2)
 			}
 			// Print the candidate, then claim it.
@@ -306,8 +306,8 @@ func newAgentNextCmd() *cobra.Command {
 				return fmt.Errorf("agent claim: HTTP %d: %s", claimCode, claimRaw)
 			}
 			// Echo the claim response so the agent sees the new state.
-			cmd.OutOrStdout().Write(claimRaw)
-			cmd.OutOrStdout().Write([]byte("\n"))
+			_, _ = cmd.OutOrStdout().Write(claimRaw)
+			_, _ = cmd.OutOrStdout().Write([]byte("\n"))
 			return nil
 		},
 	}
@@ -490,7 +490,7 @@ func newAgentAwaitCmd() *cobra.Command {
 			}
 			// 204 No Content = timeout, no events; exit 2.
 			if code == http.StatusNoContent {
-				cmd.OutOrStdout().Write([]byte("timeout\n"))
+				_, _ = cmd.OutOrStdout().Write([]byte("timeout\n"))
 				os.Exit(2)
 			}
 			if code != http.StatusOK {
