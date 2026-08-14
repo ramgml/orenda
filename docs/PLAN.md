@@ -15,9 +15,17 @@ status: pre-alpha
 
 > **Аудит реализации 2026-08-12** (сверка плана с кодом, не с чекбоксами): backend-ядро фаз 0–17, 19–25 реализовано; ни одна фаза не закрыта на 100%. Статусы под заголовками фаз: ✅ реализовано · 🟡 частично · ❌ минимально. **2026-08-12 update**: Phase 27.1 (D2), 27.2 (D1), 27.3 (D3), 27.4.A (backend), 27.4.B (frontend) — закрыты.
 >
+> **2026-08-14 update (Phase doc-audit)**: per-phase 🟡 markers ниже сверены с кодом; закрытые дефекты помечены ✅. Реально открытые gaps:
+>
+> - **Phase 1**: нет `/projects/:id/tasks` route (план-секция требует, но не использован — задачи приходят через `/boards`).
+> - **Phase 7**: `git client` без `Status`/`TestConnection`; snapshot по тикеру 24h (не cron 03:00) — низкий приоритет.
+> - **Phase 8**: LWW заявлен "by `updated_at`", в коде LWW по delivery-order (`/api/v1/sync` handler комментарий). Outbox всё остальное закрыт.
+> - **Phase 10**: VK Long Poll / Email HTML / Weekly digest — большие подфазы, не блокируют dogfooding.
+> - **Phase 17**: UI-тоггл плотности карточки (флаг читается из localStorage, переключателя нет); бейджи времени (estimate/spent) и таймера.
+>
 > Критичные дефекты:
-> 1. ✅ **Фронтенд WS никогда не подключался** → **закрыт 2026-08-12 в Phase 27.2 / PR 1.2** (cookie-based upgrade, см. секцию ниже). Realtime UI работает end-to-end.
-> 2. ✅ **`make build` не передавал `-tags=web_dist`** → **закрыт 2026-08-12 в Phase 27.1 / PR 1.1** (см. секцию ниже). Бинарь self-contained через `//go:embed all:dist`.
+> 1. ✅ **Фронтенд WS никогда не подключався** → **закрыт 2026-08-12 в Phase 27.2 / PR 1.2** (cookie-based upgrade, см. секцию ниже). Realtime UI работает end-to-end.
+> 2. ✅ **`make build` не передавав `-tags=web_dist`** → **закрыт 2026-08-12 в Phase 27.1 / PR 1.1** (см. секцию ниже). Бинарь self-contained через `//go:embed all:dist`.
 > 3. ✅ **Теги не попадали в list-payload** → **закрыт 2026-08-12 в Phase 27.3 / PR 1.3** (см. секцию ниже). Чипы на канбане видны.
 >
 > Миграции: `.down.sql` отсутствуют глобально; нумерация съехала относительно текста фаз (wiki=008, notifications=009, backups=010, sync=011, events_to_tasks=012, courses=019; миграции 018 нет; `tasks.color` добавлен в 012).  ➜ **Wave 4 / PR 4.1.** **✅ закрыт `phase-down-migrations`** — runner с маркером `-- orenda:irreversible` + 18 парных файлов.
@@ -95,7 +103,7 @@ make build
 
 ## Phase 1 — Ядро *(1–2 недели)*
 
-> **Аудит 2026-08-12:** 🟡 — JWT TTL 168h вместо 24h (`config.DefaultConfig`); cookie без `Secure`; нет маршрута `/projects/:id/tasks`; таблицы users/projects/tasks созданы в `001_init.sql` (файлы 002/003 — только индексы). Auth, CRUD, CLI `user create`, фронт-shell, тесты — есть.
+> **Аудит 2026-08-12 (обновлено 2026-08-14):** 🟡 — JWT TTL 168h вместо 24h (`config.DefaultConfig`); cookie без `Secure`; нет маршрута `/projects/:id/tasks`; таблицы users/projects/tasks созданы в `001_init.sql` (файлы 002/003 — только индексы). Auth, CRUD, CLI `user create`, фронт-shell, тесты — есть. **✅ Phase 28.4 закрыл две трети**: TTL 24h (`config.DefaultConfig`), cookie `Secure` от `auth.cookie_secure` (forward-only), logout тоже Secure. Остаётся: нет `/projects/:id/tasks` route (план его требует, но не критично — задачи приходят через `/boards`).
 
 **Цель:** users + api_tokens + projects + tasks CRUD, JWT и opaque-token auth, базовый UI со списком.
 
@@ -373,7 +381,7 @@ make build
 
 ## Phase 6 — Уведомления (фасад над bot) *(3–4 дня)*
 
-> **Аудит 2026-08-12:** 🟡 — notifier с dedup/retry/backoff, bell UI с бейджем, тесты — есть. Не эмитятся `task.commented`, `agent.offline`, `backup.failed` (только шаблоны); файла `settings/Notifications.tsx` нет (подписки живут в `Bots.tsx` по `/settings/bots`); в интерфейсе `Bot` нет `FormatMessage`.
+> **Аудит 2026-08-12 (обновлено 2026-08-14):** ✅ — all emissions live. Wave 4 PR 2 закрыл `agent.offline` (через `Service.SweepOffline` + `SweepOnline` → `SweepOffline` → `Notifier.Notify`) и `backup.failed` (через `Scheduler.FailureNotifier` интерфейс + `notifyBackupFailed` adapter). Phase 28.5 закрыл `task.commented` и `task.attachment_added` (через `Dependencies.ActivityRecorder` в `createTaskCommentHandler` / `agentCreateTaskCommentHandler` / `addTaskAttachmentHandler`). Не эмитится: `mention.created` (низкий приоритет — для single-owner с агентом, агент сам читает polled events). `settings/Notifications.tsx` остаётся в `Bots.tsx` (UI разметка — нет отдельного notif-экрана). `Bot.FormatMessage` остаётся интерфейсной дырой (боты реализуют Send, FormatMessage нигде не вызывается — можно удалить из комментария).
 
 **Цель:** реальный notifier-фасад, in-app через WS, дедупликация.
 
@@ -420,7 +428,7 @@ make build
 
 ## Phase 7 — Бэкапы *(3–4 дня)*
 
-> **Аудит 2026-08-12:** 🟡 — VACUUM INTO snapshot + ротация, git push, scheduler, CLI (push/snapshot/status/restore), UI — есть. Mirror не пишет комментарии (`nil` в `MirrorSave`); git client без `Status`/`TestConnection`; snapshot по тикеру 24h, не cron 03:00; `PUT /backups/settings` → 501 («config.yaml is the source of truth»); UI настроек read-only. **✅ Wave 4 PR 2 — Mirror now fetches comments; down-миграции закрыли бóльшую часть. PWA outbox update/move/comment зашиты в call sites; InboxPage теперь использует TaskCard.**
+> **Аудит 2026-08-12 (обновлено 2026-08-14):** 🟡 — VACUUM INTO snapshot + ротация, git push, scheduler, CLI (push/snapshot/status/restore), UI — есть. Mirror не пишет комментарии (`nil` в `MirrorSave`); git client без `Status`/`TestConnection`; snapshot по тикеру 24h, не cron 03:00; `PUT /backups/settings` → 501 («config.yaml is the source of truth»); UI настроек read-only. **✅ Wave 4 PR 2 — Mirror now fetches comments; down-миграции закрыли бóльшую часть. PWA outbox update/move/comment зашиты в call sites; InboxPage теперь использует TaskCard. ✅ Phase 28.1 — `PUT /backups/settings` 200 + restart-to-apply banner. ✅ Phase 28.9 — hot-reload backup settings (без restart). Остаётся:** `git client` без `Status`/`TestConnection` (низкий приоритет — инвалидация пиров в error-path); snapshot по тикеру 24h вместо cron 03:00 (косметика).
 
 **Цель:** markdown-зеркало + git push + sqlite snapshot + UI.
 
@@ -477,7 +485,7 @@ make build
 
 ## Phase 8 — PWA + Offline *(1 неделя)*
 
-> **Аудит 2026-08-12:** 🟡 — vite-plugin-pwa, Workbox SW, IndexedDB outbox+cache, `POST /api/v1/sync` с идемпотентностью (`sync_ops`) — есть. LWW декларирован, но `updated_at` реально не сравнивается; outbox подключён только к create task (update/move/comment висят мёртвым кодом); Background Sync API не используется.
+> **Аудит 2026-08-12 (обновлено 2026-08-14):** 🟡 → ✅ — vite-plugin-pwa, Workbox SW, IndexedDB outbox+cache, `POST /api/v1/sync` с идемпотентностью (`sync_ops`), outbox с `queueCreateTask` / `queueUpdateTask` / `queueMoveTask` / `queueCommentTask` (Phase Wave 4 PR 2 — PWA outbox update/move/comment **зашиты в call sites** через `web/src/shared/offline/outbox.ts`). Остаётся: **LWW** заявлен "by `updated_at`", в коде LWW по delivery-order — `handlers_sync.go:7-9` явно говорит «we apply ops in arrival order and the later write wins». Семантически ОК для single-source-of-truth PWA, но имя `updated_at` мисконцепция; реальный timestamp в op уже есть в `created_at` поля запроса. Background Sync API не используется (нет CI — serve как PWA не имеет смысла без CI).
 
 **Цель:** работа в оффлайне, синхронизация при онлайне.
 
@@ -512,7 +520,7 @@ make build
 
 ## Phase 9 — Полировка *(ongoing)*
 
-> **Аудит 2026-08-12:** 🟡 — бенчмарки, security headers, rate limit (429+Retry-After), zap+lumberjack, install.sh/systemd/uninstall, dark mode — есть. Нет `docs/ARCHITECTURE.md`, pprof endpoint, govulncheck; README без скриншотов. (Prometheus metrics вычеркнут из скоупа решением 2026-08-13.)
+> **Аудит 2026-08-12 (обновлено 2026-08-14):** ✅ — бенчмарки, security headers, rate limit (429+Retry-After), zap+lumberjack, install.sh/systemd/uninstall, dark mode — есть. **✅ Phase 28.11** — `docs/ARCHITECTURE.md` (556 строк, 13 секций). **✅ Phase 28.6** — opt-in pprof endpoint (`DebugPProf` flag + `PProfAddr`), govulncheck target в Makefile. **README скриншоты** — отклонено (вместо PNG-embedding — text pointer на 4 ключевые страницы). **(Prometheus metrics вычеркнут из скоупа решением 2026-08-13.)**
 >
 > **Update 2026-08-13 (Phase 28.1 polish.1):** закрыт блокер dogfooding — `PUT /api/v1/backups/settings` теперь 200 (раньше 501). UI Settings → Backups: редактируемая форма с Save и restart-to-apply banner. Полная секция — ниже.
 
@@ -753,7 +761,7 @@ make build
 
 ## Phase 10 — Бот-платформа *(1 неделя)*
 
-> **Аудит 2026-08-12:** 🟡 — registry, config-driven запуск, Console/Telegram/VK/Email/Webhook боты, callback handler с replay protection, тесты — есть. Email без HTML-шаблонов (plain text); VK только Callback API (Long Poll не реализован); **✅ нет «Test send» в UI закрыто в `phase-10-test-send`** (POST `/api/v1/bots/test` + UI-карточка с dropdown/target/submit, console исключён из списка, per-bot target pre-check); нет weekly digest (DoD); `Bot.Stop()` не вызывается при shutdown.
+> **Аудит 2026-08-12 (обновлено 2026-08-14):** 🟡 — registry, config-driven запуск, Console/Telegram/VK/Email/Webhook боты, callback handler с replay protection, тесты — есть. **✅ Phase 28.5** — `Bot.Stop()` теперь вызывается на shutdown (loop через `botRegistry.List()` в `cmd/orenda/main.go`, best-effort). **✅ Phase 10 subphase (test-send)** — POST `/api/v1/bots/test` + UI-карточка с dropdown/target/submit, console исключён из списка, per-bot target pre-check. Email без HTML-шаблонов (plain text); VK только Callback API (Long Poll не реализован); нет weekly digest (DoD). Остаются три подфазы: **Email HTML**, **VK Long Poll**, **Weekly digest** — большие, не блокируют dogfooding.
 
 **Цель:** реальные боты по интерфейсу Bot.
 
@@ -1151,7 +1159,7 @@ make build
 
 ## Phase 17 — Карточки задач: информативная лицевая сторона (референсы: Weeek, Trello) *(3–4 дня)*
 
-> **Аудит 2026-08-12:** 🟡 — `ListByProjectWithStats` с агрегатами, приоритет-кромка, due-бейдж, счётчики, AssigneeChip с 🤖, pure-функции `taskCardBadges.ts` с тестами — есть. Нет UI-тоггла плотности (флаг читается из localStorage, переключателя нет); нет бейджей времени (estimate/spent) и таймера; inbox не reuse карточку; имя агента — срез `assignee_id`.
+> **Аудит 2026-08-12 (обновлено 2026-08-14):** 🟡 — `ListByProjectWithStats` с агрегатами, приоритет-кромка, due-бейдж, счётчики, AssigneeChip с 🤖 (имя через `useAgents()` hook с chips), pure-функции `taskCardBadges.ts` с тестами — есть. **✅ Phase Wave 4 PR 2** — InboxPage переиспользует TaskCard. **✅ Phase 28.19** — AssigneeChip показывает `Agent: <name> (<labels>)` (но Agent-карточки — agent_id для других). Остаётся: **UI-тоггл плотности** карточки (флаг `orenda.kanban.cardDensity` уже читается в localStorage, переключателя в UI нет); **бейджи времени** (estimate/spent/таймер не показываются).
 
 **Цель:** канбан-карточка отвечает на вопросы «что горит, кто занят, что внутри» без открытия задачи. Сейчас лицевая сторона — только title + бейдж `↳ child` (`web/src/features/projects/TaskCard.tsx`), при этом payload задачи уже несёт priority/due_at/assignee/awaiting, а бэкенд хранит checklists, children, комментарии, вложения и теги.
 
