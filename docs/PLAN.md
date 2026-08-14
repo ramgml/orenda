@@ -2601,3 +2601,34 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 - `make test` (vitest) зелёный.
 - Smoke: register с `type: ["qwen","installer"]` → `GET /api/v1/agents?type=installer` возвращает агента; `?type=unknown` — пусто.
 
+---
+
+## Phase 28.20 (полировка) — dev/dogfood separation: отдельный usage-checkout + dev-порт *(2026-08-14)*
+
+> **Решение владельца 2026-08-14:** разработка и использование разделяются по двум осям. **Канал бинаря:** usage-инстанс собирается только из отдельного клона `~/opt/orenda` (клон GitHub-remote, ветка `main`) — физически не из dev-репо; обновление — явный ритуал. Клон именно из GitHub, не из локального пути: `git pull` там тянет только запушенное в `main`, каналы не сцепляются. **Runtime-ресурсы:** dev-flow уезжает с синглтон-порта 2137 на 2138; данные разнесены (`~/.local/share/orenda` vs `./data` в репо) — это уже так.
+>
+> **Prerequisite — первый релиз.** Usage-канал трекает `main`, а `main` сейчас на `637b586` (initial skeleton) — вся работа в `dev`. Первый dogfood-инсталл ≡ первый релиз: промоушн `dev`→`main` по PR + тег `v0.1.0` (push — по явному решению владельца). Обход (`install.sh --force` из dev) возможен, но обесценивает модель — не рекомендуется.
+>
+> Закрываемые конфликты (подтверждены кодом 2026-08-14): (1) `make dev` и systemd-инстанс делят порт 2137, причём Vite-прокси (хардкод 2137, `web/vite.config.ts`) молча проксирует dev-фронт на usage-бэкенд; (2) `install.sh` из любой ветки/dirty-tree перезаписывает единственный глобальный бинарь; (3) дефолтный конфиг CWD-relative (`data/config.yaml`), глобальный бинарь из папки репо подхватывает репо-БД; (4) `serve` авто-мигрирует любую БД на старте (`main.go`) — dev-бинарь против usage-БД угоняет схему вперёд релиза.
+>
+> **Принятый остаточный риск:** обратный вектор — dev-бинарь, вручную запущенный с `--config ~/.local/share/orenda/config.yaml`, — закрывается только дисциплиной (авто-миграции делают его деструктивным). Механической защиты осознанно нет.
+
+**Цель:** usage и dev живут одновременно, не пересекаясь ни бинарём, ни портом, ни БД. Dogfood ест только то, что запушено в `main`.
+
+**Операторская часть (вручную, один раз):** после промоушна dev→main — `git clone <github-remote> ~/opt/orenda && cd ~/opt/orenda && scripts/install.sh --systemd`. Данные usage — `~/.local/share/orenda` (install.sh сидит конфиг с абсолютными путями — уже реализовано).
+
+**Задачи:**
+
+- [ ] **28.20.1** Makefile, таргет `dev`: экспорт `ORENDA_SERVER__PORT := 2138` (переопределяемо: `make dev ORENDA_SERVER__PORT=2200`). air и Vite наследуют env из рецепта — одна переменная драйвит обе стороны. Дефолтный порт бинаря (2137) НЕ меняется.
+- [ ] **28.20.2** `web/vite.config.ts`: proxy-targets `/api` и `/ws` читают `process.env.ORENDA_SERVER__PORT ?? '2138'` вместо хардкода 2137; комментарий обновить. E2E не трогаем — Playwright на своём порту 21371 (`playwright.config.ts`), `web/e2e-setup/run-server.sh` self-contained.
+- [ ] **28.20.3** `scripts/install.sh`: гард канала — отказ, если текущая ветка ≠ `main` или tree dirty (сообщение с веткой/коммитом; `--force` переопределяет). Перед установкой печатать channel-инфо (ветка, короткий хеш).
+- [ ] **28.20.4** `cmd/orenda/main.go`: в стартовый лог `serve` (там уже `config` + `addr`) добавить resolved `db_path` — observability «какой это инстанс» в журнале systemd.
+- [ ] **28.20.5** `scripts/update-dogfood.sh`: ритуал обновления usage-инстанса — `git pull --ff-only origin main && scripts/install.sh --systemd && systemctl --user restart orenda` (`set -euo pipefail`, запускается из `~/opt/orenda`; ff-only гарантирует чистый канал).
+- [ ] **28.20.6** Docs: `docs/ARCHITECTURE.md` (или README) — раздел «Dev vs dogfood instance»: два checkout'а, матрица портов (usage 2137 / dev 2138 / e2e 21371), data dirs, запрет `install.sh` из dev-репо, update-ритуал, остаточный риск из шапки. `AGENTS.md` — строку «Port 2137 is singleton» обновить под конвенцию dev=2138.
+- [ ] **28.20.7** Тесты/верификация: bash-тест или ручной прогон гарда install.sh (из ветки ≠ main → отказ без `--force`); `make dev` smoke — backend отвечает на :2138, `curl :5173/api/v1/info` → 200 (proxy следует за env); `go build ./...` зелёный.
+
+**DoD (проверяется исполнением):**
+- Два одновременно живых инстанса: usage (systemd, :2137, из `~/opt/orenda`) + `make dev` (:2138) — оба 200 на `/api/v1/info`, БД разные (по `db_path` в логах).
+- `install.sh` из dev-ветки → отказ; из чистого `main` → успех.
+- `make test` и `make test-e2e` зелёные (E2E-порт 21371 не задет).
+
