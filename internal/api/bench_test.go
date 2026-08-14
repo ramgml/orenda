@@ -74,7 +74,7 @@ func benchRouter(b *testing.B) (http.Handler, string) {
 		WSHub:       hub,
 		CookieName:  "orenda_session",
 	}
-	router := api.NewRouter(deps)
+	router := api.NewRouter(&deps)
 
 	body, _ := json.Marshal(map[string]string{"email": "bench@x.com", "password": "hunter2!"})
 	req := httptest.NewRequest("POST", "/api/v1/auth/login", bytes.NewReader(body))
@@ -84,7 +84,7 @@ func benchRouter(b *testing.B) (http.Handler, string) {
 }
 
 func BenchmarkHealthz(b *testing.B) {
-	router := api.NewRouter(api.Dependencies{Logger: zap.NewNop()})
+	router := api.NewRouter(&api.Dependencies{Logger: zap.NewNop()})
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

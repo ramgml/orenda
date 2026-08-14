@@ -14,7 +14,7 @@ import (
 )
 
 func TestSecurityHeaders_AreSet(t *testing.T) {
-	router := api.NewRouter(api.Dependencies{})
+	router := api.NewRouter(&api.Dependencies{})
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -31,7 +31,7 @@ func TestSecurityHeaders_AreSet(t *testing.T) {
 // Policy directive: "font-src 'self'"` in DevTools. We extend with
 // data: and blob: which is safe — fonts can't inject script.
 func TestSecurityHeaders_FontSrcAllowsBlobAndData(t *testing.T) {
-	router := api.NewRouter(api.Dependencies{})
+	router := api.NewRouter(&api.Dependencies{})
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -53,7 +53,7 @@ func TestSecurityHeaders_FontSrcAllowsBlobAndData(t *testing.T) {
 // because some legacy browsers still need `style="..."` inline on
 // individual DOM elements. Tightening further is a separate change.
 func TestSecurityHeaders_StyleSrcNoUnsafeInline(t *testing.T) {
-	router := api.NewRouter(api.Dependencies{})
+	router := api.NewRouter(&api.Dependencies{})
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -73,7 +73,7 @@ func TestSecurityHeaders_StyleSrcNoUnsafeInline(t *testing.T) {
 // either inlining them with explicit hashes or wrapping via a
 // nonce-aware render pass.
 func TestSecurityHeaders_ScriptSrcSelfOnly(t *testing.T) {
-	router := api.NewRouter(api.Dependencies{})
+	router := api.NewRouter(&api.Dependencies{})
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -89,7 +89,7 @@ func TestSecurityHeaders_ScriptSrcSelfOnly(t *testing.T) {
 }
 
 func TestRateLimit_Anonymous429(t *testing.T) {
-	router := api.NewRouter(api.Dependencies{})
+	router := api.NewRouter(&api.Dependencies{})
 
 	// Flood /api/v1/info (no auth, low anon burst).
 	// The default burst is 60 with 20/sec refill; send 100 quickly.
@@ -109,7 +109,7 @@ func TestRateLimit_Anonymous429(t *testing.T) {
 }
 
 func TestRateLimit_HealthzSkipped(t *testing.T) {
-	router := api.NewRouter(api.Dependencies{})
+	router := api.NewRouter(&api.Dependencies{})
 	for i := 0; i < 200; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 		rr := httptest.NewRecorder()

@@ -52,7 +52,7 @@ func newBackupFixture(t *testing.T) *backupFixture {
 	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
 
 	repo := sqlite.NewBackupSettingsRepository(db)
-	router := api.NewRouter(api.Dependencies{
+	router := api.NewRouter(&api.Dependencies{
 		Logger:         zap.NewNop(),
 		Signer:         signer,
 		Users:          users,

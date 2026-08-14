@@ -34,7 +34,7 @@ import (
 // Phase 17: hydrates the same per-task counters as the project board
 // so the inbox page renders the lightweight TaskCard without a
 // round-trip per card.
-func listInboxTasksHandler(deps Dependencies) http.HandlerFunc {
+func listInboxTasksHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		f := task.Filter{NoProject: true}
 		if s := r.URL.Query().Get("status"); s != "" {
@@ -59,7 +59,7 @@ func listInboxTasksHandler(deps Dependencies) http.HandlerFunc {
 // so the activity log + mirror write happen via the same code paths
 // — the inbox isn't a special kind of task, it's a task without a
 // project.
-func createInboxTaskHandler(deps Dependencies) http.HandlerFunc {
+func createInboxTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in taskInput
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {

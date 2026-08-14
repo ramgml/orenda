@@ -24,7 +24,7 @@ import (
 // The optional `?limit=N` query parameter clamps the response size; the
 // repository caps at 200 by default and 500 maximum. This keeps the
 // payload predictable for projects with thousands of events.
-func listProjectActivityHandler(deps Dependencies) http.HandlerFunc {
+func listProjectActivityHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Activities == nil {
 			http.Error(w, "activity service not wired", http.StatusServiceUnavailable)
@@ -55,7 +55,7 @@ func listProjectActivityHandler(deps Dependencies) http.HandlerFunc {
 // This is the single feed the project attachments tab reads — it
 // replaces the earlier "project-only" listing so users can find any
 // file uploaded against anything in the project from one place.
-func listProjectAttachmentsHandler(deps Dependencies) http.HandlerFunc {
+func listProjectAttachmentsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Attachments == nil {
 			http.Error(w, "attachment service not wired", http.StatusServiceUnavailable)
@@ -78,7 +78,7 @@ func listProjectAttachmentsHandler(deps Dependencies) http.HandlerFunc {
 // Note: the global /api/v1/attachments/{attId}/download route in
 // router.go is reused for downloads — Open() resolves the target_type
 // from the row, so no project-specific download handler is needed.
-func addProjectAttachmentHandler(deps Dependencies) http.HandlerFunc {
+func addProjectAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Attachments == nil {
 			http.Error(w, "attachment service not wired", http.StatusServiceUnavailable)

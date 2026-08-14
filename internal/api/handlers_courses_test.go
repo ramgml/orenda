@@ -192,7 +192,7 @@ func TestDecodeCurriculumSwap_FillsQuizLessonIDsAndReusesIDs(t *testing.T) {
 
 func TestSubmitCurriculumHandlerUser_OK(t *testing.T) {
 	svc, repo := newFakeCourseService(t)
-	deps := Dependencies{CourseService: svc, Courses: repo}
+	deps := &Dependencies{CourseService: svc, Courses: repo}
 	body := `{"modules":[{"id":"m1","title":"M","position":1,"lessons":[
 		{"id":"l1","title":"L","position":1,"content_md":"hi",
 		 "quizzes":[{"id":"q1","position":1,"question_md":"?","expected_md":"a","kind":"exact"}]}]}]}`
@@ -208,7 +208,7 @@ func TestSubmitCurriculumHandlerUser_OK(t *testing.T) {
 
 func TestSubmitCurriculumHandlerUser_InvalidJSON(t *testing.T) {
 	svc, repo := newFakeCourseService(t)
-	deps := Dependencies{CourseService: svc, Courses: repo}
+	deps := &Dependencies{CourseService: svc, Courses: repo}
 	w := driveHandler(t, http.MethodPut, "/api/v1/courses/{id}/curriculum", "c1", "not-json",
 		func(w http.ResponseWriter, r *http.Request) { submitCurriculumCore(w, r, deps) })
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -217,7 +217,7 @@ func TestSubmitCurriculumHandlerUser_InvalidJSON(t *testing.T) {
 func TestAddQuizHandler_OK(t *testing.T) {
 	svc, repo := newFakeCourseService(t)
 	repo.lessons["l1"] = &course.Lesson{ID: "l1", ModuleID: "m1", Title: "L"}
-	deps := Dependencies{CourseService: svc, Courses: repo}
+	deps := &Dependencies{CourseService: svc, Courses: repo}
 	body := `{"question_md":"What is 2+2?","expected_md":"4","kind":"exact"}`
 	w := driveHandler(t, http.MethodPost, "/api/v1/lessons/{id}/quizzes", "l1", body,
 		func(w http.ResponseWriter, r *http.Request) { addQuizCore(w, r, deps) })
@@ -230,7 +230,7 @@ func TestAddQuizHandler_OK(t *testing.T) {
 
 func TestAddQuizHandler_RejectsMissingQuestion(t *testing.T) {
 	svc, repo := newFakeCourseService(t)
-	deps := Dependencies{CourseService: svc, Courses: repo}
+	deps := &Dependencies{CourseService: svc, Courses: repo}
 	w := driveHandler(t, http.MethodPost, "/api/v1/lessons/{id}/quizzes", "l1", `{"kind":"exact"}`,
 		func(w http.ResponseWriter, r *http.Request) { addQuizCore(w, r, deps) })
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -238,7 +238,7 @@ func TestAddQuizHandler_RejectsMissingQuestion(t *testing.T) {
 
 func TestAddQuizHandler_NotFoundLesson(t *testing.T) {
 	svc, repo := newFakeCourseService(t)
-	deps := Dependencies{CourseService: svc, Courses: repo}
+	deps := &Dependencies{CourseService: svc, Courses: repo}
 	w := driveHandler(t, http.MethodPost, "/api/v1/lessons/{id}/quizzes", "missing",
 		`{"question_md":"?","kind":"exact"}`,
 		func(w http.ResponseWriter, r *http.Request) { addQuizCore(w, r, deps) })
@@ -251,7 +251,7 @@ func TestUpdateLessonContentHandlerUser_OK(t *testing.T) {
 		ID: "l1", ModuleID: "m1", Title: "L",
 		Status: course.LessonOpen, ContentMD: "old",
 	}
-	deps := Dependencies{CourseService: svc, Courses: repo}
+	deps := &Dependencies{CourseService: svc, Courses: repo}
 	w := driveHandler(t, http.MethodPut, "/api/v1/lessons/{id}/content", "l1",
 		`{"content_md":"new body"}`, updateLessonContentHandlerUser(deps))
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -263,7 +263,7 @@ func TestUpdateLessonContentHandlerUser_OK(t *testing.T) {
 func TestUpdateLessonContentHandlerUser_EmptyRejected(t *testing.T) {
 	svc, repo := newFakeCourseService(t)
 	repo.lessons["l1"] = &course.Lesson{ID: "l1", ModuleID: "m1", Title: "L", Status: course.LessonOpen}
-	deps := Dependencies{CourseService: svc, Courses: repo}
+	deps := &Dependencies{CourseService: svc, Courses: repo}
 	w := driveHandler(t, http.MethodPut, "/api/v1/lessons/{id}/content", "l1",
 		`{"content_md":""}`, updateLessonContentHandlerUser(deps))
 	assert.Equal(t, http.StatusBadRequest, w.Code)

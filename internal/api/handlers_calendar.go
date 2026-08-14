@@ -54,7 +54,7 @@ type eventInput struct {
 // boundary is half-open: occurrences whose start is exactly at `to`
 // are excluded so a calendar day view doesn't double-count the
 // last slot.
-func listEventsHandler(deps Dependencies) http.HandlerFunc {
+func listEventsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		from := parseOptionalTime(r.URL.Query().Get("from"))
 		to := parseOptionalTime(r.URL.Query().Get("to"))
@@ -110,7 +110,7 @@ func listEventsHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // createEventHandler inserts an event.
-func createEventHandler(deps Dependencies) http.HandlerFunc {
+func createEventHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.EventService == nil {
 			http.Error(w, "event service not wired", http.StatusServiceUnavailable)
@@ -147,7 +147,7 @@ func createEventHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // getEventHandler returns one event.
-func getEventHandler(deps Dependencies) http.HandlerFunc {
+func getEventHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.EventService == nil {
 			http.Error(w, "event service not wired", http.StatusServiceUnavailable)
@@ -163,7 +163,7 @@ func getEventHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // updateEventHandler mutates an event.
-func updateEventHandler(deps Dependencies) http.HandlerFunc {
+func updateEventHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.EventService == nil {
 			http.Error(w, "event service not wired", http.StatusServiceUnavailable)
@@ -217,7 +217,7 @@ func updateEventHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // deleteEventHandler removes an event.
-func deleteEventHandler(deps Dependencies) http.HandlerFunc {
+func deleteEventHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.EventService == nil {
 			http.Error(w, "event service not wired", http.StatusServiceUnavailable)
@@ -239,7 +239,7 @@ func deleteEventHandler(deps Dependencies) http.HandlerFunc {
 // task. The actor is the user id when called from the UI; the agent id
 // when called via /agent/tasks/:id/timer/start (Phase 4.6 adds the
 // agent-facing route).
-func startTimerHandler(deps Dependencies) http.HandlerFunc {
+func startTimerHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.TimeService == nil {
 			http.Error(w, "time service not wired", http.StatusServiceUnavailable)
@@ -268,7 +268,7 @@ func startTimerHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // stopTimerHandler closes the caller's open timer.
-func stopTimerHandler(deps Dependencies) http.HandlerFunc {
+func stopTimerHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.TimeService == nil {
 			http.Error(w, "time service not wired", http.StatusServiceUnavailable)
@@ -304,7 +304,7 @@ type manualTimeInput struct {
 }
 
 // addManualTimeHandler creates a closed entry.
-func addManualTimeHandler(deps Dependencies) http.HandlerFunc {
+func addManualTimeHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.TimeService == nil {
 			http.Error(w, "time service not wired", http.StatusServiceUnavailable)
@@ -349,7 +349,7 @@ func addManualTimeHandler(deps Dependencies) http.HandlerFunc {
 //
 // Query params: agent_id (optional, defaults to current user), from, to
 // (RFC3339). If from/to are missing, the current day is used.
-func reportTimeHandler(deps Dependencies) http.HandlerFunc {
+func reportTimeHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.TimeService == nil {
 			http.Error(w, "time service not wired", http.StatusServiceUnavailable)

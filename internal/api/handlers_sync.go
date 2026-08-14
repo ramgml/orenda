@@ -51,7 +51,7 @@ type syncResult struct {
 }
 
 // syncHandler applies a batch of offline operations.
-func syncHandler(deps Dependencies) http.HandlerFunc {
+func syncHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req syncRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -86,7 +86,7 @@ func syncHandler(deps Dependencies) http.HandlerFunc {
 // Already-applied ops (same client_id) are reported as ok with the
 // previously created id — that's the idempotency guarantee the PWA
 // relies on.
-func applySyncOp(r *http.Request, deps Dependencies, id *Identity, op syncOp) syncResult {
+func applySyncOp(r *http.Request, deps *Dependencies, id *Identity, op syncOp) syncResult {
 	ctx := r.Context()
 	res := syncResult{ClientID: op.ClientID}
 
@@ -326,7 +326,7 @@ func applySyncOp(r *http.Request, deps Dependencies, id *Identity, op syncOp) sy
 
 // syncOpsSeen reports whether this client_id was already applied; returns
 // the server id created by the earlier application.
-func syncOpsSeen(ctx context.Context, deps Dependencies, clientID string) (bool, string, error) {
+func syncOpsSeen(ctx context.Context, deps *Dependencies, clientID string) (bool, string, error) {
 	if deps.SyncOps == nil {
 		return false, "", nil
 	}
@@ -334,7 +334,7 @@ func syncOpsSeen(ctx context.Context, deps Dependencies, clientID string) (bool,
 }
 
 // syncOpsRecord records an applied op.
-func syncOpsRecord(ctx context.Context, deps Dependencies, clientID, serverID string) error {
+func syncOpsRecord(ctx context.Context, deps *Dependencies, clientID, serverID string) error {
 	if deps.SyncOps == nil {
 		return nil
 	}

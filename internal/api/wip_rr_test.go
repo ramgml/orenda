@@ -55,7 +55,7 @@ func TestIntegration_MoveRejectsWhenColumnWIPFull(t *testing.T) {
 	taskSvc.Columns = projRepo
 
 	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
-	router := api.NewRouter(api.Dependencies{
+	router := api.NewRouter(&api.Dependencies{
 		Logger:      zap.NewNop(),
 		Signer:      signer,
 		Users:       users,
@@ -163,7 +163,7 @@ func TestIntegration_ListEvents_ExpandsRecurrence(t *testing.T) {
 	taskSvc := taskservice.New(repo, sqlite.NewTaskLockRepository(db), nil, nil, hub)
 	eventSvc := eventservice.New(repo, hub, nil)
 	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
-	router := api.NewRouter(api.Dependencies{
+	router := api.NewRouter(&api.Dependencies{
 		Logger:       zap.NewNop(),
 		Signer:       signer,
 		Users:        users,

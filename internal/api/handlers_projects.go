@@ -25,7 +25,7 @@ type projectInput struct {
 }
 
 // listProjectsHandler returns the authenticated user's projects.
-func listProjectsHandler(deps Dependencies) http.HandlerFunc {
+func listProjectsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, _ := IdentityFrom(r.Context())
 		if id == nil {
@@ -42,7 +42,7 @@ func listProjectsHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // createProjectHandler creates a new project owned by the caller.
-func createProjectHandler(deps Dependencies) http.HandlerFunc {
+func createProjectHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, _ := IdentityFrom(r.Context())
 		if id == nil {
@@ -71,7 +71,7 @@ func createProjectHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // getProjectHandler returns one project.
-func getProjectHandler(deps Dependencies) http.HandlerFunc {
+func getProjectHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p, err := deps.Projects.GetProject(r.Context(), chi.URLParam(r, "id"))
 		if err != nil {
@@ -93,7 +93,7 @@ func getProjectHandler(deps Dependencies) http.HandlerFunc {
 //     pointer lets callers explicitly clear a previously-set
 //     description, which the previous non-pointer version could not do.
 //   - archived: nil → leave alone; bool → set.
-func patchProjectHandler(deps Dependencies) http.HandlerFunc {
+func patchProjectHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p, err := deps.Projects.GetProject(r.Context(), chi.URLParam(r, "id"))
 		if err != nil {
@@ -134,7 +134,7 @@ func patchProjectHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // deleteProjectHandler removes a project.
-func deleteProjectHandler(deps Dependencies) http.HandlerFunc {
+func deleteProjectHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := deps.Projects.DeleteProject(r.Context(), chi.URLParam(r, "id")); err != nil {
 			writeError(w, err)
@@ -145,7 +145,7 @@ func deleteProjectHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // getProjectBoardHandler returns the (single) board + its columns.
-func getProjectBoardHandler(deps Dependencies) http.HandlerFunc {
+func getProjectBoardHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		board, cols, err := deps.Projects.GetBoard(r.Context(), chi.URLParam(r, "id"))
 		if err != nil {

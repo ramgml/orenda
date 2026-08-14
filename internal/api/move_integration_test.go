@@ -67,7 +67,7 @@ func moveDeps(t *testing.T) (api.Dependencies, string) {
 
 func TestIntegration_MoveViaHandler(t *testing.T) {
 	deps, _ := moveDeps(t)
-	router := api.NewRouter(deps)
+	router := api.NewRouter(&deps)
 
 	// Login.
 	body, _ := json.Marshal(map[string]string{"email": "move@x.com", "password": "hunter2!"})
@@ -137,7 +137,7 @@ func TestIntegration_MoveViaHandler(t *testing.T) {
 
 func TestIntegration_MoveNotFoundReturns404(t *testing.T) {
 	deps, _ := moveDeps(t)
-	router := api.NewRouter(deps)
+	router := api.NewRouter(&deps)
 
 	body, _ := json.Marshal(map[string]string{"email": "move@x.com", "password": "hunter2!"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
@@ -155,7 +155,7 @@ func TestIntegration_MoveNotFoundReturns404(t *testing.T) {
 
 func TestIntegration_MoveBroadcastsOnWebSocket(t *testing.T) {
 	deps, plain := moveDeps(t)
-	router := api.NewRouter(deps)
+	router := api.NewRouter(&deps)
 
 	// Login to get a JWT (the WS endpoint needs ?token=...).
 	body, _ := json.Marshal(map[string]string{"email": "move@x.com", "password": plain})

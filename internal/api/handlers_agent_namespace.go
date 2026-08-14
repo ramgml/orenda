@@ -37,7 +37,7 @@ import (
 // mounted under RequireAgent, so the bearer token has already been
 // resolved to an Identity with `AgentID` set; we use that id as the
 // comment author and the OwnerID for any mentions-notification path.
-func agentCreateTaskCommentHandler(deps Dependencies) http.HandlerFunc {
+func agentCreateTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
 	type req struct {
 		BodyMD string `json:"body_md"`
 	}
@@ -136,7 +136,7 @@ type agentAwaitRequest struct {
 // reuses the WS hub; events are filtered by user_id, so the agent
 // only sees events whose payload references its own id (matches the
 // publishing side: claim / submit / review all emit user_id=agentID).
-func agentAwaitHandler(deps Dependencies) http.HandlerFunc {
+func agentAwaitHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
 		if !ok || id == nil || id.AgentID == "" {

@@ -26,7 +26,7 @@ type loginResponse struct {
 
 // loginHandler authenticates by email + password and issues a session cookie
 // + JSON token.
-func loginHandler(deps Dependencies) http.HandlerFunc {
+func loginHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req loginRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -90,7 +90,7 @@ func loginHandler(deps Dependencies) http.HandlerFunc {
 // with Secure=true, the matching MaxAge=-1 must carry Secure=true too —
 // otherwise some browsers scope the deletion to the non-secure cookie set
 // and the secure one survives the logout.
-func logoutHandler(deps Dependencies) http.HandlerFunc {
+func logoutHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		http.SetCookie(w, &http.Cookie{
 			Name:     deps.CookieName,
@@ -130,7 +130,7 @@ func meHandler() http.HandlerFunc {
 //
 // Phase 28.4 introduced this so the cookie-security regression
 // suite can pin Phase 1's hardcoded Secure:false replacement.
-func LoginHandlerForTest(deps Dependencies) http.Handler {
+func LoginHandlerForTest(deps *Dependencies) http.Handler {
 	return loginHandler(deps)
 }
 
@@ -138,6 +138,6 @@ func LoginHandlerForTest(deps Dependencies) http.Handler {
 // logout endpoint. The MaxAge=-1 cookie must carry the same
 // Secure value as the login one — same regression risk, same
 // fix, same test.
-func LogoutHandlerForTest(deps Dependencies) http.Handler {
+func LogoutHandlerForTest(deps *Dependencies) http.Handler {
 	return logoutHandler(deps)
 }

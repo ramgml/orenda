@@ -185,7 +185,7 @@ func buildP3Router(t *testing.T) (http.Handler, *sqlLite) {
 			MaxSizeBytes: 1 << 20,
 			AllowedMimes: []string{"text/*"},
 		}, hub)}
-	return api.NewRouter(deps), db
+	return api.NewRouter(&deps), db
 }
 
 // sqlLite aliases *sql.DB.

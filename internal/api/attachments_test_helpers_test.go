@@ -15,7 +15,7 @@ import (
 )
 
 func apiNewRouter(deps api.Dependencies) http.Handler {
-	return api.NewRouter(deps)
+	return api.NewRouter(&deps)
 }
 
 // uploadOneAttachment drives the public POST /tasks/:id/attachments

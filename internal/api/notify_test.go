@@ -78,7 +78,7 @@ func notifRouter(t *testing.T) (http.Handler, string, *sqlLite) {
 		CookieName:  "orenda_session",
 		Notifier:    notifSvc,
 	}
-	router := api.NewRouter(deps)
+	router := api.NewRouter(&deps)
 
 	// Login.
 	body, _ := json.Marshal(map[string]string{"email": "nf@x.com", "password": "hunter2!"})

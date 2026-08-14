@@ -28,7 +28,7 @@ type pageInput struct {
 }
 
 // listPagesHandler returns all pages.
-func listPagesHandler(deps Dependencies) http.HandlerFunc {
+func listPagesHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.WikiService == nil {
 			http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
@@ -54,7 +54,7 @@ func listPagesHandler(deps Dependencies) http.HandlerFunc {
 //	                                truth, which the Save button relies
 //	                                on because it sends only title +
 //	                                content_md).
-func savePageHandler(deps Dependencies) http.HandlerFunc {
+func savePageHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.WikiService == nil {
 			http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
@@ -97,7 +97,7 @@ func savePageHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // getPageHandler returns one page by slug.
-func getPageHandler(deps Dependencies) http.HandlerFunc {
+func getPageHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.WikiService == nil {
 			http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
@@ -113,7 +113,7 @@ func getPageHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // getPageBacklinksHandler returns every page that links to the given slug.
-func getPageBacklinksHandler(deps Dependencies) http.HandlerFunc {
+func getPageBacklinksHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.WikiService == nil {
 			http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
@@ -137,7 +137,7 @@ func getPageBacklinksHandler(deps Dependencies) http.HandlerFunc {
 //
 // Cascades to wiki_links via FK; the markdown mirror file is also removed
 // (best-effort). 404 when the slug doesn't exist.
-func deletePageHandler(deps Dependencies) http.HandlerFunc {
+func deletePageHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.WikiService == nil {
 			http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
@@ -165,7 +165,7 @@ type movePageRequest struct {
 // parent_id is empty/null). 404 when the slug doesn't exist, 400
 // when the move would create a cycle (parent is the page itself or
 // one of its descendants).
-func movePageHandler(deps Dependencies) http.HandlerFunc {
+func movePageHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.WikiService == nil {
 			http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
@@ -202,7 +202,7 @@ func movePageHandler(deps Dependencies) http.HandlerFunc {
 //
 // Query params: q (required), type (optional, comma-separated),
 // limit (optional, default 20 per type, max 100).
-func searchHandler(deps Dependencies) http.HandlerFunc {
+func searchHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.SearchService == nil {
 			http.Error(w, "search service not wired", http.StatusServiceUnavailable)

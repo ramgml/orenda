@@ -24,7 +24,7 @@ type createAgentRequest struct {
 }
 
 // listAgentsHandler returns every registered agent.
-func listAgentsHandler(deps Dependencies) http.HandlerFunc {
+func listAgentsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		agents, err := deps.Agents.List(r.Context())
 		if err != nil {
@@ -37,7 +37,7 @@ func listAgentsHandler(deps Dependencies) http.HandlerFunc {
 
 // createAgentHandler mints a fresh API token and returns it (once) along
 // with the new agent row.
-func createAgentHandler(deps Dependencies) http.HandlerFunc {
+func createAgentHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createAgentRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -69,7 +69,7 @@ func createAgentHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // getAgentHandler returns one agent by id.
-func getAgentHandler(deps Dependencies) http.HandlerFunc {
+func getAgentHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		a, err := deps.Agents.GetByID(r.Context(), chi.URLParam(r, "id"))
 		if err != nil {
@@ -81,7 +81,7 @@ func getAgentHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // deleteAgentHandler removes an agent (cascades to api_tokens via FK).
-func deleteAgentHandler(deps Dependencies) http.HandlerFunc {
+func deleteAgentHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := deps.Agents.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
 			writeError(w, err)
@@ -97,7 +97,7 @@ type heartbeatRequest struct {
 }
 
 // heartbeatHandler updates last_seen_at + status for an agent.
-func heartbeatHandler(deps Dependencies) http.HandlerFunc {
+func heartbeatHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req heartbeatRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
@@ -119,7 +119,7 @@ func heartbeatHandler(deps Dependencies) http.HandlerFunc {
 
 // callAgentServiceRegister centralises the agent-creation path so it can
 // be overridden in tests. Production wires deps.AgentService directly.
-func callAgentServiceRegister(ctx context.Context, deps Dependencies, name string, kind agentdomain.Type, desc string, scopes []string) (*agent.Registered, error) {
+func callAgentServiceRegister(ctx context.Context, deps *Dependencies, name string, kind agentdomain.Type, desc string, scopes []string) (*agent.Registered, error) {
 	if deps.AgentService != nil {
 		return deps.AgentService.Register(ctx, name, kind, desc, scopes)
 	}

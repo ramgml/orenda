@@ -40,7 +40,7 @@ type tagInput struct {
 	Color *string `json:"color"`
 }
 
-func listTagsHandler(deps Dependencies) http.HandlerFunc {
+func listTagsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tags, err := deps.Tasks.ListTags(r.Context())
 		if err != nil {
@@ -51,7 +51,7 @@ func listTagsHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func createTagHandler(deps Dependencies) http.HandlerFunc {
+func createTagHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in tagInput
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -84,7 +84,7 @@ func createTagHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func patchTagHandler(deps Dependencies) http.HandlerFunc {
+func patchTagHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		existing, err := deps.Tasks.GetTagByID(r.Context(), id)
@@ -119,7 +119,7 @@ func patchTagHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func deleteTagHandler(deps Dependencies) http.HandlerFunc {
+func deleteTagHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := deps.Tasks.DeleteTag(r.Context(), chi.URLParam(r, "id")); err != nil {
 			writeError(w, err)
@@ -155,7 +155,7 @@ type taskTagsInput struct {
 	TagIDs []string `json:"tag_ids"`
 }
 
-func listTaskTagsHandler(deps Dependencies) http.HandlerFunc {
+func listTaskTagsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tags, err := deps.Tasks.ListTagsForTask(r.Context(), chi.URLParam(r, "id"))
 		if err != nil {
@@ -166,7 +166,7 @@ func listTaskTagsHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func setTaskTagsHandler(deps Dependencies) http.HandlerFunc {
+func setTaskTagsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		taskID := chi.URLParam(r, "id")
 		if _, err := deps.Tasks.GetByID(r.Context(), taskID); err != nil {
@@ -213,7 +213,7 @@ func setTaskTagsHandler(deps Dependencies) http.HandlerFunc {
 //
 // Idempotent: a PATCH that sends the same set as the current one is
 // a no-op (no DB write, no activity row, no error).
-func applyTaskTagsChange(ctx context.Context, deps Dependencies, taskID string, desiredTagIDs []string) {
+func applyTaskTagsChange(ctx context.Context, deps *Dependencies, taskID string, desiredTagIDs []string) {
 	// Filter out empty ids early so the diff is stable regardless of
 	// how the caller shaped the array.
 	clean := make([]string, 0, len(desiredTagIDs))
@@ -264,7 +264,7 @@ func applyTaskTagsChange(ctx context.Context, deps Dependencies, taskID string, 
 // tagNamesByIDs looks up names for a list of tag ids. Missing ids
 // are returned as "" so the activity payload stays consistent even
 // if a tag was deleted mid-flight.
-func tagNamesByIDs(ctx context.Context, deps Dependencies, ids []string) []string {
+func tagNamesByIDs(ctx context.Context, deps *Dependencies, ids []string) []string {
 	out := make([]string, 0, len(ids))
 	for _, id := range ids {
 		t, err := deps.Tasks.GetTagByID(ctx, id)

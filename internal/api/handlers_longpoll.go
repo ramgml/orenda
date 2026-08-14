@@ -40,7 +40,7 @@ type awaitResponse struct {
 //	200 OK        — event returned; body has {topic, body}.
 //	400           — malformed body or invalid TimeoutSec.
 //	401           — RequireUser middleware already gates this route.
-func awaitHandler(deps Dependencies) http.HandlerFunc {
+func awaitHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req awaitRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

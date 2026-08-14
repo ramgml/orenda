@@ -28,7 +28,7 @@ type moveInput struct {
 //
 // 422 is returned for ErrColumnFull; 400 for ErrInvalidInput; 404 for
 // ErrNotFound; 500 for everything else.
-func moveTaskHandler(deps Dependencies) http.HandlerFunc {
+func moveTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in moveInput
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -109,7 +109,7 @@ type createColumnInput struct {
 //	with patchColumnHandler's policy)
 //
 // 201 — the newly created column, with computed position
-func createColumnHandler(deps Dependencies) http.HandlerFunc {
+func createColumnHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		projectID := chi.URLParam(r, "id")
 		if projectID == "" {
@@ -163,7 +163,7 @@ func createColumnHandler(deps Dependencies) http.HandlerFunc {
 // Allowed fields: name, position, wip_limit, color. wip_limit=0 means
 // "remove the limit" (stored as NULL). 422 is returned when a new
 // non-zero wip_limit is below the current task count in that column.
-func patchColumnHandler(deps Dependencies) http.HandlerFunc {
+func patchColumnHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in columnInput
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -266,7 +266,7 @@ func patchColumnHandler(deps Dependencies) http.HandlerFunc {
 // topic. The kanban already subscribes to that topic and reloads on
 // every event, so a single broadcast is enough to drop the column
 // from every open tab.
-func deleteColumnHandler(deps Dependencies) http.HandlerFunc {
+func deleteColumnHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
 		if id == "" {

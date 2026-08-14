@@ -38,7 +38,7 @@ type dependenciesRequest struct {
 // Returns 200 with the new blockers list (Phase 15.4: the WS event
 // already invalidates client caches; we still echo the new state so
 // callers don't have to re-fetch).
-func putTaskDependenciesHandler(deps Dependencies) http.HandlerFunc {
+func putTaskDependenciesHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.TaskService == nil || deps.Tasks == nil {
 			http.Error(w, "task deps not wired", http.StatusServiceUnavailable)
@@ -84,7 +84,7 @@ func putTaskDependenciesHandler(deps Dependencies) http.HandlerFunc {
 // endpoint via BlockedByList; Phase 27.8 lets the agent claim-flow
 // surface unfinished blockers in the 422 response. Future work
 // (filtering by project, etc.) builds on this same passthrough.
-func getTaskBlockersHandler(deps Dependencies) http.HandlerFunc {
+func getTaskBlockersHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Tasks == nil {
 			http.Error(w, "task repo not wired", http.StatusServiceUnavailable)
@@ -103,7 +103,7 @@ func getTaskBlockersHandler(deps Dependencies) http.HandlerFunc {
 // getTaskDependentsHandler returns the list of task ids that depend
 // on this task (reverse lookup). Useful for "finishing this unblocks
 // N tasks" in the UI.
-func getTaskDependentsHandler(deps Dependencies) http.HandlerFunc {
+func getTaskDependentsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Tasks == nil {
 			http.Error(w, "task repo not wired", http.StatusServiceUnavailable)
@@ -129,7 +129,7 @@ func getTaskDependentsHandler(deps Dependencies) http.HandlerFunc {
 // the agent inbox: "what can I claim right now?". Without ?ready
 // the response is the full list — the agent then has to do the
 // filtering itself.
-func listAgentTasksHandler(deps Dependencies) http.HandlerFunc {
+func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
 		if !ok || id.AgentID == "" {

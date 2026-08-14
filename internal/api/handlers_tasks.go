@@ -62,7 +62,7 @@ type taskInput struct {
 // attachments / children / checklist_items) and BlockedByCount so the
 // kanban card renders without per-card fetches. Used by the
 // kanban board and the inbox list.
-func listProjectTasksHandler(deps Dependencies) http.HandlerFunc {
+func listProjectTasksHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		f := task.Filter{
 			ProjectID: chi.URLParam(r, "id"),
@@ -88,7 +88,7 @@ func listProjectTasksHandler(deps Dependencies) http.HandlerFunc {
 // That's how the inbox endpoint (POST /api/v1/inbox/tasks) calls into
 // the same struct without a separate code path. We still take the
 // project from the URL by default — most clients don't send it.
-func createTaskHandler(deps Dependencies) http.HandlerFunc {
+func createTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in taskInput
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -185,7 +185,7 @@ func createTaskHandler(deps Dependencies) http.HandlerFunc {
 // Phase 27.3: also populates the Tags slice so the task view and the
 // inbox/sidebar reader see the same tag set the kanban card renders
 // (chips on the side panel stay consistent with chips on the card).
-func getTaskHandler(deps Dependencies) http.HandlerFunc {
+func getTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tr, err := deps.Tasks.GetByID(r.Context(), chi.URLParam(r, "id"))
 		if err != nil {
@@ -205,7 +205,7 @@ func getTaskHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // patchTaskHandler updates mutable task fields (PATCH and PUT both work).
-func patchTaskHandler(deps Dependencies) http.HandlerFunc {
+func patchTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tr, err := deps.Tasks.GetByID(r.Context(), chi.URLParam(r, "id"))
 		if err != nil {
@@ -357,7 +357,7 @@ func patchTaskHandler(deps Dependencies) http.HandlerFunc {
 // The column-resolution policy mirrors the create handler so the
 // UX is consistent: dropping an inbox card onto a board always
 // lands it in the first column.
-func applyTaskPatch(ctx context.Context, deps Dependencies, tr *task.Task, in taskInput) {
+func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput) {
 	if in.Title != "" {
 		tr.Title = in.Title
 	}
@@ -457,7 +457,7 @@ func applyTaskPatch(ctx context.Context, deps Dependencies, tr *task.Task, in ta
 }
 
 // deleteTaskHandler removes a task.
-func deleteTaskHandler(deps Dependencies) http.HandlerFunc {
+func deleteTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := deps.Tasks.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
 			writeError(w, err)
@@ -478,7 +478,7 @@ func deleteTaskHandler(deps Dependencies) http.HandlerFunc {
 // first-class tasks via parent_task_id, so the UI shows them as
 // cards (with status / assignee / click-to-open) rather than flat
 // checkboxes.
-func listChildTasksHandler(deps Dependencies) http.HandlerFunc {
+func listChildTasksHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		parentID := chi.URLParam(r, "id")
@@ -506,7 +506,7 @@ func listChildTasksHandler(deps Dependencies) http.HandlerFunc {
 // Checklists
 // ---------------------------------------------------------------------------
 
-func listChecklistsHandler(deps Dependencies) http.HandlerFunc {
+func listChecklistsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := deps.Tasks.ListChecklists(r.Context(), chi.URLParam(r, "id"))
 		if err != nil {
@@ -517,7 +517,7 @@ func listChecklistsHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func addChecklistHandler(deps Dependencies) http.HandlerFunc {
+func addChecklistHandler(deps *Dependencies) http.HandlerFunc {
 	type in struct {
 		Title    string `json:"title"`
 		Position int    `json:"position"`
@@ -555,7 +555,7 @@ func addChecklistHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func deleteChecklistHandler(deps Dependencies) http.HandlerFunc {
+func deleteChecklistHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := deps.Tasks.DeleteChecklist(r.Context(), chi.URLParam(r, "clId")); err != nil {
 			writeError(w, err)
@@ -565,7 +565,7 @@ func deleteChecklistHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func listChecklistItemsHandler(deps Dependencies) http.HandlerFunc {
+func listChecklistItemsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rows, err := deps.Tasks.ListChecklistItems(r.Context(), chi.URLParam(r, "clId"))
 		if err != nil {
@@ -576,7 +576,7 @@ func listChecklistItemsHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func addChecklistItemHandler(deps Dependencies) http.HandlerFunc {
+func addChecklistItemHandler(deps *Dependencies) http.HandlerFunc {
 	type in struct {
 		Title    string `json:"title"`
 		Position int    `json:"position"`
@@ -620,7 +620,7 @@ type updateChecklistItemInput struct {
 	Done  *bool   `json:"done"`
 }
 
-func updateChecklistItemHandler(deps Dependencies) http.HandlerFunc {
+func updateChecklistItemHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body updateChecklistItemInput
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -651,7 +651,7 @@ func updateChecklistItemHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func deleteChecklistItemHandler(deps Dependencies) http.HandlerFunc {
+func deleteChecklistItemHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := deps.Tasks.DeleteChecklistItem(r.Context(), chi.URLParam(r, "itemId")); err != nil {
 			writeError(w, err)

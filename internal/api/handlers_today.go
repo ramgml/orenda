@@ -53,7 +53,7 @@ type activeTimerView struct {
 }
 
 // getTodayHandler returns the dashboard payload.
-func getTodayHandler(deps Dependencies) http.HandlerFunc {
+func getTodayHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Tasks == nil {
 			http.Error(w, "task repo not wired", http.StatusServiceUnavailable)
@@ -183,7 +183,7 @@ func getTodayHandler(deps Dependencies) http.HandlerFunc {
 // Phase 20.3 ships a compact, flat response: one row per day with
 // the day label as YYYY-MM-DD. The client renders a one-line-per-
 // day section without timezone arithmetic.
-func upcomingWeek(ctx context.Context, deps Dependencies, endOfDay time.Time) []upcomingDay {
+func upcomingWeek(ctx context.Context, deps *Dependencies, endOfDay time.Time) []upcomingDay {
 	// Window: [tomorrow, today+7d).
 	windowStart := endOfDay
 	windowEnd := endOfDay.Add(7 * 24 * time.Hour)

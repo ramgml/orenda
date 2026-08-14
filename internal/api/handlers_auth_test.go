@@ -93,14 +93,14 @@ func (r *pwUserRepo) FirstNonSystem(_ context.Context) (*user.User, error) {
 // user repo is in-memory; the signer is real.
 func loginRouter(users user.Repository, signer *auth.Signer, cookieName string, secure bool, ttl time.Duration) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/api/v1/auth/login", api.LoginHandlerForTest(api.Dependencies{
+	mux.Handle("/api/v1/auth/login", api.LoginHandlerForTest(&api.Dependencies{
 		Users:        users,
 		Signer:       signer,
 		CookieName:   cookieName,
 		CookieSecure: secure,
 		JWTTTL:       ttl,
 	}))
-	mux.Handle("/api/v1/auth/logout", api.LogoutHandlerForTest(api.Dependencies{
+	mux.Handle("/api/v1/auth/logout", api.LogoutHandlerForTest(&api.Dependencies{
 		CookieName:   cookieName,
 		CookieSecure: secure,
 	}))

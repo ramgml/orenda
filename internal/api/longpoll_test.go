@@ -62,7 +62,7 @@ func longPollDeps(t *testing.T) (api.Dependencies, string, func(context.Context,
 
 func TestLongPoll_ReturnsEventWithinTimeout(t *testing.T) {
 	deps, plain, _, _ := longPollDeps(t)
-	router := api.NewRouter(deps)
+	router := api.NewRouter(&deps)
 
 	// Login.
 	body, _ := json.Marshal(map[string]string{"email": "lp@x.com", "password": plain})
@@ -105,7 +105,7 @@ func TestLongPoll_ReturnsEventWithinTimeout(t *testing.T) {
 
 func TestLongPoll_InvalidJSON(t *testing.T) {
 	deps, plain, _, _ := longPollDeps(t)
-	router := api.NewRouter(deps)
+	router := api.NewRouter(&deps)
 
 	// Login.
 	body, _ := json.Marshal(map[string]string{"email": "lp@x.com", "password": plain})

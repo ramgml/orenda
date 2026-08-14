@@ -92,7 +92,7 @@ func p6Fixture(t *testing.T) (http.Handler, *sqlLite, *notifierservice.Service) 
 		Notifier:     notifierSvc,
 		CookieName:   "orenda_session",
 	}
-	return api.NewRouter(deps), db, notifierSvc
+	return api.NewRouter(&deps), db, notifierSvc
 }
 
 // p6TokenMinter adapts the tokens repo to agentservice.TokenMinter.

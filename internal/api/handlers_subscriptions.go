@@ -30,7 +30,7 @@ type subscriptionWriter interface {
 }
 
 // listSubscriptionsHandler returns the current user's subscriptions.
-func listSubscriptionsHandler(deps Dependencies) http.HandlerFunc {
+func listSubscriptionsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
 		if !ok {
@@ -51,7 +51,7 @@ func listSubscriptionsHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // createSubscriptionHandler adds a subscription.
-func createSubscriptionHandler(deps Dependencies) http.HandlerFunc {
+func createSubscriptionHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
 		if !ok {
@@ -119,7 +119,7 @@ type telegramBindResponse struct {
 // user. Events default to the same set the manual "Add
 // subscription" form offers, so the user gets the same defaults
 // either way.
-func telegramBindHandler(deps Dependencies) http.HandlerFunc {
+func telegramBindHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
 		if !ok {
@@ -190,7 +190,7 @@ func telegramBindHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // deleteSubscriptionHandler removes a subscription.
-func deleteSubscriptionHandler(deps Dependencies) http.HandlerFunc {
+func deleteSubscriptionHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Notifier == nil {
 			http.Error(w, "notifier not wired", http.StatusServiceUnavailable)

@@ -15,8 +15,8 @@ import (
 
 // testDeps returns a Dependencies wired with no-op repos for endpoints that
 // don't need storage (healthz, info).
-func testDeps() api.Dependencies {
-	return api.Dependencies{
+func testDeps() *api.Dependencies {
+	return &api.Dependencies{
 		Logger: zap.NewNop(),
 	}
 }
@@ -38,7 +38,7 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestInfo(t *testing.T) {
-	router := api.NewRouter(api.Dependencies{
+	router := api.NewRouter(&api.Dependencies{
 		Logger: zap.NewNop(),
 		Capabilities: api.Capabilities{
 			Auth: true, Backup: true,

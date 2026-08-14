@@ -62,7 +62,7 @@ func TestOwnerScopesIncludeAllExpected(t *testing.T) {
 	// returns the scopes computed for the role, so after login we expect
 	// the full set.
 	deps, plain := fullDeps(t)
-	router := api.NewRouter(deps)
+	router := api.NewRouter(&deps)
 
 	body, _ := json.Marshal(map[string]string{"email": "scope@x.com", "password": plain})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
@@ -89,7 +89,7 @@ func TestOwnerScopesIncludeAllExpected(t *testing.T) {
 
 func TestIntegration_ChildTasksCRUD(t *testing.T) {
 	deps, _ := fullDeps(t)
-	router := api.NewRouter(deps)
+	router := api.NewRouter(&deps)
 
 	// Login.
 	body, _ := json.Marshal(map[string]string{"email": "scope@x.com", "password": "hunter2!"})
@@ -173,7 +173,7 @@ func TestIntegration_ChildTasksCRUD(t *testing.T) {
 
 func TestIntegration_ProjectCRUD(t *testing.T) {
 	deps, _ := fullDeps(t)
-	router := api.NewRouter(deps)
+	router := api.NewRouter(&deps)
 
 	// Login.
 	body, _ := json.Marshal(map[string]string{"email": "scope@x.com", "password": "hunter2!"})
@@ -258,7 +258,7 @@ func TestIntegration_ProjectCRUD(t *testing.T) {
 
 func TestIntegration_NotFoundReturns404(t *testing.T) {
 	deps, _ := fullDeps(t)
-	router := api.NewRouter(deps)
+	router := api.NewRouter(&deps)
 
 	body, _ := json.Marshal(map[string]string{"email": "scope@x.com", "password": "hunter2!"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))

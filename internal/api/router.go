@@ -170,7 +170,7 @@ type SyncOpsStore interface {
 //
 // The returned router is ready to be wrapped by http.Server; it does not
 // start listening on its own.
-func NewRouter(deps Dependencies) http.Handler {
+func NewRouter(deps *Dependencies) http.Handler {
 	logger := deps.Logger
 	if logger == nil {
 		logger = zap.NewNop()

@@ -59,7 +59,7 @@ func wikiRouter(t *testing.T) (http.Handler, string) {
 		CookieName:  "orenda_session",
 		WikiService: wiki.New(sqlite.NewWikiRepository(db), hub),
 	}
-	router := api.NewRouter(deps)
+	router := api.NewRouter(&deps)
 
 	body, _ := json.Marshal(map[string]string{"email": "w@x.com", "password": "hunter2!"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))

@@ -19,7 +19,7 @@ import (
 )
 
 // agentMeHandler returns the agent record bound to the bearer token.
-func agentMeHandler(deps Dependencies) http.HandlerFunc {
+func agentMeHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
 		if !ok || id.AgentID == "" {
@@ -36,7 +36,7 @@ func agentMeHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // agentHeartbeatHandler updates last_seen_at for the bearer agent.
-func agentHeartbeatHandler(deps Dependencies) http.HandlerFunc {
+func agentHeartbeatHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
 		if !ok || id.AgentID == "" {
@@ -65,7 +65,7 @@ type agentClaimRequest struct {
 
 // agentClaimTaskHandler claims a task for the bearer agent. The agent_id
 // comes from the bearer token, NOT from the request body.
-func agentClaimTaskHandler(deps Dependencies) http.HandlerFunc {
+func agentClaimTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
 		if !ok || id.AgentID == "" {
@@ -115,7 +115,7 @@ func agentClaimTaskHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // agentReleaseTaskHandler releases a task the bearer agent holds.
-func agentReleaseTaskHandler(deps Dependencies) http.HandlerFunc {
+func agentReleaseTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
 		if !ok || id.AgentID == "" {
@@ -139,7 +139,7 @@ func agentReleaseTaskHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // agentSubmitTaskHandler submits a task for human review.
-func agentSubmitTaskHandler(deps Dependencies) http.HandlerFunc {
+func agentSubmitTaskHandler(deps *Dependencies) http.HandlerFunc {
 	type req struct {
 		Note string `json:"note"`
 	}
@@ -166,7 +166,7 @@ func agentSubmitTaskHandler(deps Dependencies) http.HandlerFunc {
 
 // agentTaskContextHandler returns a context snapshot for the bearer
 // agent (same shape as the user-facing /context endpoint).
-func agentTaskContextHandler(deps Dependencies) http.HandlerFunc {
+func agentTaskContextHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
 		if !ok || id.AgentID == "" {

@@ -24,7 +24,7 @@ import (
 // The response carries both a `tasks` array (for the page) and a
 // `count` (for the sidebar badge). The two come from the same query,
 // so the page renders in one round-trip.
-func listReviewQueueHandler(deps Dependencies) http.HandlerFunc {
+func listReviewQueueHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Tasks == nil {
 			http.Error(w, "task repo not wired", http.StatusServiceUnavailable)
@@ -48,7 +48,7 @@ func listReviewQueueHandler(deps Dependencies) http.HandlerFunc {
 //
 // In practice the underlying query is the same; the lighter response
 // keeps the badge cheap when the queue grows.
-func reviewQueueCountHandler(deps Dependencies) http.HandlerFunc {
+func reviewQueueCountHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Tasks == nil {
 			http.Error(w, "task repo not wired", http.StatusServiceUnavailable)

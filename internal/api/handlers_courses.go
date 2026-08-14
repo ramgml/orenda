@@ -56,7 +56,7 @@ type createCourseRequest struct {
 	SkipGenerator bool `json:"skip_generator"`
 }
 
-func listCoursesHandler(deps Dependencies) http.HandlerFunc {
+func listCoursesHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Courses == nil {
 			http.Error(w, "course repo not wired", http.StatusServiceUnavailable)
@@ -72,7 +72,7 @@ func listCoursesHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func createCourseHandler(deps Dependencies) http.HandlerFunc {
+func createCourseHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.CourseService == nil {
 			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
@@ -101,7 +101,7 @@ func createCourseHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func getCourseHandler(deps Dependencies) http.HandlerFunc {
+func getCourseHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Courses == nil {
 			http.Error(w, "course repo not wired", http.StatusServiceUnavailable)
@@ -140,7 +140,7 @@ func getCourseHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func deleteCourseHandler(deps Dependencies) http.HandlerFunc {
+func deleteCourseHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Courses == nil {
 			http.Error(w, "course repo not wired", http.StatusServiceUnavailable)
@@ -154,7 +154,7 @@ func deleteCourseHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func approveCourseHandler(deps Dependencies) http.HandlerFunc {
+func approveCourseHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.CourseService == nil {
 			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
@@ -173,7 +173,7 @@ func approveCourseHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func requestChangesCourseHandler(deps Dependencies) http.HandlerFunc {
+func requestChangesCourseHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.CourseService == nil {
 			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
@@ -192,7 +192,7 @@ func requestChangesCourseHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func completeLessonHandler(deps Dependencies) http.HandlerFunc {
+func completeLessonHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.CourseService == nil {
 			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
@@ -303,7 +303,7 @@ func decodeCurriculumSwap(req curriculumRequest, courseID string) ([]*course.Mod
 // auth middleware. Phase 27.6 promotes this from an
 // agent-only endpoint to a user-facing one so the owner can build
 // the curriculum themselves.
-func submitCurriculumCore(w http.ResponseWriter, r *http.Request, deps Dependencies) {
+func submitCurriculumCore(w http.ResponseWriter, r *http.Request, deps *Dependencies) {
 	if deps.CourseService == nil || deps.Courses == nil {
 		http.Error(w, "course deps not wired", http.StatusServiceUnavailable)
 		return
@@ -330,7 +330,7 @@ func submitCurriculumCore(w http.ResponseWriter, r *http.Request, deps Dependenc
 // replaces the course's curriculum in one tx. The submitted IDs
 // (when present) are reused so the tutor can compose against an
 // existing draft.
-func submitCurriculumHandlerAgent(deps Dependencies) http.HandlerFunc {
+func submitCurriculumHandlerAgent(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		submitCurriculumCore(w, r, deps)
 	}
@@ -340,7 +340,7 @@ func submitCurriculumHandlerAgent(deps Dependencies) http.HandlerFunc {
 // Phase 27.6: the same atomic swap, but authenticated as the
 // course's owner. This is what makes "build the curriculum by hand"
 // a single round-trip.
-func submitCurriculumHandlerUser(deps Dependencies) http.HandlerFunc {
+func submitCurriculumHandlerUser(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		submitCurriculumCore(w, r, deps)
 	}
@@ -348,7 +348,7 @@ func submitCurriculumHandlerUser(deps Dependencies) http.HandlerFunc {
 
 // listCoursesHandlerAgent lists courses for the agent (tutor's
 // view). Optional ?status= filter.
-func listCoursesHandlerAgent(deps Dependencies) http.HandlerFunc {
+func listCoursesHandlerAgent(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Courses == nil {
 			http.Error(w, "course repo not wired", http.StatusServiceUnavailable)
@@ -410,7 +410,7 @@ type materializeLessonRequest struct {
 // materializeLessonHandlerAgent is the tutor-side endpoint: the
 // agent writes the lesson body and links an exercise task. The
 // service flips the lesson from locked → open.
-func materializeLessonHandlerAgent(deps Dependencies) http.HandlerFunc {
+func materializeLessonHandlerAgent(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.CourseService == nil {
 			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
@@ -460,7 +460,7 @@ type answerQuizRequest struct {
 // the graded result. For exact quizzes the function scores
 // immediately; for open quizzes it spawns a review task and returns
 // the task id so the UI can show "pending review".
-func answerQuizHandler(deps Dependencies) http.HandlerFunc {
+func answerQuizHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.CourseService == nil {
 			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
@@ -518,7 +518,7 @@ type addQuizRequest struct {
 
 // addQuizCore is the shared body of the user-side and agent-side
 // addQuiz handlers. The auth boundary is the route mounting.
-func addQuizCore(w http.ResponseWriter, r *http.Request, deps Dependencies) {
+func addQuizCore(w http.ResponseWriter, r *http.Request, deps *Dependencies) {
 	if deps.CourseService == nil {
 		http.Error(w, "course service not wired", http.StatusServiceUnavailable)
 		return
@@ -562,7 +562,7 @@ func addQuizCore(w http.ResponseWriter, r *http.Request, deps Dependencies) {
 // addQuizHandler — owner-side endpoint (Phase 27.6: previously
 // missing in the user namespace; quiz creation is now exposed
 // under /api/v1/lessons/{id}/quizzes).
-func addQuizHandler(deps Dependencies) http.HandlerFunc {
+func addQuizHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		addQuizCore(w, r, deps)
 	}
@@ -572,7 +572,7 @@ func addQuizHandler(deps Dependencies) http.HandlerFunc {
 // the debt tracked since Phase 18: 18.6 promised the tutor a way
 // to add a single quiz to an existing lesson without swapping the
 // whole curriculum).
-func addQuizHandlerAgent(deps Dependencies) http.HandlerFunc {
+func addQuizHandlerAgent(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		addQuizCore(w, r, deps)
 	}
@@ -583,7 +583,7 @@ func addQuizHandlerAgent(deps Dependencies) http.HandlerFunc {
 // directly. Agent-only MaterializeLesson still owns the
 // locked → open transition; this path is for tweaks once the
 // course is already live.
-func updateLessonContentHandlerUser(deps Dependencies) http.HandlerFunc {
+func updateLessonContentHandlerUser(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.CourseService == nil {
 			http.Error(w, "course service not wired", http.StatusServiceUnavailable)

@@ -35,7 +35,7 @@ type restoreBackupRequest struct {
 	Force bool   `json:"force"` // Phase 22.3: skip the "stop the server" hint
 }
 
-func restoreBackupHandler(deps Dependencies) http.HandlerFunc {
+func restoreBackupHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in restoreBackupRequest
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {

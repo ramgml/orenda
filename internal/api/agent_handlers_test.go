@@ -92,7 +92,7 @@ func newAgentFixture(t *testing.T) *agentFixture {
 		CookieName:  "orenda_session",
 	}
 	return &agentFixture{
-		router:  api.NewRouter(deps),
+		router:  api.NewRouter(&deps),
 		agentID: got.Agent.ID,
 		token:   got.PlainToken,
 		db:      db,

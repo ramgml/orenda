@@ -12,7 +12,7 @@ import (
 
 // notifyEvent is a small helper that calls Notifier.Notify with a typed
 // event. Errors are swallowed — notifications are best-effort in Phase 6.
-func notifyEvent(ctx context.Context, deps Dependencies, e notifierservice.Event) {
+func notifyEvent(ctx context.Context, deps *Dependencies, e notifierservice.Event) {
 	if deps.Notifier == nil {
 		return
 	}
@@ -20,7 +20,7 @@ func notifyEvent(ctx context.Context, deps Dependencies, e notifierservice.Event
 }
 
 // listNotificationsHandler returns the current user's notifications.
-func listNotificationsHandler(deps Dependencies) http.HandlerFunc {
+func listNotificationsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
 		if !ok {
@@ -52,7 +52,7 @@ func listNotificationsHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // markNotificationReadHandler marks one notification read.
-func markNotificationReadHandler(deps Dependencies) http.HandlerFunc {
+func markNotificationReadHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		inbox := notifierInbox(deps)
 		if inbox == nil {
@@ -73,7 +73,7 @@ func markNotificationReadHandler(deps Dependencies) http.HandlerFunc {
 //
 // The Notifier field on Dependencies is the concrete notifier.Service so
 // we can access its Inbox without re-defining the interface here.
-func notifierInbox(deps Dependencies) notifierservice.InboxRepository {
+func notifierInbox(deps *Dependencies) notifierservice.InboxRepository {
 	if deps.Notifier == nil {
 		return nil
 	}
@@ -95,7 +95,7 @@ func notifierInbox(deps Dependencies) notifierservice.InboxRepository {
 // the underlying claim/release/submit flow.
 func notifyTaskAssignee(
 	ctx context.Context,
-	deps Dependencies,
+	deps *Dependencies,
 	eventType, dedupKey string,
 	tr *task.Task,
 	agentID string,
@@ -134,7 +134,7 @@ func notifyTaskAssignee(
 // cheap (one indexed lookup, no full scan thanks to the role column)
 // and the call site is a best-effort notifier, so a non-deterministic
 // "first" is acceptable.
-func firstNonSystemUserID(ctx context.Context, deps Dependencies) string {
+func firstNonSystemUserID(ctx context.Context, deps *Dependencies) string {
 	if deps.Users == nil {
 		return ""
 	}
@@ -146,7 +146,7 @@ func firstNonSystemUserID(ctx context.Context, deps Dependencies) string {
 }
 
 // agentNameOf best-effort lookup; returns "" if the agent isn't found.
-func agentNameOf(ctx context.Context, deps Dependencies, agentID string) string {
+func agentNameOf(ctx context.Context, deps *Dependencies, agentID string) string {
 	if agentID == "" || deps.Agents == nil {
 		return ""
 	}

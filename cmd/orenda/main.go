@@ -863,7 +863,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	// Build the router.
 	api.Version = version
-	router := api.NewRouter(api.Dependencies{
+	router := api.NewRouter(&api.Dependencies{
 		Logger:       logger,
 		Signer:       signer,
 		Users:        users,

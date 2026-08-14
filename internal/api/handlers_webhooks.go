@@ -40,7 +40,7 @@ type vkCallbackPayload struct {
 // deps.VKConfirmation is the string VK expects back on a "confirmation"
 // message (configure in the community's callback settings).
 // deps.VKSecret is the shared secret VK includes; we verify it matches.
-func vkWebhookHandler(deps Dependencies) http.HandlerFunc {
+func vkWebhookHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var p vkWebhookPayload
 		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {

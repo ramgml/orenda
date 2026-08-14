@@ -27,7 +27,7 @@ type claimRequest struct {
 	AgentID string `json:"agent_id"`
 }
 
-func claimTaskHandler(deps Dependencies) http.HandlerFunc {
+func claimTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.TaskService == nil {
 			http.Error(w, "task service not wired", http.StatusServiceUnavailable)
@@ -54,7 +54,7 @@ func claimTaskHandler(deps Dependencies) http.HandlerFunc {
 	}
 }
 
-func releaseTaskHandler(deps Dependencies) http.HandlerFunc {
+func releaseTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.TaskService == nil {
 			http.Error(w, "task service not wired", http.StatusServiceUnavailable)
@@ -83,7 +83,7 @@ type submitRequest struct {
 	Note    string `json:"note"`
 }
 
-func submitTaskHandler(deps Dependencies) http.HandlerFunc {
+func submitTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.TaskService == nil {
 			http.Error(w, "task service not wired", http.StatusServiceUnavailable)
@@ -122,7 +122,7 @@ type reviewRequest struct {
 	Comment  string `json:"comment"`
 }
 
-func reviewTaskHandler(deps Dependencies) http.HandlerFunc {
+func reviewTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.TaskService == nil {
 			http.Error(w, "task service not wired", http.StatusServiceUnavailable)
@@ -148,7 +148,7 @@ func reviewTaskHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // listTaskCommentsHandler returns comments for a task.
-func listTaskCommentsHandler(deps Dependencies) http.HandlerFunc {
+func listTaskCommentsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Comments == nil {
 			http.Error(w, "comment service not wired", http.StatusServiceUnavailable)
@@ -164,7 +164,7 @@ func listTaskCommentsHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // createTaskCommentHandler adds a comment authored by the session user.
-func createTaskCommentHandler(deps Dependencies) http.HandlerFunc {
+func createTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
 	type req struct {
 		BodyMD string `json:"body_md"`
 	}
@@ -254,7 +254,7 @@ func createTaskCommentHandler(deps Dependencies) http.HandlerFunc {
 // calling a non-existent route and chi replied with 405 Method Not
 // Allowed. Now both routes live in the same block so a future split
 // will surface as a build-time error.
-func listTaskAttachmentsHandler(deps Dependencies) http.HandlerFunc {
+func listTaskAttachmentsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Attachments == nil {
 			http.Error(w, "attachment service not wired", http.StatusServiceUnavailable)
@@ -278,7 +278,7 @@ func listTaskAttachmentsHandler(deps Dependencies) http.HandlerFunc {
 // client. The Content-Type is the mime stored at upload time; the
 // filename is preserved in Content-Disposition so browsers save
 // with the right name.
-func downloadAttachmentHandler(deps Dependencies) http.HandlerFunc {
+func downloadAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Attachments == nil {
 			http.Error(w, "attachment service not wired", http.StatusServiceUnavailable)
@@ -317,7 +317,7 @@ func sanitizeFilename(s string) string {
 // The handler delegates the file stream + mime + dedup to
 // AttachmentService.StoreFromBytes. Size and mime errors are mapped to
 // 413 / 415 respectively.
-func addTaskAttachmentHandler(deps Dependencies) http.HandlerFunc {
+func addTaskAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Attachments == nil {
 			http.Error(w, "attachment service not wired", http.StatusServiceUnavailable)
@@ -404,7 +404,7 @@ func addTaskAttachmentHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // listTaskActivityHandler returns the audit log for a task.
-func listTaskActivityHandler(deps Dependencies) http.HandlerFunc {
+func listTaskActivityHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Activities == nil {
 			http.Error(w, "activity service not wired", http.StatusServiceUnavailable)
@@ -422,7 +422,7 @@ func listTaskActivityHandler(deps Dependencies) http.HandlerFunc {
 // getTaskContextHandler returns a snapshot suitable for an agent
 // resuming work: the task, its comments, activity, child tasks and
 // checklists.
-func getTaskContextHandler(deps Dependencies) http.HandlerFunc {
+func getTaskContextHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		taskID := chi.URLParam(r, "id")

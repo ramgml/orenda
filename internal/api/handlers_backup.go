@@ -51,7 +51,7 @@ const (
 // operator can edit settings through the UI, the "current value"
 // answer can diverge from what `*backup.Service` is actually using
 // right now — `source_hint` makes that visible.
-func listBackupSettingsHandler(deps Dependencies) http.HandlerFunc {
+func listBackupSettingsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		// In-memory defaults the running `*backup.Service` is
@@ -121,7 +121,7 @@ func jsonString(raw json.RawMessage) (string, error) {
 // The running `*backup.Service` reads URL/auth/schedule from the
 // in-memory Config it was wired with at startup — these overrides
 // take effect on the next restart. See SESSION.md "Фаза «Полировка»".
-func putBackupSettingsHandler(deps Dependencies) http.HandlerFunc {
+func putBackupSettingsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.BackupSettings == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "backup_settings_repo_unavailable"})
@@ -294,7 +294,7 @@ func writeBackupJSONError(w http.ResponseWriter, err error, op string) {
 }
 
 // testBackupPushHandler runs one CommitAndPush and returns the outcome.
-func testBackupPushHandler(deps Dependencies) http.HandlerFunc {
+func testBackupPushHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Backup == nil {
 			http.Error(w, "backup service not wired", http.StatusServiceUnavailable)
@@ -316,7 +316,7 @@ func testBackupPushHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // backupSnapshotHandler creates a snapshot immediately.
-func backupSnapshotHandler(deps Dependencies) http.HandlerFunc {
+func backupSnapshotHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Backup == nil {
 			http.Error(w, "backup service not wired", http.StatusServiceUnavailable)
@@ -332,7 +332,7 @@ func backupSnapshotHandler(deps Dependencies) http.HandlerFunc {
 }
 
 // listBackupSnapshotsHandler returns the snapshot list.
-func listBackupSnapshotsHandler(deps Dependencies) http.HandlerFunc {
+func listBackupSnapshotsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Backup == nil {
 			http.Error(w, "backup service not wired", http.StatusServiceUnavailable)
@@ -353,7 +353,7 @@ func listBackupSnapshotsHandler(deps Dependencies) http.HandlerFunc {
 // is on and runs the swap in-process.
 
 // listBackupLogHandler returns recent backup_log entries.
-func listBackupLogHandler(deps Dependencies) http.HandlerFunc {
+func listBackupLogHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Backup == nil {
 			http.Error(w, "backup service not wired", http.StatusServiceUnavailable)

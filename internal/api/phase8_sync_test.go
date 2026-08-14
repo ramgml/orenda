@@ -167,7 +167,7 @@ func syncWithEWRouter(t *testing.T) (http.Handler, string) {
 		EventService: eventSvc,
 		WikiService:  wikiservice.New(sqlite.NewWikiRepository(db), hub),
 	}
-	router := api.NewRouter(deps)
+	router := api.NewRouter(&deps)
 
 	body, _ := json.Marshal(map[string]string{"email": "ew@x.com", "password": "hunter2!"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
