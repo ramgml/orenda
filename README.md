@@ -43,13 +43,24 @@ make web-install               # required once — the installer builds the SPA
 scripts/install.sh --systemd   # builds, installs to ~/.local/bin, enables user service
 ```
 
+> `scripts/install.sh` is the **only** sanctioned way to update the
+> usage binary. It refuses to install from anything except a clean
+> checkout on `main` (override with `--force`). See
+> [docs/ARCHITECTURE.md §12.4](docs/ARCHITECTURE.md#124-dev-vs-dogfood-instance-phase-2820).
+
 For development with hot reload:
 
 ```bash
 make dev
-# → Vite dev-server: http://localhost:5173 (proxies API to :2137)
-# → Go server: http://127.0.0.1:2137
+# → Vite dev-server: http://localhost:5173 (proxies API to :2138)
+# → Go server: http://127.0.0.1:2138
 ```
+
+> Phase 28.20 splits dev (`:2138`) and usage (`:2137`) so both can run on
+> the same machine. The usage/dogfood instance is built from a separate
+> checkout on `main`; see [docs/ARCHITECTURE.md §12.4](docs/ARCHITECTURE.md#124-dev-vs-dogfood-instance-phase-2820)
+> for the channel model and `scripts/update-dogfood.sh` for the
+> one-command refresh.
 
 Validate the codebase before opening a PR:
 

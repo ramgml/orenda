@@ -1,4 +1,4 @@
-# Session Snapshot — 2026-08-14 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.18 + 28.19; «Полировка» + 28.19 закрыты)
+# Session Snapshot — 2026-08-14 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.20; «Полировка» + 28.19 + 28.20 закрыты)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
@@ -102,12 +102,58 @@
 - **Bulk-edit labels** — нет endpoint'а «обновить type существующего агента», только re-через Register flow. `PATCH /api/v1/agents/{id}` принимает `type` — отдельная фаза при необходимости.
 - **UI color picker для type** — `tags` имеет color picker (Phase 13), `agents.type` сейчас монохромный. Кандидат на будущую полировку.
 
+## Phase 28.20 — dev/dogfood separation (2026-08-14)
+
+**Цель:** разделить dev (active worktree) и usage (operator's daily-use instance) по двум осям — канал бинаря и runtime-ресурсы — так, чтобы они не пересекались. Закрывает дефект, описанный в PLAN §28.20: «Vite-прокси (хардкод 2137) молча проксирует dev-фронт на usage-бэкенд; install.sh из любой ветки перезаписывает единственный глобальный бинарь; dev-бинарь против usage-БД угоняет схему вперёд релиза через авто-миграции». Документ-конвенция: usage = `~/opt/orenda` clone of GitHub, ветка `main`, port 2137; dev = worktree, port 2138; e2e = 21371.
+
+**Ключевые решения:**
+
+- **Один env var = обе стороны.** `ORENDA_SERVER__PORT` драйвит и Go (через `cmd/orenda/main.go::runServe`), и Vite (через `web/vite.config.ts`). Дефолт dev = 2138; дефолт production binary = 2137 (не менялся). Один источник правды — никаких «а мы в этот раз ещё одну переменную забыли синхронизировать».
+- **Channel guard в install.sh — single line of defense.** `git rev-parse --abbrev-ref HEAD != main` или `git status --porcelain` nonempty → exit 1 с диагностикой. Это единственный путь обновления usage-инстанса; обход --force пишет в лог «bypassing channel guard» (не молча).
+- **Channel guard в update-dogfood.sh — двойная защита.** Сначала `git pull --ff-only` (гарант, что канал линеен), потом `install.sh --systemd` (внутри свой guard). Если ~/opt/orenda не на main или dirty — обновление отказывается на первом же шаге.
+- **Startup log несёт db_path.** `logger.Info("http listening", addr, db_path)` — observability, "какой это инстанс" отвечает `journalctl --user -u orenda` без угадывания. Раньше две инстансы на одной машине было неотличимы без grep по конфигу.
+- **Vite proxy-targets — env, не хардкод.** `http://127.0.0.1:${ORENDA_SERVER__PORT ?? 2138}` для `/api`, `/healthz`, `/ws`. Это убирает молчаливый redirect dev-фронта на usage-бэкенд (главный баг, зафиксированный в PLAN §28.20).
+- **Makefile `dev` — `export` в shell recipe.** `export ORENDA_SERVER__PORT=$${ORENDA_SERVER__PORT:-2138}`; air и Vite оба его наследуют. Override через `make dev ORENDA_SERVER__PORT=2200` или env в shell; default остаётся «всё работает без флагов».
+- **Residual risk задокументирован, не механически заблокирован.** dev-бинарь с `--config ~/.local/share/orenda/config.yaml` запустит авто-миграции usage-БД — опасно. Защита только дисциплина + startup log db_path. Автодетект (сравнение resolved db_path с дефолтным `$HOME/.local/share/orenda`) — out of scope, механический детект легитимного override ещё не придумали.
+
+**Задачи (все выполнены):**
+
+- `Makefile` — таргет `dev`: `export ORENDA_SERVER__PORT=$${ORENDA_SERVER__PORT:-2138}` в shell recipe; одна строка echo про override.
+- `web/vite.config.ts` — `backendPort = process.env.ORENDA_SERVER__PORT ?? '2138'`; три proxy-target используют его. Комментарий: dev не «по умолчанию 2137», а usage.
+- `web/playwright.config.ts` — comment про `:2137` → «не clobber either usage :2137 or dev :2138». E2E-порт 21371 не задет.
+- `Makefile::test-e2e` — comment обновлён: «не конфликтует с usage 2137 или `make dev` 2138».
+- `scripts/install.sh` — переписан: (a) `for arg in "$@"` парсит `--systemd | --force | --help | unknown`; (b) `git rev-parse --abbrev-ref HEAD` + `git status --porcelain` для guard; (c) `Channel: branch @ hash (dirty: yes|no)` в начале; (d) `ERROR: refusing to install from a non-main or dirty checkout` с подсказкой `--force`; (e) `help` показывает из комментария шапки.
+- `scripts/update-dogfood.sh` (NEW) — `set -euo pipefail`; guard на main+clean; `git pull --ff-only origin main`; `scripts/install.sh --systemd`; `systemctl --user restart orenda`. chmod +x.
+- `cmd/orenda/main.go` — `serverErr goroutine` старт: `logger.Info("http listening", addr, db_path=`cfg.ResolveDBPath(".")`)`. Не требует пересборки schema, не зависит от `Dependencies.DBPath` (хотя оно уже там есть).
+- `docs/ARCHITECTURE.md` — новая секция 12.4 «Dev vs dogfood instance (Phase 28.20)»: таблица каналов (usage 2137 / dev 2138 / e2e 21371), намёк почему 2137 — канонический usage, логика `--force`, ритуал update-dogfood, residual risk ("dev против usage-BD = дисциплина + лог").
+- `docs/ARCHITECTURE.md` — секция 9 Build pipeline (`:2137` → `:2138` для `make dev`).
+- `AGENTS.md` — intro: «port 2137 (usage) / 2138 (make dev)»; Worktree placement: «Port 2137 reserved for usage, 2138 — dev default, 21371 — E2E».
+- `README.md` — два места: install (про install.sh guard) + `make dev` (про деление 2137/2138). Ссылки на ARCHITECTURE.md §12.4.
+
+**DoD (verified 2026-08-14, worktree `phase-28-20-dev-dogfood`):**
+
+- ✅ **Два одновременно живых инстанса** — usage-like на 2137 (DB=/tmp/orenda-usage-smoke/data/orenda.db) + dev на 2138 (DB=./data/orenda.db), оба 200 на `/api/v1/info`, в логах разные `db_path`. Smoke script `/tmp/opencode/smoke-28-20.sh`, оба процесса убиты после теста.
+- ✅ **install.sh guard** — `bash scripts/install.sh` из ветки `phase-28-20-dev-dogfood` (≠ main) → exit 1, диагностика (ветка, hash, dirty, hint --force). `bash scripts/install.sh --help` → exit 0, usage. `bash scripts/install.sh --bogus` → exit 2, error.
+- ✅ **update-dogfood.sh guard** — `bash scripts/update-dogfood.sh` из той же ветки → exit 1, `(currently on 'phase-28-20-dev-dogfood' @ ab4687d)`.
+- ✅ **Startup log** — `{"msg":"http listening","addr":"127.0.0.1:2138","db_path":"data/orenda.db"}`, видно в выводе smoke.
+- ✅ **go build ./...** — clean.
+- ✅ **`make test`** — Go 30/30 packages ok + vitest 241/241 — зелёные (никаких регрессий, изменения mostly в shell/TS/docs).
+- ✅ **`make test-e2e`** — 18/18 pass (37.2s). E2E свой порт 21371, изменений не видит.
+- ✅ **`npx tsc --noEmit`** — clean.
+
+**За скобкой (явно отложено):**
+
+- **Автодетект dev vs usage по `db_path`.** Если dev-бинарь стартует с `--config ~/.local/share/orenda/config.yaml`, можно было бы warn'ить и запрашивать `--force` — но это легитимный override (оператор знает, что делает). Механическая защита от operator error — отдельная фаза при реальной потребности.
+- **Prettier** — Phase 28.7 уже настроен; `pre-commit` hook через simple-git-hooks (28.12). Перед коммитом: `cd web && npx prettier --check <files>` для проверки.
+- **Чистка data/ в worktree перед коммитом** — `data/orenda.db` и `data/uploads/` создаются smoke-тестом; gitignore их уже игнорирует, `git status` чист.
+- **Первая операция после merge** — оператор делает `git pull` в `~/opt/orenda`, чтобы обновлённый install.sh в его checkout'е тоже имел guard. До этого `git pull` тривиально пройдёт (старый install.sh не имеет guard, но md5-хеш не валидирует). Pre-existing problem — отдельная фаза «post-merge operator onboarding».
+
 ## Метаданные
 
 - **Дата снапшота:** 2026-08-14
 - **Ветка:** `dev`
-- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1–28.19 (полировка полностью закрыта + agent-type-labels). Multi-user / multi-device sync — следующая эра после полировки.
-- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1/.../28.19)
+- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1–28.20 (полировка полностью закрыта + agent-type-labels + dev/dogfood separation). Multi-user / multi-device sync — следующая эра после полировки.
+- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1/.../28.20)
 
 ## Что сделано за сессию (кратко)
 
@@ -206,12 +252,14 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 
 ## Тесты
 
-**Последние зафиксированные прогоны** (Phase 28.19, 2026-08-14):
-- `make test` — Go (30/30 packages ok) + vitest (241/241, +11) — зелёные.
-- `make test-e2e` — Playwright smoke против свежесобранного бинаря; 18/18 pass на чистой БД, без флейков. Требует `make build` (бинарь должен быть свежим); spawns test server on port 21371 (override `ORENDA_SERVER__PORT` чтобы не конфликтовать с dev-сервером на 2137).
+**Последние зафиксированные прогоны** (Phase 28.20, 2026-08-14):
+- `make test` — Go (30/30 packages ok) + vitest (241/241) — зелёные (Phase 28.20 ничего не сломала).
+- `make test-e2e` — Playwright smoke против свежесобранного бинаря; 18/18 pass на чистой БД, без флейков. Phase 28.20 E2E-порт 21371 не задет.
 - `npx tsc --noEmit` — clean.
-- `TestOpenAPI_RouteCoverage` + `TestOpenAPI_RouteCoverage_FullRouter` — оба зелёные; `docs/openapi.yaml` ↔ `internal/api/openapi.yaml` синхронны.
-- `make lint` — pre-existing debt only (comment_test, event.go, timeentry_test, notifier_test, middleware_test); Phase 28.19 не добавила новых issues.
+- `go build ./...` — clean.
+- **Smoke (Phase 28.20):** два инстанса одновременно — usage-like `:2137` (DB=/tmp/orenda-usage-smoke/data/orenda.db) + dev `:2138` (DB=./data/orenda.db), оба 200 на `/api/v1/info`, startup log несёт разные `db_path`. **install.sh guard:** `bash scripts/install.sh` (phase-28-20-dev-dogfood @ ab4687d, dirty) → exit 1 с диагностикой + `--force` hint. **`--help`:** exit 0 + usage. **`--bogus`:** exit 2. **update-dogfood.sh guard:** exit 1, `(currently on 'phase-28-20-dev-dogfood' @ ab4687d)`.
+- `TestOpenAPI_RouteCoverage` + `TestOpenAPI_RouteCoverage_FullRouter` — оба зелёные; `docs/openapi.yaml` ↔ `internal/api/openapi.yaml` синхронны (Phase 28.20 не трогала openapi).
+- `make lint` — pre-existing debt only (Phase 28.20 — только shell/TS/docs, новых issues нет).
 - Coverage: domain 100%, services 70–100%, api 61%, storage 72%; фронт — компонентный/юнит (vitest + jsdom), e2e (Playwright + реальный бинарь).
 
 ### Запуск E2E локально
@@ -226,7 +274,7 @@ make test-e2e              # Playwright spec'ы против тестового 
 ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playwright config — фиксированный 21371
 ```
 
-(В текущей версии порт 21371 зашит в `web/playwright.config.ts`; смена требует правки двух файлов. Это сознательно — `make test-e2e` не должен конфликтовать с dev-сервером на 2137.)
+(В текущей версии порт 21371 зашит в `web/playwright.config.ts`; смена требует правки двух файлов. Это сознательно — `make test-e2e` не должен конфликтовать с usage-инстансом на 2137 или `make dev` на 2138 (Phase 28.20).)
 
 ## Бэклог (открыто)
 
@@ -240,6 +288,7 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
   - ✅ PHASE 26.A lint warnings cleanup → Phases 28.15 + 28.16 + 28.17 (closed 230 из 325 issues)
   - ✅ `handlers_backup.go` комментарии → обновлено в Phase 28.9
 - **Phase 28.19 (agent type as free-form label set)** — **закрыта 2026-08-14** в `phase-28-19-agent-type-labels`. Чипы меток на канбан-карточке (`Agent: <name> (<labels>)`), серверный OR-фильтр `?type=a&type=b`, OpenAPI schema + route coverage зелёные.
+- **Phase 28.20 (dev/dogfood separation)** — **закрыта 2026-08-14** в `phase-28-20-dev-dogfood`. dev-flow на 2138, usage/dogfood (= `~/opt/orenda` на `main`) на 2137, e2e на 21371. `install.sh` channel guard (refuse non-main + dirty, `--force` override), `update-dogfood.sh` одной командой, vite прокси следует env, startup log несёт `db_path` для observability. Документация: ARCHITECTURE.md §12.4, AGENTS.md, README + SESSION.md.
 - **Phase 10 долги, оставшиеся за скобками:** VK Long Poll / Email HTML / Weekly digest. Это большие подфазы Phase 10 (DoD которой — полный набор ботов с HTML и weekly digest). Не блокируют dogfooding.
 - **Multi-user / multi-device sync (Phase 11+)** — следующая эра.
 - **Lint остаток (95 issues):** 45 hugeParam non-api (per Phase 28.15 commit); 15 unparam, 7 nilnil, 5 contextcheck — механические фиксы с diminishing returns. Не блокируют dogfooding.

@@ -2622,13 +2622,13 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 
 **Задачи:**
 
-- [ ] **28.20.1** Makefile, таргет `dev`: экспорт `ORENDA_SERVER__PORT := 2138` (переопределяемо: `make dev ORENDA_SERVER__PORT=2200`). air и Vite наследуют env из рецепта — одна переменная драйвит обе стороны. Дефолтный порт бинаря (2137) НЕ меняется.
-- [ ] **28.20.2** `web/vite.config.ts`: proxy-targets `/api` и `/ws` читают `process.env.ORENDA_SERVER__PORT ?? '2138'` вместо хардкода 2137; комментарий обновить. E2E не трогаем — Playwright на своём порту 21371 (`playwright.config.ts`), `web/e2e-setup/run-server.sh` self-contained.
-- [ ] **28.20.3** `scripts/install.sh`: гард канала — отказ, если текущая ветка ≠ `main` или tree dirty (сообщение с веткой/коммитом; `--force` переопределяет). Перед установкой печатать channel-инфо (ветка, короткий хеш).
-- [ ] **28.20.4** `cmd/orenda/main.go`: в стартовый лог `serve` (там уже `config` + `addr`) добавить resolved `db_path` — observability «какой это инстанс» в журнале systemd.
-- [ ] **28.20.5** `scripts/update-dogfood.sh`: ритуал обновления usage-инстанса — `git pull --ff-only origin main && scripts/install.sh --systemd && systemctl --user restart orenda` (`set -euo pipefail`, запускается из `~/opt/orenda`; ff-only гарантирует чистый канал).
-- [ ] **28.20.6** Docs: `docs/ARCHITECTURE.md` (или README) — раздел «Dev vs dogfood instance»: два checkout'а, матрица портов (usage 2137 / dev 2138 / e2e 21371), data dirs, запрет `install.sh` из dev-репо, update-ритуал, остаточный риск из шапки. `AGENTS.md` — строку «Port 2137 is singleton» обновить под конвенцию dev=2138.
-- [ ] **28.20.7** Тесты/верификация: bash-тест или ручной прогон гарда install.sh (из ветки ≠ main → отказ без `--force`); `make dev` smoke — backend отвечает на :2138, `curl :5173/api/v1/info` → 200 (proxy следует за env); `go build ./...` зелёный.
+- [x] **28.20.1** Makefile, таргет `dev`: экспорт `ORENDA_SERVER__PORT := 2138` (переопределяемо: `make dev ORENDA_SERVER__PORT=2200`). air и Vite наследуют env из рецепта — одна переменная драйвит обе стороны. Дефолтный порт бинаря (2137) НЕ меняется.
+- [x] **28.20.2** `web/vite.config.ts`: proxy-targets `/api` и `/ws` читают `process.env.ORENDA_SERVER__PORT ?? '2138'` вместо хардкода 2137; комментарий обновить. E2E не трогаем — Playwright на своём порту 21371 (`playwright.config.ts`), `web/e2e-setup/run-server.sh` self-contained.
+- [x] **28.20.3** `scripts/install.sh`: гард канала — отказ, если текущая ветка ≠ `main` или tree dirty (сообщение с веткой/коммитом; `--force` переопределяет). Перед установкой печатать channel-инфо (ветка, короткий хеш).
+- [x] **28.20.4** `cmd/orenda/main.go`: в стартовый лог `serve` (там уже `config` + `addr`) добавить resolved `db_path` — observability «какой это инстанс» в журнале systemd.
+- [x] **28.20.5** `scripts/update-dogfood.sh`: ритуал обновления usage-инстанса — `git pull --ff-only origin main && scripts/install.sh --systemd && systemctl --user restart orenda` (`set -euo pipefail`, запускается из `~/opt/orenda`; ff-only гарантирует чистый канал).
+- [x] **28.20.6** Docs: `docs/ARCHITECTURE.md` (или README) — раздел «Dev vs dogfood instance»: два checkout'а, матрица портов (usage 2137 / dev 2138 / e2e 21371), data dirs, запрет `install.sh` из dev-репо, update-ритуал, остаточный риск из шапки. `AGENTS.md` — строку «Port 2137 is singleton» обновить под конвенцию dev=2138.
+- [x] **28.20.7** Тесты/верификация: bash-тест или ручной прогон гарда install.sh (из ветки ≠ main → отказ без `--force`); `make dev` smoke — backend отвечает на :2138, `curl :5173/api/v1/info` → 200 (proxy следует за env); `go build ./...` зелёный.
 
 **DoD (проверяется исполнением):**
 - Два одновременно живых инстанса: usage (systemd, :2137, из `~/opt/orenda`) + `make dev` (:2138) — оба 200 на `/api/v1/info`, БД разные (по `db_path` в логах).

@@ -38,10 +38,18 @@ help:
 	@grep -E '^##' Makefile | sed -E 's/## ?//'
 
 ## dev: Run Go (with air) + Vite dev-server (recommended for development)
+##
+## Phase 28.20: dev backend listens on :2138 by default — keeps it out of
+## the way of the usage/dogfood systemd instance on :2137. Override with
+## `make dev ORENDA_SERVER__PORT=2200` (or set the env var in your shell).
+## Both air and Vite see the same ORENDA_SERVER__PORT — the proxy-target
+## in web/vite.config.ts reads it from process.env.
 dev:
 	@command -v $(AIR) >/dev/null 2>&1 || $(GO) install github.com/air-verse/air@latest
 	@if [ ! -d "$(WEB_DIR)/node_modules" ]; then $(MAKE) web-install; fi
 	@trap 'kill 0' EXIT; \
+	  export ORENDA_SERVER__PORT=$${ORENDA_SERVER__PORT:-2138}; \
+	  echo "==> dev backend on :$$ORENDA_SERVER__PORT (override: make dev ORENDA_SERVER__PORT=...)"; \
 	  (cd $(WEB_DIR) && $(NPM) run dev) & \
 	  $(AIR)
 
@@ -106,8 +114,8 @@ web-format-check:
 ## test-e2e: Playwright E2E smoke suite.
 ## Requires a built binary (make build). Spawns its own test server
 ## on ORENDA_SERVER__PORT=21371 (override to avoid clashing with
-## the real dev server on 2137). The webServer.config in
-## web/playwright.config.ts already points at 21371.
+## the usage/dogfood instance on 2137 or `make dev` on 2138). The
+## webServer.config in web/playwright.config.ts already points at 21371.
 test-e2e: build
 	cd $(WEB_DIR) && $(NPM) run test:e2e
 
