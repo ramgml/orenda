@@ -83,11 +83,12 @@ func agentClaimTaskHandler(deps *Dependencies) http.HandlerFunc {
 		tr, err := deps.TaskService.Claim(r.Context(), chi.URLParam(r, "id"), id.AgentID)
 		if err != nil {
 			if errors.Is(err, taskservice.ErrLockTaken) {
-				// Phase 15.3: extend 409 with the current holder
-				// when the repo supports lookup. We surface a plain
-				// "lock_taken" if the lookup path isn't wired — the
-				// bare 409 keeps the API backward-compatible.
-				writeJSON(w, http.StatusConflict, map[string]string{"error": "lock_taken"})
+				// Phase 15: extend 409 with the current holder
+				// (agent_id / agent_name / claimed_at) when the
+				// TaskLockHolder seam is wired. Bare
+				// {"error":"lock_taken"} is the backwards-compatible
+				// fallback when the lookup fails or returns empty.
+				writeJSON(w, http.StatusConflict, lockTakenResponse(deps, r.Context(), chi.URLParam(r, "id")))
 				return
 			}
 			// Phase 15.3: 422 with the unfinished blockers list so
@@ -205,6 +206,12 @@ func agentTaskContextHandler(deps *Dependencies) http.HandlerFunc {
 				}
 			}
 		}
+		// Phase 15: same shape as the user-facing /context — open
+		// blockers + current lock holder. The bearer-agent
+		// snapshot is otherwise identical, so we reuse the same
+		// helpers in handlers_phase3.go.
+		populateContextBlockers(deps, ctx, taskID, out)
+		populateContextLockHolder(deps, ctx, taskID, out)
 		writeJSON(w, http.StatusOK, out)
 	}
 }

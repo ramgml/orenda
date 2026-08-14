@@ -197,12 +197,66 @@
 - **Rate limit на /bots/test** — спам бота сейчас не ограничен (POST /api/v1/bots/test → немедленный webhook POST). При abuse это плохо. Auth-cookie нужен (есть), но throttle нет. Отдельная мини-фаза при необходимости.
 - **Per-target «Send test to me» для Telegram** — `bind` flow уже возвращает chat_id, можно pre-fill при наличии Telegram-подписки. Low value vs complexity.
 
+## Phase 15 (close-out) — agent UX контракт: lock_taken holder + context blockers/lock + ready self-assigned *(2026-08-14)*
+
+**Цель:** закрыть три «🟡 долга» Phase 15 из `docs/PLAN.md:1002` (аудит 2026-08-12):
+1. `409 lock_taken` без holder-полей (агент не знает кого спрашивать)
+2. `GET /agent/tasks/{id}/context` без `blocked_by`/lock holder (агент не видит блокеров и holder-а)
+3. `GET /agent/tasks?ready=true` включает задачи, занятые самим агентом (шум в очереди)
+
+**Ключевые решения:**
+
+- **Узкий `TaskLockHolder` интерфейс.** В `internal/api/service_interfaces.go` добавлен `TaskLockHolder { Holder(ctx, taskID) (agentID, acquiredAt, err) }`. Реализуется уже существующим `*sqlite.taskLockRepo` (метод `Holder` был написан ранее, но не был подключён к API). nil-safe — handlers должны guard.
+- **Лучше два контекст-хелпера, чем обвешанные if'ы.** `populateContextBlockers(deps, ctx, taskID, out)` и `populateContextLockHolder(deps, ctx, taskID, out)` вызываются из обоих эндпоинтов (`/tasks/:id/context` user-side и `/agent/tasks/:id/context` agent-side). Удалять пустые поля через `out.LockHolder = nil` / `out.BlockedBy = nil` (JSON encoder тогда опускает ключ — backward-compat).
+- **`lockTakenResponse` хелпер.** Один источник для 409 payload. На `ErrLockTaken` зовёт `Holder(ctx, taskID)` → если есть holder, идёт `Agents.GetByID` для имени. Если lookup вернул пусто или ошибку — fallback на голый `{error: "lock_taken"}` (backwards-compat с любым клиентом, который матчит на эту форму).
+- **ready=true self-assigned фильтр.** В `listAgentTasksHandler` рядом с уже существующим "exclude tasks assigned to another agent" добавил "exclude tasks assigned to THIS agent". Минимальный diff — два `if ready && tr.AssigneeID == id.AgentID` блока, понятных из названия.
+
+**Задачи (все выполнены):**
+
+- `internal/api/service_interfaces.go` — `TaskContext` теперь имеет `BlockedBy []string` и `LockHolder *LockHolder`; новый тип `LockHolder { AgentID, AgentName, AcquiredAt }`; `TaskLockHolder` интерфейс. Импорт `time` добавлен.
+- `internal/api/router.go::Dependencies` — новое поле `TaskLockHolder TaskLockHolder` с комментарием про nil-safety.
+- `cmd/orenda/main.go` — wire `taskLocks` (тот же `*sqlite.taskLockRepository`) в deps.TaskLockHolder.
+- `internal/api/handlers_phase3.go`:
+  - `claimTaskHandler` — на `ErrLockTaken` зовёт `lockTakenResponse(deps, ctx, taskID)`.
+  - `lockTakenResponse` хелпер — единственный путь для 409 body.
+  - `populateContextBlockers` и `populateContextLockHolder` хелперы — best-effort lookup, omit на пусто/ошибку.
+  - `getTaskContextHandler` — два вызова helper'ов после Blocklists/Children блока.
+  - Импорт `context` добавлен.
+- `internal/api/handlers_agent.go`:
+  - `agentClaimTaskHandler` — на `ErrLockTaken` зовёт `lockTakenResponse` (раньше возвращал голый 409, был TODO-комментарий «Phase 15.3: extend 409 with the current holder» — закрыт).
+  - `agentTaskContextHandler` — те же populate*Helper вызовы.
+- `internal/api/handlers_dependencies.go::listAgentTasksHandler` — добавлен второй «exclude self-assigned» guard (раньше был только «exclude other agents»).
+- `internal/api/openapi.yaml` + `docs/openapi.yaml` (sync) — обновлены описания 409 для обоих /claim и `description` для `/context` (user + agent) с упоминанием новых полей.
+- `internal/api/handlers_phase15_test.go` (NEW) — `phase15Fixture` (двухагентный, с user login helper), 6 тестов:
+  - `TestPhase15_LockTaken_IncludesHolderAgentIDAndName` — holder claims, rival claims same → 409 + holder_agent_id/name/claimed_at.
+  - `TestPhase15_LockTaken_FallsBackToBareErrorWhenHolderRepoUnwired` — backwards-compat: без TaskLockHolder в deps → голый 409 без holder-полей.
+  - `TestPhase15_AgentContext_BlockedByAndLockHolder` — holder claims task BEFORE blocker wired (иначе claim 422), потом blocker добавлен → context показывает blocker + holder.
+  - `TestPhase15_UserContext_SameHelpers` — user-side /tasks/:id/context использует те же populate-хелперы (cross-check).
+  - `TestPhase15_AgentContext_LockHolderAbsentWhenNoLock` — unclaimed task → LockHolder nil, BlockedBy пустой.
+  - `TestPhase15_ListAgentTasks_ReadyExcludesSelfAssigned` — holder claims task A, rival claims task B → holder's ?ready=true содержит ни одну из них.
+
+**DoD (verified 2026-08-14, worktree `phase-15-agent-context`):**
+
+- ✅ `go test ./...` — 30 packages ok; новые `TestPhase15_*` (6 тестов) проходят.
+- ✅ `npx vitest run` — 246/246 (без изменений во фронте).
+- ✅ `make build` — OK.
+- ✅ `make test-e2e` — 18/18 (Phase 15 — чисто бэкенд-контракт, фронт не трогаем).
+- ✅ `npx tsc --noEmit` — clean.
+- ✅ `TestOpenAPI_RouteCoverage_FullRouter` — зелёный (новые поля в 409-context payload не добавляют routes).
+- ✅ `docs/openapi.yaml` ↔ `internal/api/openapi.yaml` — синхронны (`diff` пустой).
+
+**За скобкой (явно отложено):**
+
+- **`agentservice` surface holder-agent-name в `/agent/me`.** Сейчас holder_agent_name резолвится через `Agents.GetByID`, что работает для всех агентов, зарегистрированных в системе. Если когда-нибудь захотим показывать имя зарегистрированного человеком агента (где agent ID есть, но row нет) — потребуется fallback. Out of scope.
+- **Расширить 409 на «столкновение блокеров» vs «просто lock_taken».** Сейчас 422 task_blocked уже несёт `unfinished_blockers`. 409 lock_taken остаётся atomic claim conflict. Оба достаточно различимы — не сливаем.
+- **Cache `Agents.GetByID` в 409-path.** Сейчас holderAgentName lookup синхронный на каждой 409. При высокой contention — отдельный in-memory cache. Out of scope (single-owner install).
+
 ## Метаданные
 
 - **Дата снапшота:** 2026-08-14
 - **Ветка:** `dev`
-- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1–28.20 (полировка полностью закрыта + agent-type-labels + dev/dogfood separation), Phase 10 subphase (Test send UI). Multi-user / multi-device sync — следующая эра после полировки.
-- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1/.../28.20/phase-10-test-send)
+- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1–28.20 (полировка полностью закрыта + agent-type-labels + dev/dogfood separation), Phase 10 subphase (Test send UI), Phase 15 close-out (lock_taken holder + context blockers/lock + ready self-assigned). Multi-user / multi-device sync — следующая эра после полировки.
+- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1/.../28.20/phase-10-test-send/phase-15-agent-context)
 
 ## Что сделано за сессию (кратко)
 
@@ -302,14 +356,12 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 
 ## Тесты
 
-**Последние зафиксированные прогоны** (Phase 28.20, 2026-08-14):
-- `make test` — Go (30/30 packages ok) + vitest (241/241) — зелёные (Phase 28.20 ничего не сломала).
-- `make test-e2e` — Playwright smoke против свежесобранного бинаря; 18/18 pass на чистой БД, без флейков. Phase 28.20 E2E-порт 21371 не задет.
+**Последние зафиксированные прогоны** (Phase 15, 2026-08-14):
+- `make test` — Go (30/30 packages ok; новые `TestPhase15_*` 6 тестов проходят) + vitest (246/246, фронт не трогали).
+- `make test-e2e` — Playwright smoke против свежесобранного бинаря; 18/18 pass. Phase 15 — чисто бэкенд-контракт, фронт не задет.
 - `npx tsc --noEmit` — clean.
 - `go build ./...` — clean.
-- **Smoke (Phase 28.20):** два инстанса одновременно — usage-like `:2137` (DB=/tmp/orenda-usage-smoke/data/orenda.db) + dev `:2138` (DB=./data/orenda.db), оба 200 на `/api/v1/info`, startup log несёт разные `db_path`. **install.sh guard:** `bash scripts/install.sh` (phase-28-20-dev-dogfood @ ab4687d, dirty) → exit 1 с диагностикой + `--force` hint. **`--help`:** exit 0 + usage. **`--bogus`:** exit 2. **update-dogfood.sh guard:** exit 1, `(currently on 'phase-28-20-dev-dogfood' @ ab4687d)`.
-- `TestOpenAPI_RouteCoverage` + `TestOpenAPI_RouteCoverage_FullRouter` — оба зелёные; `docs/openapi.yaml` ↔ `internal/api/openapi.yaml` синхронны (Phase 28.20 не трогала openapi).
-- `make lint` — pre-existing debt only (Phase 28.20 — только shell/TS/docs, новых issues нет).
+- `TestOpenAPI_RouteCoverage` + `TestOpenAPI_RouteCoverage_FullRouter` — оба зелёные; `docs/openapi.yaml` ↔ `internal/api/openapi.yaml` синхронны.
 - Coverage: domain 100%, services 70–100%, api 61%, storage 72%; фронт — компонентный/юнит (vitest + jsdom), e2e (Playwright + реальный бинарь).
 
 ### Запуск E2E локально
@@ -340,13 +392,14 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 - **Phase 28.19 (agent type as free-form label set)** — **закрыта 2026-08-14** в `phase-28-19-agent-type-labels`. Чипы меток на канбан-карточке (`Agent: <name> (<labels>)`), серверный OR-фильтр `?type=a&type=b`, OpenAPI schema + route coverage зелёные.
 - **Phase 28.20 (dev/dogfood separation)** — **закрыта 2026-08-14** в `phase-28-20-dev-dogfood`. dev-flow на 2138, usage/dogfood (= `~/opt/orenda` на `main`) на 2137, e2e на 21371. `install.sh` channel guard (refuse non-main + dirty, `--force` override), `update-dogfood.sh` одной командой, vite прокси следует env, startup log несёт `db_path` для observability. Документация: ARCHITECTURE.md §12.4, AGENTS.md, README + SESSION.md.
 - **Phase 10 долги, оставшиеся за скобками:** VK Long Poll / Email HTML / Weekly digest. Это большие подфазы Phase 10 (DoD которой — полный набор ботов с HTML и weekly digest). Не блокируют dogfooding. **Test send UI закрыт 2026-08-14** в `phase-10-test-send` (POST /api/v1/bots/test, dropdown + submit в Settings → Bots, console исключён, per-bot pre-check).
+- **Phase 15 close-out (agent UX контракт)** — **закрыта 2026-08-14** в `phase-15-agent-context`. (1) `409 lock_taken` теперь несёт `holder_agent_id`/`holder_agent_name`/`claimed_at` (раньше `taskLockRepo.Holder` был написан, но не подключён); (2) `/tasks/:id/context` и `/agent/tasks/{id}/context` несут `blocked_by` (open dependency ids) + `lock_holder` (agent_id/agent_name/acquired_at); (3) `?ready=true` исключает задачи, занятые самим агентом (раньше шумели в очереди). 6 handler-тестов, OpenAPI оба файла синхронны.
 - **Multi-user / multi-device sync (Phase 11+)** — следующая эра.
 - **Lint остаток (95 issues):** 45 hugeParam non-api (per Phase 28.15 commit); 15 unparam, 7 nilnil, 5 contextcheck — механические фиксы с diminishing returns. Не блокируют dogfooding.
 
 ## Файлы
 
 - `docs/PRD.md` — видение продукта
-- `docs/PLAN.md` — фазы и задачи (открытый бэклог: Phase 10 features + multi-user; «Полировка» полностью закрыта Phase 28.7–28.18 + Phase 28.19)
+- `docs/PLAN.md` — фазы и задачи (открытый бэклог: Phase 10 features + multi-user; «Полировка» полностью закрыта Phase 28.7–28.18 + Phase 28.19 + Phase 15 close-out)
 - `docs/CONTEXT.md` — концепции продукта (семантика домена; хартия в шапке файла)
 - `docs/API.md` — REST reference
 - `docs/DB.md` — схема БД по миграциям

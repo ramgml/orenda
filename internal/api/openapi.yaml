@@ -447,7 +447,8 @@ paths:
       security: [{ bearerAuth-cookie: [] }]
       responses:
         '200': { description: ok }
-        '409': { description: lock_taken }
+        '409':
+          description: lock_taken — Phase 15: the response now includes holder_agent_id, holder_agent_name, and claimed_at so the agent can see who's holding the lock and ask them.
 
   /api/v1/tasks/{id}/release:
     post:
@@ -622,6 +623,12 @@ paths:
     get:
       tags: [tasks]
       summary: Full snapshot: task + comments + activity + children + checklists.
+      description: |
+        Phase 15: response now also carries `blocked_by` (open
+        dependency ids) and `lock_holder` (agent_id / agent_name /
+        acquired_at) when applicable. Both fields are omitted when
+        no blockers are open / no lock is currently held. Same
+        helpers power the bearer-agent `/agent/tasks/{id}/context`.
       security: [{ bearerAuth-cookie: [] }]
       responses: { '200': { description: ok } }
 
@@ -1385,7 +1392,8 @@ paths:
       security: [{ bearerAuth-agent: [] }]
       responses:
         '200': { description: ok }
-        '409': { description: lock_taken }
+        '409':
+          description: lock_taken — Phase 15: response body includes holder_agent_id, holder_agent_name, and claimed_at so the agent can see who's holding the lock and reach out.
         '422': { description: task_blocked + unfinished_blockers }
 
   /api/v1/agent/tasks/{id}/release:
@@ -1414,6 +1422,12 @@ paths:
     get:
       tags: [agent]
       summary: Full snapshot for resume.
+      description: |
+        Phase 15: the response now includes `blocked_by` (list of
+        unresolved blocker task ids) and `lock_holder` (agent_id,
+        agent_name, acquired_at) when applicable. Both fields are
+        omitted when there are no open blockers / no active lock —
+        same shape as the user-facing /api/v1/tasks/{id}/context.
       security: [{ bearerAuth-agent: [] }]
       responses: { '200': { description: ok } }
 

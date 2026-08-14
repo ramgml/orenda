@@ -999,7 +999,7 @@ make build
 
 ## Phase 15 — Зависимости задач и видимость занятости для агентов *(3–4 дня)*
 
-> **Аудит 2026-08-12:** 🟡 — миграция 016, DFS-циклы, claim заблокированной → 422 с `unfinished_blockers`, `GET /agent/tasks?ready=true`, WS `task.deps_changed`, UI-бейджи и редактор — есть. 409 `lock_taken` без holder-полей (`taskLockRepo.Holder` написан, не используется); agent context без `blocked_by`/держателя лока; `ready=true` включает задачи, занятые самим агентом.
+> **Аудит 2026-08-12:** 🟡 — миграция 016, DFS-циклы, claim заблокированной → 422 с `unfinished_blockers`, `GET /agent/tasks?ready=true`, WS `task.deps_changed`, UI-бейджи и редактор — есть. **✅ Закрыто 2026-08-14 в `phase-15-agent-context`**: 409 `lock_taken` теперь несёт `holder_agent_id`/`holder_agent_name`/`claimed_at` (был написан `taskLockRepo.Holder`, не был подключён); agent/user context endpoint теперь несёт `blocked_by` (open dependency ids) + `lock_holder` (agent_id/agent_name/acquired_at); `ready=true` исключает задачи, занятые самим агентом (ранее шумели в очереди).
 
 **Цель:** задачи могут блокировать друг друга; агенты видят, какие задачи готовы к параллельной работе, а какие заблокированы или уже выполняются другим агентом. Сейчас зависимостей нет вовсе, а занятость задачи агент узнаёт только попыткой claim → голый 409.
 

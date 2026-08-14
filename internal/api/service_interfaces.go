@@ -8,6 +8,7 @@ package api
 import (
 	"context"
 	"io"
+	"time"
 
 	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/attachment"
@@ -107,6 +108,15 @@ type TaskActivityService interface {
 // the snapshot now carries `Children`. Checklists were previously
 // invisible to agents; we expose both lists and items so an agent
 // resuming work sees the same structure the human does.
+//
+// Phase 15: BlockedBy lists open dependencies (blockers that aren't
+// done yet) so an agent resuming work can see at a glance why a task
+// can't move forward. LockHolder surfaces who's holding the
+// task_locks row — only populated when a lock exists (zero value
+// means "no agent currently holds it"). Both fields are also
+// exposed on the bearer-agent's /api/v1/agent/tasks/{id}/context
+// (agentTaskContextHandler below) so the agent's resume flow sees
+// the same picture as the owner.
 type TaskContext struct {
 	Task           *task.Task                         `json:"task"`
 	Comments       []*comment.Comment                 `json:"comments"`
@@ -114,4 +124,33 @@ type TaskContext struct {
 	Children       []*task.Task                       `json:"children"`
 	Checklists     []task.ChecklistRow                `json:"checklists"`
 	ChecklistItems map[string][]task.ChecklistItemRow `json:"checklist_items"`
+	// BlockedBy is the list of blocker task ids whose status is
+	// NOT 'done'. Empty slice / nil means the task has no open
+	// blockers and is claimable.
+	BlockedBy []string `json:"blocked_by"`
+	// LockHolder is non-nil iff some agent currently holds the
+	// task_locks row for this task. The snapshot is intentionally
+	// independent of any in-flight claim — the handler always
+	// re-reads at request time so two callers see consistent state.
+	LockHolder *LockHolder `json:"lock_holder,omitempty"`
+}
+
+// LockHolder describes who's currently holding task_locks for a
+// given task. Phase 15: surfaced so an agent (or owner) reading
+// the context sees exactly which agent they need to talk to
+// instead of a bare "lock held by someone else".
+type LockHolder struct {
+	AgentID    string    `json:"agent_id"`
+	AgentName  string    `json:"agent_name"`
+	AcquiredAt time.Time `json:"acquired_at"`
+}
+
+// TaskLockHolder is the narrow seam the 409 lock_taken handler
+// and the context handler use to look up the current holder of a
+// task_locks row. nil-safe — handlers must guard. The SQLite
+// implementation is *sqlite.taskLockRepo, which already has the
+// `Holder(ctx, taskID)` method (it was just never wired into the
+// API layer — Phase 15 closes that gap).
+type TaskLockHolder interface {
+	Holder(ctx context.Context, taskID string) (agentID string, acquiredAt time.Time, err error)
 }

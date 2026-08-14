@@ -188,10 +188,16 @@ func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 					ready = false
 				}
 			}
-			// "ready" additionally excludes tasks assigned to another
-			// agent (we only know our own agent id here; we leave
-			// other agents alone).
+			// "ready" excludes tasks already claimed (by anyone) AND
+			// tasks assigned to a different agent. Phase 15: we also
+			// exclude tasks assigned to the calling agent itself —
+			// the agent shouldn't see its own in-flight tasks in the
+			// ready list (that's noise; the agent already knows it
+			// has them).
 			if ready && tr.AssigneeType == task.AssigneeAgent && tr.AssigneeID != "" && tr.AssigneeID != id.AgentID {
+				ready = false
+			}
+			if ready && tr.AssigneeType == task.AssigneeAgent && tr.AssigneeID == id.AgentID {
 				ready = false
 			}
 			if readyOnly && !ready {
