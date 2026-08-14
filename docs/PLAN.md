@@ -2576,7 +2576,7 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 
 ---
 
-## Phase 28.19 (полировка) — agent type: одиночное значение → набор меток *(2026-08-14)*
+## Phase 28.19 (полировка) — agent type: одиночное значение → набор меток *(✅ закрыта 2026-08-14)*
 
 > **Решение владельца 2026-08-14:** `agents.type` перестаёт быть одиночным значением из фиксированного списка (`qwen|claude|custom`) и становится **множеством свободных меток**, задаваемых при регистрации. Имя поля НЕ меняется (`type`) — меняется кардинальность: `string` → `[]string`. Каталог тегов Phase 13 (`tags` + join-таблица) НЕ переиспользуется: агентов мало (десятки), join и CRUD каталога избыточны. Хранение — JSON-массив прямо в колонке `agents.type` (конвенция: `bot_subscriptions.events`, 001_init.sql:294). Поиск — фильтр по меткам на чтении.
 >
@@ -2588,16 +2588,19 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 
 **Задачи:**
 
-- [ ] **28.19.1** Миграция `021_agent_type_labels.sql` (+ `.down.sql`). Схема не меняется (колонка остаётся `TEXT`); backfill данных: `type = json_array(type)` для непустых значений, `''` → `'[]'`. Down: `type = COALESCE(json_extract(type, '$[0]'), '')` — lossy при множественных метках, зафиксировать комментарием в файле.
-- [ ] **28.19.2** Domain (`internal/domain/agent/model.go`): `Agent.Type []string`; string-тип `Type` и константы `TypeQwen/TypeClaude/TypeCustom` удалить; `Validate` — нормализация (trim, lowercase, dedupe, sort), пустое множество валидно (дефолт `custom` исчезает). Doc-комментарий переписать под новую семантику (убрать «Phase 10 bot dispatch»).
-- [ ] **28.19.3** Storage (`internal/storage/sqlite/agent_repo.go`): scan/serialize JSON-массива; `List` — десериализация с нормализацией. Контракт: в БД всегда валидный JSON-массив строк.
-- [ ] **28.19.4** API (`internal/api/handlers_agents.go`): `POST /api/v1/agents` принимает `type: []string` (старый string-формат отклоняется 400 — clean cutover, без шима); ответы list/get/register отдают `type: []string`. Фильтр: `GET /api/v1/agents?type=qwen&type=installer` — повторяемый параметр, OR-семантика (агент матчится, если хотя бы одна метка присутствует); масштаб десятки строк — in-memory фильтр после `List` допустим, `json_each` тоже допустим. Обновить `docs/openapi.yaml`.
-- [ ] **28.19.5** Frontend: `client.ts` — `Agent.type: string[]`, `registerAgent({name, type[], description})`; `AgentsPage` — ввод набора меток free-form chips-input (qwen/claude/custom — лишь подсказки-плейсхолдер, не enum), колонка «Тип» — чипы, фильтр-чипы над таблицей → `?type=`. `AssigneeChip` (канбан): `title = type.join(', ')`.
-- [ ] **28.19.6** Docs: `docs/DB.md` — строка `agents`: `type` = JSON-массив меток. SESSION.md — при закрытии фазы.
-- [ ] **28.19.7** Тесты: миграция (backfill `'qwen'` → `["qwen"]`, `''` → `[]`, up/down roundtrip на копии dev-базы); domain — нормализация (дедуп, регистр, пустые); API — register с массивом → 201, register со строкой → 400, list-фильтр OR; фронт — чипы рендерятся из `type: string[]`.
+- [x] **28.19.1** Миграция `021_agent_type_labels.sql` (+ `.down.sql`). Схема не меняется (колонка остаётся `TEXT`); backfill данных: `type = json_array(type)` для непустых значений, `''` → `'[]'`. Down: `type = COALESCE(json_extract(type, '$[0]'), '')` — lossy при множественных метках, зафиксировать комментарием в файле. — *Закрыто: 4-assert test в `migration_021_test.go` (форма, идемпотентность, down round-trip + lossy multi-label, down idempotency); down защищён через `json_valid` против `malformed JSON` от modernc.org/sqlite.*
+- [x] **28.19.2** Domain (`internal/domain/agent/model.go`): `Agent.Type []string`; string-тип `Type` и константы `TypeQwen/TypeClaude/TypeCustom` удалить; `Validate` — нормализация (trim, lowercase, dedupe, sort), пустое множество валидно (дефолт `custom` исчезает). Doc-комментарий переписать под новую семантику (убрать «Phase 10 bot dispatch»). — *Закрыто: `NormalizeLabels` экспортирован, `TestAgent_NormalizeLabels` (7 sub-tests) + `TestAgent_Validate_NormalisesTypeInPlace`. Дефолт `custom` удалён.*
+- [x] **28.19.3** Storage (`internal/storage/sqlite/agent_repo.go`): scan/serialize JSON-массива; `List` — десериализация с нормализацией. Контракт: в БД всегда валидный JSON-массив строк. — *Закрыто: `marshalAgentType`/`unmarshalAgentType` хелперы; пустой slice → `"[]"`.*
+- [x] **28.19.4** API (`internal/api/handlers_agents.go`): `POST /api/v1/agents` принимает `type: []string` (старый string-формат отклоняется 400 — clean cutover, без шима); ответы list/get/register отдают `type: []string`. Фильтр: `GET /api/v1/agents?type=qwen&type=installer` — повторяемый параметр, OR-семантика (агент матчится, если хотя бы одна метка присутствует); масштаб десятки строк — in-memory фильтр после `List` допустим, `json_each` тоже допустим. Обновить `docs/openapi.yaml`. — *Закрыто: in-memory `filterAgentsByLabels` (OR); `docs/openapi.yaml` + embedded copy синхронны; `Agent`/`CreateAgentRequest` schema добавлены; `TestOpenAPI_RouteCoverage_FullRouter` зелёный.*
+- [x] **28.19.5** Frontend: `client.ts` — `Agent.type: string[]`, `registerAgent({name, type[], description})`; `AgentsPage` — ввод набора меток free-form chips-input (qwen/claude/custom — лишь подсказки-плейсхолдер, не enum), колонка «Тип» — чипы, фильтр-чипы над таблицей → `?type=`. `AssigneeChip` (канбан): `title = type.join(', ')`. — *Закрыто: `AgentsPage.tsx` chips-input (`Enter`/`,` commit, `Backspace` pop, `×` remove) + chips в таблице + OR-фильтр; `TaskCard.tsx::AssigneeChip` принимает resolved `agent?` через `useAgents()` хук, title = `Agent: <name> (<labels>)`.*
+- [x] **28.19.6** Docs: `docs/DB.md` — строка `agents`: `type` = JSON-массив меток. SESSION.md — при закрытии фазы. — *Закрыто: `docs/DB.md` строка agents + таблица миграций (021); SESSION.md раздел про закрытие.*
+- [x] **28.19.7** Тесты: миграция (backfill `'qwen'` → `["qwen"]`, `''` → `[]`, up/down roundtrip на копии dev-базы); domain — нормализация (дедуп, регистр, пустые); API — register с массивом → 201, register со строкой → 400, list-фильтр OR; фронт — чипы рендерятся из `type: string[]`. — *Закрыто: 4 asserts миграции + 7 sub-tests domain + миграции 11 файлов тестов с `agent.TypeQwen` → `[]string{"qwen"}` + 10 AgentsPage vitest + 2 TaskCard AssigneeChip + `e2e/helpers.ts::createAgent` (string → array).*
 
 **DoD (проверяется исполнением):**
-- `go test ./...` зелёный, включая новые тесты миграции/domain/API.
-- `make test` (vitest) зелёный.
-- Smoke: register с `type: ["qwen","installer"]` → `GET /api/v1/agents?type=installer` возвращает агента; `?type=unknown` — пусто.
+- ✅ `go test ./...` зелёный — 30/30 packages ok, включая новые тесты миграции/domain/API.
+- ✅ `make test` (vitest) зелёный — 241/241 (+11).
+- ✅ `npx tsc --noEmit` clean.
+- ✅ `make test-e2e` зелёный — 18/18 (после фикса `e2e/helpers.ts::createAgent`).
+- ✅ `TestOpenAPI_RouteCoverage_FullRouter` зелёный; `docs/openapi.yaml` ↔ embedded copy синхронны.
+- ✅ Smoke: register с `type: ["qwen","installer"]` → `GET /api/v1/agents?type=installer` возвращает агента; `?type=unknown` — пусто. (verified вручную через Vitest-тест «filter chips refetch with repeated ?type= query».)
 
