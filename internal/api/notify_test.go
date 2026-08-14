@@ -130,7 +130,7 @@ func seedProjectAndTask(t *testing.T, db *sqlLite, cookie string) (projectID, ta
 	// Real agent row required for task_locks FK on agent_id.
 	tok, err := tokenRepo.Create(context.Background(), owner.ID, "test-tok", "hash", "[]", nil)
 	require.NoError(t, err)
-	a := &agent.Agent{Name: "demo-agent", Type: agent.TypeCustom, TokenID: tok.ID, Status: agent.StatusOnline}
+	a := &agent.Agent{Name: "demo-agent", Type: []string{"custom"}, TokenID: tok.ID, Status: agent.StatusOnline}
 	require.NoError(t, agentRepo.Create(context.Background(), a))
 	return p.ID, tr.ID, a.ID
 }

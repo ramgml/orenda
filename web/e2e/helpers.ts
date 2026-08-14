@@ -401,7 +401,7 @@ export async function createAgent(
   name: string = `${E2E_AGENT_NAME} ${Date.now()}`,
 ): Promise<{ agent: { id: string; name: string }; plain_token: string }> {
   const resp = await ctx.post('/api/v1/agents', {
-    data: { name, type: 'qwen', description: 'E2E test agent' },
+    data: { name, type: ['qwen'], description: 'E2E test agent' },
   });
   expect(resp.status(), `createAgent: ${await resp.text()}`).toBe(201);
   return resp.json();

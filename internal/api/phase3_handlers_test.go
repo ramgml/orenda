@@ -239,7 +239,7 @@ func p3SeedAgent(t *testing.T, db *sqlLite, label string) string {
 	require.NoError(t, err)
 	tok, err := tokens.Create(context.Background(), u.ID, "tok-"+label, "fakehash", "[]", nil)
 	require.NoError(t, err)
-	a := &agent.Agent{Name: label, Type: agent.TypeQwen, TokenID: tok.ID}
+	a := &agent.Agent{Name: label, Type: []string{"qwen"}, TokenID: tok.ID}
 	agents := sqlite.NewAgentRepository(db)
 	require.NoError(t, agents.Create(context.Background(), a))
 	return a.ID
@@ -297,7 +297,7 @@ func TestP3_CreateAgent(t *testing.T) {
 	cookie := p3Login(t, router)
 
 	rr := p3AuthJSON(router, http.MethodPost, "/api/v1/agents", cookie,
-		map[string]any{"name": "qwen-" + randLite()[:6], "type": "qwen"})
+		map[string]any{"name": "qwen-" + randLite()[:6], "type": []string{"qwen"}})
 	assert.Equal(t, http.StatusCreated, rr.Code, "body=%s", rr.Body.String())
 }
 

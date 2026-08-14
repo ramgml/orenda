@@ -108,7 +108,7 @@ func seedP278Agent(t *testing.T, f *p278Fixture, label string) string {
 	agents := sqlite.NewAgentRepository(f.db)
 	a := &agentdomain.Agent{
 		Name:    "p278seed-" + label,
-		Type:    agentdomain.TypeQwen,
+		Type:    []string{"qwen"},
 		TokenID: tok.ID,
 	}
 	require.NoError(t, agents.Create(context.Background(), a))

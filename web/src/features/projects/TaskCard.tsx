@@ -3,7 +3,8 @@ import { useDraggable } from '@dnd-kit/core';
 
 import { openTaskModal } from '@/features/tasks/TaskModal';
 import { TaskTagChips } from '@/features/tasks/TaskTagChip';
-import type { Task } from '@/shared/api/client';
+import { useAgents } from '@/shared/hooks/useAgents';
+import type { Agent, Task } from '@/shared/api/client';
 
 import {
   dueStateClasses,
@@ -50,6 +51,15 @@ export function TaskCard({
   });
 
   const detailed = !useCompactMode();
+
+  // Phase 28.19: AssigneeChip wants the agent's free-form labels
+  // for the title attribute. One query per page, dedup'd by
+  // TanStack Query across every TaskCard on the board.
+  const { data: agents } = useAgents();
+  const assignedAgent =
+    task.assignee_type === 'agent' && agents
+      ? agents.find((a) => a.id === task.assignee_id)
+      : undefined;
 
   function handleClick(): void {
     if (onOpen) {
@@ -101,7 +111,7 @@ export function TaskCard({
           )}
           <div className="text-slate-800 dark:text-slate-100">{task.title}</div>
         </div>
-        <AssigneeChip task={task} />
+        <AssigneeChip task={task} agent={assignedAgent} />
       </div>
 
       {task.tags && task.tags.length > 0 && detailed && (
@@ -164,17 +174,33 @@ export function TaskCard({
 /**
  * Render the assignee corner. Agents get a 🤖 + name; users get
  * initials. Hidden when no assignee.
+ *
+ * Phase 28.19: when the agent record is available (TaskCard looks it
+ * up via useAgents), the title attribute carries the agent's name +
+ * its free-form label set, so hovering surfaces "agent-qwen-alpha
+ * (qwen, installer)" instead of an opaque id. The chip's visible
+ * label stays the id slice so dense columns remain scannable.
  */
-function AssigneeChip({ task }: { task: Task }): JSX.Element | null {
+function AssigneeChip({
+  task,
+  agent,
+}: {
+  task: Task;
+  agent?: Agent;
+}): JSX.Element | null {
   if (!task.assignee_type || !task.assignee_id) return null;
   if (task.assignee_type === 'agent') {
+    const labelSuffix =
+      agent && agent.type.length > 0 ? ` (${agent.type.join(', ')})` : '';
+    const title = agent ? `Agent: ${agent.name}${labelSuffix}` : `Agent: ${task.assignee_id}`;
+    const display = agent?.name ?? task.assignee_id.slice(0, 6);
     return (
       <span
         data-testid="assignee-agent"
         className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-violet-100 text-violet-700 border border-violet-300"
-        title={`Agent: ${task.assignee_id}`}
+        title={title}
       >
-        🤖 <span className="ml-0.5 truncate max-w-[6rem]">{task.assignee_id.slice(0, 6)}</span>
+        🤖 <span className="ml-0.5 truncate max-w-[6rem]">{display}</span>
       </span>
     );
   }

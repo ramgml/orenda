@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ramgml/orenda/internal/api/ws"
-	agentdomain "github.com/ramgml/orenda/internal/domain/agent"
+	"github.com/ramgml/orenda/internal/domain/agent"
 	agentsvc "github.com/ramgml/orenda/internal/service/agent"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 )
@@ -79,7 +79,7 @@ func setupAgentSvc(t *testing.T) (*agentsvc.Service, *recordingHub) {
 func TestService_Register(t *testing.T) {
 	svc, hub := setupAgentSvc(t)
 
-	got, err := svc.Register(context.Background(), "qwen-alpha", agentdomain.TypeQwen, "test", []string{"tasks:read"})
+	got, err := svc.Register(context.Background(), "qwen-alpha", []string{"qwen"}, "test", []string{"tasks:read"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, got.Agent.ID)
 	assert.NotEmpty(t, got.PlainToken)
@@ -92,27 +92,27 @@ func TestService_Register(t *testing.T) {
 func TestService_Register_DuplicateName(t *testing.T) {
 	svc, _ := setupAgentSvc(t)
 
-	_, err := svc.Register(context.Background(), "dup", agentdomain.TypeQwen, "", nil)
+	_, err := svc.Register(context.Background(), "dup", []string{"qwen"}, "", nil)
 	require.NoError(t, err)
-	_, err = svc.Register(context.Background(), "dup", agentdomain.TypeClaude, "", nil)
+	_, err = svc.Register(context.Background(), "dup", []string{"claude"}, "", nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, agentsvc.ErrNameTaken)
 }
 
 func TestService_Register_EmptyName(t *testing.T) {
 	svc, _ := setupAgentSvc(t)
-	_, err := svc.Register(context.Background(), "   ", agentdomain.TypeCustom, "", nil)
+	_, err := svc.Register(context.Background(), "   ", []string{"custom"}, "", nil)
 	require.Error(t, err)
 }
 
 func TestService_Heartbeat(t *testing.T) {
 	svc, _ := setupAgentSvc(t)
-	got, err := svc.Register(context.Background(), "hb", agentdomain.TypeQwen, "", nil)
+	got, err := svc.Register(context.Background(), "hb", []string{"qwen"}, "", nil)
 	require.NoError(t, err)
 
 	hb, err := svc.Heartbeat(context.Background(), got.Agent.ID)
 	require.NoError(t, err)
-	assert.Equal(t, agentdomain.StatusOnline, hb.Status)
+	assert.Equal(t, agent.StatusOnline, hb.Status)
 	require.NotNil(t, hb.LastSeenAt)
 
 	_, err = svc.Heartbeat(context.Background(), "no-such")
@@ -121,7 +121,7 @@ func TestService_Heartbeat(t *testing.T) {
 
 func TestService_SweepOffline(t *testing.T) {
 	svc, _ := setupAgentSvc(t)
-	got, err := svc.Register(context.Background(), "sweep", agentdomain.TypeQwen, "", nil)
+	got, err := svc.Register(context.Background(), "sweep", []string{"qwen"}, "", nil)
 	require.NoError(t, err)
 
 	_, err = svc.Heartbeat(context.Background(), got.Agent.ID)

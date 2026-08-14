@@ -11,19 +11,28 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ramgml/orenda/internal/api/ws"
-	agentdomain "github.com/ramgml/orenda/internal/domain/agent"
-	"github.com/ramgml/orenda/internal/service/agent"
+	"github.com/ramgml/orenda/internal/domain/agent"
+	agentsvc "github.com/ramgml/orenda/internal/service/agent"
 )
 
 // createAgentRequest is the JSON body for POST /api/v1/agents.
+//
+// Phase 28.19: Type is now a free-form label set, not a single string
+// drawn from a fixed enum. Old payloads with `"type": "qwen"` are
+// rejected with 400 — there is no implicit migration path because the
+// caller can always resend the value as `["qwen"]`.
 type createAgentRequest struct {
 	Name        string   `json:"name"`
-	Type        string   `json:"type"`
+	Type        []string `json:"type"`
 	Description string   `json:"description"`
 	Scopes      []string `json:"scopes"`
 }
 
-// listAgentsHandler returns every registered agent.
+// listAgentsHandler returns every registered agent, optionally filtered
+// by a query-string set of labels. Repeatable `?type=qwen&type=installer`
+// applies OR-semantics: an agent matches when at least one of its labels
+// appears in the filter set. An empty filter (no `type` params) returns
+// every agent — the in-memory filter is cheap at the current scale.
 func listAgentsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		agents, err := deps.Agents.List(r.Context())
@@ -31,8 +40,36 @@ func listAgentsHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		if labels := r.URL.Query()["type"]; len(labels) > 0 {
+			agents = filterAgentsByLabels(agents, labels)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"agents": agents})
 	}
+}
+
+// filterAgentsByLabels returns the subset of agents whose label set has
+// at least one label in the requested filter. Both sides are normalised
+// to lowercase so "Qwen" and "qwen" compare equal.
+func filterAgentsByLabels(agents []*agent.Agent, filter []string) []*agent.Agent {
+	want := make(map[string]struct{}, len(filter))
+	for _, f := range filter {
+		if f = strings.ToLower(strings.TrimSpace(f)); f != "" {
+			want[f] = struct{}{}
+		}
+	}
+	if len(want) == 0 {
+		return agents
+	}
+	out := make([]*agent.Agent, 0, len(agents))
+	for _, a := range agents {
+		for _, l := range a.Type {
+			if _, ok := want[strings.ToLower(strings.TrimSpace(l))]; ok {
+				out = append(out, a)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // createAgentHandler mints a fresh API token and returns it (once) along
@@ -48,13 +85,9 @@ func createAgentHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_name"})
 			return
 		}
-		kind := agentdomain.Type(req.Type)
-		if kind == "" {
-			kind = agentdomain.TypeCustom
-		}
-		out, err := callAgentServiceRegister(r.Context(), deps, req.Name, kind, req.Description, req.Scopes)
+		out, err := callAgentServiceRegister(r.Context(), deps, req.Name, req.Type, req.Description, req.Scopes)
 		if err != nil {
-			if errors.Is(err, agent.ErrNameTaken) {
+			if errors.Is(err, agentsvc.ErrNameTaken) {
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "name_taken"})
 				return
 			}
@@ -119,9 +152,9 @@ func heartbeatHandler(deps *Dependencies) http.HandlerFunc {
 
 // callAgentServiceRegister centralises the agent-creation path so it can
 // be overridden in tests. Production wires deps.AgentService directly.
-func callAgentServiceRegister(ctx context.Context, deps *Dependencies, name string, kind agentdomain.Type, desc string, scopes []string) (*agent.Registered, error) {
+func callAgentServiceRegister(ctx context.Context, deps *Dependencies, name string, labels []string, desc string, scopes []string) (*agentsvc.Registered, error) {
 	if deps.AgentService != nil {
-		return deps.AgentService.Register(ctx, name, kind, desc, scopes)
+		return deps.AgentService.Register(ctx, name, labels, desc, scopes)
 	}
 	return nil, errors.New("agent service not wired")
 }

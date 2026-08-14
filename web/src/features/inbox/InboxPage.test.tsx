@@ -18,6 +18,7 @@
  * just render the rows.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -50,11 +51,19 @@ afterEach(() => {
   cleanup();
 });
 
+// Phase 28.19: TaskCard pulls in useAgents() for the AssigneeChip
+// title hint, which lives behind React Query. Wrap InboxPage tests
+// in a throwaway QueryClient so the hook doesn't blow up.
 function mount() {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
   return render(
-    <MemoryRouter>
-      <InboxPage />
-    </MemoryRouter>,
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>
+        <InboxPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

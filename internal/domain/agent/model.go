@@ -8,17 +8,9 @@ package agent
 
 import (
 	"errors"
+	"sort"
+	"strings"
 	"time"
-)
-
-// Type identifies the runtime an agent is implemented on (used for UI
-// grouping and Phase 10 bot dispatch).
-type Type string
-
-const (
-	TypeQwen   Type = "qwen"
-	TypeClaude Type = "claude"
-	TypeCustom Type = "custom"
 )
 
 // Status is the operational status of an agent.
@@ -41,10 +33,17 @@ var (
 )
 
 // Agent is the canonical agent entity.
+//
+// Type is a free-form, operator-curated set of labels (e.g. "qwen",
+// "installer", "claude") — useful for UI grouping and for an agent-side
+// `GET /api/v1/agents?type=qwen` filter. There is no fixed enum: the
+// catalogue lives in the operator's head, not in code. Validate applies
+// a deterministic normalisation (trim, lowercase, dedupe, sort) so the
+// same logical set always serialises identically.
 type Agent struct {
 	ID            string     `json:"id"`
 	Name          string     `json:"name"`
-	Type          Type       `json:"type"`
+	Type          []string   `json:"type"`
 	Description   string     `json:"description,omitempty"`
 	TokenID       string     `json:"token_id"`
 	LastSeenAt    *time.Time `json:"last_seen_at,omitempty"`
@@ -53,14 +52,14 @@ type Agent struct {
 	CreatedAt     time.Time  `json:"created_at"`
 }
 
-// Validate returns an error if the Agent fields are inconsistent.
+// Validate returns an error if the Agent fields are inconsistent and
+// normalises the Type label set in place. An empty/nil Type is valid —
+// agents may exist without any label.
 func (a *Agent) Validate() error {
 	if a.Name == "" {
 		return ErrInvalidInput
 	}
-	if a.Type == "" {
-		a.Type = TypeCustom
-	}
+	a.Type = NormalizeLabels(a.Type)
 	if a.MaxConcurrent <= 0 {
 		a.MaxConcurrent = 3
 	}
@@ -68,6 +67,33 @@ func (a *Agent) Validate() error {
 		a.Status = StatusOffline
 	}
 	return nil
+}
+
+// NormalizeLabels trims, lowercases, dedupes and sorts the input slice.
+// Empty/whitespace-only labels are dropped. A nil or empty input returns
+// an empty (non-nil) slice so JSON encoding always emits "[]" rather
+// than "null" — the storage layer's backfill migration guarantees that
+// every row in the database carries a JSON array literal.
+//
+// Exported because tests (and the API handler that builds a request
+// payload from arbitrary user input) want to reuse the same canonical
+// shape that Validate applies internally.
+func NormalizeLabels(in []string) []string {
+	out := make([]string, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, raw := range in {
+		l := strings.ToLower(strings.TrimSpace(raw))
+		if l == "" {
+			continue
+		}
+		if _, dup := seen[l]; dup {
+			continue
+		}
+		seen[l] = struct{}{}
+		out = append(out, l)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // IsAlive returns true when the agent was last seen within ttl.

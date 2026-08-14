@@ -48,7 +48,7 @@ func TestAgentRepo_CreateAndGet(t *testing.T) {
 	tokenID := seedToken(t, db)
 	repo := NewAgentRepository(db)
 
-	a := &agent.Agent{Name: "qwen-alpha", Type: agent.TypeQwen, TokenID: tokenID}
+	a := &agent.Agent{Name: "qwen-alpha", Type: []string{"qwen"}, TokenID: tokenID}
 	require.NoError(t, repo.Create(context.Background(), a))
 	assert.NotEmpty(t, a.ID)
 	assert.Equal(t, agent.StatusOffline, a.Status)
@@ -56,7 +56,7 @@ func TestAgentRepo_CreateAndGet(t *testing.T) {
 	got, err := repo.GetByID(context.Background(), a.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "qwen-alpha", got.Name)
-	assert.Equal(t, agent.TypeQwen, got.Type)
+	assert.Equal(t, []string{"qwen"}, got.Type)
 }
 
 func TestAgentRepo_GetByName(t *testing.T) {

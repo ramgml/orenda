@@ -38,7 +38,7 @@ func setupTimeEntryDB(t *testing.T) (*sql.DB, string, string) {
 	tok, err := tokens.Create(context.Background(), owner.ID, "te-tok", "fake", "[]", nil)
 	require.NoError(t, err)
 	agents := NewAgentRepository(db)
-	a := &agent.Agent{Name: "te-" + newUUID()[:6], Type: agent.TypeQwen, TokenID: tok.ID}
+	a := &agent.Agent{Name: "te-" + newUUID()[:6], Type: []string{"qwen"}, TokenID: tok.ID}
 	require.NoError(t, agents.Create(context.Background(), a))
 
 	projects := NewProjectRepository(db)

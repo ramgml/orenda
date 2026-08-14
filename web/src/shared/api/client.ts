@@ -220,7 +220,13 @@ export interface TaskCounters {
 export interface Agent {
   id: string;
   name: string;
-  type: string;
+  /**
+   * Phase 28.19: free-form label set, normalised on the server
+   * (trimmed, lowercased, deduped, sorted). Empty arrays are valid.
+   * Use `agent.type.join(', ')` for compact display; for filtering,
+   * see `listAgents({ type: [...] })` below.
+   */
+  type: string[];
   description?: string;
   token_id: string;
   last_seen_at?: string;
@@ -617,15 +623,37 @@ class ApiClient {
     return this.http.post<Task>(`/api/v1/tasks/${taskId}/move`, body).then((r) => r.data);
   }
 
-  // ---- Agents (Phase 3) ----
+  // ---- Agents (Phase 3 + Phase 28.19) ----
 
-  listAgents(): Promise<Agent[]> {
-    return this.http.get<{ agents: Agent[] }>('/api/v1/agents').then((r) => r.data.agents);
+  /**
+   * List agents, optionally filtered by label. Phase 28.19: `type`
+   * is a free-form label set; the OR filter returns every agent that
+   * carries at least one of the requested labels. Without a filter
+   * every agent is returned.
+   */
+  listAgents(filter?: { type?: string[] }): Promise<Agent[]> {
+    // Manually build the query string so repeated `type=` params
+    // render as `?type=a&type=b` (server reads via r.URL.Query()["type"]).
+    // `new URLSearchParams({type: ['a','b']})` would emit a comma-joined
+    // single value instead, which the backend's OR-filter would treat as
+    // one literal label and never match.
+    let qs = '';
+    if (filter?.type && filter.type.length > 0) {
+      const params = new URLSearchParams();
+      for (const t of filter.type) params.append('type', t);
+      qs = `?${params.toString()}`;
+    }
+    return this.http.get<{ agents: Agent[] }>(`/api/v1/agents${qs}`).then((r) => r.data.agents);
   }
 
   createAgent(input: {
     name: string;
-    type?: string;
+    /**
+     * Phase 28.19: free-form labels, e.g. ["qwen"] or
+     * ["qwen","installer"]. The server normalises the set
+     * (trim/lowercase/dedupe/sort). Empty arrays are valid.
+     */
+    type?: string[];
     description?: string;
   }): Promise<{ agent: Agent; plain_token: string }> {
     return this.http

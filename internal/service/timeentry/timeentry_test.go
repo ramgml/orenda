@@ -60,7 +60,7 @@ func setupTimeSvc(t *testing.T) (*timeentrysvc.Service, *memHub, string, string)
 	tok, err := tokens.Create(context.Background(), owner.ID, "ts-tok", "fake", "[]", nil)
 	require.NoError(t, err)
 	agents := sqlite.NewAgentRepository(db)
-	a := &agent.Agent{Name: "ts-" + newIDLite()[:6], Type: agent.TypeQwen, TokenID: tok.ID}
+	a := &agent.Agent{Name: "ts-" + newIDLite()[:6], Type: []string{"qwen"}, TokenID: tok.ID}
 	require.NoError(t, agents.Create(context.Background(), a))
 
 	projects := sqlite.NewProjectRepository(db)

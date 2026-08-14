@@ -17,7 +17,6 @@ import (
 	"github.com/ramgml/orenda/internal/api"
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
-	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
@@ -74,7 +73,7 @@ func newAgentFixture(t *testing.T) *agentFixture {
 	// Adapter for agentservice.TokenMinter.
 	tm := &agentFixtureTMinter{tokens: tokens}
 	agentSvc := agentservice.New(agents, users, tm, hub, nil)
-	got, err := agentSvc.Register(context.Background(), "qwen-test", agent.TypeQwen, "test", nil)
+	got, err := agentSvc.Register(context.Background(), "qwen-test", []string{"qwen"}, "test", nil)
 	require.NoError(t, err)
 
 	deps := api.Dependencies{

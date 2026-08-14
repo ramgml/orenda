@@ -145,6 +145,43 @@ components:
           enum: [casual, regular, intensive]
         owner_id: { type: string }
 
+    Agent:
+      type: object
+      description: |
+        Registered AI-agent client. Phase 28.19: `type` is a free-form
+        label set (e.g. ["qwen"], ["qwen","installer"]) instead of a
+        single string from a fixed enum. Empty arrays are valid and
+        serialise as "[]". Labels are normalised on the server
+        (trimmed, lowercased, deduped, sorted).
+      properties:
+        id: { type: string }
+        name: { type: string }
+        type:
+          type: array
+          items: { type: string }
+        description: { type: string }
+        token_id: { type: string }
+        last_seen_at: { type: string, format: date-time }
+        status:
+          type: string
+          enum: [online, offline, disabled]
+        max_concurrent: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    CreateAgentRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        type:
+          type: array
+          items: { type: string }
+          description: Free-form labels (e.g. ["qwen","installer"]). Empty array is valid.
+        description: { type: string }
+        scopes:
+          type: array
+          items: { type: string }
+
     Error:
       type: object
       properties:
@@ -700,21 +737,68 @@ paths:
   /api/v1/agents:
     get:
       tags: [agents]
-      summary: List registered agents.
+      summary: List registered agents, optionally filtered by label.
+      description: |
+        Phase 28.19: the repeatable `type` query parameter filters by
+        label set. The semantics are OR — an agent matches when at
+        least one of its labels appears in the filter set. Filters are
+        case-insensitive. With no `type` parameter every agent is
+        returned.
       security: [{ bearerAuth-cookie: [] }]
-      responses: { '200': { description: ok } }
+      parameters:
+        - in: query
+          name: type
+          required: false
+          schema: { type: string }
+          description: |
+            Repeatable. Label to filter by. Example:
+            `?type=qwen&type=installer` returns agents that carry
+            either label.
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agents:
+                    type: array
+                    items: { $ref: '#/components/schemas/Agent' }
     post:
       tags: [agents]
       summary: Register a new agent; returns the opaque token once.
+      description: |
+        Phase 28.19: `type` is now a free-form label set; old payloads
+        with a single string `"type": "qwen"` are rejected with 400.
       security: [{ bearerAuth-cookie: [] }]
-      responses: { '201': { description: created } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAgentRequest' }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent: { $ref: '#/components/schemas/Agent' }
+                  plain_token: { type: string }
 
   /api/v1/agents/{id}:
     get:
       tags: [agents]
       summary: Get an agent.
       security: [{ bearerAuth-cookie: [] }]
-      responses: { '200': { description: ok } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Agent' }
     delete:
       tags: [agents]
       summary: Disable an agent (revokes the token).
@@ -726,7 +810,12 @@ paths:
       tags: [agents]
       summary: Refresh last_seen_at (owner-side, no token check).
       security: [{ bearerAuth-cookie: [] }]
-      responses: { '200': { description: ok } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Agent' }
 
   # ---- inbox ----
   /api/v1/inbox/tasks:
