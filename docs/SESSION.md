@@ -1,4 +1,4 @@
-# Session Snapshot — 2026-08-14 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.20; «Полировка» + 28.19 + 28.20 закрыты)
+# Session Snapshot — 2026-08-14 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.20 + Phase 10 subphase (Test send UI); «Полировка» + 28.19 + 28.20 + Phase 10 Test send закрыты)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
@@ -148,12 +148,61 @@
 - **Чистка data/ в worktree перед коммитом** — `data/orenda.db` и `data/uploads/` создаются smoke-тестом; gitignore их уже игнорирует, `git status` чист.
 - **Первая операция после merge** — оператор делает `git pull` в `~/opt/orenda`, чтобы обновлённый install.sh в его checkout'е тоже имел guard. До этого `git pull` тривиально пройдёт (старый install.sh не имеет guard, но md5-хеш не валидирует). Pre-existing problem — отдельная фаза «post-merge operator onboarding».
 
+## Phase 10 subphase — Test send UI (2026-08-14)
+
+**Цель:** закрыть один из «🟡 долгов» Phase 10 (PLAN §10 аудит 2026-08-12): «нет "Test send" в UI». Оператор раньше не мог проверить credentials бота, не дождавшись реального события (5 минут до ближайшего `task.review_needed`, или хуже — день до weekly digest). Теперь — POST `/api/v1/bots/test` доставляет one-off сообщение через люблюной зарегистрированный бот за ~10 секунд (включая сетевой round-trip).
+
+**Ключевые решения:**
+
+- **Endpoint независим от subscription store.** Тест идёт через `bot.Registry` напрямую, без чтения/записи `bot_subscriptions`. Оператор проверяет wiring до того, как вообще привязывает подписку.
+- **`console` исключён из whitelist.** Console пишет в server stderr — нет user-facing signal, тест через него выглядел бы как silent failure. Whitelist `webhook|email|telegram|vk` живёт на сервере (`knownTestBotTypes`) и в UI (`TEST_BOT_TYPES`); UI исключает console из дропдауна, backend отказывает 400 если кто-то шлёт `bot_type: console` напряно.
+- **Per-bot target pre-check.** Дешёвая проверка на сервере до transport round-trip: webhook требует `http(s)://`, email требует `@` и `.`, telegram/vk требуют numeric id (telegram допускает leading `-` для group/channel id). Транспорт всё равно делает sourceную проверку (webhook URL parse, SMTP dial, chat id numeric) — это UX pre-filter, не security boundary.
+- **Status codes:** 200 ok / 400 invalid_input (нет полей) / 400 unknown_bot_type / 400 per-bot pre-check / 503 bot_not_running / 503 bot_registry_not_wired / 502 send_failed (с transport error в hint).
+- **Recording bot тест fixture.** `handlers_bots_test.go::recordingBot` под `aliasingBot` регистрируется под 4 именами (webhook/email/telegram/vk) одним инстансом — pre-check-тесты могут слать `bot_type: telegram` и доходить до target-валидатора, а не отскакивать от registry с 503. Mutex защищает calls slice.
+- **Frontend Test send UI.** Новая карточка в `Bots.tsx` между header и Telegram bind: dropdown (TEST_BOT_TYPES, console excluded) + target input (placeholder per type, через существующий `targetPlaceholder`) + submit button + green success banner / red error banner. Pattern-match на `error: '<key>'` в axios error.message для friendly hints (как в Telegram bind).
+- **Disambiguating testids.** Add subscription form уже использовал `screen.getByRole('combobox')` для bot-type select; с двумя select'ами это ломается. Добавил `data-testid="add-subscription-bot-type"` для add-subscription select, `bot-test-type` для test send. Existing tests обновлены под testid.
+
+**Задачи (все выполнены):**
+
+- `internal/bot` не тронут — handler зовёт существующий `bot.Send(ctx, target, msg)`.
+- `internal/api/router.go::Dependencies` — `BotRegistry *bot.Registry` (phase 10 subphase); комментарий об использовании.
+- `internal/api/handlers_subscriptions.go` — `testBotRequest`, `knownTestBotTypes`, `testBotHandler`, `validateTestTarget`. Импорты `strings`, `time` добавлены.
+- `internal/api/router.go` — `r.Post("/bots/test", testBotHandler(deps))` рядом с telegram bind.
+- `cmd/orenda/main.go` — `BotRegistry: botRegistry` в deps; комментарий о nil-safety для partial-router fixtures.
+- `internal/api/handlers_bots_test.go` (NEW) — `testBotFixture`, `recordingBot`, `aliasingBot`. 9 tests, 16 subtests: success, missing-fields (3 subtests), unknown_bot_type, bot_not_registered, send_failed, target_pre_check (7 subtests), invalid_json, registry_not_wired.
+- `internal/api/openapi.yaml` + `docs/openapi.yaml` — `/api/v1/bots/test` POST с requestBody/responses 200/400/502/503.
+- `web/src/shared/api/client.ts` — `api.testBot({bot_type, target_address})` метод.
+- `web/src/features/settings/Bots.tsx` — `TEST_BOT_TYPES` константа (без console); state `testBotType/testTarget/testing/testResult`; `onTestSend` handler с axios-error pattern-matching; новая секция `data-testid="bot-test-send"` с form/buttons/banners; `data-testid="add-subscription-bot-type"` для disambiguation.
+- `web/src/features/settings/Bots.test.tsx` — 5 new tests (omits console, success banner, bot_not_running, send_failed, submit disabled); 2 existing tests обновлены под testid (использовали `getByRole('combobox')`).
+
+**DoD (verified 2026-08-14, worktree `phase-10-test-send`):**
+
+- ✅ **Go test ./... — 30 packages ok**, включая `TestBotsTestHandler_*` (9 + 16 subtests) и `TestOpenAPI_RouteCoverage_FullRouter` (новый endpoint в спеке).
+- ✅ **vitest 246/246** (+5 от 241). Старые тесты Bots не сломаны (только disambiguation через testid).
+- ✅ **`npx tsc --noEmit` clean.**
+- ✅ **`make build` OK** (бинарь содержит embedded web/dist).
+- ✅ **`make test-e2e` 18/18 pass** (E2E-порт 21371 не задет; ни один существующий spec не упал).
+- ✅ **Manual smoke** (`/tmp/opencode/smoke-bots-test.sh`): реальный webhook bot + Python HTTP sink. 4 кейса проверены:
+  - webhook happy path → 200, sink получил `{"title":"Orenda test message","kind":"test",...}`
+  - telegram (не зарегистрирован) → 503 `bot_not_running` с friendly hint
+  - console (refused) → 400 `unknown_bot_type`
+  - webhook bad URL (pre-check) → 400 `webhook_target_must_be_http_url` до transport round-trip
+- ✅ **`TestOpenAPI_RouteCoverage_FullRouter`** — новый endpoint в спеке.
+- ✅ **`docs/openapi.yaml` ↔ `internal/api/openapi.yaml`** — синхронны (`diff` пустой).
+
+**За скобкой (явно отложено):**
+
+- **Per-bot operator instructions в UI** — webhook URL hint говорит «URL must be reachable»; telegram требует numeric chat_id (а не @username); vk — peer id. Можно дать input hints через `placeholder` (уже есть частично) или help text. Низкий приоритет: в текущей формете operator либо знает свои id, либо copy-paste'ит из subscription row.
+- **Per-subscription "Test this one" кнопка** — заполнить target автоматически из subscription row, не руками. Удобно, но не блокер: текущая форма требует одно действие — operator знает куда отправлял (иначе subscription не работала).
+- **Rate limit на /bots/test** — спам бота сейчас не ограничен (POST /api/v1/bots/test → немедленный webhook POST). При abuse это плохо. Auth-cookie нужен (есть), но throttle нет. Отдельная мини-фаза при необходимости.
+- **Per-target «Send test to me» для Telegram** — `bind` flow уже возвращает chat_id, можно pre-fill при наличии Telegram-подписки. Low value vs complexity.
+
 ## Метаданные
 
 - **Дата снапшота:** 2026-08-14
 - **Ветка:** `dev`
-- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1–28.20 (полировка полностью закрыта + agent-type-labels + dev/dogfood separation). Multi-user / multi-device sync — следующая эра после полировки.
-- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1/.../28.20)
+- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1–28.20 (полировка полностью закрыта + agent-type-labels + dev/dogfood separation), Phase 10 subphase (Test send UI). Multi-user / multi-device sync — следующая эра после полировки.
+- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1/.../28.20/phase-10-test-send)
 
 ## Что сделано за сессию (кратко)
 
@@ -196,6 +245,7 @@
 | **28.4** | **Полировка — security defaults** — дефекты зафиксированы 2026-08-13: `config.DefaultConfig.JWTTTL` 168h (OWASP-рекомендация для cookie-session — 24h) и `Secure: false` хардкод в `handlers_auth.go:65` (+ logout без Secure). Оба forward-only: выпущенные до изменения cookie валидны до истечения (JWT exp вшит в токен), новые выпускаются строже. **Backend:** `config.go:136` `JWTTTL: 168h → 24h`; `router.go::Dependencies` получил `CookieSecure bool` + `JWTTTL time.Duration`; `main.go` прокидывает `cfg.Auth.CookieSecure` и `cfg.Auth.JWTTTL` в deps; `loginHandler` использует `Secure: deps.CookieSecure` + `Expires: time.Now().Add(deps.JWTTTL)` (раньше было хардкод `false` и `24 * time.Hour`); `logoutHandler` тоже берёт `deps.CookieSecure` (иначе MaxAge=-1 удалит только не-secure cookie set, secure login cookie переживёт logout). Поле `AuthConfig.CookieSecure` уже существовало — фазе нужно было просто прокинуть его до handlers. **Test seams:** новые `LoginHandlerForTest` / `LogoutHandlerForTest` экспорты в `handlers_auth.go` — тесты атрибутов cookie живут рядом с handlers, а не тянут весь `NewRouter`. **Тесты:** `config_test.go` (`TestDefaultConfig` asserts TTL=24h, новый `TestLoad_JWTTTLFromYAML`, `TestLoad_EnvOverridesYAML` расширен env-ами `JWT_TTL`/`COOKIE_SECURE`) + `handlers_auth_test.go` NEW (in-memory `pwUserRepo`, 3 кейса `TestLogin_CookieAttributes` loopback/HTTPS/168h-legacy, `TestLogin_InvalidCredentials_Returns401` regression-guard на «не выставлять cookie при провале», 2 кейса `TestLogout_CookieAttributes`). **DoD:** `go test ./...` 30/30 ok (config +2, api +5); `npx vitest run` 236/236 (фронт не тронут); `make test-e2e` 17/17 (регрессии login/logout нет); `npx tsc --noEmit` clean. **За скобкой:** `data/config.example.yaml` не в git (живёт только в working tree оператора + через `!data/config.example.yaml` в `.gitignore`); `install.sh` использует его как шаблон. Стоит обновить `jwt_ttl: "168h" → "24h"` локально у оператора при следующем install. Альтернатива — выкатить `docs/config.example.yaml` под версионирование и переключить `install.sh` (отдельная мини-фаза). |
 | **28.5** | **Полировка — activity emission + Bot.Stop on shutdown** — два small audit-debt'а: `task.commented` / `task.attachment_added` (declared never emitted с Phase 6) и `Bot.Stop()` никогда не вызывался на shutdown (long-poll транспорты SIGKILL'ились после `ShutdownTimeout`). **Backend:** новый узкий `ActivityRecorder` интерфейс в `api/service_interfaces.go` (1 метод, nil-safe, паттерн `deps.Notifier`); `Dependencies.ActivityRecorder` wired к `*activityservice.Recorder` (structural satisfaction, без explicit адаптера); `createTaskCommentHandler` + `agentCreateTaskCommentHandler` + `addTaskAttachmentHandler` зовут `RecordTask` после primary mutation. Log-on-error (`zap.Warn`) — audit gap recoverable, failed user-visible request нет. Dedup-attach (`res.Duplicate=true`) пропускается — `res.Attachment` указывает на existing row, лишний «added» event обманывает timeline. `cmd/orenda/main.go` shutdown loop теперь `for _, b := range botRegistry.List() { b.Stop(shutdownCtx) }` после `srv.Shutdown`; best-effort — failing bot не валит loop. **Тесты:** `internal/bot/bot_test.go` +3 (`TestConsole_Stop_ReturnsNil` defensive double-stop, `TestRegistry_ShutdownLoop_StopsEveryBot`, `TestRegistry_ShutdownLoop_OneFailingBot_Continues` — пинит best-effort contract). **Pre-existing infra fix:** `web/e2e-setup/run-server.sh` теперь `mkdir -p data/uploads/` — attachment service `CreateTemp(s.UploadDir, ...)` требует директорию; без неё первый attachment upload 500'ит на свежем worktree. Попутный полезный фикс для будущих attachment E2E. **E2E:** `task-activity.spec.ts` NEW — POST comment → GET /activity → assert `task.commented` row + decoded payload. Attachment emission в том же handler-коммите, но в E2E не пинится (нужен uploads/, scope small). **DoD:** `go test ./...` 30 packages ok (bot +3); `npx vitest run` 236/236; `make test-e2e` 18/18 (+1); `npx tsc --noEmit` clean. Бэкенд + минимальный e2e-setup fix. |
 | **28.6** | **Полировка — opt-in pprof + govulncheck target** — два small infra-долга. **Backend (`config.go`):** `ServerConfig` получил `DebugPProf bool` (default false) + `PProfAddr string` (default `127.0.0.1:6060`). Loopback-only by design — exposing heap/goroutine state на любом reachable port = information leak. Env overrides `ORENDA_SERVER__DEBUG_PPROF` / `ORENDA_SERVER__PPROF_ADDR`. **Backend (`main.go`):** `_ "net/http/pprof"` import (side-effect registration на DefaultServeMux); если `cfg.Server.DebugPProf`, запускается второй `http.Server` в goroutine, биндится на PProfAddr; на shutdown `pprofSrv.Shutdown(shutdownCtx)` под тот же timeout. **Тесты:** `config_test.go` (`TestDefaultConfig` asserts `DebugPProf=false` + `PProfAddr="127.0.0.1:6060"`; `TestLoad_EnvOverridesYAML` расширен env-ами `DEBUG_PPROF`/`PPROF_ADDR`). **Infra (`Makefile`):** новый target `govulncheck` с install-gate — `go install golang.org/x/vuln/cmd/govulncheck@latest` если `which govulncheck` пусто; затем `go run @latest ./...` для скан. Симметрично существующему `lint`. **Manual smoke:** `ORENDA_SERVER__DEBUG_PPROF=true bin/orenda serve` → лог `pprof listening (debug only)` + `/debug/pprof/heap` возвращает 200; без флага порт 6060 closed. `make govulncheck` нашёл GO-2026-5856 в stdlib 1.26.4 (Encrypted Client Hello privacy leak, фиксится в 1.26.5) — exit 3, **не моя проблема**, target работает корректно. **DoD:** `go test ./...` 30/30 ok (config +2 assertion); `npx vitest run` 236/236 (фронт не тронут); `npx tsc --noEmit` clean; manual smoke (pprof on/off) + `make govulncheck` exit 3. Бэкенд + Makefile. |
+| **10.ts** | **Phase 10 subphase — Test send UI** — дефект зафиксирован 2026-08-12 в аудите: «нет "Test send" в UI» — оператор не мог проверить credentials бота, не дождавшись реального события. **Endpoint:** `POST /api/v1/bots/test {bot_type, target_address}` — независим от subscription store, диспатчит через существующий `bot.Registry`. Console исключён из whitelist (нет user-facing signal). Per-bot target pre-check (webhook http(s), email @+., telegram/vk numeric) — UX pre-filter до transport round-trip. **Status codes:** 200 / 400 invalid_input / 400 unknown_bot_type / 400 per-bot pre-check / 503 bot_not_running / 503 bot_registry_not_wired / 502 send_failed. **Frontend:** новая карточка в `Bots.tsx` (dropdown + target input + submit + green/red banners). `data-testid="bot-test-type"` + `"bot-test-target"` + `"bot-test-submit"` + `"bot-test-result-{ok,err}"`. Add subscription select получил `data-testid="add-subscription-bot-type"` для disambiguation от нового test-send select'а. **Tests:** 9 Go tests + 16 subtests (`handlers_bots_test.go::TestBotsTestHandler_*`); 5 vitest tests на UI; `TestOpenAPI_RouteCoverage_FullRouter` обновлён. **Manual smoke:** Python HTTP sink + webhook → sink получил payload с `kind: "test"`, `title: "Orenda test message"`. **DoD:** `go test ./...` 30/30; `npx vitest run` 246/246 (+5); `make test-e2e` 18/18; `npx tsc --noEmit` clean; OpenAPI оба файла синхронны. |
 
 ## Ключевые решения (не забыть)
 
@@ -289,7 +339,7 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
   - ✅ `handlers_backup.go` комментарии → обновлено в Phase 28.9
 - **Phase 28.19 (agent type as free-form label set)** — **закрыта 2026-08-14** в `phase-28-19-agent-type-labels`. Чипы меток на канбан-карточке (`Agent: <name> (<labels>)`), серверный OR-фильтр `?type=a&type=b`, OpenAPI schema + route coverage зелёные.
 - **Phase 28.20 (dev/dogfood separation)** — **закрыта 2026-08-14** в `phase-28-20-dev-dogfood`. dev-flow на 2138, usage/dogfood (= `~/opt/orenda` на `main`) на 2137, e2e на 21371. `install.sh` channel guard (refuse non-main + dirty, `--force` override), `update-dogfood.sh` одной командой, vite прокси следует env, startup log несёт `db_path` для observability. Документация: ARCHITECTURE.md §12.4, AGENTS.md, README + SESSION.md.
-- **Phase 10 долги, оставшиеся за скобками:** VK Long Poll / Email HTML / Weekly digest. Это большие подфазы Phase 10 (DoD которой — полный набор ботов с HTML и weekly digest). Не блокируют dogfooding.
+- **Phase 10 долги, оставшиеся за скобками:** VK Long Poll / Email HTML / Weekly digest. Это большие подфазы Phase 10 (DoD которой — полный набор ботов с HTML и weekly digest). Не блокируют dogfooding. **Test send UI закрыт 2026-08-14** в `phase-10-test-send` (POST /api/v1/bots/test, dropdown + submit в Settings → Bots, console исключён, per-bot pre-check).
 - **Multi-user / multi-device sync (Phase 11+)** — следующая эра.
 - **Lint остаток (95 issues):** 45 hugeParam non-api (per Phase 28.15 commit); 15 unparam, 7 nilnil, 5 contextcheck — механические фиксы с diminishing returns. Не блокируют dogfooding.
 

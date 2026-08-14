@@ -122,7 +122,12 @@ type Dependencies struct {
 	// the Telegram bot is running; nil-safe — the API returns 503
 	// with a friendly hint when the user tries to bind while the
 	// bot is offline.
-	BotBindCodes   BindCodesSource
+	BotBindCodes BindCodesSource
+	// BotRegistry is the live bot registry. Phase 10 Test send UI
+	// uses it to deliver a one-off message through any configured
+	// bot without first creating a subscription. nil-safe — the
+	// handler returns 503 when the registry hasn't been wired.
+	BotRegistry    *bot.Registry
 	VKSecret       string
 	VKConfirmation string
 	WSHub          ws.Hub
@@ -482,6 +487,12 @@ func NewRouter(deps *Dependencies) http.Handler {
 			r.Get("/notifications/subscriptions", listSubscriptionsHandler(deps))
 			r.Post("/notifications/subscriptions", createSubscriptionHandler(deps))
 			r.Delete("/notifications/subscriptions/{id}", deleteSubscriptionHandler(deps))
+			// Phase 10 subphase (Test send UI): deliver a one-off
+			// message through any configured bot without first
+			// creating a subscription. Operator verifies that bot
+			// credentials and routing are wired before binding a
+			// subscription.
+			r.Post("/bots/test", testBotHandler(deps))
 			// Phase 22.3 follow-up: Telegram bind handshake.
 			r.Route("/bots/telegram", func(r chi.Router) {
 				r.Post("/bind", telegramBindHandler(deps))

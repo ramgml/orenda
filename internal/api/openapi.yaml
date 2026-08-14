@@ -1129,6 +1129,59 @@ paths:
         '410': { description: code_expired }
         '503': { description: telegram_bot_not_running }
 
+  /api/v1/bots/test:
+    post:
+      tags: [notifications, bots]
+      summary: Test send — deliver a one-off message through any configured bot (Phase 10 subphase).
+      description: |
+        Independent of the subscription store. The operator picks a
+        bot type and target address, and the server delivers a fixed
+        test message ("Orenda test message") through that bot. Use
+        this to verify credentials and routing in Settings → Bots
+        before binding a real subscription.
+
+        `console` is intentionally excluded from the UI bot type
+        list — it writes to server stderr and has no user-facing
+        signal, so a "test send" through it would look like a silent
+        failure. The backend refuses `console` with a 400.
+
+        The handler does a per-bot target pre-check (webhook must
+        start with `http(s)://`, email must contain `@` and `.`,
+        telegram/vk must be numeric) so the most common typo is
+        rejected before a real network round-trip.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bot_type, target_address]
+              properties:
+                bot_type: { type: string, enum: [webhook, email, telegram, vk] }
+                target_address: { type: string, description: 'bot-specific target (chat id, email, URL, peer id)' }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  bot_type: { type: string }
+                  target: { type: string }
+                  sentinel: { type: string, description: 'human-readable marker the recipient should see' }
+                  sent_at: { type: string, format: date-time }
+        '400':
+          description: |
+            invalid_json / invalid_input / unknown_bot_type /
+            per-bot target pre-check (e.g. webhook_target_must_be_http_url).
+        '502':
+          description: send_failed — transport-level error after the registry hit.
+        '503':
+          description: bot_not_running — bot not registered in the live registry.
+
   /api/v1/notifications/subscriptions/{id}:
     delete:
       tags: [notifications]

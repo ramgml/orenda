@@ -902,11 +902,16 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		SyncOps:        sqlite.NewSyncOpsRepository(db),
 		BotCallback:    botCallback,
 		BotBindCodes:   bindCodes,
-		WSHub:          hub,
-		CookieName:     cfg.Auth.CookieName,
-		CookieSecure:   cfg.Auth.CookieSecure,
-		JWTTTL:         cfg.Auth.JWTTTL,
-		DBPath:         cfg.ResolveDBPath("."),
+		// Phase 10 Test send UI: the live bot registry is what the
+		// /api/v1/bots/test handler dispatches through. nil is fine
+		// for partial-router test fixtures that don't construct
+		// bots — the handler returns 503 in that case.
+		BotRegistry:  botRegistry,
+		WSHub:        hub,
+		CookieName:   cfg.Auth.CookieName,
+		CookieSecure: cfg.Auth.CookieSecure,
+		JWTTTL:       cfg.Auth.JWTTTL,
+		DBPath:       cfg.ResolveDBPath("."),
 		// Phase 28.8: rate-limit knobs from config (already merged
 		// with env by the time Load returns).
 		RateLimitAnonBurst:  cfg.RateLimit.AnonBurst,
