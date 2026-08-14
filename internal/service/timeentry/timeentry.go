@@ -20,6 +20,13 @@ var (
 	ErrNotFound    = errors.New("timeentry service: not found")
 	ErrAlreadyOpen = errors.New("timeentry service: agent already has an open timer")
 	ErrInvalid     = errors.New("timeentry service: invalid input")
+
+	// ErrNoActiveTimer is returned by ActiveTimer when no open
+	// time-entry exists for the requested agent (or when the
+	// caller passes an empty agent id). Use ErrNoActiveTimer
+	// instead of `return nil, nil` so the caller can distinguish
+	// "no timer" from "lookup errored".
+	ErrNoActiveTimer = errors.New("timeentry service: no active timer")
 )
 
 // Recorder writes audit rows (Phase 4.5).
@@ -95,7 +102,7 @@ func (s *Service) findOpen(ctx context.Context, agentID string) (*timeentry.Time
 // elapsed time without affecting the timer.
 func (s *Service) ActiveTimer(ctx context.Context, agentID string) (*timeentry.TimeEntry, error) {
 	if agentID == "" {
-		return nil, nil
+		return nil, ErrNoActiveTimer
 	}
 	return s.findOpen(ctx, agentID)
 }

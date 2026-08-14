@@ -18,13 +18,6 @@ import (
 // regressions: lifecycle CRUD, the SubmitCurriculum atomic swap,
 // and the Progress count.
 
-func seedUser(t *testing.T, db interface {
-	Exec(string, ...any) (any, error)
-}) string {
-	t.Helper()
-	return ""
-}
-
 func setupCourseOwner(t *testing.T, db *sql.DB) string {
 	t.Helper()
 	users := NewUserRepository(db)

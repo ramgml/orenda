@@ -22,6 +22,7 @@ import (
 type memHub struct{ n int }
 
 func (m *memHub) Publish(context.Context, ws.Event) { m.n++ }
+
 // Close implements ws.Hub (Phase 22.3).
 func (m *memHub) Close() {}
 

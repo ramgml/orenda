@@ -248,7 +248,7 @@ func (s *Service) ListSnapshots(ctx context.Context) ([]SnapshotInfo, error) {
 		}
 		return nil, fmt.Errorf("backup list: %w", err)
 	}
-	var out []SnapshotInfo
+	out := make([]SnapshotInfo, 0, len(entries))
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".db") {
 			continue

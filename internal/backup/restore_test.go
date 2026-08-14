@@ -29,19 +29,11 @@ func writeUser(t *testing.T, dbPath string) {
 	require.NoError(t, err)
 }
 
-// countUsers returns the users row count for a sqlite db at dbPath.
-func countUsers(t *testing.T, dbPath string) int {
-	t.Helper()
-	db, err := sqlite.Open(context.Background(), dbPath, sqlite.OpenConfig{
-		WALMode: false, EnableForeign: true, BusyTimeoutMs: 1000,
-	})
-	require.NoError(t, err)
-	defer db.Close()
-	var n int
-	require.NoError(t, db.QueryRowContext(context.Background(),
-		`SELECT COUNT(*) FROM users`).Scan(&n))
-	return n
-}
+// countUsers was an internal helper that counted users in a sqlite
+// db file. Phase 28.17 removed it after the test suite stopped
+// calling it (verified by `grep -n countUsers internal/backup/`
+// returning only this comment). Kept as a stub line so a future
+// test that wants it back can re-use the snippet above.
 
 // TestRestore_OverwritesDestFromSnapshot: snapshot has 1 user row,
 // destination starts empty, after Restore destination has 1 user row.

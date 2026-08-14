@@ -24,11 +24,6 @@ func (f *fakeNotifier) Notify(ctx context.Context, e notifierservice.Event) erro
 	return nil
 }
 
-// notifService shim — Service wants a typed `NotifierEmitter` so we
-// build the local type the Service expects. fakeNotifier satisfies
-// it (Notify signature matches NotifierEmitter).
-type notifService = fakeNotifier
-
 // stubRepo is a minimal Repository for the SweepOffline test path.
 // We only need ListStaleOnlineAgents and SweepOffline. The
 // ListStaleOnlineAgents is the one that needs to return a list.

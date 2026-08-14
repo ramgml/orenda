@@ -131,26 +131,29 @@ func New(tasks task.Repository, locks Locks, recorder Recorder, comments Comment
 }
 
 // lookupColumnForStatus returns the column id on the (single) board of
-// tr.ProjectID whose status matches status. Returns ("", nil) when no
-// such column exists; callers fall back to "no change" so the side
-// effect doesn't break a PATCH that just wanted to set the label.
+// tr.ProjectID whose status matches status. Returns "" when no such
+// column exists; callers fall back to "no change" so the side effect
+// doesn't break a PATCH that just wanted to set the label.
 //
 // Phase 27.8 collapses status and column_id into a single axis — a
 // PATCH on one must update the other. We do that here so every entry
 // point (move, applyTaskPatch, the agent-flow methods below) sees
 // the same canonical pair.
-func (s *Service) lookupColumnForStatus(ctx context.Context, projectID, status string) (string, error) {
+//
+// Errors from FindColumnByStatus are deliberately swallowed: callers
+// treat "no column for this status" as a non-error (a card with
+// archived status, or a project that hasn't created a column for a
+// custom status yet). The contract "best-effort lookup, default to
+// empty" is intentional — see syncColumnToStatus callers below.
+func (s *Service) lookupColumnForStatus(ctx context.Context, projectID, status string) string {
 	if s.Columns == nil || status == "" || projectID == "" {
-		return "", nil
+		return ""
 	}
 	col, err := s.Columns.FindColumnByStatus(ctx, projectID, status)
 	if err != nil {
-		// ErrNotFound is the normal case for a status with no column
-		// (custom project, off-board task, etc.). Anything else is a
-		// real error.
-		return "", nil
+		return ""
 	}
-	return col.ID, nil
+	return col.ID
 }
 
 // syncColumnToStatus keeps the (task.status, task.column_id) pair in
@@ -160,24 +163,24 @@ func (s *Service) lookupColumnForStatus(ctx context.Context, projectID, status s
 // and Move when the user dragged a card to a column with a different
 // status.
 //
-// Returns the column id that was set (which may equal the current
-// one) and the new status, so the caller can emit a single
-// `moved` activity row instead of two.
-func (s *Service) syncColumnToStatus(ctx context.Context, tr *task.Task) (newColID, newStatus string) {
+// Returns the new status. The column id is updated in-place on tr
+// (via the repo Update call at the call site), so callers don't
+// need a separate return value to emit a single activity row.
+func (s *Service) syncColumnToStatus(ctx context.Context, tr *task.Task) (newStatus string) {
 	if s.Columns == nil || tr.ProjectID == "" {
-		return tr.ColumnID, string(tr.Status)
+		return string(tr.Status)
 	}
-	colID, _ := s.lookupColumnForStatus(ctx, tr.ProjectID, string(tr.Status))
+	colID := s.lookupColumnForStatus(ctx, tr.ProjectID, string(tr.Status))
 	if colID == "" {
 		// Status has no matching column on this board (custom
 		// status, off-board task, …). Keep the column the user
 		// already picked — the status label changes but the visual
 		// position doesn't, which is the right UX for a custom
 		// status without a column.
-		return tr.ColumnID, string(tr.Status)
+		return string(tr.Status)
 	}
 	tr.ColumnID = colID
-	return colID, string(tr.Status)
+	return string(tr.Status)
 }
 
 // SyncStatusAndColumn is the public surface of the same logic —

@@ -169,12 +169,10 @@ func (s *Service) Register(ctx context.Context, name string, kind agent.Type, de
 		t := time.Now().Add(TokenTTL)
 		expiresAt = &t
 	}
-	scopesJSON := strings.Join(scopes, ",")
-	if scopesJSON == "" {
-		scopesJSON = "[]"
-	}
-	// Use the JSON array form the middleware already parses.
-	scopesJSON = asJSONArray(scopes)
+	// The middleware that authenticates agent requests reads scopes
+	// as a JSON array, so we convert the comma-joined "scopes" arg
+	// into that shape once. Empty → [].
+	scopesJSON := asJSONArray(scopes)
 
 	tokID, _, err := s.Tokens.MintToken(ctx, owner.ID, "agent:"+name, hash, scopesJSON, expiresAt)
 	if err != nil {
