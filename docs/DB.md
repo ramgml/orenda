@@ -1,14 +1,15 @@
 # Orenda — Database Schema
 
 SQLite (WAL mode), migrations in `internal/storage/sqlite/migrations/`.
-Current version: **020_columns_status** (019 up files; номер 018 не занят).
+Current version: **021_agent_type_labels** (020 up files; номер 018 не занят).
 
 ## Core
 
 ```text
 users              id · email (uniq) · password_hash · display_name · role · created_at · updated_at
 api_tokens         id · user_id →users · name · hash · scopes · last_used_at · expires_at · created_at
-agents             id · name (uniq) · type · description · token_id →api_tokens · last_seen_at · status · max_concurrent · created_at
+agents             id · name (uniq) · type (JSON array of free-form labels, 021) · description
+                   · token_id →api_tokens · last_seen_at · status · max_concurrent · created_at
 
 projects           id · name · color · description · owner_id →users · archived · created_at · updated_at
 boards             id · project_id →projects · name · position · created_at
@@ -113,5 +114,6 @@ rolls back one version per invocation. Header markers change runner behaviour:
 | 017_fix_checklist_items_fk.sql | checklist_items FK pointed at dropped `checklists` — re-pointed |
 | 019_courses.sql | courses / course_modules / course_lessons / course_quizzes + FK indexes |
 | 020_columns_status.sql | columns.status machine key (backfill from name, slug for customs) + UNIQUE(board_id, status) |
+| 021_agent_type_labels.sql | agents.type backfill (scalar → JSON-array); idempotent on re-run; down is lossy on multi-label rows |
 
 *(номер 018 пропущен — зарезервированная нумерация съехала от текста фаз; не используется)*

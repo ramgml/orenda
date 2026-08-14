@@ -1,4 +1,4 @@
-# Session Snapshot — 2026-08-13 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1, 28.2, 28.3, 28.4, 28.5, 28.6, 28.7, 28.8, 28.9, 28.10, 28.11, 28.12, 28.14, 28.15, 28.16, 28.17, 28.18; «Полировка» полностью закрыта)
+# Session Snapshot — 2026-08-14 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.18 + 28.19; «Полировка» + 28.19 закрыты)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
@@ -47,12 +47,67 @@
 - Vitest: +1 тест в `TaskCard.test.tsx` — chip реально получает `backgroundColor: rgb(34, 197, 94)` от тега `#22c55e` (предохраняет от регрессии «chip рендерится с slate-фоллбэком, обогащение молча сломано»).
 - Миграции: `.down.sql` нет нигде; нумерация съехала относительно текста фаз (courses=019, 018 отсутствует, `tasks.color` в 012). **✅ закрыт в `phase-down-migrations` (Wave 4 PR 1)** — runner с `-- orenda:irreversible` маркером + 18 парных `.down.sql` файлов; необратимые (001/013/015) возвращают `ErrMigrationIrreversible` с reason, остальные роллбэкаются.
 
+## Phase 28.19 — agent type как свободный набор меток (2026-08-14)
+
+**Цель:** закрыть план-секцию Phase 28.19 из `docs/PLAN.md:2579-2602`. `agents.type` перестаёт быть скаляром из фиксированного enum (`qwen|claude|custom`) и становится свободным набором меток, задаваемых при регистрации. Хранение — JSON-массив прямо в колонке `agents.type` (конвенция: `bot_subscriptions.events`, 001_init.sql:294; агенты — десятки строк, отдельная join-таблица избыточна). Doc-обещание «Phase 10 bot dispatch» (domain/agent/model.go:14-15) — ложное (рассылка Phase 10 идёт по `bot_subscriptions.bot_type`); комментарий удалён.
+
+**Cutover:** старые payload'ы с `"type": "qwen"` (строкой) отклоняются 400 — клиент должен репослать как `"type": ["qwen"]`. Это явно: «implicit migration path не предоставляем» (PLAN §28.19.4 «clean cutover, без шима»).
+
+**Ключевые решения:**
+
+- **JSON-массив в TEXT-колонке**, не отдельная join-таблица. Конвенция с `bot_subscriptions.events` уже отработана в repo. `migration_021_agent_type_labels.sql` backfill'ит существующие значения: `''` → `'[]'`, `'qwen'` → `'["qwen"]'`. **Idempotency через `json_valid(type)`** (первая попытка через `LIKE '[%'` отказала — `json_valid` надёжнее).
+- **Down защищён через `json_valid`.** modernc.org/sqlite в строгом режиме падает с «malformed JSON» на `json_extract` от невалидной строки — `CASE WHEN json_valid(type) THEN COALESCE(json_extract(type, '$[0]'), '') ELSE type END` делает down идемпотентным на скалярах (иначе round-trip ломается после первого же down).
+- **Нормализация в domain, не в handler.** `agent.NormalizeLabels(in)` (trim/lowercase/dedupe/sort) — вызывается из `Agent.Validate()`. `api.listAgents` тоже использует её для query-параметров. Single source of truth для канонической формы.
+- **Пустой `Type []string` валиден.** Раньше был дефолт `custom`; теперь ничего нет. Агент без меток — легальный кейс.
+- **Серверный фильтр OR через repeatable query-param.** `GET /api/v1/agents?type=qwen&type=installer` — повторяемый параметр. **Не путать с `URLSearchParams({type: ['a','b']})`** — это даёт comma-joined `type=a,b`, а не `type=a&type=b`. Специально прошёл через `params.append('type', t)` цикл — задокументировано в client.ts.
+- **In-memory фильтр в handler**, не в SQL. Десятки агентов; `json_each` не нужен.
+- **AssigneeChip lookup через TanStack Query.** Новый `useAgents()` хук + cache key `['agents']` — TaskCard на доске делит один round-trip. При cache miss — fallback на legacy `assignee_id.slice(0,6)`. Pre-existing QueryClientProvider тесты оборачивают TaskCard (TaskCard.test, InboxPage.test, ColumnView.test).
+
+**Задачи (все выполнены):**
+
+- `internal/storage/sqlite/migrations/021_agent_type_labels.{sql,down.sql}` — up backfill (`CASE WHEN type='' THEN '[]' WHEN json_valid(type) THEN type ELSE json_array(type) END`), down с json_valid защитой, идемпотентность.
+- `internal/storage/sqlite/migration_021_test.go` (NEW) — 4 контракта: (1) backfill форма, (2) idempotency на JSON-rows, (3) down восстанавливает скаляры + lossy multi-label, (4) down идемпотентность на скалярах.
+- `internal/domain/agent/model.go` — `Type []string`, удалены `TypeQwen/TypeClaude/TypeCustom` и doc-обещание про «Phase 10 bot dispatch», новая `NormalizeLabels`, Validate не ставит дефолт.
+- `internal/domain/agent/model_test.go` — переписан `TestAgent_Validate_Defaults` → `…AppliesDefaultsExceptLabels`, новый `TestAgent_NormalizeLabels` (7 sub-tests), `TestAgent_Validate_NormalisesTypeInPlace`.
+- `internal/storage/sqlite/agent_repo.go` — `marshalAgentType`/`unmarshalAgentType` хелперы; INSERT/UPDATE/Scan через них; пустой `Type` → `"[]"`.
+- `internal/service/agent/agent.go::Register` — сигнатура `(name string, labels []string, desc string, scopes []string)`.
+- `internal/api/handlers_agents.go` — `Type []string` в request body, repeatable `?type=` query в list, новая `filterAgentsByLabels` (in-memory OR).
+- **Миграция всех использующих тестов:** `agent.TypeQwen/Claude/Custom` → `[]string{...}` в 11 файлах; `{"type":"qwen"}` → `{"type":["qwen"]}` в 2 файлах; ассерты `assert.Equal(t, agent.TypeQwen, got.Type)` → `assert.Equal(t, []string{"qwen"}, got.Type)`. Импорт `agentdomain` → `agent` где не используется.
+- `internal/api/openapi.yaml` + `docs/openapi.yaml` — новые схемы `Agent` + `CreateAgentRequest`, `POST /api/v1/agents` requestBody, `GET /api/v1/agents` parameters (multi-value `?type=`). Синхронно. `TestOpenAPI_RouteCoverage_FullRouter` зелёный.
+- `web/src/shared/api/client.ts` — `Agent.type: string[]`, `listAgents({type})` принимает фильтр, `createAgent` input обновлён. URLSearchParams ловушка → `params.append('type', t)` цикл с комментарием.
+- `web/src/shared/hooks/useAgents.ts` (NEW) — TanStack Query wrapper с `agentsQueryKey` экспортом.
+- `web/src/features/agents/AgentsPage.tsx` — chips-input (`Enter`/`,` commit, `Backspace` pop, `×` remove), таблица чипов с em-dash fallback для пустых, серверный фильтр через ту же chips-input над таблицей. `ChipsInput` компонент вынесен для переиспользования.
+- `web/src/features/agents/AgentsPage.test.tsx` — фикстуры `makeAgent({type: string[]})`, новый тест «renders label chips per agent», «chips input: Enter commits; × removes», «submit posts createAgent with the label set», «filter chips refetch with repeated ?type=». 10 тестов всего.
+- `web/src/features/projects/TaskCard.tsx::AssigneeChip` — принимает `agent?: Agent`, `title = Agent: <name> (<labels>)` при cache hit, fallback на `id.slice(0,6)` при miss. TaskCard вызывает `useAgents()` (1 round-trip на страницу через cache dedup).
+- `web/src/features/projects/TaskCard.test.tsx` — обёрнут в QueryClientProvider; новые «AssigneeChip title surfaces agent labels» + «falls back to id when agent lookup misses».
+- `web/src/features/inbox/InboxPage.test.tsx` + `web/src/features/projects/ColumnView.test.tsx` — обёрнуты в QueryClientProvider (TaskCard transitive dep).
+- `web/src/shared/api/client.ts::listAgents` — explicit комментарий про URLSearchParams массив-ловушку.
+- `web/e2e/helpers.ts::createAgent` — `type: 'qwen'` → `type: ['qwen']`.
+- `docs/DB.md` — `agents` строка: `type (JSON array of free-form labels, 021)`; таблица миграций обновлена.
+
+**DoD (verified 2026-08-14):**
+
+- ✅ `go test ./...` — 30 пакетов ok, включая `TestMigrate_021AgentTypeLabels` (4 assert), `TestAgent_NormalizeLabels` (7 sub-tests), `TestAgentRepo_*` (5), обновлённые handler/service тесты.
+- ✅ `npx vitest run` — 241/241 (было 230; +11: 4 в AgentsPage, 2 в TaskCard AssigneeChip, 5 прочих миграций фикстур).
+- ✅ `npx tsc --noEmit` — clean.
+- ✅ `make build` — OK (бинарь содержит embedded web/dist из Phase 27.1).
+- ✅ `make test-e2e` — 18/18 pass (было 18; 0 regressions). 4 specs упали на первом прогоне (`ws-live`, `today`, `review`, `course`) — фиксились `helpers.ts::createAgent` (`type: ['qwen']`).
+- ✅ `TestOpenAPI_RouteCoverage` + `TestOpenAPI_RouteCoverage_FullRouter` — оба зелёные.
+- ✅ `docs/openapi.yaml` ↔ `internal/api/openapi.yaml` — синхронны (`diff` пустой).
+- ✅ `golangci-lint` на изменённых пакетах — без новых issues.
+
+**За скобкой (явно отложено):**
+
+- **Хотфикс для мигрирующих агентов** — `orenda migrate up` конвертирует существующих агентов в JSON-array, но API сразу после up отвергает старый string-формат (clean cutover). Оператор с внешними интеграциями должен один раз поправить payload'ы. Задокументировано в `openapi.yaml::POST /agents description` и `handlers_agents.go::createAgentRequest` doc-комментарии.
+- **Bulk-edit labels** — нет endpoint'а «обновить type существующего агента», только re-через Register flow. `PATCH /api/v1/agents/{id}` принимает `type` — отдельная фаза при необходимости.
+- **UI color picker для type** — `tags` имеет color picker (Phase 13), `agents.type` сейчас монохромный. Кандидат на будущую полировку.
+
 ## Метаданные
 
-- **Дата снапшота:** 2026-08-13
+- **Дата снапшота:** 2026-08-14
 - **Ветка:** `dev`
-- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1–28.18 (полировка полностью закрыта). Multi-user / multi-device sync — следующая эра после полировки.
-- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1/.../28.18)
+- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1–28.19 (полировка полностью закрыта + agent-type-labels). Multi-user / multi-device sync — следующая эра после полировки.
+- **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1/.../28.19)
 
 ## Что сделано за сессию (кратко)
 
@@ -151,10 +206,12 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 
 ## Тесты
 
-**Последние зафиксированные прогоны** (Phase 28.18, 2026-08-13):
-- `make test` — Go (30/30 packages ok) + vitest (236/236) — зелёные.
+**Последние зафиксированные прогоны** (Phase 28.19, 2026-08-14):
+- `make test` — Go (30/30 packages ok) + vitest (241/241, +11) — зелёные.
 - `make test-e2e` — Playwright smoke против свежесобранного бинаря; 18/18 pass на чистой БД, без флейков. Требует `make build` (бинарь должен быть свежим); spawns test server on port 21371 (override `ORENDA_SERVER__PORT` чтобы не конфликтовать с dev-сервером на 2137).
-- `make lint` — `golangci-lint` показывает 95 issues (с 325 на старте Phase 28.15 — closed 230 issues через 28.15/28.16/28.17). 45 hugeParam non-api + 50 малых кластеров — отложено (см. Phase 28.17 commit).
+- `npx tsc --noEmit` — clean.
+- `TestOpenAPI_RouteCoverage` + `TestOpenAPI_RouteCoverage_FullRouter` — оба зелёные; `docs/openapi.yaml` ↔ `internal/api/openapi.yaml` синхронны.
+- `make lint` — pre-existing debt only (comment_test, event.go, timeentry_test, notifier_test, middleware_test); Phase 28.19 не добавила новых issues.
 - Coverage: domain 100%, services 70–100%, api 61%, storage 72%; фронт — компонентный/юнит (vitest + jsdom), e2e (Playwright + реальный бинарь).
 
 ### Запуск E2E локально
@@ -182,6 +239,7 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
   - ✅ `rate_limit` секция в config.go + YAML → Phase 28.8
   - ✅ PHASE 26.A lint warnings cleanup → Phases 28.15 + 28.16 + 28.17 (closed 230 из 325 issues)
   - ✅ `handlers_backup.go` комментарии → обновлено в Phase 28.9
+- **Phase 28.19 (agent type as free-form label set)** — **закрыта 2026-08-14** в `phase-28-19-agent-type-labels`. Чипы меток на канбан-карточке (`Agent: <name> (<labels>)`), серверный OR-фильтр `?type=a&type=b`, OpenAPI schema + route coverage зелёные.
 - **Phase 10 долги, оставшиеся за скобками:** VK Long Poll / Email HTML / Weekly digest. Это большие подфазы Phase 10 (DoD которой — полный набор ботов с HTML и weekly digest). Не блокируют dogfooding.
 - **Multi-user / multi-device sync (Phase 11+)** — следующая эра.
 - **Lint остаток (95 issues):** 45 hugeParam non-api (per Phase 28.15 commit); 15 unparam, 7 nilnil, 5 contextcheck — механические фиксы с diminishing returns. Не блокируют dogfooding.
@@ -189,7 +247,7 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 ## Файлы
 
 - `docs/PRD.md` — видение продукта
-- `docs/PLAN.md` — фазы и задачи (открытый бэклог: Phase 10 features + multi-user; «Полировка» полностью закрыта Phase 28.7–28.18)
+- `docs/PLAN.md` — фазы и задачи (открытый бэклог: Phase 10 features + multi-user; «Полировка» полностью закрыта Phase 28.7–28.18 + Phase 28.19)
 - `docs/CONTEXT.md` — концепции продукта (семантика домена; хартия в шапке файла)
 - `docs/API.md` — REST reference
 - `docs/DB.md` — схема БД по миграциям

@@ -16,12 +16,27 @@
  *      ColumnView routes via useNavigate.
  */
 import { DndContext } from '@dnd-kit/core';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Task } from '@/shared/api/client';
+import { agentsQueryKey } from '@/shared/hooks/useAgents';
 import { TaskCard } from '@/features/projects/TaskCard';
+
+// Phase 28.19: TaskCard pulls in `useAgents` for the AssigneeChip
+// title hint, which lives behind React Query. Wrap every render in a
+// throwaway QueryClient so the hook doesn't blow up in jsdom. The
+// tests never inspect the agents list themselves; the cache just
+// has to exist for the hook to mount.
+function withQuery(node: JSX.Element, seedAgents?: unknown[]): JSX.Element {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  if (seedAgents) qc.setQueryData(agentsQueryKey, seedAgents);
+  return <QueryClientProvider client={qc}>{node}</QueryClientProvider>;
+}
 
 function makeTask(): Task {
   return {
@@ -70,11 +85,13 @@ function getCardRoot(container: HTMLElement): HTMLElement {
 describe('TaskCard', () => {
   it('renders as a div (not an anchor) — dnd-kit + <a> was the bug', () => {
     const { container, queryByRole } = render(
-      <MemoryRouter>
-        <DndContext>
-          <TaskCard task={makeTask()} />
-        </DndContext>
-      </MemoryRouter>,
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard task={makeTask()} />
+          </DndContext>
+        </MemoryRouter>,
+      ),
     );
     // The card must NOT be an anchor; the old impl wrapped TaskCard in
     // <a href="/tasks/:id"> which dnd-kit's pointer listeners would
@@ -88,11 +105,13 @@ describe('TaskCard', () => {
   it('calls onOpen(taskId) on click instead of relying on href navigation', () => {
     const onOpen = vi.fn();
     const { container } = render(
-      <MemoryRouter>
-        <DndContext>
-          <TaskCard task={makeTask()} onOpen={onOpen} />
-        </DndContext>
-      </MemoryRouter>,
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard task={makeTask()} onOpen={onOpen} />
+          </DndContext>
+        </MemoryRouter>,
+      ),
     );
     fireEvent.click(getCardRoot(container));
     expect(onOpen).toHaveBeenCalledTimes(1);
@@ -109,14 +128,16 @@ describe('TaskCard', () => {
     // the modal). The Routes below only check the path; the state is
     // just an implementation detail of openTaskModal.
     const { container, queryByText } = render(
-      <MemoryRouter initialEntries={['/']}>
-        <DndContext>
-          <Routes>
-            <Route path="/" element={<TaskCard task={makeTask()} />} />
-            <Route path="/tasks/:id" element={<div>ARRIVED</div>} />
-          </Routes>
-        </DndContext>
-      </MemoryRouter>,
+      withQuery(
+        <MemoryRouter initialEntries={['/']}>
+          <DndContext>
+            <Routes>
+              <Route path="/" element={<TaskCard task={makeTask()} />} />
+              <Route path="/tasks/:id" element={<div>ARRIVED</div>} />
+            </Routes>
+          </DndContext>
+        </MemoryRouter>,
+      ),
     );
     fireEvent.click(getCardRoot(container));
     expect(queryByText('ARRIVED')).toBeTruthy();
@@ -125,22 +146,26 @@ describe('TaskCard', () => {
   // Phase 13: the card's left stripe is derived from `task.color`.
   it('renders a left colour stripe when the task has a color', () => {
     const { container } = render(
-      <MemoryRouter>
-        <DndContext>
-          <TaskCard task={makeTask()} />
-        </DndContext>
-      </MemoryRouter>,
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard task={makeTask()} />
+          </DndContext>
+        </MemoryRouter>,
+      ),
     );
     // No colour → no stripe (borderLeftWidth default 0).
     const cardNoColor = getCardRoot(container);
     expect(cardNoColor.style.borderLeftWidth).toBe('');
 
     const withColor = render(
-      <MemoryRouter>
-        <DndContext>
-          <TaskCard task={{ ...makeTask(), id: 't-coloured', color: '#0ea5e9' }} />
-        </DndContext>
-      </MemoryRouter>,
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard task={{ ...makeTask(), id: 't-coloured', color: '#0ea5e9' }} />
+          </DndContext>
+        </MemoryRouter>,
+      ),
     );
     const cardColored = getCardRoot(withColor.container);
     // Phase 17: the stripe comes from the inline `borderLeftColor` (the
@@ -152,19 +177,21 @@ describe('TaskCard', () => {
   // Phase 13: tag chips render below the title when the task has tags.
   it('renders tag chips when the task has tags', () => {
     const { container } = render(
-      <MemoryRouter>
-        <DndContext>
-          <TaskCard
-            task={{
-              ...makeTask(),
-              tags: [
-                { id: 't-1', name: 'frontend', color: '#22c55e' },
-                { id: 't-2', name: 'backend' },
-              ],
-            }}
-          />
-        </DndContext>
-      </MemoryRouter>,
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard
+              task={{
+                ...makeTask(),
+                tags: [
+                  { id: 't-1', name: 'frontend', color: '#22c55e' },
+                  { id: 't-2', name: 'backend' },
+                ],
+              }}
+            />
+          </DndContext>
+        </MemoryRouter>,
+      ),
     );
     expect(container.textContent).toContain('frontend');
     expect(container.textContent).toContain('backend');
@@ -176,19 +203,21 @@ describe('TaskCard', () => {
   // even when the chip renders.
   it('applies tag colours to chip backgrounds (Phase 27.3 enrichment)', () => {
     const { container } = render(
-      <MemoryRouter>
-        <DndContext>
-          <TaskCard
-            task={{
-              ...makeTask(),
-              tags: [
-                { id: 't-1', name: 'frontend', color: '#22c55e' },
-                { id: 't-2', name: 'backend', color: '#2563eb' },
-              ],
-            }}
-          />
-        </DndContext>
-      </MemoryRouter>,
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard
+              task={{
+                ...makeTask(),
+                tags: [
+                  { id: 't-1', name: 'frontend', color: '#22c55e' },
+                  { id: 't-2', name: 'backend', color: '#2563eb' },
+                ],
+              }}
+            />
+          </DndContext>
+        </MemoryRouter>,
+      ),
     );
     const chips = container.querySelectorAll('span.inline-flex.items-center.px-1\\.5.py-0\\.5');
     expect(chips.length).toBeGreaterThanOrEqual(2);
@@ -200,11 +229,13 @@ describe('TaskCard', () => {
 
   it('omits tag chips when the task has no tags', () => {
     const { container } = render(
-      <MemoryRouter>
-        <DndContext>
-          <TaskCard task={{ ...makeTask(), tags: [] }} />
-        </DndContext>
-      </MemoryRouter>,
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard task={{ ...makeTask(), tags: [] }} />
+          </DndContext>
+        </MemoryRouter>,
+      ),
     );
     // The title is rendered; no tag-pill spans should be present.
     // We anchor on the TaskTagChip class signature: inline-flex items-center
@@ -212,5 +243,84 @@ describe('TaskCard', () => {
     const card = getCardRoot(container);
     const tagPills = card.querySelectorAll('span.inline-flex.items-center');
     expect(tagPills.length).toBe(0);
+  });
+
+  // Phase 28.19: the AssigneeChip's title carries the agent's name +
+  // free-form label set when the agents cache is warm. Without that
+  // enrichment the kanban card silently regresses to "Agent: <id>"
+  // and operators lose the at-a-glance signal of which model the
+  // card is bound to.
+  it('AssigneeChip title surfaces agent labels (Phase 28.19 enrichment)', () => {
+    const { container } = render(
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard
+              task={{
+                ...makeTask(),
+                assignee_type: 'agent',
+                assignee_id: 'agent-qwen',
+              }}
+            />
+          </DndContext>
+        </MemoryRouter>,
+        [
+          {
+            id: 'agent-qwen',
+            name: 'qwen-alpha',
+            type: ['qwen', 'installer'],
+            description: '',
+            token_id: 't-1',
+            status: 'online',
+            max_concurrent: 3,
+            created_at: '',
+          },
+        ],
+      ),
+    );
+    const chip = container.querySelector('[data-testid="assignee-agent"]') as HTMLElement;
+    expect(chip).toBeTruthy();
+    expect(chip.title).toBe('Agent: qwen-alpha (qwen, installer)');
+    // Visible label still uses the agent's name (not just an id slice).
+    expect(chip.textContent).toContain('qwen-alpha');
+  });
+
+  // Phase 28.19: when the agents cache is cold (or the lookup misses),
+  // the chip must still render the legacy "Agent: <id>" title and the
+  // id slice — falling back gracefully rather than crashing on
+  // `agent.type.join`.
+  it('AssigneeChip falls back to id when agent lookup misses', () => {
+    const { container } = render(
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard
+              task={{
+                ...makeTask(),
+                assignee_type: 'agent',
+                assignee_id: 'agent-missing',
+              }}
+            />
+          </DndContext>
+        </MemoryRouter>,
+        [
+          {
+            id: 'some-other-agent',
+            name: 'someone-else',
+            type: ['claude'],
+            description: '',
+            token_id: 't-2',
+            status: 'offline',
+            max_concurrent: 1,
+            created_at: '',
+          },
+        ],
+      ),
+    );
+    const chip = container.querySelector('[data-testid="assignee-agent"]') as HTMLElement;
+    expect(chip).toBeTruthy();
+    expect(chip.title).toBe('Agent: agent-missing');
+    // Visible label uses the first 6 chars of the id, like before.
+    expect(chip.textContent).toContain('agent-');
   });
 });

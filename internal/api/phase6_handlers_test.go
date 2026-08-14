@@ -141,7 +141,7 @@ func p6AuthGet(router http.Handler, cookie, path string) *httptest.ResponseRecor
 func p6SeedAgent(t *testing.T, router http.Handler, cookie, name string) (string, string) {
 	t.Helper()
 	rr := p6AuthJSON(router, http.MethodPost, "/api/v1/agents", cookie,
-		map[string]any{"name": name, "type": "qwen"})
+		map[string]any{"name": name, "type": []string{"qwen"}})
 	require.Equal(t, http.StatusCreated, rr.Code, "body=%s", rr.Body.String())
 	var resp struct {
 		Agent struct {

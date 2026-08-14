@@ -4,6 +4,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -29,12 +30,16 @@ func (r *agentRepo) Create(ctx context.Context, a *agent.Agent) error {
 		a.ID = newUUID()
 	}
 
+	typeJSON, err := marshalAgentType(a.Type)
+	if err != nil {
+		return fmt.Errorf("agent.Create: marshal type: %w", err)
+	}
 	const q = `
 		INSERT INTO agents (id, name, type, description, token_id, status, max_concurrent, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
 	`
-	_, err := r.db.ExecContext(ctx, q,
-		a.ID, a.Name, string(a.Type), a.Description, a.TokenID,
+	_, err = r.db.ExecContext(ctx, q,
+		a.ID, a.Name, typeJSON, a.Description, a.TokenID,
 		string(a.Status), a.MaxConcurrent,
 	)
 	if err != nil {
@@ -85,13 +90,17 @@ func (r *agentRepo) Update(ctx context.Context, a *agent.Agent) error {
 	if err := a.Validate(); err != nil {
 		return err
 	}
+	typeJSON, err := marshalAgentType(a.Type)
+	if err != nil {
+		return fmt.Errorf("agent.Update: marshal type: %w", err)
+	}
 	const q = `
 		UPDATE agents
 		SET name = ?, type = ?, description = ?, status = ?, max_concurrent = ?
 		WHERE id = ?
 	`
 	res, err := r.db.ExecContext(ctx, q,
-		a.Name, string(a.Type), a.Description, string(a.Status), a.MaxConcurrent, a.ID,
+		a.Name, typeJSON, a.Description, string(a.Status), a.MaxConcurrent, a.ID,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -205,7 +214,9 @@ func scanAgent(row *sql.Row) (*agent.Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("agent.Scan: %w", err)
 	}
-	a.Type = agent.Type(typ)
+	if err := unmarshalAgentType(typ, &a.Type); err != nil {
+		return nil, fmt.Errorf("agent.Scan: type column: %w", err)
+	}
 	a.Status = agent.Status(status)
 	if lastSeen.Valid {
 		t := parseTime(lastSeen.String)
@@ -226,7 +237,9 @@ func scanAgentRow(rows *sql.Rows) (*agent.Agent, error) {
 	if err := rows.Scan(&a.ID, &a.Name, &typ, &a.Description, &a.TokenID, &lastSeen, &status, &a.MaxConcurrent, &cAt); err != nil {
 		return nil, fmt.Errorf("agent.ScanRow: %w", err)
 	}
-	a.Type = agent.Type(typ)
+	if err := unmarshalAgentType(typ, &a.Type); err != nil {
+		return nil, fmt.Errorf("agent.ScanRow: type column: %w", err)
+	}
 	a.Status = agent.Status(status)
 	if lastSeen.Valid {
 		t := parseTime(lastSeen.String)
@@ -234,4 +247,31 @@ func scanAgentRow(rows *sql.Rows) (*agent.Agent, error) {
 	}
 	a.CreatedAt = parseTime(cAt)
 	return &a, nil
+}
+
+// marshalAgentType serialises a label set as a JSON array literal. A
+// nil or empty slice becomes "[]" so the column never carries NULL and
+// downstream json_extract calls never have to defend against it.
+func marshalAgentType(labels []string) (string, error) {
+	if len(labels) == 0 {
+		return "[]", nil
+	}
+	b, err := json.Marshal(labels)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// unmarshalAgentType parses a JSON-array column value back into the
+// label slice. The empty literal collapses to a nil slice (so callers
+// can `len(x.Type) == 0` without a nil-deref); a malformed value is
+// surfaced as an error so a corrupted row doesn't masquerade as empty.
+func unmarshalAgentType(raw string, out *[]string) error {
+	switch raw {
+	case "", "[]":
+		*out = nil
+		return nil
+	}
+	return json.Unmarshal([]byte(raw), out)
 }

@@ -44,7 +44,7 @@ func seedSearchData(t *testing.T, db *sql.DB) {
 	tok, err := tokens.Create(context.Background(), owner.ID, "s-tok", "fake", "[]", nil)
 	require.NoError(t, err)
 	agents := NewAgentRepository(db)
-	a := &agent.Agent{Name: "s-" + newUUID()[:6], Type: agent.TypeQwen, TokenID: tok.ID}
+	a := &agent.Agent{Name: "s-" + newUUID()[:6], Type: []string{"qwen"}, TokenID: tok.ID}
 	require.NoError(t, agents.Create(context.Background(), a))
 
 	projects := NewProjectRepository(db)

@@ -141,7 +141,11 @@ type Registered struct {
 // Register creates an Agent, mints a fresh API token, and stores the bcrypt
 // hash. The plaintext token is returned in Registered.PlainToken; callers
 // must surface it to the operator exactly once.
-func (s *Service) Register(ctx context.Context, name string, kind agent.Type, description string, scopes []string) (*Registered, error) {
+//
+// labels is a free-form set of normalised tags (Phase 28.19) — any
+// combination of operator-curated strings such as "qwen" or "installer".
+// An empty/nil slice is valid; the agent will simply have no labels.
+func (s *Service) Register(ctx context.Context, name string, labels []string, description string, scopes []string) (*Registered, error) {
 	if name = strings.TrimSpace(name); name == "" {
 		return nil, errors.New("agent service: name required")
 	}
@@ -181,7 +185,7 @@ func (s *Service) Register(ctx context.Context, name string, kind agent.Type, de
 
 	a := &agent.Agent{
 		Name:          name,
-		Type:          kind,
+		Type:          agent.NormalizeLabels(labels),
 		Description:   description,
 		TokenID:       tokID,
 		Status:        agent.StatusOffline,

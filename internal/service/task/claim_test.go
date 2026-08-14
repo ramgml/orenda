@@ -95,7 +95,7 @@ func seedAgent(t *testing.T, db *sql.DB, label string) string {
 	tok, err := tokens.Create(context.Background(), u.ID, "tok-"+label, "fake", "[]", nil)
 	require.NoError(t, err)
 	agents := sqlite.NewAgentRepository(db)
-	a := &agent.Agent{Name: "seed-" + label + "-" + newUUIDLite()[:8], Type: agent.TypeQwen, TokenID: tok.ID}
+	a := &agent.Agent{Name: "seed-" + label + "-" + newUUIDLite()[:8], Type: []string{"qwen"}, TokenID: tok.ID}
 	require.NoError(t, agents.Create(context.Background(), a))
 	return a.ID
 }

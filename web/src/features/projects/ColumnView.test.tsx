@@ -14,6 +14,7 @@
  *      rename clobbered it with the default slate.
  */
 import { DndContext } from '@dnd-kit/core';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -67,20 +68,27 @@ describe('ColumnView — Phase 27.10 colour wiring', () => {
   });
 
   function renderColumn(props: { color?: string; wipLimit?: number } = {}) {
+    // Phase 28.19: ColumnView renders TaskCard which calls useAgents,
+    // so the test must mount inside a QueryClientProvider.
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
     return render(
-      <DndContext>
-        <MemoryRouter>
-          <ColumnView
-            columnId="col-1"
-            projectId="p1"
-            name="In progress"
-            tasks={[makeTask()]}
-            color={props.color}
-            wipLimit={props.wipLimit}
-            onCreate={async () => {}}
-          />
-        </MemoryRouter>
-      </DndContext>,
+      <QueryClientProvider client={qc}>
+        <DndContext>
+          <MemoryRouter>
+            <ColumnView
+              columnId="col-1"
+              projectId="p1"
+              name="In progress"
+              tasks={[makeTask()]}
+              color={props.color}
+              wipLimit={props.wipLimit}
+              onCreate={async () => {}}
+            />
+          </MemoryRouter>
+        </DndContext>
+      </QueryClientProvider>,
     );
   }
 
