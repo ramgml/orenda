@@ -22,6 +22,11 @@ import { api, type Task } from '@/shared/api/client';
 export function QuickCapture() {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
+  // Phase 30.10: optional due date. Stored as YYYY-MM-DD from the
+  // <input type="date">; converted to a local-midnight ISO string at
+  // submit so the backend receives a parseable timestamp without
+  // surprise from local-vs-UTC drift.
+  const [dueDate, setDueDate] = useState('');
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<Task | null>(null);
   const navigate = useNavigate();
@@ -29,6 +34,7 @@ export function QuickCapture() {
   const close = useCallback(() => {
     setOpen(false);
     setTitle('');
+    setDueDate('');
   }, []);
 
   // Global hotkey: 'q' or Cmd/Ctrl+K. Skip when the user is typing
@@ -71,9 +77,16 @@ export function QuickCapture() {
     if (!t || busy) return;
     setBusy(true);
     try {
-      const created = await api.createInboxTask({ title: t });
+      // Phase 30.10: optional due_at. Local-midnight → ISO 8601 —
+      // date-only inputs are TZ-naive so the operator's "tomorrow"
+      // resolves to tomorrow in their browser, not UTC+0. The
+      // server stores the raw string and the calendar renders it as
+      // an all-day deadline (Phase 30.8).
+      const due_at = dueDate ? new Date(`${dueDate}T00:00:00`).toISOString() : undefined;
+      const created = await api.createInboxTask({ title: t, due_at });
       setCreated(created);
       setTitle('');
+      setDueDate('');
     } catch {
       // Swallow: the modal stays open so the user can retry. The
       // create-inbox-task endpoint shouldn't fail in practice (it
@@ -112,6 +125,8 @@ export function QuickCapture() {
         createPortal(
           <CaptureModal
             title={title}
+            dueDate={dueDate}
+            setDueDate={setDueDate}
             busy={busy}
             created={created}
             setTitle={setTitle}
@@ -129,6 +144,8 @@ export function QuickCapture() {
 
 function CaptureModal({
   title,
+  dueDate,
+  setDueDate,
   busy,
   created,
   setTitle,
@@ -139,6 +156,8 @@ function CaptureModal({
   onDismissToast,
 }: {
   title: string;
+  dueDate: string;
+  setDueDate: (s: string) => void;
   busy: boolean;
   created: Task | null;
   setTitle: (s: string) => void;
@@ -196,6 +215,17 @@ function CaptureModal({
               rows={3}
               placeholder="What's on your mind? (Cmd/Ctrl+Enter to save)"
               data-testid="quick-capture-input"
+              className="w-full px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
+            />
+            {/* Phase 30.10: optional due date. Tab order keeps title
+                first, then due, then buttons — the hotkey flow stays
+                one keystroke from thinking to "save". */}
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              data-testid="quick-capture-due"
+              aria-label="Optional due date"
               className="w-full px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
             />
             <div className="flex justify-end gap-2">

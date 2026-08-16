@@ -623,6 +623,10 @@ class ApiClient {
     priority?: string;
     assignee_type?: string;
     assignee_id?: string;
+    // Phase 30.10: optional due_at (ISO 8601). Undefined → no
+    // deadline; the field is opt-in so the hotkey capture flow
+    // stays one keystroke from thinking to done.
+    due_at?: string;
   }): Promise<Task> {
     return this.http.post<Task>('/api/v1/inbox/tasks', input).then((r) => r.data);
   }
