@@ -1107,6 +1107,21 @@ class ApiClient {
     return this.http.post<{ status: string }>('/api/v1/backups/test', {}).then((r) => r.data);
   }
 
+  /**
+   * Phase 30.9: read-only backup status (snapshot count + latest
+   * path/size). No side-effects; safe to poll.
+   */
+  getBackupStatus(): Promise<{
+    scheduler_disabled: boolean;
+    snapshot_count?: number;
+    latest_snapshot?: string;
+    latest_snapshot_size?: number;
+    latest_snapshot_unix?: number;
+    snapshot_error?: string;
+  }> {
+    return this.http.get('/api/v1/backups/status').then((r) => r.data);
+  }
+
   createSnapshot(): Promise<{ path: string }> {
     return this.http.post<{ path: string }>('/api/v1/backups/snapshot', {}).then((r) => r.data);
   }

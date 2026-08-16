@@ -522,6 +522,10 @@ func NewRouter(deps *Dependencies) http.Handler {
 				r.Post("/test", testBackupPushHandler(deps))
 				r.Post("/snapshot", backupSnapshotHandler(deps))
 				r.Get("/snapshots", listBackupSnapshotsHandler(deps))
+				// Phase 30.9: read-only status snapshot — count of
+				// snapshots + path / size of the most recent one.
+				// The operator can hit /backups/test to actually push.
+				r.Get("/status", backupStatusHandler(deps))
 				r.Post("/restore", restoreBackupHandler(deps))
 				r.Get("/log", listBackupLogHandler(deps))
 			})
