@@ -80,6 +80,15 @@ orenda agent comment <id> "...markdown..."   # leave a comment as the agent
 orenda agent submit <id>   # mark ready for human review
 orenda agent release <id>  # give up a claim
 orenda agent await         # long-poll for the next event
+
+# Wiki + search (Phase 29.2):
+orenda agent pages list                    # wiki page tree
+orenda agent pages get <slug>              # fetch one page
+orenda agent pages put <slug> --title "T" --file page.md   # upsert ('-'/empty = stdin)
+orenda agent pages move <slug> --parent <page-id>          # reparent (empty = root)
+orenda agent pages backlinks <slug>        # who links here
+orenda agent pages delete <slug>           # delete (children cascade)
+orenda agent search "query" --type page --limit 5          # FTS5 across pages/tasks/comments
 ```
 
 Flags → env → config file. Use `-json` for scripts.
@@ -215,7 +224,50 @@ subcommands:
 ```
 orenda_me / orenda_list_tasks / orenda_claim / orenda_release
 orenda_submit / orenda_context / orenda_await
+orenda_pages_list / orenda_pages_get / orenda_pages_save
+orenda_pages_delete / orenda_pages_move / orenda_search   # Phase 29.3
 ```
+
+### 4.4 "Build me a course on X" — end-to-end, no human clicks (Phase 29)
+
+The user asks for a course; you deliver it ready to study. The whole
+lifecycle is agent-driveable:
+
+```bash
+# 1. Create the draft course. Owned by the system owner; no
+#    generator task is spawned — YOU are the generator.
+curl -s -X POST "$ORENDA_URL/api/v1/agent/courses" \
+  -H "Authorization: Bearer $ORENDA_AGENT_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"title":"Learn OpenCode","intent_md":"beginner, 30 min/day"}'
+# → 201 {"id":"c-1","status":"draft",...}
+
+# 2. Submit the curriculum (modules → lessons → quizzes, one tx).
+curl -s -X PUT "$ORENDA_URL/api/v1/agent/courses/c-1/curriculum" \
+  -H "Authorization: Bearer $ORENDA_AGENT_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"modules":[{"title":"Basics","position":1,"lessons":[
+        {"title":"Intro","position":1,"quizzes":[
+          {"position":1,"question_md":"2+2?","expected_md":"4","kind":"exact"}]},
+        {"title":"Deep dive","position":2}]}]}'
+# → course flips draft → review.
+
+# 3. Materialize each lesson (locked → open) and add quizzes.
+curl -s -X POST "$ORENDA_URL/api/v1/agent/lessons/<lesson-id>/materialize" \
+  -H "Authorization: Bearer $ORENDA_AGENT_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"content_md":"# Intro\n..."}'
+
+# 4. Activate: review → active, first lesson unlocked for the student.
+curl -s -X POST "$ORENDA_URL/api/v1/agent/courses/c-1/activate" \
+  -H "Authorization: Bearer $ORENDA_AGENT_TOKEN"
+# → 200 {"status":"active",...}
+```
+
+Activation from `draft` is rejected (422) — the curriculum must be
+submitted first. The human can still review, request changes, or
+archive at any point; activation just removes the mandatory click.
+
+Use the wiki tools to park reference material the course links to:
+`orenda_pages_save` a page per topic, then `[[slug]]`-link it from
+lesson content.
 
 ---
 
@@ -245,12 +297,21 @@ orenda_submit / orenda_context / orenda_await
 | POST | `/api/v1/agent/tasks/{id}/submit` | Mark ready for human review. |
 | GET | `/api/v1/agent/tasks/{id}/context` | Full snapshot: task + comments + activity + children + checklists. |
 | GET | `/api/v1/agent/courses?status=draft` | Phase 18: courses the tutor can claim. |
+| POST | `/api/v1/agent/courses` | Phase 29.4: create a draft course (owner = system owner, no generator task — you are the generator). |
+| POST | `/api/v1/agent/courses/{id}/activate` | Phase 29.5: review → active (same transition as the owner's Approve click). |
 | PUT | `/api/v1/agent/courses/{id}/curriculum` | Phase 18: tutor's atomic curriculum swap. Phase 27.6: the payload now carries per-lesson `quizzes` (`{position, question_md, expected_md?, kind: 'exact'|'open'}`) and per-module `description`; submit the whole program in one tx. |
 | POST | `/api/v1/agent/lessons/{id}/materialize` | Phase 27.4: tutor writes lesson content (`content_md`, optional `task_id`); lesson flips locked → open. |
 | PUT | `/api/v1/agent/lessons/{id}/content` | Phase 27.4: in-place content update (same handler). |
 | POST | `/api/v1/agent/lessons/{id}/quizzes` | Phase 27.6 (closes Phase 18.6): append a single quiz to an existing lesson without re-submitting the whole curriculum. |
 | POST | `/api/v1/agent/tasks/{id}/comments` | Add a comment authored by the agent (Phase 27.11). |
 | POST | `/api/v1/agent/events/await` | Long-poll for events scoped to the agent's id (Phase 27.11; timeout ≤ 60s). |
+| GET | `/api/v1/agent/pages` | Phase 29.1: wiki page tree. |
+| GET | `/api/v1/agent/pages/{slug}` | Fetch one page. |
+| PUT | `/api/v1/agent/pages/{slug}` | Upsert a page (`{title, content_md, parent_id?}`). `[[slug]]` links are indexed on save. |
+| DELETE | `/api/v1/agent/pages/{slug}` | Delete a page (children cascade). |
+| PATCH | `/api/v1/agent/pages/{slug}/move` | Reparent (`{parent_id}`, empty = root). |
+| GET | `/api/v1/agent/pages/{slug}/backlinks` | Pages linking here. |
+| GET | `/api/v1/agent/search?q=&type=&limit=` | FTS5 across pages/tasks/comments. |
 
 ### 6.2 Common task fields
 

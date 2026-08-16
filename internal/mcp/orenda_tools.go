@@ -179,9 +179,154 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 				}
 			}
 			body := map[string]any{"timeout_s": timeout}
-			return agentPost(ctx, httpc, cfg, "/api/v1/events/await", body)
+			// Phase 29.3: post to the agent-namespace alias. The
+			// pre-29.3 tool targeted the user-side /api/v1/events/await,
+			// which 401s on an opaque agent token (RequireUser accepts
+			// cookie/JWT only) — the MCP await never actually worked.
+			return agentPost(ctx, httpc, cfg, "/api/v1/agent/events/await", body)
 		},
 	})
+
+	// ------------------------------------------------------------------
+	// Phase 29.3: wiki + search tools. Same flat naming as the task
+	// tools; each wraps one agent-namespace endpoint from Phase 29.1.
+	// ------------------------------------------------------------------
+
+	s.Register(Tool{
+		Name:        "orenda_pages_list",
+		Description: "List the wiki page tree (pages + nested children).",
+		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+			return agentGet(ctx, httpc, cfg, "/api/v1/agent/pages")
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_pages_get",
+		Description: "Fetch a wiki page by slug (title + markdown content).",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"slug"},
+			"properties": map[string]any{
+				"slug": map[string]any{"type": "string"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			slug, _ := params["slug"].(string)
+			if slug == "" {
+				return nil, fmt.Errorf("orenda_pages_get: slug is required")
+			}
+			return agentGet(ctx, httpc, cfg, "/api/v1/agent/pages/"+url.PathEscape(slug))
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_pages_save",
+		Description: "Create or update a wiki page (upsert by slug). Markdown content; [[slug]] links are indexed automatically.",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"slug", "title"},
+			"properties": map[string]any{
+				"slug":       map[string]any{"type": "string"},
+				"title":      map[string]any{"type": "string"},
+				"content_md": map[string]any{"type": "string", "description": "Markdown body"},
+				"parent_id":  map[string]any{"type": "string", "description": "Parent page id (omit = root)"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			slug, _ := params["slug"].(string)
+			title, _ := params["title"].(string)
+			if slug == "" || title == "" {
+				return nil, fmt.Errorf("orenda_pages_save: slug and title are required")
+			}
+			body := map[string]any{
+				"slug":       slug,
+				"title":      title,
+				"content_md": stringParam(params, "content_md"),
+			}
+			if p := stringParam(params, "parent_id"); p != "" {
+				body["parent_id"] = p
+			}
+			return agentPut(ctx, httpc, cfg, "/api/v1/agent/pages/"+url.PathEscape(slug), body)
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_pages_delete",
+		Description: "Delete a wiki page by slug (children cascade).",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"slug"},
+			"properties": map[string]any{
+				"slug": map[string]any{"type": "string"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			slug, _ := params["slug"].(string)
+			if slug == "" {
+				return nil, fmt.Errorf("orenda_pages_delete: slug is required")
+			}
+			return agentDelete(ctx, httpc, cfg, "/api/v1/agent/pages/"+url.PathEscape(slug))
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_pages_move",
+		Description: "Move a wiki page under a new parent (empty parent_id = root).",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"slug", "parent_id"},
+			"properties": map[string]any{
+				"slug":      map[string]any{"type": "string"},
+				"parent_id": map[string]any{"type": "string", "description": "New parent page id; empty string moves to root"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			slug, _ := params["slug"].(string)
+			parent, ok := params["parent_id"].(string)
+			if slug == "" || !ok {
+				return nil, fmt.Errorf("orenda_pages_move: slug and parent_id are required")
+			}
+			return agentPatch(ctx, httpc, cfg,
+				"/api/v1/agent/pages/"+url.PathEscape(slug)+"/move",
+				map[string]any{"parent_id": parent})
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_search",
+		Description: "Full-text search across wiki pages, tasks, and comments (FTS5, snippet-highlighted).",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"query"},
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string"},
+				"type":  map[string]any{"type": "string", "description": "Restrict to a hit type (page|task|comment)"},
+				"limit": map[string]any{"type": "integer", "description": "Max hits"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			q, _ := params["query"].(string)
+			if q == "" {
+				return nil, fmt.Errorf("orenda_search: query is required")
+			}
+			v := url.Values{}
+			v.Set("q", q)
+			if t := stringParam(params, "type"); t != "" {
+				v.Set("type", t)
+			}
+			if l, ok := params["limit"].(float64); ok {
+				v.Set("limit", fmt.Sprintf("%d", int(l)))
+			}
+			return agentGet(ctx, httpc, cfg, "/api/v1/agent/search?"+v.Encode())
+		},
+	})
+}
+
+// stringParam reads an optional string parameter.
+func stringParam(params map[string]any, key string) string {
+	s, _ := params[key].(string)
+	return s
 }
 
 // agentGet issues a GET against the agent namespace.
@@ -202,6 +347,26 @@ func agentGet(ctx context.Context, c *http.Client, cfg ServerConfig, path string
 func agentPost(
 	ctx context.Context, c *http.Client, cfg ServerConfig, path string, body any,
 ) (any, error) {
+	return agentWrite(ctx, c, cfg, http.MethodPost, path, body)
+}
+
+// agentPut / agentPatch / agentDelete complete the verb set for the
+// Phase 29.3 wiki tools.
+func agentPut(ctx context.Context, c *http.Client, cfg ServerConfig, path string, body any) (any, error) {
+	return agentWrite(ctx, c, cfg, http.MethodPut, path, body)
+}
+
+func agentPatch(ctx context.Context, c *http.Client, cfg ServerConfig, path string, body any) (any, error) {
+	return agentWrite(ctx, c, cfg, http.MethodPatch, path, body)
+}
+
+func agentDelete(ctx context.Context, c *http.Client, cfg ServerConfig, path string) (any, error) {
+	return agentWrite(ctx, c, cfg, http.MethodDelete, path, nil)
+}
+
+func agentWrite(
+	ctx context.Context, c *http.Client, cfg ServerConfig, method, path string, body any,
+) (any, error) {
 	var rdr io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -210,7 +375,7 @@ func agentPost(
 		}
 		rdr = bytes.NewReader(raw)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.OrendaBaseURL+path, rdr)
+	req, err := http.NewRequestWithContext(ctx, method, cfg.OrendaBaseURL+path, rdr)
 	if err != nil {
 		return nil, err
 	}

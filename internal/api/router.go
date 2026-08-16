@@ -579,9 +579,16 @@ func NewRouter(deps *Dependencies) http.Handler {
 				// the WS hub and the agent id is the filter key.
 				r.Post("/agent/events/await", agentAwaitHandler(deps))
 				// Phase 18: courses for the tutor agent.
+				// Phase 29.4/29.5: the agent can also create a course
+				// (owner = first non-system user, generator task
+				// skipped — the agent IS the generator) and drive it
+				// review → active without a human click. The human
+				// approve gate in the UI is unchanged.
 				r.Route("/agent/courses", func(r chi.Router) {
 					r.Get("/", listCoursesHandlerAgent(deps))
+					r.Post("/", createCourseHandlerAgent(deps))
 					r.Put("/{id}/curriculum", submitCurriculumHandlerAgent(deps))
+					r.Post("/{id}/activate", activateCourseHandlerAgent(deps))
 				})
 				// Phase 27.4: lesson materialization. The tutor writes
 				// the lesson body and links an exercise task; the

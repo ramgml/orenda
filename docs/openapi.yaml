@@ -1570,6 +1570,45 @@ paths:
       summary: List courses (tutor's view; ?status=draft filters).
       security: [{ bearerAuth-agent: [] }]
       responses: { '200': { description: ok } }
+    post:
+      tags: [agent, courses]
+      summary: Create a draft course (Phase 29.4) — "agent, build me a course on X".
+      description: |
+        The course is owned by the first non-system user
+        (single-owner install). The generator task is NOT spawned —
+        the calling agent is the generator (SkipGenerator is
+        forced). Follow with PUT curriculum, materialize the
+        lessons, then POST activate; no human click is required.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                intent_md: { type: string }
+      responses:
+        '201': { description: created (draft course) }
+        '400': { description: missing_title | invalid_json }
+        '503': { description: owner_not_configured (no human user yet) }
+
+  # Phase 29.5: agent-side activation. Shares the approve path with
+  # POST /api/v1/courses/{id}/approve (review → active, first
+  # lesson unlocked). The human-approve gate in the UI is
+  # unchanged; this endpoint removes the mandatory click from the
+  # "agent builds the whole course" scenario.
+  /api/v1/agent/courses/{id}/activate:
+    post:
+      tags: [agent, courses]
+      summary: Activate a course (review → active), same transition as owner approve.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
 
   /api/v1/agent/courses/{id}/curriculum:
     put:
