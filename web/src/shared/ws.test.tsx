@@ -49,14 +49,20 @@ describe('useWebSocketTopic', () => {
       { initialProps: { step: 1 } },
     );
 
+    const firstHandler = [...(listenersOf('tasks') ?? [])][0];
     expect(listenersOf('tasks')?.size).toBe(1);
 
     rerender({ step: 2 });
     rerender({ step: 3 });
     rerender({ step: 4 });
 
-    // Still one subscription — no unsubscribe/resubscribe churn.
+    // Still one subscription — and the SAME registered handler identity.
+    // (Depending on `fn` would swap the registered listener on every
+    // rerender; the gap between unsubscribe and resubscribe is where
+    // events were lost.)
     expect(listenersOf('tasks')?.size).toBe(1);
+    const currentHandler = [...(listenersOf('tasks') ?? [])][0];
+    expect(currentHandler).toBe(firstHandler);
 
     // And the live handler is the latest render's closure.
     dispatch('tasks');
