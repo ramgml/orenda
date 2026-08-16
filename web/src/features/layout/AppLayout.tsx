@@ -15,10 +15,12 @@
  */
 import { Suspense, useCallback, useState } from 'react';
 import { Outlet } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { ProjectSidebar } from '@/features/sidebar/ProjectSidebar';
 import { SidebarProvider, useSidebar } from '@/features/sidebar/SidebarContext';
-import { useWebSocketConnection } from '@/shared/ws';
+import { agentsQueryKey } from '@/shared/hooks/useAgents';
+import { useWebSocketConnection, useWebSocketTopic } from '@/shared/ws';
 
 import { AppTopBar } from './AppTopBar';
 
@@ -36,6 +38,16 @@ function AppLayoutInner(): JSX.Element {
   // having to subscribe. The connection itself is owned by the
   // singleton wsClient; this hook only drives connect/disconnect.
   useWebSocketConnection();
+
+  // Phase 28.23: agent lifecycle events (register/delete/heartbeat
+  // status flips) live on the `agents` WS topic. Invalidating the
+  // shared agents query here keeps every consumer (AgentsPage,
+  // kanban AssigneeChip labels, sidebar badge) fresh without each
+  // page wiring its own subscription.
+  const queryClient = useQueryClient();
+  useWebSocketTopic('agents', () => {
+    void queryClient.invalidateQueries({ queryKey: agentsQueryKey });
+  });
 
   const { collapsed } = useSidebar();
   const [mobileOpen, setMobileOpen] = useState(false);
