@@ -593,6 +593,25 @@ func NewRouter(deps *Dependencies) http.Handler {
 					// lesson without re-submitting the whole tree.
 					r.Post("/{id}/quizzes", addQuizHandlerAgent(deps))
 				})
+				// Phase 29.1: agent wiki + search. The wiki handlers
+				// never read the user session (grep-verified: no
+				// IdentityFrom/userIDFromCtx in handlers_wiki.go), so
+				// they mount verbatim — the same service, the same
+				// markdown mirror and WS events the user side gets.
+				// wiki_pages has no owner column, so there is no
+				// permission model to bypass. PUT /{slug} is the
+				// upsert (create + update in one verb); no bare POST.
+				r.Route("/agent/pages", func(r chi.Router) {
+					r.Get("/", listPagesHandler(deps))
+					r.Route("/{slug}", func(r chi.Router) {
+						r.Get("/", getPageHandler(deps))
+						r.Put("/", savePageHandler(deps))
+						r.Delete("/", deletePageHandler(deps))
+						r.Patch("/move", movePageHandler(deps))
+						r.Get("/backlinks", getPageBacklinksHandler(deps))
+					})
+				})
+				r.Get("/agent/search", searchHandler(deps))
 			})
 		}
 	})
