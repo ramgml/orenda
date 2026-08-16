@@ -35,6 +35,9 @@ func (f *fakeRepo) GetByID(_ context.Context, id string) (*task.Task, error) {
 func (f *fakeRepo) ListByProject(context.Context, task.Filter) ([]*task.Task, error) {
 	return nil, nil
 }
+func (f *fakeRepo) ListByDueBetween(context.Context, time.Time, time.Time) ([]*task.Task, error) {
+	return nil, nil
+}
 func (f *fakeRepo) ListChildren(context.Context, string) ([]*task.Task, error) {
 	return nil, nil
 }

@@ -603,6 +603,17 @@ class ApiClient {
     return this.http.get<{ tasks: Task[] }>('/api/v1/inbox/tasks', { params }).then((r) => r.data);
   }
 
+  /**
+   * Phase 30.8: tasks with a due_at in [from, to]. The calendar uses
+   * this to render deadlines alongside timed events. The returned
+   * tasks are unordered by the API; the calendar sorts by date.
+   */
+  tasksWithDue(params: { from: string; to: string }): Promise<{ tasks: Task[] }> {
+    return this.http
+      .get<{ tasks: Task[] }>('/api/v1/tasks/with-due', { params })
+      .then((r) => r.data);
+  }
+
   /** Create a task with project_id explicitly empty (Inbox). */
   createInboxTask(input: {
     title: string;
