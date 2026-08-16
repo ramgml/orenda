@@ -1,3 +1,8 @@
+---
+name: orenda
+description: Work with the Orenda productivity suite (tasks, kanban, wiki, courses) via REST API, `orenda agent` CLI, or MCP tools. Use when the user mentions Orenda, orenda tasks, claiming/submitting tasks, agent delegation loop, review queue, inbox, or importing notes into Orenda.
+---
+
 # Orenda — Agent Skill
 
 > **Audience:** AI agents that work with Orenda via its REST API or the `orenda agent` CLI.
