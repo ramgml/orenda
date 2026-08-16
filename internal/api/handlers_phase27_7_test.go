@@ -308,3 +308,30 @@ func TestPatchTask_StatusDoneWithExplicitCompletedAt_RespectsCaller(t *testing.T
 	require.NotNil(t, got.CompletedAt)
 	assert.Equal(t, explicit, got.CompletedAt.UTC().Format(time.RFC3339))
 }
+
+func TestBulkPatchTasks_AppliesSharedSideEffectsAndReportsMissingIDs(t *testing.T) {
+	f := p27_7Deps(t)
+	a := p27_7_makeTask(t, f, "Bulk A")
+	b := p27_7_makeTask(t, f, "Bulk B")
+
+	rr := doReq(f.router, http.MethodPost, "/api/v1/tasks/bulk-edit", f.cookie, map[string]any{
+		"task_ids": []string{a.ID, b.ID, "missing-task"},
+		"patch":    map[string]any{"status": "done", "priority": "high"},
+	})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	var body struct {
+		Tasks  []task.Task       `json:"tasks"`
+		Errors map[string]string `json:"errors"`
+	}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
+	assert.Len(t, body.Tasks, 2)
+	assert.Contains(t, body.Errors, "missing-task")
+
+	for _, id := range []string{a.ID, b.ID} {
+		got := p27_7_fetchTask(t, f.router, f.cookie, id)
+		assert.Equal(t, task.StatusDone, got.Status)
+		assert.Equal(t, task.PriorityHigh, got.Priority)
+		assert.NotNil(t, got.CompletedAt)
+		assert.Equal(t, task.AwaitingNone, got.Awaiting)
+	}
+}

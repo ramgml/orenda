@@ -333,6 +333,7 @@ func NewRouter(deps *Dependencies) http.Handler {
 				// calendar uses this to render deadlines alongside
 				// timed events. Empty from/to → 400 invalid_input.
 				r.Get("/with-due", tasksWithDueHandler(deps))
+				r.Post("/bulk-edit", bulkPatchTasksHandler(deps))
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", getTaskHandler(deps))
 					r.Patch("/", patchTaskHandler(deps))

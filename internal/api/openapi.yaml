@@ -393,10 +393,24 @@ paths:
   /api/v1/columns/{id}:
     patch:
       tags: [projects]
-      summary: Update a column (name/wip_limit/color).
+      summary: Update a column (name/position/wip_limit/color/status).
       security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                position: { type: number }
+                wip_limit: { type: integer, minimum: 0, nullable: true }
+                color: { type: string }
+                status: { type: string, pattern: '^[a-z][a-z0-9_]*$' }
       responses:
         '200': { description: ok }
+        '400': { description: invalid status or input }
+        '409': { description: duplicate status on this board }
         '422': { description: wip_limit_too_small }
     delete:
       tags: [projects]
@@ -407,6 +421,35 @@ paths:
         '422': { description: column_not_empty }
 
   # ---- tasks ----
+  /api/v1/tasks/bulk-edit:
+    post:
+      tags: [tasks]
+      summary: Apply one partial task patch to several tasks.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [task_ids, patch]
+              properties:
+                task_ids:
+                  type: array
+                  minItems: 1
+                  items: { type: string }
+                patch:
+                  type: object
+                  properties:
+                    status: { type: string }
+                    priority: { type: string, enum: [low, medium, high, urgent] }
+                    assignee_type: { type: string }
+                    assignee_id: { type: string }
+                    completed_at: { type: string, format: date-time, nullable: true }
+      responses:
+        '200':
+          description: Updated tasks and per-task errors (if any).
+        '400': { description: invalid request }
   /api/v1/tasks/with-due:
     get:
       tags: [tasks]
