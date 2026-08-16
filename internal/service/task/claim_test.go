@@ -271,4 +271,35 @@ func TestService_Review_InvalidDecision(t *testing.T) {
 	assert.ErrorIs(t, err, taskservice.ErrInvalidInput)
 }
 
+// TestService_Review_RejectsWithoutComment pins Phase 30.7: a
+// reject with no comment is a reject without a reason — the agent
+// doesn't know what to fix. Approve without a comment is still
+// legal (some approvals are silent ack).
+func TestService_Review_RejectsWithoutComment(t *testing.T) {
+	db, svc, _, _, _ := setupClaimDB(t)
+	users := sqlite.NewUserRepository(db)
+	owner := &user.User{Email: "revnoc-" + newUUIDLite()[:8] + "@x.com", PasswordHash: "x", DisplayName: "O"}
+	require.NoError(t, users.Create(context.Background(), owner))
+	projRepo := sqlite.NewProjectRepository(db)
+	p, _, cols, _ := projRepo.CreateProject(context.Background(), &project.Project{Name: "RN", OwnerID: owner.ID})
+	tasks := sqlite.NewTaskRepository(db)
+	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "x"}
+	require.NoError(t, tasks.Create(context.Background(), tr))
+	_, err := svc.Submit(context.Background(), tr.ID, seedAgent(t, db, "agent1"), "")
+	require.NoError(t, err)
+
+	// Empty comment is rejected as invalid input.
+	_, err = svc.Review(context.Background(), tr.ID, owner.ID, taskservice.ReviewReject, "")
+	assert.ErrorIs(t, err, taskservice.ErrInvalidInput)
+
+	// Whitespace-only is also rejected (no reason = no reason).
+	_, err = svc.Review(context.Background(), tr.ID, owner.ID, taskservice.ReviewReject, "   \n  ")
+	assert.ErrorIs(t, err, taskservice.ErrInvalidInput)
+
+	// Approve with empty comment is still allowed (silent ack).
+	approved, err := svc.Review(context.Background(), tr.ID, owner.ID, taskservice.ReviewApprove, "")
+	require.NoError(t, err)
+	assert.Equal(t, task.StatusDone, approved.Status)
+}
+
 var _ = agent.StatusOnline // keep import
