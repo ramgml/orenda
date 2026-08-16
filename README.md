@@ -136,6 +136,7 @@ with Prettier before each commit. Skip with
 | 30.10 (QuickCapture due) | ✅ | The hotkey-triggered QuickCapture modal now has an optional `<input type="date">` for setting a due date on the captured task. Leave it empty for one-keystroke capture; pick a date to schedule the idea |
 | 30.11 (WIP feedback) | ✅ | Dragging into a column that's at its WIP limit now surfaces a specific toast with the column's N-of-M count (instead of the raw backend error). Columns at the limit are ringed amber so the bottleneck is visible without opening the column header |
 | 30.12 (time badges) | ✅ | `TaskCard` shows ⏱ spent/estimate in H:MM:SS (red on over-budget) and a pulsing ● marker when a single-active-timer is open. Leaked timers stay visible even in compact mode |
+| 30.15 (ops scripts) | ✅ | `uninstall.sh` rejects unknown flags (was silently dropping them) and has `--help`. `update-dogfood.sh` has `--help`, `--force`, and `--remote <name>`. Smoke tests in `scripts/test_scripts.sh` cover both scripts' flag parsing |
 
 > Screenshots: not bundled in the repo (kept light — no binary blobs).
 > Run `make build && bin/orenda serve` and visit the four key pages:
