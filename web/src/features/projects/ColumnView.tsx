@@ -84,13 +84,25 @@ export function ColumnView({
     openTaskModal(navigate, location, taskId);
   }
 
+  // Phase 30.11: a column is "at-limit" when the saved WIP limit is
+  // non-null and the live card count has reached it. We visualise
+  // this with a red ring so the operator sees the bottleneck
+  // without opening the column header. (A column that's *over* the
+  // limit isn't possible — Move rejects — but we render the
+  // at-limit state anyway because dnd-kit can momentarily show the
+  // optimistic position before the 422 arrives.)
+  const atLimit =
+    wipLimit != null && wipLimit > 0 && tasks.length >= wipLimit;
+
   return (
     <div
       ref={setNodeRef}
       className={`rounded-lg border bg-slate-50 dark:bg-slate-900 p-3 flex flex-col min-h-[200px] transition-colors ${
         isOver
           ? 'border-orenda-500 bg-orenda-50 dark:bg-orenda-900/20'
-          : 'border-slate-200 dark:border-slate-800'
+          : atLimit
+            ? 'border-amber-400 dark:border-amber-500 ring-1 ring-amber-300/40 dark:ring-amber-500/30'
+            : 'border-slate-200 dark:border-slate-800'
       }`}
     >
       <div

@@ -169,7 +169,24 @@ export function KanbanBoard({
         await api.moveTask(activeId, targetColumnId);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // Phase 30.11: surface the WIP limit as a specific toast with
+      // "N из M" rather than the raw backend message. The server
+      // returns error: "wip_limit" (422) — we recognise it and
+      // substitute the column-specific counter from local state so
+      // the operator knows which limit they hit.
+      const raw = e instanceof Error ? e.message : String(e);
+      const targetCol = cols.find((c) => c.id === targetColumnId);
+      if (/wip[_-]?limit/i.test(raw) && targetCol?.wip_limit != null) {
+        const cardsInTarget = tasks.filter(
+          (t) => t.column_id === targetColumnId && t.id !== activeId,
+        ).length;
+        const limit = targetCol.wip_limit;
+        setError(
+          `Column "${targetCol.name}" is at WIP limit (${cardsInTarget} of ${limit}). Pick another column or finish a task first.`,
+        );
+      } else {
+        setError(raw);
+      }
       setTasks(prev);
     }
   }
