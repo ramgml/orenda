@@ -553,6 +553,3 @@ func getTaskContextHandler(deps *Dependencies) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, out)
 	}
 }
-
-// keep activity import live even when only some handlers use it.
-var _ = activity.ActorUser

@@ -124,17 +124,10 @@ func deleteAgentHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
-// heartbeatRequest is the JSON body for POST /api/v1/agents/:id/heartbeat.
-type heartbeatRequest struct {
-	Status string `json:"status"`
-}
-
 // heartbeatHandler updates last_seen_at + status for an agent.
+// The body is optional and currently carries no fields we act on.
 func heartbeatHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req heartbeatRequest
-		_ = json.NewDecoder(r.Body).Decode(&req)
-
 		a, err := deps.Agents.TouchLastSeen(r.Context(), chi.URLParam(r, "id"))
 		if err != nil {
 			writeError(w, err)

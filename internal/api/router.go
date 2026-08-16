@@ -25,8 +25,6 @@
 //	GET    /api/v1/inbox/tasks
 //	POST   /api/v1/inbox/tasks
 //	GET    /*
-//
-// Authentication, REST resources, and WebSocket land in later phases.
 package api
 
 import (

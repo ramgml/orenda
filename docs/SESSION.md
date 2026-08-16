@@ -261,7 +261,18 @@
 
 **Smoke (verified):** fresh clone в /tmp → `install.sh --force` проходит end-to-end (build + install + config + env); бинарь стартует со сгенерированным секретом; флуд login: ~59×401 → 429. **Tests:** `go test ./...` зелёный (30/30), vitest 246/246, `make test-e2e` 18/18.
 
-**За скобкой (новый бэклог из аудита 2026-08-16):** нет CI (все гейты локальные); `uninstall.sh` глотает неизвестные флаги; `update-dogfood.sh` хардкодит `origin`; `sync_ops` record-errors проглатываются; backend-свип (N+1 в `listAgentTasksHandler`, мёртвый код, vet-finding) → Phase 28.22; frontend-фундамент (WS-race в `useWebSocketTopic`, deps-хигиена, density-toggle UI) → Phase 28.23.
+**За скобкой (новый бэклог из аудита 2026-08-16):** нет CI (все гейты локальные); `uninstall.sh` глотает неизвестные флаги; `update-dogfood.sh` хардкодит `origin`; `sync_ops` record-errors проглатываются; backend-свип (N+1 в `listAgentTasksHandler`, мёртвый код, vet-finding) → **закрыт в Phase 28.22**; frontend-фундамент (WS-race в `useWebSocketTopic`, deps-хигиена, density-toggle UI) → Phase 28.23.
+
+## Phase 28.22 — backend sweep *(2026-08-16)*
+
+**Цель:** механическая зачистка backend-находок аудита 2026-08-16.
+
+- **N+1 закрыт:** `task.Repository.BlockersForTasks(ctx, ids)` — batch-форма `Blockers` (по образцу `TagsForTasks`, 27.3); `listAgentTasksHandler` делает 1 запрос на листинг вместо N. Тест `TestTaskRepo_BlockersForTasks`.
+- **Full-scan в `/today` закрыт:** новый `Filter.IDs`; enrichment идёт только по видимым id (раньше — 5 aggregate-запросов по всей БД + мёртвый `ids`-loop). Тест `TestTaskRepo_ListByProject_IDsFilter`.
+- **`go vet` чистый:** единственный finding (мёртвый `RecordOld` с недостижимым дублем в `move_test.go`) удалён.
+- **Мёртвый код:** дважды дублированный suppression-блок + stale RRULE-комментарий в `event.go` (RRULE жив — `handlers_calendar.go` зовёт `ExpandRecurrence`); no-op `newUUID() → ""`; ручной `/dev/urandom` UUID в `backup.go` → `uuid.NewString()`; три `var _ = ...` import-заглушки; мёртвый `heartbeatRequest` decode; мёртвый `ownerID` в `handlers_courses.go`; stale-комментарии `router.go`/`config.go`.
+
+**Verify:** `go build` + `go vet` чистые; `go test ./...` 30/30 ok; golangci-lint 97 → 95 (роста нет).
 
 ## Метаданные
 
@@ -407,7 +418,7 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 - **Phase 15 close-out (agent UX контракт)** — **закрыта 2026-08-14** в `phase-15-agent-context`. (1) `409 lock_taken` теперь несёт `holder_agent_id`/`holder_agent_name`/`claimed_at` (раньше `taskLockRepo.Holder` был написан, но не подключён); (2) `/tasks/:id/context` и `/agent/tasks/{id}/context` несут `blocked_by` (open dependency ids) + `lock_holder` (agent_id/agent_name/acquired_at); (3) `?ready=true` исключает задачи, занятые самим агентом (раньше шумели в очереди). 6 handler-тестов, OpenAPI оба файла синхронны.
 - **Phase 28.21 (ops-hardening)** — **закрыта 2026-08-16** в `phase-28-21-ops-hardening`. Login rate-limit восстановлен, `configs/config.example.yaml` tracked (install.sh больше не падает на fresh clone), JWT-секрет генерируется в `$DATA_DIR/env` (mode 600), LWW-семантика Phase 8 зафиксирована документально.
 - **Multi-user / multi-device sync (Phase 11+)** — следующая эра.
-- **Аудит 2026-08-16 — открытые находки:** нет CI; `uninstall.sh` без `--help`/валидации флагов; `update-dogfood.sh` хардкодит remote `origin`; `sync_ops` write-errors проглатываются молча. Backend-свип → Phase 28.22 (N+1 в `listAgentTasksHandler`, `handlers_today.go` full-scan, `go vet` finding, мёртвый код). Frontend-фундамент → Phase 28.23 (WS-race в `useWebSocketTopic`, zustand/idb deps, density toggle UI, `AuthContext` тесты).
+- **Аудит 2026-08-16 — открытые находки:** нет CI; `uninstall.sh` без `--help`/валидации флагов; `update-dogfood.sh` хардкодит remote `origin`; `sync_ops` write-errors проглатываются молча. Frontend-фундамент → Phase 28.23 (WS-race в `useWebSocketTopic`, zustand/idb deps, density toggle UI, `AuthContext` тесты).
 - **Lint остаток (95 issues):** 45 hugeParam non-api (per Phase 28.15 commit); 15 unparam, 7 nilnil, 5 contextcheck — механические фиксы с diminishing returns. Не блокируют dogfooding.
 
 ## Файлы

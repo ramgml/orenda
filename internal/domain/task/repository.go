@@ -30,6 +30,11 @@ type Filter struct {
 	AssigneeType AssigneeType
 	AssigneeID   string
 	ParentTaskID *string
+	// IDs restricts the result to the given task ids (Phase 28.22).
+	// Composable with the other clauses; empty = no restriction. Used
+	// by the /today handler to enrich only the visible tasks instead
+	// of scanning the whole table.
+	IDs []string
 }
 
 // Repository persists and retrieves Tasks, Checklists and Tags.
@@ -158,6 +163,12 @@ type Repository interface {
 	// edge, regardless of status) and let the caller filter — that
 	// way the UI can render "blocked by N (M still open)".
 	Blockers(ctx context.Context, taskID string) ([]BlockerRow, error)
+	// BlockersForTasks is the batch form of Blockers (Phase 28.22):
+	// one round-trip for many task ids, keyed by task id. Every input
+	// id gets an entry (possibly an empty slice) so callers can
+	// distinguish "no blockers" from "not queried". Used by the agent
+	// ready-listing to avoid a per-task N+1.
+	BlockersForTasks(ctx context.Context, taskIDs []string) (map[string][]BlockerRow, error)
 	// Dependents returns tasks that depend on taskID (reverse lookup).
 	Dependents(ctx context.Context, taskID string) ([]string, error)
 

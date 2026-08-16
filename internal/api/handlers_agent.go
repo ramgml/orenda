@@ -13,7 +13,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ramgml/orenda/internal/api/ws"
-	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/task"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 )
@@ -215,8 +214,3 @@ func agentTaskContextHandler(deps *Dependencies) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, out)
 	}
 }
-
-// suppress unused-import warning for task/agent in this file when tests
-// are minimal; keeps the dependency surface honest.
-var _ = task.StatusInProgress
-var _ = agent.StatusOnline

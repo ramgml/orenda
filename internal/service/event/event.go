@@ -59,9 +59,7 @@ func (s *Service) Create(ctx context.Context, e *event.Event) (*event.Event, err
 		return nil, err
 	}
 	t := taskFromEvent(e, e.ProjectID)
-	if t.ID == "" {
-		t.ID = newUUID()
-	}
+	// An empty t.ID is fine — the task repo assigns a UUIDv7 on Create.
 	// Park the new task in the project's first kanban column so it
 	// shows up on the project page. Without this, column_id stays
 	// NULL and the kanban's "group by column" loop never renders
@@ -391,29 +389,7 @@ func (s *Service) createTask(ctx context.Context, t *task.Task) (*task.Task, err
 }
 
 // ---------------------------------------------------------------------------
-// Recurrence helpers — kept around for API stability (ExpandRecurrence is
-// still exported) but the underlying RRULE machinery isn't used. New code
-// should not depend on it.
+// Recurrence helpers. ExpandRecurrence above is live: the calendar list
+// handler (handlers_calendar.go) expands RRULE masters into occurrences
+// for the requested window (Phase 23.3).
 // ---------------------------------------------------------------------------
-
-var (
-	_ = strconv.Itoa
-	_ = strings.TrimSpace
-)
-
-// ---------------------------------------------------------------------------
-// Recurrence helpers — kept around for API stability (ExpandRecurrence is
-// still exported) but the underlying RRULE machinery isn't used. New code
-// should not depend on it.
-// ---------------------------------------------------------------------------
-
-var (
-	_ = strconv.Itoa
-	_ = strings.TrimSpace
-)
-
-// newUUID is a small helper. The task.Create repo already assigns an
-// id when one is empty, so this just returns a placeholder.
-func newUUID() string {
-	return ""
-}

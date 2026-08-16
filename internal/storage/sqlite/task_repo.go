@@ -135,6 +135,15 @@ func (r *taskRepo) ListByProject(ctx context.Context, f task.Filter) ([]*task.Ta
 			args = append(args, *f.ParentTaskID)
 		}
 	}
+	// Phase 28.22: explicit id restriction (e.g. /today enriches only
+	// the visible tasks instead of scanning the whole table).
+	if len(f.IDs) > 0 {
+		placeholders := strings.Repeat("?, ", len(f.IDs)-1) + "?"
+		clauses = append(clauses, "id IN ("+placeholders+")")
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
 
 	q := selectTaskColumns
 	if len(clauses) > 0 {
@@ -914,6 +923,50 @@ func (r *taskRepo) Blockers(ctx context.Context, taskID string) ([]task.BlockerR
 			b.Done = true
 		}
 		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// BlockersForTasks is the batch form of Blockers (Phase 28.22): one
+// query for many task ids, keyed by task id. Pre-populates an empty
+// slice per input id so untagged/unblocked tasks read as "no blockers"
+// rather than "missing key".
+func (r *taskRepo) BlockersForTasks(ctx context.Context, taskIDs []string) (map[string][]task.BlockerRow, error) {
+	out := make(map[string][]task.BlockerRow, len(taskIDs))
+	for _, id := range taskIDs {
+		out[id] = make([]task.BlockerRow, 0)
+	}
+	if len(taskIDs) == 0 {
+		return out, nil
+	}
+	placeholders := strings.Repeat("?, ", len(taskIDs)-1) + "?"
+	args := make([]any, len(taskIDs))
+	for i, id := range taskIDs {
+		args[i] = id
+	}
+	q := `SELECT d.task_id, dep.id, dep.title, dep.status, dep.completed_at
+	      FROM task_dependencies d
+	      JOIN tasks dep ON dep.id = d.depends_on_task_id
+	      WHERE d.task_id IN (` + placeholders + `)
+	      ORDER BY dep.title ASC`
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("task.BlockersForTasks: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			taskID    string
+			b         task.BlockerRow
+			completed sql.NullString
+		)
+		if err := rows.Scan(&taskID, &b.BlockerID, &b.Title, &b.Status, &completed); err != nil {
+			return nil, fmt.Errorf("task.BlockersForTasks: scan: %w", err)
+		}
+		if b.Status == task.StatusDone || completed.Valid {
+			b.Done = true
+		}
+		out[taskID] = append(out[taskID], b)
 	}
 	return out, rows.Err()
 }

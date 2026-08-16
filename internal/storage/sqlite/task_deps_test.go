@@ -114,3 +114,81 @@ func TestTaskRepo_Dependencies_DoneFlag(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.True(t, got[0].Done, "B is done → blocker is satisfied")
 }
+
+// TestTaskRepo_BlockersForTasks covers the batch form added in
+// Phase 28.22 (one round-trip for many ids; every input id gets an
+// entry, possibly empty).
+func TestTaskRepo_BlockersForTasks(t *testing.T) {
+	db := setupUserDB(t)
+	p, col := setupTaskProject(t, db)
+	repo := NewTaskRepository(db)
+	ctx := context.Background()
+
+	a := &task.Task{ProjectID: p.ID, ColumnID: col.ID, Title: "A"}
+	b := &task.Task{ProjectID: p.ID, ColumnID: col.ID, Title: "B"}
+	c := &task.Task{ProjectID: p.ID, ColumnID: col.ID, Title: "C"}
+	d := &task.Task{ProjectID: p.ID, ColumnID: col.ID, Title: "D"}
+	for _, tr := range []*task.Task{a, b, c, d} {
+		require.NoError(t, repo.Create(ctx, tr))
+	}
+
+	// A blocked by B and C; D has no blockers.
+	require.NoError(t, repo.SetTaskDependencies(ctx, a.ID, []string{b.ID, c.ID}))
+
+	got, err := repo.BlockersForTasks(ctx, []string{a.ID, d.ID})
+	require.NoError(t, err)
+	require.Len(t, got[a.ID], 2)
+	assert.Equal(t, "B", got[a.ID][0].Title)
+	assert.Equal(t, "C", got[a.ID][1].Title)
+	assert.NotNil(t, got[d.ID], "unblocked task gets an entry")
+	assert.Empty(t, got[d.ID])
+
+	// Done flag propagates through the batch form.
+	c.Status = task.StatusDone
+	require.NoError(t, repo.Update(ctx, c))
+	got, err = repo.BlockersForTasks(ctx, []string{a.ID})
+	require.NoError(t, err)
+	require.Len(t, got[a.ID], 2)
+	open := 0
+	for _, row := range got[a.ID] {
+		if !row.Done {
+			open++
+		}
+	}
+	assert.Equal(t, 1, open, "one blocker satisfied, one still open")
+
+	// Empty input → empty map.
+	got, err = repo.BlockersForTasks(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+// TestTaskRepo_ListByProject_IDsFilter covers Filter.IDs (Phase 28.22):
+// the /today handler uses it to enrich only the visible tasks.
+func TestTaskRepo_ListByProject_IDsFilter(t *testing.T) {
+	db := setupUserDB(t)
+	p, col := setupTaskProject(t, db)
+	repo := NewTaskRepository(db)
+	ctx := context.Background()
+
+	a := &task.Task{ProjectID: p.ID, ColumnID: col.ID, Title: "A"}
+	b := &task.Task{ProjectID: p.ID, ColumnID: col.ID, Title: "B"}
+	c := &task.Task{ProjectID: p.ID, ColumnID: col.ID, Title: "C"}
+	for _, tr := range []*task.Task{a, b, c} {
+		require.NoError(t, repo.Create(ctx, tr))
+	}
+
+	got, err := repo.ListByProject(ctx, task.Filter{IDs: []string{a.ID, c.ID}})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	ids := []string{got[0].ID, got[1].ID}
+	assert.Contains(t, ids, a.ID)
+	assert.Contains(t, ids, c.ID)
+
+	// WithStats path honours the same restriction (and still enriches).
+	enriched, err := repo.ListByProjectWithStats(ctx, task.Filter{IDs: []string{b.ID}})
+	require.NoError(t, err)
+	require.Len(t, enriched, 1)
+	assert.Equal(t, b.ID, enriched[0].ID)
+	assert.NotNil(t, enriched[0].Tags, "enrichment pre-populates tags")
+}
