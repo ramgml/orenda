@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -163,6 +164,10 @@ func createColumnHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		created, err := deps.Projects.CreateColumn(r.Context(), projectID, col)
 		if err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "status_exists"})
+				return
+			}
 			writeError(w, err)
 			return
 		}
@@ -292,6 +297,10 @@ func patchColumnHandler(deps *Dependencies) http.HandlerFunc {
 		}
 
 		if err := deps.Projects.UpdateColumn(r.Context(), col); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "status_exists"})
+				return
+			}
 			writeError(w, err)
 			return
 		}
