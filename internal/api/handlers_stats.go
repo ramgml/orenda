@@ -26,10 +26,11 @@ import (
 // stats is the in-process counter bundle. Accessed via atomic ops so
 // the request path stays lock-free.
 type stats struct {
-	startedAt time.Time
-	totalReq  atomic.Uint64
-	byStatus  [6]atomic.Uint64 // buckets: 2xx, 3xx, 4xx, 5xx, other
-	slowCount atomic.Uint64
+	startedAt             time.Time
+	totalReq              atomic.Uint64
+	byStatus              [6]atomic.Uint64 // buckets: 2xx, 3xx, 4xx, 5xx, other
+	slowCount             atomic.Uint64
+	syncOpsRecordFailures atomic.Uint64 // Phase 30.2: sync_ops table write failures
 }
 
 var liveStats = &stats{startedAt: time.Now()}
@@ -67,17 +68,18 @@ func (s *stats) recordStats(status int, slow bool) {
 // statsResponse is the wire shape. We deliberately keep it small —
 // the dashboard needs at-a-glance, not a full Prometheus exposition.
 type statsResponse struct {
-	UptimeSeconds  int64  `json:"uptime_seconds"`
-	RequestsTotal  uint64 `json:"requests_total"`
-	Requests2xx    uint64 `json:"requests_2xx"`
-	Requests3xx    uint64 `json:"requests_3xx"`
-	Requests4xx    uint64 `json:"requests_4xx"`
-	Requests5xx    uint64 `json:"requests_5xx"`
-	SlowRequests   uint64 `json:"slow_requests"`
-	WSConnections  int    `json:"ws_connections"`
-	DBBytes        int64  `json:"db_bytes"`
-	DBPath         string `json:"db_path"`
-	LastBackupUnix int64  `json:"last_backup_unix,omitempty"`
+	UptimeSeconds         int64  `json:"uptime_seconds"`
+	RequestsTotal         uint64 `json:"requests_total"`
+	Requests2xx           uint64 `json:"requests_2xx"`
+	Requests3xx           uint64 `json:"requests_3xx"`
+	Requests4xx           uint64 `json:"requests_4xx"`
+	Requests5xx           uint64 `json:"requests_5xx"`
+	SlowRequests          uint64 `json:"slow_requests"`
+	WSConnections         int    `json:"ws_connections"`
+	DBBytes               int64  `json:"db_bytes"`
+	DBPath                string `json:"db_path"`
+	LastBackupUnix        int64  `json:"last_backup_unix,omitempty"`
+	SyncOpsRecordFailures uint64 `json:"sync_ops_record_failures"` // Phase 30.2
 }
 
 // getStatsHandler returns the snapshot. Public — no auth required,
@@ -86,14 +88,15 @@ type statsResponse struct {
 func getStatsHandler(hub ws.Hub, dbPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		resp := statsResponse{
-			UptimeSeconds: int64(time.Since(liveStats.startedAt).Seconds()),
-			RequestsTotal: liveStats.totalReq.Load(),
-			Requests2xx:   liveStats.byStatus[0].Load(),
-			Requests3xx:   liveStats.byStatus[1].Load(),
-			Requests4xx:   liveStats.byStatus[2].Load(),
-			Requests5xx:   liveStats.byStatus[3].Load(),
-			SlowRequests:  liveStats.slowCount.Load(),
-			DBPath:        dbPath,
+			UptimeSeconds:         int64(time.Since(liveStats.startedAt).Seconds()),
+			RequestsTotal:         liveStats.totalReq.Load(),
+			Requests2xx:           liveStats.byStatus[0].Load(),
+			Requests3xx:           liveStats.byStatus[1].Load(),
+			Requests4xx:           liveStats.byStatus[2].Load(),
+			Requests5xx:           liveStats.byStatus[3].Load(),
+			SlowRequests:          liveStats.slowCount.Load(),
+			DBPath:                dbPath,
+			SyncOpsRecordFailures: liveStats.syncOpsRecordFailures.Load(),
 		}
 		if info, ok := hub.(hubStats); ok {
 			resp.WSConnections = info.SubscriberCount()
