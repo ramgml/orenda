@@ -4,10 +4,16 @@
 // outbox. Each operation is applied in order; the response lists the
 // per-op outcome keyed by client_id (the PWA's idempotency key).
 //
-// Conflict resolution (8.6): last-write-wins by `updated_at` is implicit —
-// we apply ops in arrival order and the later write wins. Idempotency is
-// achieved via a sync_ops table that records applied client_ids so a
-// retry doesn't double-create.
+// Conflict resolution (8.6, decision recorded in Phase 28.21): ops are
+// applied in arrival order and the later write wins — "LWW by
+// delivery order", NOT by comparing `updated_at` timestamps. For a
+// single-device PWA outbox this is correct: the outbox flushes in the
+// order the user made the edits, so arrival order IS edit order.
+// Timestamp-based LWW becomes necessary only with multi-device sync
+// (two devices editing offline concurrently); that is deferred to the
+// multi-user/multi-device era and recorded as a known gap in PLAN §8.
+// Idempotency is achieved via a sync_ops table that records applied
+// client_ids so a retry doesn't double-create.
 package api
 
 import (

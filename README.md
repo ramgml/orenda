@@ -65,9 +65,10 @@ make dev
 Validate the codebase before opening a PR:
 
 ```bash
-make test              # Go + vitest (236 tests, ~5s)
-make lint              # golangci-lint + eslint + prettier check
-make test-e2e          # Playwright against a fresh embedded build on :21371 (18 specs)
+make test              # Go + vitest (246 tests, ~5s)
+make lint              # golangci-lint + eslint
+make web-format-check  # prettier check (not part of make lint)
+make test-e2e          # Playwright against a fresh embedded build on :21371 (18 tests / 13 specs)
 make govulncheck       # Go vulnerability DB scan
 ```
 

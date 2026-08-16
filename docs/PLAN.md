@@ -17,9 +17,9 @@ status: pre-alpha
 >
 > **2026-08-14 update (Phase doc-audit)**: per-phase 🟡 markers ниже сверены с кодом; закрытые дефекты помечены ✅. Реально открытые gaps:
 >
-> - **Phase 1**: нет `/projects/:id/tasks` route (план-секция требует, но не использован — задачи приходят через `/boards`).
+> - **Phase 1**: ✅ закрыт (2026-08-16, Phase 28.21) — запись «нет `/projects/:id/tasks` route» была stale: роут существует (`router.go` монтирует `GET/POST /projects/{id}/tasks`).
 > - **Phase 7**: `git client` без `Status`/`TestConnection`; snapshot по тикеру 24h (не cron 03:00) — низкий приоритет.
-> - **Phase 8**: LWW заявлен "by `updated_at`", в коде LWW по delivery-order (`/api/v1/sync` handler комментарий). Outbox всё остальное закрыт.
+> - **Phase 8**: ✅ LWW-семантика зафиксирована (2026-08-16, Phase 28.21): delivery-order LWW корректен для single-device PWA outbox (он флашит в порядке правок пользователя — arrival order ≡ edit order); timestamp-based LWW по `updated_at` отложен до эры multi-device. Комментарий `handlers_sync.go` переписан под это решение.
 > - **Phase 10**: VK Long Poll / Email HTML / Weekly digest — большие подфазы, не блокируют dogfooding.
 > - **Phase 17**: UI-тоггл плотности карточки (флаг читается из localStorage, переключателя нет); бейджи времени (estimate/spent) и таймера.
 >
@@ -71,13 +71,13 @@ status: pre-alpha
 - [ ] **0.11** Создать `internal/embed/web/embed.go` — `embed.FS` placeholder (до build web/dist)
 - [ ] **0.12** Endpoint `/*` → статика из embed (пока 404)
 - [ ] **0.13** `.gitignore`:
-  - `data/` (кроме `data/.gitkeep` и `data/config.example.yaml`)
+  - `data/` (runtime; шаблон конфига живёт в `configs/config.example.yaml`, Phase 28.21)
   - `web/dist/`
   - `web/node_modules/`
   - `*.test`, `*.out`
 - [ ] **0.14** `.editorconfig`, `.golangci.yml`, `.eslintrc.cjs`
 - [ ] **0.15** `README.md` с инструкцией quickstart
-- [ ] **0.16** `data/config.example.yaml` со всеми параметрами
+- [ ] **0.16** `configs/config.example.yaml` со всеми параметрами (перенесён из `data/` в Phase 28.21 — gitignore-негации внутри исключённой директории не работают)
 
 ### Definition of Done
 
@@ -103,7 +103,7 @@ make build
 
 ## Phase 1 — Ядро *(1–2 недели)*
 
-> **Аудит 2026-08-12 (обновлено 2026-08-14):** 🟡 — JWT TTL 168h вместо 24h (`config.DefaultConfig`); cookie без `Secure`; нет маршрута `/projects/:id/tasks`; таблицы users/projects/tasks созданы в `001_init.sql` (файлы 002/003 — только индексы). Auth, CRUD, CLI `user create`, фронт-shell, тесты — есть. **✅ Phase 28.4 закрыл две трети**: TTL 24h (`config.DefaultConfig`), cookie `Secure` от `auth.cookie_secure` (forward-only), logout тоже Secure. Остаётся: нет `/projects/:id/tasks` route (план его требует, но не критично — задачи приходят через `/boards`).
+> **Аудит 2026-08-12 (обновлено 2026-08-16):** ✅ — JWT TTL 24h + cookie Secure закрыты в Phase 28.4; аудит-запись про отсутствующий `/projects/:id/tasks` route оказалась stale — роут существует (Phase 28.21). Auth, CRUD, CLI `user create`, фронт-shell, тесты — есть. Таблицы users/projects/tasks созданы в `001_init.sql` (файлы 002/003 — только индексы).
 
 **Цель:** users + api_tokens + projects + tasks CRUD, JWT и opaque-token auth, базовый UI со списком.
 
@@ -485,7 +485,7 @@ make build
 
 ## Phase 8 — PWA + Offline *(1 неделя)*
 
-> **Аудит 2026-08-12 (обновлено 2026-08-14):** 🟡 → ✅ — vite-plugin-pwa, Workbox SW, IndexedDB outbox+cache, `POST /api/v1/sync` с идемпотентностью (`sync_ops`), outbox с `queueCreateTask` / `queueUpdateTask` / `queueMoveTask` / `queueCommentTask` (Phase Wave 4 PR 2 — PWA outbox update/move/comment **зашиты в call sites** через `web/src/shared/offline/outbox.ts`). Остаётся: **LWW** заявлен "by `updated_at`", в коде LWW по delivery-order — `handlers_sync.go:7-9` явно говорит «we apply ops in arrival order and the later write wins». Семантически ОК для single-source-of-truth PWA, но имя `updated_at` мисконцепция; реальный timestamp в op уже есть в `created_at` поля запроса. Background Sync API не используется (нет CI — serve как PWA не имеет смысла без CI).
+> **Аудит 2026-08-12 (обновлено 2026-08-16):** ✅ — vite-plugin-pwa, Workbox SW, IndexedDB outbox+cache, `POST /api/v1/sync` с идемпотентностью (`sync_ops`), outbox с `queueCreateTask` / `queueUpdateTask` / `queueMoveTask` / `queueCommentTask` (Phase Wave 4 PR 2 — PWA outbox update/move/comment **зашиты в call sites** через `web/src/shared/offline/outbox.ts`). **LWW-расхождение закрыто документально (Phase 28.21):** delivery-order LWW — реальная и корректная семантика для single-device outbox (arrival order ≡ edit order); timestamp-based LWW по `updated_at` отложен до эры multi-device, комментарий `handlers_sync.go` переписан. Background Sync API не используется.
 
 **Цель:** работа в оффлайне, синхронизация при онлайне.
 
@@ -505,7 +505,7 @@ make build
 - [ ] **8.5** Endpoint `POST /api/v1/sync`:
   - Принимает массив операций `{op, target, payload, client_id, created_at}`
   - Возвращает per-op результат
-- [ ] **8.6** Конфликт-резолв: last-write-wins по `updated_at`
+- [x] **8.6** Конфликт-резолв: LWW по delivery-order (зафиксировано решением 2026-08-16, Phase 28.21: корректно для single-device outbox; timestamp-LWW по `updated_at` — до эры multi-device)
 - [ ] **8.7** Тесты:
   - Оффлайн → онлайн → данные синхронизированы
   - Конфликт корректно разрешается
@@ -650,7 +650,7 @@ make build
 - `npx tsc --noEmit`  clean.
 
 **За скобкой (явно отложено):**
-- `data/config.example.yaml` не в git (живёт только в working tree владельца + через `!data/config.example.yaml` в `.gitignore`); `install.sh` использует как шаблон. Стоит обновить `jwt_ttl: "168h" → "24h"` локально у оператора при следующем install — фиксирую в SESSION.md. Альтернатива — выкатить `docs/config.example.yaml` под версионирование и переключить `install.sh` (отдельная мини-фаза).
+- ~~`data/config.example.yaml` не в git~~ — **закрыто в Phase 28.21 (2026-08-16):** шаблон переехал в отслеживаемый `configs/config.example.yaml` (gitignore-негации внутри исключённой директории мертвы — файл физически не попадал в клоны, install.sh падал на fresh clone), `jwt_ttl` обновлён до 24h, секрет генерируется install.sh в `$DATA_DIR/env`.
 
 ## Phase 28.5 (полировка) — task.commented / task.attachment_added emission + Bot.Stop() on shutdown *(2026-08-13)*
 
@@ -2417,7 +2417,7 @@ Wave 2 (после Wave 1):
 - [x] **28.8.2** `internal/config/config_test.go` — `TestDefaultConfig` проверяет дефолты; `TestLoad_YAML*` читает `ratelimit: { auth: { burst: 42 } }`.
 - [x] **28.8.3** `internal/api/router.go` — `os.Getenv("ORENDA_RATELIMIT_*")` блоки удалены; `Dependencies` расширен.
 - [x] **28.8.4** `cmd/orenda/main.go` — wire `cfg.RateLimit.*` в deps.
-- [x] **28.8.5** `data/config.example.yaml` (tracked) — секция `ratelimit:` с дефолтами.
+- [x] **28.8.5** `configs/config.example.yaml` (tracked) — секция `ratelimit:` с дефолтами. *(Примечание Phase 28.21: изначально задача ссылалась на `data/config.example.yaml` и помечалась «tracked», но файл никогда не трекался — gitignore-негация мертва. Реально отслеживаемым файл стал только в 28.21 после переезда в `configs/`.)*
 
 **DoD — verified 2026-08-13:**
 - `go test ./...` — 30/30 ok.
@@ -2643,3 +2643,26 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 - `install.sh` из dev-ветки → отказ; из чистого `main` → успех.
 - `make test` и `make test-e2e` зелёные (E2E-порт 21371 не задет).
 
+---
+
+## Phase 28.21 (полировка) — ops-hardening: login rate-limit, installable config template, JWT secret по умолчанию *(2026-08-16)*
+
+> **Аудит 2026-08-16 (три параллельных скаута: backend / frontend / docs-ops).** Найденные критичные дыры закрыты в этой фазе; механический backend-свип — Phase 28.22; frontend-фундамент — Phase 28.23.
+
+**Контекст (evidence):**
+
+- `/api/v1/auth/login` сидел в `SkipPaths` rate limiter'а (`router.go`) — мидлварь возвращалась раньше, login обходил оба бакета: неограниченный перебор паролей. Добавлено в Phase 26.E «для E2E», но E2E и так поднимает лимиты через `ORENDA_RATELIMIT_*` env.
+- `install.sh` читал `data/config.example.yaml`, который **никогда не трекался**: `.gitignore` исключает `data/`, а git не умеет re-include файлов внутри исключённой директории — обе `!data/...` негации мертвы (`git check-ignore -v` подтверждает). Флоу Phase 28.20 (`git clone → install.sh`) падал mid-install на fresh clone. PLAN 28.8.5 при этом утверждал «tracked» — ложь.
+- Два пути к публично известному JWT-секрету: (а) пример конфига содержал `"${ORENDA_JWT_SECRET}"`, но `config.go` не делает `os.ExpandEnv` — литеральная строка становилась HMAC-ключом, и имя переменной не совпадало со схемой `ORENDA_AUTH__JWT_SECRET`; (б) systemd unit штатно поставлял `change-me-via-EnvironmentFile`, а `install.sh` env-файл не создавал.
+
+**Задачи:**
+
+- [x] **28.21.1** `router.go`: `/api/v1/auth/login` убран из `SkipPaths` (комментарий фиксирует, почему `/api/v1/me` остаётся). Тест `TestRateLimit_LoginNotSkipped` — 100 POST → 429 + Retry-After.
+- [x] **28.21.2** `configs/config.example.yaml` (NEW, tracked): переезд из `data/`; `jwt_ttl: "24h"`; `jwt_secret: ""` с комментарием про env; секция `ratelimit:` (долг 28.8.5); честная пометка про `sqlite_snapshot_cron` (cron не парсится — тикер 24h). `.gitignore`: мёртвые негации удалены. `install.sh` читает новый путь.
+- [x] **28.21.3** JWT-секрет из коробки: `install.sh` генерирует `$DATA_DIR/env` с `ORENDA_AUTH__JWT_SECRET` (32 байта urandom→base64, mode 600) при первом запуске; `orenda.service` больше не шьёт placeholder-секрет (только `EnvironmentFile=-@DATADIR@/env`); финальный hint install.sh показывает, как подгрузить env для CLI.
+- [x] **28.21.4** Docs-синхронизация: PLAN (stale Phase 1 route — закрыт; Phase 8 LWW — решение зафиксировано; 28.8.5 «tracked» — исправлена ложная запись; пути `data/config.example.yaml` → `configs/`); `handlers_sync.go` — комментарий переписан под delivery-order LWW; README — 246 vitest, `make lint` без prettier (отдельный `web-format-check`), 18 tests / 13 specs; SESSION + CHANGELOG.
+- [ ] **28.21.5** Smoke: fresh clone в /tmp → `install.sh --force` (ветка ≠ main) доходит до конца; `$DATA_DIR/env` создан с mode 600; `make test` / `make test-e2e` зелёные.
+
+**DoD (проверяется исполнением):** login флудится → 429; fresh-clone install не падает; дефолтного JWT-секрета в репо нет; `go test ./...` + vitest + E2E зелёные.
+
+**За скобкой (зафиксировано, не блокирует):** `uninstall.sh` молча глотает неизвестные флаги и без `--help`; `update-dogfood.sh` хардкодит remote `origin` и не имеет `--force`; нет CI — локальные гейты не enforced (кандидат на отдельную фазу); `git client Status/TestConnection` (Phase 7); `sync_ops` record-failures проглатываются (`_ = syncOpsRecord(...)`) — редкий путь, но молчит.
