@@ -76,7 +76,7 @@ func (s *Service) Create(ctx context.Context, e *event.Event) (*event.Event, err
 	if err != nil {
 		return nil, err
 	}
-	s.publish(ctx, "event.created", got, "")
+	s.publish(ctx, "event.created", got)
 	return eventFromTask(got), nil
 }
 
@@ -119,7 +119,7 @@ func (s *Service) Update(ctx context.Context, e *event.Event) error {
 	if err := s.Tasks.Update(ctx, merged); err != nil {
 		return err
 	}
-	s.publish(ctx, "event.updated", merged, "")
+	s.publish(ctx, "event.updated", merged)
 	return nil
 }
 
@@ -134,7 +134,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		}
 		return err
 	}
-	s.publish(ctx, "event.deleted", &task.Task{ID: id}, "")
+	s.publish(ctx, "event.deleted", &task.Task{ID: id})
 	return nil
 }
 
@@ -352,7 +352,7 @@ func eventFromTask(tr *task.Task) *event.Event {
 	}
 }
 
-func (s *Service) publish(ctx context.Context, eventType string, tr *task.Task, actorID string) {
+func (s *Service) publish(ctx context.Context, eventType string, tr *task.Task) {
 	if s.Hub == nil {
 		return
 	}
