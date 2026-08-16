@@ -19,7 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Phase-level work after v0.1.0 release. Currently empty.
+### Security
+- **Phase 28.21 (2026-08-16):** `/api/v1/auth/login` removed from the rate-limiter skip list — anonymous login attempts now draw from the per-IP bucket (previously unlimited). systemd unit no longer ships a repo-public placeholder JWT secret; `install.sh` generates a random one into `$DATA_DIR/env` (mode 600) on first install.
+
+### Fixed
+- **Phase 28.21:** `install.sh` crashed on fresh clones — the config template lived under gitignored `data/` and was never tracked (gitignore negations cannot re-include files inside an excluded directory). Template moved to tracked `configs/config.example.yaml` (`jwt_ttl: 24h`, `ratelimit:` section, no `${...}` placeholder that was never expanded).
+
+### Docs
+- **Phase 28.21:** Phase 8 sync conflict resolution documented as delivery-order LWW (correct for single-device outbox; timestamp-based LWW deferred to multi-device era). Stale audit notes corrected (Phase 1 `/projects/:id/tasks` route exists; PLAN 28.8.5 "tracked" claim).
 
 ## [0.1.0] — 2026-08-14
 
