@@ -189,6 +189,39 @@ func (r *userRepo) List(ctx context.Context) ([]*user.User, error) {
 	return users, nil
 }
 
+// ListAll returns every user as a flat (id, role) slice. Used by
+// the Phase 30.5 weekly digest scheduler, which iterates owners
+// without needing the full User struct (it doesn't care about
+// email or display name).
+func (r *userRepo) ListAll(ctx context.Context) ([]UserSummary, error) {
+	const q = `SELECT id, role FROM users`
+	rows, err := r.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("user.ListAll: %w", err)
+	}
+	defer rows.Close()
+	out := make([]UserSummary, 0)
+	for rows.Next() {
+		var s UserSummary
+		if err := rows.Scan(&s.ID, &s.Role); err != nil {
+			return nil, fmt.Errorf("user.ListAll: scan: %w", err)
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("user.ListAll: rows: %w", err)
+	}
+	return out, nil
+}
+
+// UserSummary is the lightweight projection used by the digest
+// scheduler's ownerLister — keeps the iteration cheap and avoids
+// pulling password hashes into the digest path.
+type UserSummary struct {
+	ID   string
+	Role string
+}
+
 // FirstID returns the id of the first user row (single-owner model).
 // Used by the bot callback resolver which needs the owner's id.
 func (r *userRepo) FirstID(ctx context.Context) (string, error) {

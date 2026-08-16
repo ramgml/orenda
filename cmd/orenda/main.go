@@ -915,6 +915,28 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// ctx.Done() and exits with the server.
 	go reminder.Run(ctx)
 
+	// Phase 30.5: weekly digest scheduler. Ticks every 7 days
+	// (configurable via cfg.Notifier.DigestInterval — default 168h).
+	// The scheduler queries the storage layer per-owner for the
+	// period stats, renders via notifier.RenderWeeklyDigest, and
+	// pushes a "digest.weekly" event through the same notifier
+	// pipeline as any other notification — so every bot the
+	// operator has subscribed to (Telegram, VK, Email, Webhook,
+	// Console) gets the digest. Disabled when DigestInterval is
+	// zero or negative (operator opt-out).
+	if cfg.Notifier.DigestInterval > 0 {
+		digest := &digestScheduler{
+			interval: cfg.Notifier.DigestInterval,
+			logger:   logger,
+			db:       db,
+			users:    userListerAdapter{repo: sqlite.NewUserRepository(db)},
+			notifier: notifierDigestAdapter{svc: notifierSvc},
+		}
+		go digest.Run(ctx)
+		logger.Info("weekly digest scheduler started",
+			zap.Duration("interval", cfg.Notifier.DigestInterval))
+	}
+
 	// Phase 28.6: opt-in pprof listener for live debugging. Off by
 	// default — pprof endpoints expose heap, goroutine, and CPU
 	// state that are an information leak on any reachable port.
@@ -1184,6 +1206,49 @@ func buildLogger(cfg *config.Config) (*zap.Logger, error) {
 }
 
 // suppress unused-import warning on systems without time package usage.
+// ----------------------------------------------------------------------------
+// Phase 30.5: weekly digest scheduler adapters.
+// ----------------------------------------------------------------------------
+
+// userListerAdapter wraps the SQLite UserRepository for the digest
+// scheduler's narrow ownerLister interface. The user table doesn't
+// store an Active column — every row is by definition active
+// (the only "deactivation" path is Delete, which removes the row
+// entirely), so we treat every row as Active=true.
+type userListerAdapter struct {
+	repo *sqlite.UserRepo
+}
+
+func (a userListerAdapter) ListAll(ctx context.Context) ([]ownerRecord, error) {
+	users, err := a.repo.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ownerRecord, 0, len(users))
+	for _, u := range users {
+		out = append(out, ownerRecord{ID: u.ID, Active: true})
+	}
+	return out, nil
+}
+
+// notifierDigestAdapter wraps the notifier service so the digest
+// scheduler's narrow digestNotifier interface can be satisfied
+// without pulling the entire notifier package surface.
+type notifierDigestAdapter struct {
+	svc *notifierservice.Service
+}
+
+func (a notifierDigestAdapter) Notify(ctx context.Context, e notifyEvent) error {
+	return a.svc.Notify(ctx, notifierservice.Event{
+		Type:   e.Type,
+		UserID: e.UserID,
+		Title:  e.Title,
+		Body:   e.Body,
+		Link:   e.Link,
+		Meta:   e.Meta,
+	})
+}
+
 var _ = time.Second
 
 // captureToInbox is the shared Phase 21/30.3 inbox-capture flow,
