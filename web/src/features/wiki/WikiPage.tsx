@@ -149,6 +149,7 @@ export function WikiPage(): JSX.Element {
             dirty={dirty}
             saving={saving}
             deleting={deleting}
+            pagesTree={tree}
             onChange={(p) => {
               setPage(p);
               setDirty(true);
@@ -288,6 +289,7 @@ function PageEditor({
   dirty,
   saving,
   deleting,
+  pagesTree,
   onChange,
   onSave,
   onDelete,
@@ -297,6 +299,7 @@ function PageEditor({
   dirty: boolean;
   saving: boolean;
   deleting: boolean;
+  pagesTree: WikiTreeNode[];
   onChange: (p: WikiPage) => void;
   onSave: () => void;
   onDelete: () => void;
@@ -356,6 +359,7 @@ function PageEditor({
           value={page.content_md ?? ''}
           onChange={(md) => onChange({ ...page, content_md: md })}
           placeholder="Type / for commands…"
+          pages={pagesTree}
         />
       ) : tab === 'preview' ? (
         <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-6 py-5 min-h-[300px]">

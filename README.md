@@ -129,6 +129,7 @@ with Prettier before each commit. Skip with
 | 30.3 (VK Long Poll) | ✅ | VK bot now long-polls `groups.getLongPollServer` + `a_check` for inbound messages (alternative to Callback API; works behind NAT). `bots[].type: vk` with `token` + `group_id` registers the loop. `message_new` events flow into the same inbox-capture helper as Telegram (Phase 21) |
 | 30.4 (Email HTML) | ✅ | Email bot sends `multipart/alternative` (text + HTML). HTML part has inline-styled Orenda brand, review action buttons (when `PublicBaseURL` is set), and is HTML-escaped against script injection. Plain part is preserved for accessibility / plain-only clients |
 | 30.5 (Weekly digest) | ✅ | Background ticker (default 168h) sends a weekly summary to every bot the operator has subscribed: tasks done / created / awaiting / overdue, comments received, active timers. `notifier.digest_interval <= 0` disables it |
+| 30.6 (wiki [[ autocomplete) | ✅ | In the wiki editor, typing `[[` opens a popup listing every page; picking one inserts `[[slug]]`. The mirror parses it on save and records `wiki_links` so backlinks work |
 
 > Screenshots: not bundled in the repo (kept light — no binary blobs).
 > Run `make build && bin/orenda serve` and visit the four key pages:
