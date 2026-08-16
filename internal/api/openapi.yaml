@@ -1588,6 +1588,94 @@ paths:
         '400': { description: invalid_input }
         '404': { description: lesson not found }
 
+  # Phase 29.1: agent wiki + search. Same handlers as the user side —
+  # wiki_pages has no owner column, so the bearer token is the only
+  # gate. PUT /{slug} is the upsert (create + update); no bare POST.
+  /api/v1/agent/pages:
+    get:
+      tags: [agent, wiki]
+      summary: List the wiki page tree (agent side).
+      security: [{ bearerAuth-agent: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/agent/pages/{slug}:
+    get:
+      tags: [agent, wiki]
+      summary: Get a wiki page by slug (agent side).
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '404': { description: page not found }
+    put:
+      tags: [agent, wiki]
+      summary: Upsert a wiki page (agent side). URL slug is authoritative.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                content_md: { type: string }
+                parent_id: { type: string }
+                position: { type: integer }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '409': { description: slug_taken }
+    delete:
+      tags: [agent, wiki]
+      summary: Delete a wiki page (agent side). Cascades wiki_links.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '204': { description: deleted }
+        '404': { description: page not found }
+
+  /api/v1/agent/pages/{slug}/move:
+    patch:
+      tags: [agent, wiki]
+      summary: Move a page under a new parent (agent side). Empty parent_id = root.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                parent_id: { type: string }
+      responses:
+        '204': { description: moved }
+        '400': { description: cycle or invalid parent }
+        '404': { description: page not found }
+
+  /api/v1/agent/pages/{slug}/backlinks:
+    get:
+      tags: [agent, wiki]
+      summary: List pages that link to this one (agent side).
+      security: [{ bearerAuth-agent: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/agent/search:
+    get:
+      tags: [agent, wiki]
+      summary: FTS5 search across tasks/pages/comments (agent side).
+      security: [{ bearerAuth-agent: [] }]
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+        - in: query
+          name: type
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer }
+      responses: { '200': { description: ok } }
+
   # ---- SPA fallback ----
   /{catchAll}:
     get:
