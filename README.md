@@ -126,6 +126,7 @@ with Prettier before each commit. Skip with
 | 28 (Polish backlog close-out) | ✅ | Settings hub, TaskModal scroll, security defaults (JWT 24h, Secure from config), activity emission, Bot.Stop on shutdown, opt-in pprof, govulncheck target, Prettier, hot-reload backup, CSP tightening, ARCHITECTURE.md |
 | 30.1 (CI) | ✅ | GitHub Actions: `lint` → `test` → `build` → `e2e`. PR gate is incremental (`--new-from-merge-base`); release branch (`main`) gets full lint; 73 pre-existing lint issues remain (see [PLAN](docs/PLAN.md) §30.16) |
 | 30.2 (sync_ops observability) | ✅ | `sync_ops.Record()` failures now bump `sync_ops_record_failures` in `/api/v1/stats` and emit a `zap.Warn` with client/server ids — no more silent PWA outbox replay loop |
+| 30.3 (VK Long Poll) | ✅ | VK bot now long-polls `groups.getLongPollServer` + `a_check` for inbound messages (alternative to Callback API; works behind NAT). `bots[].type: vk` with `token` + `group_id` registers the loop. `message_new` events flow into the same inbox-capture helper as Telegram (Phase 21) |
 
 > Screenshots: not bundled in the repo (kept light — no binary blobs).
 > Run `make build && bin/orenda serve` and visit the four key pages:

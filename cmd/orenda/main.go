@@ -752,46 +752,22 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			// normal case after `orenda subscription add telegram …
 			// target=<chat_id>`.
 			tg.OnMessage = func(ctx context.Context, m bot.InboxMessage) error {
-				subRepo := sqlite.NewBotSubscriptionRepository(db)
-				addr := int64ToString(m.ChatID)
-				subs, err := subRepo.ListByBotType(ctx, "telegram")
-				var owner string
-				if err == nil {
-					for _, s := range subs {
-						if s.Enabled && s.TargetAddress == addr {
-							owner = s.UserID
-							break
-						}
-					}
-				}
-				if owner == "" {
-					return nil
-				}
-				title := strings.TrimSpace(m.Text)
-				if len(title) > 200 {
-					title = title[:200] + "…"
-				}
-				now := time.Now().UTC()
-				tr := &task.Task{
-					ProjectID:    "",
-					Title:        title,
-					Status:       task.StatusTodo,
-					Priority:     task.PriorityMedium,
-					Awaiting:     task.AwaitingNone,
-					AssigneeType: task.AssigneeUser,
-					AssigneeID:   owner,
-					TimeSpentS:   0,
-					Position:     0,
-					AllDay:       false,
-					CreatedAt:    now,
-					UpdatedAt:    now,
-				}
-				_ = owner
-				if err := tasksRepo.Create(ctx, tr); err != nil {
-					return err
-				}
-				return tg.SendReply(ctx, m.ChatID, "✅ Captured to Inbox")
+				return captureToInbox(ctx, db, tasksRepo, "telegram", int64ToString(m.ChatID), m.Text, func(reply string) error {
+					return tg.SendReply(ctx, m.ChatID, reply)
+				})
 			}
+		}
+	}
+
+	// Phase 30.3: VK Long Poll OnMessage hook. Same inbox-capture flow
+	// as Telegram, but routed through vk.Send (peer_id is the same as
+	// the message's peer_id). Skipped when no VK bot is registered
+	// (e.g., telegram-only install).
+	if vk, ok := botRegistry.Get("vk").(*bot.VK); ok && vk != nil {
+		vk.OnMessage = func(ctx context.Context, m bot.InboxMessage) error {
+			return captureToInbox(ctx, db, tasksRepo, "vk", int64ToString(m.ChatID), m.Text, func(reply string) error {
+				return vk.Send(ctx, int64ToString(m.ChatID), bot.Message{Title: reply})
+			})
 		}
 	}
 
@@ -1209,3 +1185,66 @@ func buildLogger(cfg *config.Config) (*zap.Logger, error) {
 
 // suppress unused-import warning on systems without time package usage.
 var _ = time.Second
+
+// captureToInbox is the shared Phase 21/30.3 inbox-capture flow,
+// reused by the Telegram and VK OnMessage hooks. It looks up the user
+// subscribed to (botType, targetAddress), creates an inbox task with
+// the message text as the title (truncated to 200 chars), and invokes
+// `reply` with the friendly "✅ Captured to Inbox" string.
+//
+// No subscription → silently drop (the bot receives messages from
+// strangers too; we don't reply, but we don't surface the spam
+// either). Reply failures are swallowed — there's nothing the user
+// can do from inside Telegram/VK about a transient transport error,
+// and the task is already on disk.
+//
+// Lives outside runServe as a free function so both bot hooks share
+// the same code path. Dependencies are passed explicitly rather than
+// captured as closures (Go closures over *sql.DB / *sqlite.TaskRepo
+// work but are harder to test in isolation).
+func captureToInbox(
+	ctx context.Context,
+	db *sql.DB,
+	tasks task.Repository,
+	botType, targetAddress, text string,
+	reply func(string) error,
+) error {
+	subRepo := sqlite.NewBotSubscriptionRepository(db)
+	subs, err := subRepo.ListByBotType(ctx, botType)
+	var owner string
+	if err == nil {
+		for _, s := range subs {
+			if s.Enabled && s.TargetAddress == targetAddress {
+				owner = s.UserID
+				break
+			}
+		}
+	}
+	if owner == "" {
+		return nil
+	}
+	title := strings.TrimSpace(text)
+	if len(title) > 200 {
+		title = title[:200] + "…"
+	}
+	now := time.Now().UTC()
+	tr := &task.Task{
+		ProjectID:    "",
+		Title:        title,
+		Status:       task.StatusTodo,
+		Priority:     task.PriorityMedium,
+		Awaiting:     task.AwaitingNone,
+		AssigneeType: task.AssigneeUser,
+		AssigneeID:   owner,
+		TimeSpentS:   0,
+		Position:     0,
+		AllDay:       false,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := tasks.Create(ctx, tr); err != nil {
+		return err
+	}
+	_ = reply("✅ Captured to Inbox")
+	return nil
+}
