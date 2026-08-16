@@ -236,10 +236,15 @@ func NewRouter(deps *Dependencies) http.Handler {
 		AuthBurst:  authBurst,
 		AuthPerSec: authPerSec,
 		SkipPaths: map[string]bool{
-			"/healthz":           true,
-			"/api/v1/ws":         true,
-			"/api/v1/me":         true,
-			"/api/v1/auth/login": true,
+			// /api/v1/me is a cheap auth-state probe the SPA fires on
+			// every page mount; burning anon/auth bucket tokens on it
+			// would throttle normal navigation. /api/v1/auth/login is
+			// deliberately NOT skipped (Phase 28.21): it is the one
+			// endpoint where brute force matters, so anonymous login
+			// attempts draw from the per-IP bucket like everything else.
+			"/healthz":   true,
+			"/api/v1/ws": true,
+			"/api/v1/me": true,
 		},
 	}))
 	zap.L().Info("rate limit config",

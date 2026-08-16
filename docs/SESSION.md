@@ -1,4 +1,4 @@
-# Session Snapshot — 2026-08-14 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.20 + Phase 10 subphase (Test send UI) + Phase 15 (close-out); «Полировка» + 28.19 + 28.20 + Phase 10 Test send + Phase 15 close-out закрыты)
+# Session Snapshot — 2026-08-16 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.21 + Phase 10 subphase (Test send UI) + Phase 15 (close-out); «Полировка» + 28.19 + 28.20 + Phase 10 Test send + Phase 15 close-out + 28.21 ops-hardening закрыты)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
@@ -251,11 +251,23 @@
 - **Расширить 409 на «столкновение блокеров» vs «просто lock_taken».** Сейчас 422 task_blocked уже несёт `unfinished_blockers`. 409 lock_taken остаётся atomic claim conflict. Оба достаточно различимы — не сливаем.
 - **Cache `Agents.GetByID` в 409-path.** Сейчас holderAgentName lookup синхронный на каждой 409. При высокой contention — отдельный in-memory cache. Out of scope (single-owner install).
 
+## Phase 28.21 — ops-hardening: login rate-limit + tracked config template + JWT secret *(2026-08-16)*
+
+**Цель:** закрыть три критичные дыры, найденные аудитом 2026-08-16 (три параллельных read-only скаута: backend / frontend / docs-ops).
+
+1. **Login обходил rate limit.** `/api/v1/auth/login` сидел в `SkipPaths` (наследие Phase 26.E «для E2E») — неограниченный перебор паролей. Убран; `/api/v1/me` остаётся (дешёвый auth-probe на каждый mount). E2E не задет — `run-server.sh` выставляет `ORENDA_RATELIMIT_*` override'ы. Тест `TestRateLimit_LoginNotSkipped` (100 POST → 429 + Retry-After).
+2. **install.sh падал на fresh clone.** `data/config.example.yaml` никогда не трекался — git не re-include'ит файлы внутри исключённой директории, обе `!data/...` негации в `.gitignore` были мертвы (PLAN 28.8.5 при этом врал «tracked»). Шаблон переехал в `configs/config.example.yaml` (tracked): `jwt_ttl: 24h`, `jwt_secret: ""` + комментарий про env, секция `ratelimit:`, честная пометка про `sqlite_snapshot_cron` (тикер 24h, cron не парсится — Phase 7 долг).
+3. **Два пути к публично известному JWT-секрету.** (а) `${ORENDA_JWT_SECRET}` в примере никогда не expand'ился (нет `os.ExpandEnv`, имя не совпадает со схемой `ORENDA_AUTH__JWT_SECRET`) — литерал становился HMAC-ключом; (б) systemd unit шил `change-me-via-EnvironmentFile`. Теперь `install.sh` генерирует `$DATA_DIR/env` (32B urandom→base64, mode 600) при первом запуске; unit читает только `EnvironmentFile`, placeholder удалён.
+
+**Smoke (verified):** fresh clone в /tmp → `install.sh --force` проходит end-to-end (build + install + config + env); бинарь стартует со сгенерированным секретом; флуд login: ~59×401 → 429. **Tests:** `go test ./...` зелёный (30/30), vitest 246/246, `make test-e2e` 18/18.
+
+**За скобкой (новый бэклог из аудита 2026-08-16):** нет CI (все гейты локальные); `uninstall.sh` глотает неизвестные флаги; `update-dogfood.sh` хардкодит `origin`; `sync_ops` record-errors проглатываются; backend-свип (N+1 в `listAgentTasksHandler`, мёртвый код, vet-finding) → Phase 28.22; frontend-фундамент (WS-race в `useWebSocketTopic`, deps-хигиена, density-toggle UI) → Phase 28.23.
+
 ## Метаданные
 
-- **Дата снапшота:** 2026-08-14
+- **Дата снапшота:** 2026-08-16
 - **Ветка:** `dev`
-- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1–28.20 (полировка полностью закрыта + agent-type-labels + dev/dogfood separation), Phase 10 subphase (Test send UI), Phase 15 close-out (lock_taken holder + context blockers/lock + ready self-assigned), Phase doc-audit (PLAN.md 🟡 markers synced с кодом, CHANGELOG v0.1.0 заполнен). Multi-user / multi-device sync — следующая эра после полировки.
+- **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1–28.21 (полировка полностью закрыта + agent-type-labels + dev/dogfood separation + ops-hardening), Phase 10 subphase (Test send UI), Phase 15 close-out, Phase doc-audit. Multi-user / multi-device sync — следующая эра после полировки.
 - **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1/.../28.20/phase-10-test-send/phase-15-agent-context/phase-doc-audit)
 
 ## Что сделано за сессию (кратко)
@@ -356,14 +368,12 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 
 ## Тесты
 
-**Последние зафиксированные прогоны** (Phase doc-audit, 2026-08-14):
-- `make test` — Go (30/30 packages ok) + vitest (246/246). Phase doc-audit — docs-only, регрессий не было.
-- `make test-e2e` — 18/18 pass (docs-only PR, никаких API изменений).
-- `npx tsc --noEmit` — clean.
-- `go build ./...` — clean.
-- `TestOpenAPI_RouteCoverage` + `TestOpenAPI_RouteCoverage_FullRouter` — оба зелёные; openapi.yaml не трогали.
-- **Audit sync:** 7 фаз (Phase 1/6/7/8/9/10/15/17) имели stale 🟡-маркеры; обновлены с явными ссылками на close-out фазы. Реально открытые gaps (Phase 1, 7, 8, 10, 17, multi-user) явно перечислены в PLAN.md audit block.
-- **CHANGELOG.md:** `[0.1.0] — 2026-08-14` заполнен полным Added/Changed/Security/Known gaps списком.
+**Последние зафиксированные прогоны** (Phase 28.21 ops-hardening, 2026-08-16):
+- `make test` — Go (30/30 packages ok) + vitest (246/246).
+- `make test-e2e` — 18/18 pass.
+- `npx tsc --noEmit` — clean; `go build ./...` — clean.
+- `TestOpenAPI_RouteCoverage` + `TestOpenAPI_RouteCoverage_FullRouter` — оба зелёные (роуты не менялись).
+- Fresh-clone smoke: `git clone` → `install.sh --force` → build+install+config+env; бинарь стартует; login флуд → 429 после anon-burst.
 - Coverage: domain 100%, services 70–100%, api 61%, storage 72%; фронт — компонентный/юнит (vitest + jsdom), e2e (Playwright + реальный бинарь).
 
 ### Запуск E2E локально
@@ -395,7 +405,9 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 - **Phase 28.20 (dev/dogfood separation)** — **закрыта 2026-08-14** в `phase-28-20-dev-dogfood`. dev-flow на 2138, usage/dogfood (= `~/opt/orenda` на `main`) на 2137, e2e на 21371. `install.sh` channel guard (refuse non-main + dirty, `--force` override), `update-dogfood.sh` одной командой, vite прокси следует env, startup log несёт `db_path` для observability. Документация: ARCHITECTURE.md §12.4, AGENTS.md, README + SESSION.md.
 - **Phase 10 долги, оставшиеся за скобками:** VK Long Poll / Email HTML / Weekly digest. Это большие подфазы Phase 10 (DoD которой — полный набор ботов с HTML и weekly digest). Не блокируют dogfooding. **Test send UI закрыт 2026-08-14** в `phase-10-test-send` (POST /api/v1/bots/test, dropdown + submit в Settings → Bots, console исключён, per-bot pre-check).
 - **Phase 15 close-out (agent UX контракт)** — **закрыта 2026-08-14** в `phase-15-agent-context`. (1) `409 lock_taken` теперь несёт `holder_agent_id`/`holder_agent_name`/`claimed_at` (раньше `taskLockRepo.Holder` был написан, но не подключён); (2) `/tasks/:id/context` и `/agent/tasks/{id}/context` несут `blocked_by` (open dependency ids) + `lock_holder` (agent_id/agent_name/acquired_at); (3) `?ready=true` исключает задачи, занятые самим агентом (раньше шумели в очереди). 6 handler-тестов, OpenAPI оба файла синхронны.
+- **Phase 28.21 (ops-hardening)** — **закрыта 2026-08-16** в `phase-28-21-ops-hardening`. Login rate-limit восстановлен, `configs/config.example.yaml` tracked (install.sh больше не падает на fresh clone), JWT-секрет генерируется в `$DATA_DIR/env` (mode 600), LWW-семантика Phase 8 зафиксирована документально.
 - **Multi-user / multi-device sync (Phase 11+)** — следующая эра.
+- **Аудит 2026-08-16 — открытые находки:** нет CI; `uninstall.sh` без `--help`/валидации флагов; `update-dogfood.sh` хардкодит remote `origin`; `sync_ops` write-errors проглатываются молча. Backend-свип → Phase 28.22 (N+1 в `listAgentTasksHandler`, `handlers_today.go` full-scan, `go vet` finding, мёртвый код). Frontend-фундамент → Phase 28.23 (WS-race в `useWebSocketTopic`, zustand/idb deps, density toggle UI, `AuthContext` тесты).
 - **Lint остаток (95 issues):** 45 hugeParam non-api (per Phase 28.15 commit); 15 unparam, 7 nilnil, 5 contextcheck — механические фиксы с diminishing returns. Не блокируют dogfooding.
 
 ## Файлы

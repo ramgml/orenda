@@ -76,8 +76,19 @@ install -m 0755 bin/orenda "$INSTALL_DIR/orenda"
 echo "==> Preparing data dir at $DATA_DIR"
 mkdir -p "$DATA_DIR"
 if [[ ! -f "$DATA_DIR/config.yaml" ]]; then
-  sed "s|data/|$DATA_DIR/|g" data/config.example.yaml > "$DATA_DIR/config.yaml"
+  sed "s|data/|$DATA_DIR/|g" configs/config.example.yaml > "$DATA_DIR/config.yaml"
   echo "    wrote $DATA_DIR/config.yaml"
+fi
+
+# JWT secret (Phase 28.21): the systemd unit reads @DATADIR@/env via
+# EnvironmentFile. Generate a random secret on first install so a fresh
+# instance never runs with a repo-public signing key. Existing installs
+# keep their current env file untouched.
+if [[ ! -f "$DATA_DIR/env" ]]; then
+  umask 077
+  printf 'ORENDA_AUTH__JWT_SECRET=%s\n' "$(head -c32 /dev/urandom | base64)" > "$DATA_DIR/env"
+  chmod 600 "$DATA_DIR/env"
+  echo "    wrote $DATA_DIR/env (random JWT secret, mode 600)"
 fi
 
 if [[ "$WITH_SYSTEMD" == "1" ]]; then
@@ -96,6 +107,7 @@ echo
 echo "Done. Try:"
 echo "  orenda version"
 echo "  orenda serve --config $DATA_DIR/config.yaml"
-echo "  ORENDA_AUTH__JWT_SECRET=\$(head -c32 /dev/urandom | base64) orenda user create \\"
+echo "  set -a; . $DATA_DIR/env; set +a   # loads ORENDA_AUTH__JWT_SECRET"
+echo "  orenda user create \\"
 echo "      --email you@example.com --display-name You --password-stdin \\"
 echo "      --config $DATA_DIR/config.yaml"

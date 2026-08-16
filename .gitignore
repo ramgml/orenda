@@ -1,7 +1,8 @@
 # --- Runtime data (NEVER commit) ---
+# Note: git cannot re-include files under an excluded directory, so
+# `!data/...` negations here would be dead rules. The tracked config
+# template lives at configs/config.example.yaml (Phase 28.21).
 data/
-!data/.gitkeep
-!data/config.example.yaml
 
 # --- Build artifacts ---
 bin/

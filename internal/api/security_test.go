@@ -117,3 +117,27 @@ func TestRateLimit_HealthzSkipped(t *testing.T) {
 		require.Equal(t, http.StatusOK, rr.Code, "healthz must not be rate limited")
 	}
 }
+
+// Phase 28.21: the login endpoint must NOT bypass the limiter. It is
+// the single endpoint where brute force matters; the anon per-IP bucket
+// (default burst 60) is the only thing standing between an attacker and
+// unlimited password attempts. Previously login sat in SkipPaths "for
+// E2E convenience" — E2E overrides the limits via ORENDA_RATELIMIT_*,
+// so the skip was unnecessary. Pin the new behaviour.
+func TestRateLimit_LoginNotSkipped(t *testing.T) {
+	router := api.NewRouter(&api.Dependencies{})
+
+	var last *httptest.ResponseRecorder
+	for i := 0; i < 100; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
+			strings.NewReader(`{"email":"a@b.c","password":"x"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "10.9.9.9:4444"
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		last = rr
+	}
+	require.Equal(t, http.StatusTooManyRequests, last.Code,
+		"login must be rate limited after the anon burst is exhausted")
+	assert.NotEmpty(t, last.Header().Get("Retry-After"))
+}
