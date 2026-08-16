@@ -288,6 +288,17 @@
 
 **Verify:** `npx tsc --noEmit` clean; vitest **263/263** (было 246, +17); prettier/eslint на затронутых файлах clean; `make test-e2e` 18/18.
 
+## Phase 29 (постановка) — Agent surfaces: wiki + создание курсов агентом *(2026-08-16)*
+
+**Продуктовое решение пользователя:** максимум работы перекладывается на агентов. Целевая сценария: «создай курс по X» внешнему агенту (opencode/MCP) → курс готов к обучению без единого действия человека. Диагностика сессии: wiki агентам недоступна вообще (user-side `/api/v1/pages/*`, agent-неймспейс без pages → MCP/skill wiki не покрывают); курсы агент наполняет (curriculum/materialize/quizzes есть), но создать не может (POST /courses только user-side).
+
+**Зафиксированные дизайн-решения** (полная постановка — PLAN.md Phase 29, задачи 29.1–29.7):
+
+1. Agent wiki REST — переиспользуем существующие хендлеры (user-ctx не читают, проверено grep'ом); схема без изменений (нет owner/author); mirror + WS достаются бесплатно.
+2. Владелец agent-created курса — `Users.FirstNonSystem`; `SkipGenerator` (агент сам генератор, generator task не спавнится).
+3. `POST /agent/courses/{id}/activate` (review → active) — общий сервисный путь с user-side approve; human approve в UI остаётся, request-changes доступен всегда. Аппрув-клик убран сознательно: это и есть «ручная работа», которую сценарий исключает.
+4. Поверхности: REST `/agent/pages/*` + `/agent/search` + CLI `orenda agent pages …` + MCP-тулы `orenda_pages_*`/`orenda_search` + skill-секция; openapi.yaml синхронизируется (coverage-тест 27.11.2 принудит).
+
 ## Метаданные
 
 - **Дата снапшота:** 2026-08-16
@@ -430,6 +441,7 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 - **Phase 10 долги, оставшиеся за скобками:** VK Long Poll / Email HTML / Weekly digest. Это большие подфазы Phase 10 (DoD которой — полный набор ботов с HTML и weekly digest). Не блокируют dogfooding. **Test send UI закрыт 2026-08-14** в `phase-10-test-send` (POST /api/v1/bots/test, dropdown + submit в Settings → Bots, console исключён, per-bot pre-check).
 - **Phase 15 close-out (agent UX контракт)** — **закрыта 2026-08-14** в `phase-15-agent-context`. (1) `409 lock_taken` теперь несёт `holder_agent_id`/`holder_agent_name`/`claimed_at` (раньше `taskLockRepo.Holder` был написан, но не подключён); (2) `/tasks/:id/context` и `/agent/tasks/{id}/context` несут `blocked_by` (open dependency ids) + `lock_holder` (agent_id/agent_name/acquired_at); (3) `?ready=true` исключает задачи, занятые самим агентом (раньше шумели в очереди). 6 handler-тестов, OpenAPI оба файла синхронны.
 - **Phase 28.21 (ops-hardening)** — **закрыта 2026-08-16** в `phase-28-21-ops-hardening`. Login rate-limit восстановлен, `configs/config.example.yaml` tracked (install.sh больше не падает на fresh clone), JWT-секрет генерируется в `$DATA_DIR/env` (mode 600), LWW-семантика Phase 8 зафиксирована документально.
+- **Phase 29 (agent surfaces: wiki + course creation)** — **поставлена 2026-08-16** (PLAN.md, задачи 29.1–29.7). Wiki целиком в agent-неймспейс (REST+CLI+MCP+skill), `POST /agent/courses` (owner=FirstNonSystem, SkipGenerator), `POST /agent/courses/{id}/activate`. Мотивация: сценарий «агент создаёт курс целиком, человек только учится».
 - **Multi-user / multi-device sync (Phase 11+)** — следующая эра.
 - **Аудит 2026-08-16 — открытые находки:** нет CI; `uninstall.sh` без `--help`/валидации флагов; `update-dogfood.sh` хардкодит remote `origin`; `sync_ops` write-errors проглатываются молча. ~~Frontend-фундамент → Phase 28.23~~ — **закрыто 2026-08-16** (WS-race, zustand/idb deps, density toggle UI, `AuthContext` тесты, shared UI primitives).
 - **Lint остаток (95 issues):** 45 hugeParam non-api (per Phase 28.15 commit); 15 unparam, 7 nilnil, 5 contextcheck — механические фиксы с diminishing returns. Не блокируют dogfooding.

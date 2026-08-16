@@ -2709,4 +2709,40 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 - `npx prettier --check` на всех затронутых файлах — clean.
 - `npx eslint` на затронутых файлах — 0 errors, 0 warnings.
 - `make test-e2e` — 18/18 pass (21.9s).
-- Mutation check (28.23.1): инверсия deps → тест красный; revert → зелёный.
+- Mutation check (28.23.1): инверсия deps → тест красный; revert — зелёный.
+
+---
+
+## Phase 29 (фича) — Agent surfaces: wiki-управление + создание курсов агентом *(постановка 2026-08-16)*
+
+> **Мотивация (продуктовое решение 2026-08-16).** Целевая сценария: пользователь пишет внешнему агенту (opencode, MCP-клиент) «создай курс по OpenCode» — агент создаёт курс целиком (курс → curriculum → уроки → квизы → активация), человек только учится. Wiki агентам недоступна вообще; курсы агент может наполнять, но не создавать. Смысл проекта — минимизировать ручную работу, перекладывая её на агентов.
+
+**Контекст (evidence, read-only сверка 2026-08-16):**
+
+- MCP-сервер (`internal/mcp/orenda_tools.go`) — тонкий мост над `orenda agent` CLI: ровно 7 тул (me/list_tasks/claim/release/submit/context/await), каждая 1:1 над `/api/v1/agent/*`. Skill документирует только этот delegation loop.
+- Agent-неймспейс (`router.go`, группа `RequireAgent`): `tasks/{claim,release,submit,context,comments}`, `events/await`, `courses` (GET drafts + PUT curriculum), `lessons/{materialize,content,quizzes}`. Wiki-роутов нет.
+- Wiki — user-side only (Phase 5): `/api/v1/pages/*` (list/get/save/delete/move/backlinks) + `/api/v1/search` под `RequireUser`; агентский bearer → 401. Хендлеры `handlers_wiki.go` **не читают user-контекст** (grep `userIDFromCtx`/`Identity` пуст) — переиспользуются под `RequireAgent` без развилок. `wiki_pages` без owner/author колонок — permission-модель не нужна; сервис один, значит mirror (git) и WS-события агент получает бесплатно.
+- Курсы: создание есть только user-side (`POST /api/v1/courses` → `CourseService.CreateWithIntent(ctx, userID, title, intentMD, opts...)`); `owner_id NOT NULL REFERENCES users(id)` (миграция 019, «single-owner today, but the column is here»). Для agent-контекста владельца резолвит существующий `user.Repository.FirstNonSystem(ctx)`.
+- `MaterializeLesson` гейтится только статусом урока (locked → open), **не** статусом курса — уроки можно наполнять сразу после curriculum. `SubmitCurriculum` флипает курс в `review`; approve (review → active) — только user-side.
+- `CreateWithIntent` спавнит generator task для тьютора; опция `SkipGenerator()` уже существует — при создании курса самим агентом generator task не нужен (агент и есть генератор).
+
+**Дизайн-решения (зафиксированы):**
+
+1. **Владелец agent-created курса** — `Users.FirstNonSystem` (система single-user; колонка owner_id уже готова к multi-user). Не параметр запроса.
+2. **`SkipGenerator` при agent-создании** — иначе спавнится generator task, который дублирует работу уже работающего агента.
+3. **Agent-side активация курса** — новый `POST /agent/courses/{id}/activate` (review → active через тот же сервисный путь, что и user-side approve; activity авторства агента). Human approve в UI остаётся. Обоснование: клик-аппрув — это ручная работа, которую пользователь явно попросил убрать; качественный гейт при этом не исчезает из продукта — он становится опциональным (человек может вернуть курс request-changes в любой момент, `active → review` недоступно, но `archived` и повторный curriculum-swap работают).
+4. **Wiki без смены схемы** — атрибуция в activity-feed (где эмитится), author-колонку не добавляем.
+
+**Задачи:**
+
+- [ ] **29.1** Agent wiki REST: в `router.go` под `RequireAgent` — `GET /agent/pages` (tree), `GET /agent/pages/{slug}`, `PUT /agent/pages/{slug}` (upsert через `WikiService.Save`), `DELETE /agent/pages/{slug}`, `PATCH /agent/pages/{slug}/move`, `GET /agent/pages/{slug}/backlinks`, `GET /agent/search?q=`. Хендлеры wiki переиспользуются (user-ctx не читают); identity агента — только для activity. Интеграционные тесты: полный CRUD-round-trip агентским токеном; 401 без токена; user-side роуты неизменны.
+- [ ] **29.2** CLI `orenda agent`: `pages list|get|put|delete|move|backlinks` + `search <query>`. `put` читает markdown из `--file`/stdin. `-json` паритет с остальными сабкомандами.
+- [ ] **29.3** MCP-тулы в `orenda_tools.go`: `orenda_pages_list`, `orenda_pages_get`, `orenda_pages_save`, `orenda_pages_delete`, `orenda_pages_move`, `orenda_search` — по образцу существующих 7 (flat naming, комментарий про выбор имён сохранить). Тесты server_test.go на новые тулы.
+- [ ] **29.4** Agent course creation: `POST /agent/courses {title, intent_md?}` → `CreateWithIntent(ctx, FirstNonSystem().ID, title, intentMD, SkipGenerator())` → 201 + course JSON. Тесты: draft создан; generator task НЕ создан; owner = первый не-system пользователь; 400 без title.
+- [ ] **29.5** Agent course activation: `POST /agent/courses/{id}/activate` — переход review → active тем же сервисным методом, что approveCourseHandler (вынести общий путь, не копировать логику). Тесты: review → active; из draft — ErrTransition/409; activity записана с автором-агентом.
+- [ ] **29.6** Спеки и skill: `docs/openapi.yaml` + embedded-копия (coverage-тест 27.11.2 принудит); skill — новая секция wiki-операций + сценарий «создать курс end-to-end» (create → curriculum → materialize → quizzes → activate) в §6.1 и workflow-главе; SESSION.md.
+- [ ] **29.7** Smoke DoD скриптом: агентским токеном через curl — создать курс, залить curriculum (модуль + 2 урока + квиз), materialize оба урока, activate → курс виден и открыт user-side; wiki: create/edit/move/delete страницы + search находит контент. Вывод скрипта цитируется в PR.
+
+**DoD (проверяется исполнением):** внешний агент (MCP или CLI) создаёт обучаемый курс без единого действия человека после постановки; агент полностью управляет wiki; `make test && make lint` зелёные; openapi coverage-тест зелёный.
+
+**За скобкой (зафиксировано):** owner-side UI для wiki/course agent-активности не меняется (курсы/страницы просто появляются); multi-user owner-выбор отложен до появления второго пользователя; `[[` autocomplete в редакторе — старый долг Phase 5, не этой фазы.
