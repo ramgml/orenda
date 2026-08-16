@@ -16,18 +16,17 @@ import { api, type Task } from '@/shared/api/client';
  * shows a "Created — open?" toast with a link. Escape closes; clicking
  * the backdrop closes.
  *
- * Phase 30.10: an optional due date rides along. The field is off the
- * hotkey path — q → type → Cmd/Ctrl+Enter still captures without
- * touching it; it only adds one Tab stop for keyboard users who want
- * a deadline.
- *
  * The modal is rendered via React Portal at document.body so it
  * escapes any overflow:hidden on the kanban surface.
  */
 export function QuickCapture() {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
-  const [due, setDue] = useState('');
+  // Phase 30.10: optional due date. Stored as YYYY-MM-DD from the
+  // <input type="date">; converted to a local-midnight ISO string at
+  // submit so the backend receives a parseable timestamp without
+  // surprise from local-vs-UTC drift.
+  const [dueDate, setDueDate] = useState('');
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<Task | null>(null);
   const navigate = useNavigate();
@@ -35,7 +34,7 @@ export function QuickCapture() {
   const close = useCallback(() => {
     setOpen(false);
     setTitle('');
-    setDue('');
+    setDueDate('');
   }, []);
 
   // Global hotkey: 'q' or Cmd/Ctrl+K. Skip when the user is typing
@@ -78,19 +77,16 @@ export function QuickCapture() {
     if (!t || busy) return;
     setBusy(true);
     try {
-      // Phase 30.10: optional due date. Only send the key when the
-      // user picked one — the payload stays {title} for the classic
-      // hotkey flow (q → type → Cmd+Enter), so capture is not slowed.
-      // The <input type="date"> yields YYYY-MM-DD; the API contract
-      // is RFC3339, so anchor to local midnight and serialise.
-      const input: { title: string; due_at?: string } = { title: t };
-      if (due) {
-        input.due_at = new Date(`${due}T00:00:00`).toISOString();
-      }
-      const created = await api.createInboxTask(input);
+      // Phase 30.10: optional due_at. Local-midnight → ISO 8601 —
+      // date-only inputs are TZ-naive so the operator's "tomorrow"
+      // resolves to tomorrow in their browser, not UTC+0. The
+      // server stores the raw string and the calendar renders it as
+      // an all-day deadline (Phase 30.8).
+      const due_at = dueDate ? new Date(`${dueDate}T00:00:00`).toISOString() : undefined;
+      const created = await api.createInboxTask({ title: t, due_at });
       setCreated(created);
       setTitle('');
-      setDue('');
+      setDueDate('');
     } catch {
       // Swallow: the modal stays open so the user can retry. The
       // create-inbox-task endpoint shouldn't fail in practice (it
@@ -129,11 +125,11 @@ export function QuickCapture() {
         createPortal(
           <CaptureModal
             title={title}
-            due={due}
+            dueDate={dueDate}
+            setDueDate={setDueDate}
             busy={busy}
             created={created}
             setTitle={setTitle}
-            setDue={setDue}
             onKeyDown={onKeyDown}
             onSubmit={() => void submit()}
             onClose={close}
@@ -148,11 +144,11 @@ export function QuickCapture() {
 
 function CaptureModal({
   title,
-  due,
+  dueDate,
+  setDueDate,
   busy,
   created,
   setTitle,
-  setDue,
   onKeyDown,
   onSubmit,
   onClose,
@@ -160,11 +156,11 @@ function CaptureModal({
   onDismissToast,
 }: {
   title: string;
-  due: string;
+  dueDate: string;
+  setDueDate: (s: string) => void;
   busy: boolean;
   created: Task | null;
   setTitle: (s: string) => void;
-  setDue: (s: string) => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onSubmit: () => void;
   onClose: () => void;
@@ -221,16 +217,17 @@ function CaptureModal({
               data-testid="quick-capture-input"
               className="w-full px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
             />
-            <label className="flex items-center gap-2 text-xs text-slate-500">
-              <span>Due (optional)</span>
-              <input
-                type="date"
-                value={due}
-                onChange={(e) => setDue(e.target.value)}
-                data-testid="quick-capture-due"
-                className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm text-slate-800 dark:text-slate-100"
-              />
-            </label>
+            {/* Phase 30.10: optional due date. Tab order keeps title
+                first, then due, then buttons — the hotkey flow stays
+                one keystroke from thinking to "save". */}
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              data-testid="quick-capture-due"
+              aria-label="Optional due date"
+              className="w-full px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
+            />
             <div className="flex justify-end gap-2">
               <button
                 type="button"

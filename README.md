@@ -133,6 +133,7 @@ with Prettier before each commit. Skip with
 | 30.7 (reject needs comment) | ✅ | `POST /tasks/{id}/review {decision: "reject", comment: ""}` → 400 `invalid_input`. Approve without a comment is still allowed (silent ack). The agent now always knows *why* a return-to-fix was issued |
 | 30.8 (tasks on calendar) | ✅ | Tasks with a `due_at` render as all-day markers on the calendar (`📌 Title ✓` for done). New endpoint `GET /api/v1/tasks/with-due?from=&to=` powers the calendar's deadline lane |
 | 30.9 (backup status) | ✅ | `GET /api/v1/backups/status` returns snapshot count + latest path/size + timestamp; Settings → Backups shows the count and latest timestamp. Cron parser remains deferred |
+| 30.10 (QuickCapture due) | ✅ | The hotkey-triggered QuickCapture modal now has an optional `<input type="date">` for setting a due date on the captured task. Leave it empty for one-keystroke capture; pick a date to schedule the idea |
 
 > Screenshots: not bundled in the repo (kept light — no binary blobs).
 > Run `make build && bin/orenda serve` and visit the four key pages:
