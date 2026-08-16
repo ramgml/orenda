@@ -623,6 +623,8 @@ class ApiClient {
     priority?: string;
     assignee_type?: string;
     assignee_id?: string;
+    /** RFC3339 deadline marker (Phase 30.10 quick-capture due). */
+    due_at?: string;
   }): Promise<Task> {
     return this.http.post<Task>('/api/v1/inbox/tasks', input).then((r) => r.data);
   }
