@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/task"
 )
@@ -334,6 +335,23 @@ func patchTaskHandler(deps *Dependencies) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusOK, tr)
+
+		// Phase 30.14: publish task.updated on the `tasks` topic so a
+		// second tab (or a user who navigates away and back) sees the
+		// changes a sibling tab made through PATCH. The agent-flow
+		// events already publish (claim/submit/review/deps_changed);
+		// PATCH had no WS broadcast, which is the long-standing
+		// cross-tab visibility gap. Bulk-edit shares the same emit so
+		// the kanban bulk-action bar doesn't need a separate path.
+		if deps.WSHub != nil {
+			deps.WSHub.Publish(r.Context(), ws.Event{
+				Topic: "tasks",
+				Body: map[string]any{
+					"type": "task.updated",
+					"task": tr,
+				},
+			})
+		}
 	}
 }
 
