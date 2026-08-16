@@ -238,7 +238,13 @@ describe('QuickCapture', () => {
 
   it('posts due_at as RFC3339 when a date is picked', async () => {
     stubHttp.post.mockResolvedValueOnce({
-      data: { id: 'new-1', title: 'deadline', status: 'todo', priority: 'medium', awaiting: 'none' },
+      data: {
+        id: 'new-1',
+        title: 'deadline',
+        status: 'todo',
+        priority: 'medium',
+        awaiting: 'none',
+      },
     });
 
     mount();
