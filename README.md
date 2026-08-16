@@ -125,6 +125,7 @@ with Prettier before each commit. Skip with
 | 11–27 | ✅ | Projects UI, kanban columns, tags, dependencies, inbox, rich cards, LMS courses, review queue, today, quick capture, restore, OpenAPI, agent CLI + MCP, E2E suite — see [PLAN](docs/PLAN.md) |
 | 28 (Polish backlog close-out) | ✅ | Settings hub, TaskModal scroll, security defaults (JWT 24h, Secure from config), activity emission, Bot.Stop on shutdown, opt-in pprof, govulncheck target, Prettier, hot-reload backup, CSP tightening, ARCHITECTURE.md |
 | 30.1 (CI) | ✅ | GitHub Actions: `lint` → `test` → `build` → `e2e`. PR gate is incremental (`--new-from-merge-base`); release branch (`main`) gets full lint; 73 pre-existing lint issues remain (see [PLAN](docs/PLAN.md) §30.16) |
+| 30.2 (sync_ops observability) | ✅ | `sync_ops.Record()` failures now bump `sync_ops_record_failures` in `/api/v1/stats` and emit a `zap.Warn` with client/server ids — no more silent PWA outbox replay loop |
 
 > Screenshots: not bundled in the repo (kept light — no binary blobs).
 > Run `make build && bin/orenda serve` and visit the four key pages:

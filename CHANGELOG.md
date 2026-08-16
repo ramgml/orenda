@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Phase 30.1:** GitHub Actions CI (`.github/workflows/ci.yml`) — `lint` → `test` → `build` → `e2e` with fail-fast, concurrency cancel-in-progress, and Go 1.26 / Node 24 / golangci-lint-action v6 caching. Lint scope: PR uses `--new-from-merge-base` (incremental gate on new code), push to `main` runs full (release-branch guard), push to `dev` skips lint (PR gate is the contract). Web lint: eslint + prettier --check. `.golangci.yml` cleanup: disabled pre-existing `hugeParam` gocritic rule (Phase 28.15 closed this for API handlers); renamed revive rule `error-returned` → `error-return` to match current schema.
+- **Phase 30.2:** `sync_ops.Record()` failures are now observable. The 6 call sites in `POST /api/v1/sync` used `_ = syncOpsRecord(...)` — a failed write to the idempotency table was silently swallowed, the client could replay the op forever, and the operator saw nothing. The helper now increments `liveStats.syncOpsRecordFailures` and emits a `zap.Warn` with `client_id` / `server_id` / `err`. The `/api/v1/stats` endpoint exposes the counter as `sync_ops_record_failures`; OpenAPI schema updated. Tests in `internal/api/handlers_sync_test.go` (4 cases via `zaptest/observer` + mock `SyncOpsStore`).
 
 ## [0.1.0] — 2026-08-16
 

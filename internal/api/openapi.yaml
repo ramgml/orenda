@@ -240,6 +240,7 @@ paths:
                   ws_connections: { type: integer }
                   db_bytes: { type: integer }
                   db_path: { type: string }
+                  sync_ops_record_failures: { type: integer, description: 'Phase 30.2: count of sync_ops.Record() failures since process start. Non-zero indicates outbox idempotency table is unhealthy and the client may replay ops.' }
 
   # ---- auth ----
   /api/v1/auth/login:
