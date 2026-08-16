@@ -1299,6 +1299,12 @@ paths:
       summary: List snapshots.
       security: [{ bearerAuth-cookie: [] }]
       responses: { '200': { description: ok } }
+  /api/v1/backups/status:
+    get:
+      tags: [backups]
+      summary: 'Phase 30.9: read-only backup status (snapshot count + latest path/size + timestamp).'
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
 
   /api/v1/backups/restore:
     post:
