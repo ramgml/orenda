@@ -1,0 +1,72 @@
+# golangci-lint configuration for Orenda.
+#
+# Docs: https://golangci-lint.run/usage/configuration/
+#
+# Keep this file conservative: linters should catch real bugs, not
+# bikeshed style. Style is enforced by gofmt + goimports.
+
+run:
+  timeout: 5m
+  tests: true
+  build-tags: []
+
+linters:
+  disable-all: true
+  enable:
+    # Default-ish set tuned for a small Go service.
+    - errcheck       # unchecked errors in defer/file ops
+    - govet          # suspicious constructs
+    - ineffassign    # unused assignments
+    - staticcheck    # the canonical "things you forgot"
+    - unused         # unused locals/params
+    - gosimple       # simplifications
+    - gocritic       # opinionated style + perf
+    - gofmt          # formatting
+    - goimports      # import grouping
+    - misspell       # typos in comments
+    - bodyclose      # http.Response.Body.Close
+    - contextcheck   # ctx propagation
+    - nilerr         # `return nil` after err check
+    - nilnil         # `return nil, nil` warning
+    - prealloc       # slice pre-allocation hints
+    - revive         # golint successor
+    - unconvert      # redundant conversions
+    - unparam        # unused function params
+
+linters-settings:
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - ifElseChain       # noisy
+      - tooManyResultsChecker
+  revive:
+    rules:
+      - name: package-comments
+      - name: exported
+      - name: var-naming
+      - name: error-strings
+      - name: error-returned
+      - name: error-naming
+      - name: import-shadowing
+      - name: indent-error-flow
+      - name: superfluous-else
+      - name: unreachable-code
+  goimports:
+    local-prefixes: github.com/ramgml/orenda
+  misspell:
+    locale: ru,en
+
+issues:
+  exclude-rules:
+    # Tests can use package-level helpers liberally.
+    - path: _test\.go
+      linters:
+        - gocritic
+        - revive
+  exclude-use-default: true
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new: false  # don't gate on new issues only

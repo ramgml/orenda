@@ -1,0 +1,780 @@
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+import { api, type WikiPage, type WikiTreeNode } from '@/shared/api/client';
+import { useWebSocketTopic } from '@/shared/ws';
+import { slugify } from '@/shared/util/slug';
+
+import { MarkdownEditor } from './MarkdownEditor';
+
+/**
+ * /wiki — sidebar tree + markdown editor + preview.
+ *
+ * Layout:
+ *   ┌─ sidebar (260px) ─┬─ editor ────────────────────────────┐
+ *   │ New page form      │ title input + Save/Delete toolbar   │
+ *   │ (slug + Create)    │ Write / Preview tabs                │
+ *   │ ─────────          │ Write: textarea + markdown toolbar  │
+ *   │ WikiTree           │ Preview: react-markdown render      │
+ *   └────────────────────┴──────────────────────────────────────┘
+ *
+ * Phase 5 wired tree + save + backlinks; Phase 6+ adds the new-page
+ * form (slug input) and a proper markdown editor with live preview.
+ */
+export function WikiPage(): JSX.Element {
+  const { slug } = useParams<{ slug: string }>();
+  const navigate = useNavigate();
+  const [tree, setTree] = useState<WikiTreeNode[]>([]);
+  const [page, setPage] = useState<WikiPage | null>(null);
+  const [backlinks, setBacklinks] = useState<WikiPage[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  async function loadTree(): Promise<void> {
+    try {
+      const t = await api.listPages();
+      setTree(t.tree ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function loadPage(slugVal: string): Promise<void> {
+    try {
+      const p = await api.getPageBySlug(slugVal);
+      const bl = await api.getPageBacklinks(slugVal);
+      setPage(p);
+      setBacklinks(bl.backlinks ?? []);
+      setError(null);
+    } catch (e) {
+      if ((e as { response?: { status?: number } }).response?.status === 404) {
+        // Slug not yet present — show an empty editor to create it.
+        setPage({
+          id: '',
+          slug: slugVal,
+          title: slugVal,
+          content_md: '',
+          position: 0,
+          created_at: '',
+          updated_at: '',
+        });
+        setBacklinks([]);
+        setError(null);
+      } else {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  }
+
+  useEffect(() => {
+    loadTree();
+    if (slug) loadPage(slug);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
+
+  useWebSocketTopic('wiki', () => {
+    loadTree();
+    if (slug) loadPage(slug);
+  });
+
+  async function onSave(): Promise<void> {
+    if (!page || !page.slug) return;
+    setSaving(true);
+    try {
+      if (page.id) {
+        await api.updatePage(page.slug, {
+          title: page.title,
+          content_md: page.content_md,
+        });
+      } else {
+        await api.savePage({
+          slug: page.slug,
+          title: page.title,
+          content_md: page.content_md,
+        });
+      }
+      setDirty(false);
+      await loadPage(page.slug);
+      await loadTree();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onDelete(): Promise<void> {
+    if (!page || !page.id) return;
+    if (!window.confirm(`Delete "${page.title}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await api.deletePage(page.slug);
+      setPage(null);
+      await loadTree();
+      navigate('/wiki');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <section className="grid md:grid-cols-[260px,1fr] gap-4 h-full">
+      <WikiSidebar
+        tree={tree}
+        current={slug}
+        onCreated={(newSlug) => navigate(`/wiki/${newSlug}`)}
+        onRefresh={loadTree}
+      />
+
+      <main className="space-y-3 min-w-0">
+        {error && (
+          <div className="rounded border border-red-300 bg-red-50 text-red-800 px-3 py-2 text-sm">
+            {error}
+          </div>
+        )}
+
+        {page === null ? (
+          <EmptyState />
+        ) : (
+          <PageEditor
+            page={page}
+            backlinks={backlinks}
+            dirty={dirty}
+            saving={saving}
+            deleting={deleting}
+            onChange={(p) => {
+              setPage(p);
+              setDirty(true);
+            }}
+            onSave={onSave}
+            onDelete={onDelete}
+          />
+        )}
+      </main>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar — new-page form + tree
+// ---------------------------------------------------------------------------
+
+function WikiSidebar({
+  tree,
+  current,
+  onCreated,
+  onRefresh,
+}: {
+  tree: WikiTreeNode[];
+  current?: string;
+  onCreated: (newSlug: string) => void;
+  onRefresh: () => void;
+}): JSX.Element {
+  // The form accepts a free-text title (any language). We auto-derive
+  // the slug via slugify() and let the user override it if they want a
+  // custom URL. Once the user touches the slug field we stop
+  // regenerating it from the title.
+  const [title, setTitle] = useState('');
+  const [slugOverride, setSlugOverride] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const autoSlug = slugify(title);
+  const slug = (slugOverride ?? autoSlug).trim().toLowerCase();
+
+  async function submitNewPage(e: React.FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault();
+    const t = title.trim();
+    if (!t) return;
+    if (!/^[a-z0-9_-]+$/.test(slug)) {
+      setErr('Slug must contain only [a-z0-9_-].');
+      return;
+    }
+    setCreating(true);
+    setErr(null);
+    try {
+      // Pre-create so the page is visible in the tree immediately.
+      // The slug is what we sent; the backend echoes it back.
+      await api.savePage({
+        slug,
+        title: t,
+        content_md: '',
+      });
+      setTitle('');
+      setSlugOverride(null);
+      onCreated(slug);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(/slug_taken/.test(msg) ? 'A page with this slug already exists.' : msg);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <aside className="rounded border border-slate-200 dark:border-slate-800 p-3 overflow-auto max-h-[80vh] space-y-3">
+      <form onSubmit={submitNewPage} className="space-y-1.5">
+        <h2 className="text-sm font-semibold text-slate-500">New page</h2>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Page title (any language)"
+          className="w-full px-2 py-1 text-sm rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+          autoFocus
+        />
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-slate-500 font-mono shrink-0">/wiki/</span>
+          <input
+            type="text"
+            value={slug}
+            onChange={(e) => {
+              const v = e.target.value;
+              // If the user edits the slug we treat it as an explicit
+              // override and stop regenerating from the title. If they
+              // clear it back to the auto value we follow along again.
+              const isAuto = v === autoSlug;
+              setSlugOverride(isAuto ? null : v);
+            }}
+            placeholder="auto-generated"
+            className="flex-1 min-w-0 px-2 py-1 text-xs font-mono rounded border border-slate-200 dark:border-slate-700 bg-transparent"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={creating || !title.trim()}
+          className="w-full px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-xs"
+        >
+          {creating ? 'Creating…' : 'Create'}
+        </button>
+        {err && <p className="text-xs text-red-600">{err}</p>}
+      </form>
+
+      <div>
+        <h2 className="text-sm font-semibold text-slate-500 mb-1">Pages</h2>
+        <WikiTree tree={tree} current={current} onRefresh={onRefresh} />
+      </div>
+    </aside>
+  );
+}
+
+function EmptyState(): JSX.Element {
+  return (
+    <div className="rounded border border-dashed border-slate-300 dark:border-slate-700 p-8 text-center text-slate-500">
+      <p className="text-lg mb-1">No page selected</p>
+      <p className="text-sm">
+        Pick a page from the tree, or type a slug in <em>New page</em> on the left to create one.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page editor — Notion-style Tiptap WYSIWYG with a Source tab for raw
+// markdown. The editor is the live preview, so we don't need a
+// separate Preview tab; the Source tab is for power users / pasting.
+// ---------------------------------------------------------------------------
+
+function PageEditor({
+  page,
+  backlinks,
+  dirty,
+  saving,
+  deleting,
+  onChange,
+  onSave,
+  onDelete,
+}: {
+  page: WikiPage;
+  backlinks: WikiPage[];
+  dirty: boolean;
+  saving: boolean;
+  deleting: boolean;
+  onChange: (p: WikiPage) => void;
+  onSave: () => void;
+  onDelete: () => void;
+}): JSX.Element {
+  const [tab, setTab] = useState<'edit' | 'preview' | 'source'>('preview');
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-3">
+        <input
+          type="text"
+          value={page.title}
+          onChange={(e) => onChange({ ...page, title: e.target.value })}
+          className="text-2xl font-semibold bg-transparent border-b border-transparent focus:border-orenda-500 focus:outline-none flex-1 min-w-0"
+          placeholder="Untitled"
+        />
+        <div className="flex items-center gap-2 text-xs shrink-0">
+          {dirty && <span className="text-amber-600">unsaved</span>}
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saving || !dirty}
+            className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          {page.id && (
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={deleting}
+              title="Delete this page"
+              className="px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20 disabled:opacity-50"
+            >
+              {deleting ? 'Deleting…' : 'Delete'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="text-xs text-slate-500 font-mono">/wiki/{page.slug}</div>
+
+      <div className="border-b border-slate-200 dark:border-slate-800 flex">
+        <TabBtn active={tab === 'preview'} onClick={() => setTab('preview')}>
+          Preview
+        </TabBtn>
+        <TabBtn active={tab === 'edit'} onClick={() => setTab('edit')}>
+          Edit
+        </TabBtn>
+        <TabBtn active={tab === 'source'} onClick={() => setTab('source')}>
+          Source
+        </TabBtn>
+      </div>
+
+      {tab === 'edit' ? (
+        <MarkdownEditor
+          value={page.content_md ?? ''}
+          onChange={(md) => onChange({ ...page, content_md: md })}
+          placeholder="Type / for commands…"
+        />
+      ) : tab === 'preview' ? (
+        <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-6 py-5 min-h-[300px]">
+          {page.content_md ? (
+            <article className="prose dark:prose-invert max-w-none text-sm">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{page.content_md}</ReactMarkdown>
+            </article>
+          ) : (
+            <p className="text-slate-400 italic text-sm">Nothing to preview yet.</p>
+          )}
+        </div>
+      ) : (
+        <textarea
+          value={page.content_md ?? ''}
+          onChange={(e) => onChange({ ...page, content_md: e.target.value })}
+          rows={22}
+          spellCheck={false}
+          className="w-full px-4 py-3 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 font-mono text-sm leading-relaxed outline-none focus:border-orenda-500 resize-y"
+        />
+      )}
+
+      {backlinks.length > 0 && (
+        <section className="rounded border border-slate-200 dark:border-slate-800 p-3">
+          <h3 className="text-sm font-semibold text-slate-500 mb-2">Backlinks</h3>
+          <ul className="space-y-1 text-sm">
+            {backlinks.map((b) => (
+              <li key={b.id}>
+                <Link to={`/wiki/${b.slug}`} className="text-orenda-600 hover:underline">
+                  {b.title}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </>
+  );
+}
+
+function TabBtn({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-1.5 text-xs font-medium ${
+        active
+          ? 'border-b-2 border-orenda-500 text-orenda-700 dark:text-orenda-300'
+          : 'text-slate-500 hover:text-slate-700'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// WikiTree — recursive, collapsible, with inline child creation and
+// per-page move / delete actions. Notion-style but kept simple.
+//
+// Each row has:
+//   - chevron (only when it has children) — click to collapse
+//   - icon (folder or doc) + title — click to navigate
+//   - hover-revealed "+" button — add a child page under this one
+//   - hover-revealed "⋯" menu — Move / Delete
+
+function WikiTree({
+  tree,
+  current,
+  onRefresh,
+}: {
+  tree: WikiTreeNode[];
+  current?: string;
+  onRefresh: () => void;
+}): JSX.Element {
+  if (tree.length === 0) {
+    return <p className="text-xs text-slate-400">No pages yet.</p>;
+  }
+  return (
+    <ul className="space-y-0.5 text-sm">
+      {tree.map((n) => (
+        <TreeNode key={n.page.id} node={n} current={current} onRefresh={onRefresh} depth={0} />
+      ))}
+    </ul>
+  );
+}
+
+function TreeNode({
+  node,
+  current,
+  onRefresh,
+  depth,
+}: {
+  node: WikiTreeNode;
+  current?: string;
+  onRefresh: () => void;
+  depth: number;
+}): JSX.Element {
+  const hasChildren = (node.children?.length ?? 0) > 0;
+  const [open, setOpen] = useState(true);
+  const [addingChild, setAddingChild] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [moveTarget, setMoveTarget] = useState<string | null>(null); // null = closed, '' = root picker
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const onCreatedChild = (newSlug: string): void => {
+    setAddingChild(false);
+    onRefresh();
+    // Navigate to the newly created child.
+    window.location.assign(`/wiki/${newSlug}`);
+  };
+
+  async function onDelete(): Promise<void> {
+    if (!window.confirm(`Delete "${node.page.title}" and all its sub-pages?`)) return;
+    setBusy(true);
+    try {
+      await api.deletePage(node.page.slug);
+      setMenuOpen(false);
+      onRefresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onMoveTo(parentId: string): Promise<void> {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.movePage(node.page.slug, parentId);
+      setMoveTarget(null);
+      setMenuOpen(false);
+      onRefresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(/cycle|invalid/.test(msg) ? "Can't move there (would create a cycle)." : msg);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li>
+      <div
+        className={`group flex items-center gap-1 rounded ${
+          current === node.page.slug
+            ? 'bg-orenda-100 dark:bg-orenda-900/30 text-orenda-700'
+            : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+        }`}
+        style={{ paddingLeft: depth * 12 }}
+      >
+        {hasChildren ? (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="px-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs shrink-0"
+            title={open ? 'Collapse' : 'Expand'}
+          >
+            {open ? '▾' : '▸'}
+          </button>
+        ) : (
+          <span className="w-3 shrink-0" />
+        )}
+        <span aria-hidden className="text-slate-400 text-xs shrink-0">
+          {hasChildren ? '📁' : '📄'}
+        </span>
+        <Link
+          to={`/wiki/${node.page.slug}`}
+          className="flex-1 min-w-0 truncate px-1 py-1"
+          title={node.page.title}
+        >
+          {node.page.title}
+        </Link>
+        {/* Hover-revealed action buttons */}
+        <div className="flex items-center gap-0.5 pr-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            type="button"
+            onClick={() => setAddingChild((v) => !v)}
+            title="Add sub-page"
+            className="px-1.5 py-0.5 text-xs rounded hover:bg-orenda-200 dark:hover:bg-orenda-900/40"
+          >
+            +
+          </button>
+          <button
+            type="button"
+            onClick={() => setMenuOpen((v) => !v)}
+            title="More"
+            className="px-1.5 py-0.5 text-xs rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+          >
+            ⋯
+          </button>
+        </div>
+      </div>
+
+      {addingChild && (
+        <div style={{ paddingLeft: (depth + 1) * 12 }} className="my-1">
+          <NewPageForm
+            placeholder={`Sub-page under "${node.page.title}"`}
+            parentId={node.page.id}
+            onCreated={onCreatedChild}
+            onCancel={() => setAddingChild(false)}
+          />
+        </div>
+      )}
+
+      {menuOpen && (
+        <div className="ml-6 my-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm p-2 text-xs space-y-1">
+          <button
+            type="button"
+            onClick={() => {
+              setMoveTarget('pick');
+              setMenuOpen(false);
+            }}
+            className="block w-full text-left px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+            disabled={busy}
+          >
+            Move to…
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="block w-full text-left px-2 py-1 rounded text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+            disabled={busy}
+          >
+            Delete
+          </button>
+        </div>
+      )}
+
+      {moveTarget === 'pick' && (
+        <MoveTargetPicker
+          tree={[] /* loaded below */}
+          currentNodeId={node.page.id}
+          onPick={onMoveTo}
+          onCancel={() => setMoveTarget(null)}
+          err={err}
+          busy={busy}
+        />
+      )}
+
+      {hasChildren && open && (
+        <ul className="space-y-0.5">
+          {node.children!.map((c) => (
+            <TreeNode
+              key={c.page.id}
+              node={c}
+              current={current}
+              onRefresh={onRefresh}
+              depth={depth + 1}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+// NewPageForm — inline title input + auto-slug, used both at the
+// sidebar root and inside a TreeNode (as a sub-page creator).
+function NewPageForm({
+  placeholder,
+  parentId,
+  onCreated,
+  onCancel,
+}: {
+  placeholder: string;
+  parentId?: string;
+  onCreated: (slug: string) => void;
+  onCancel: () => void;
+}): JSX.Element {
+  const [title, setTitle] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const autoSlug = slugify(title);
+
+  async function submit(e: React.FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault();
+    const t = title.trim();
+    if (!t) return;
+    if (!/^[a-z0-9_-]+$/.test(autoSlug)) {
+      setErr('Title must contain at least one a-z/0-9/-/_ character.');
+      return;
+    }
+    setCreating(true);
+    setErr(null);
+    try {
+      const saved = await api.savePage({
+        slug: autoSlug,
+        title: t,
+        content_md: '',
+        ...(parentId ? { parent_id: parentId } : {}),
+      });
+      onCreated(saved.slug);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErr(/slug_taken/.test(msg) ? 'A page with this slug already exists.' : msg);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      className="rounded border border-orenda-300 bg-orenda-50/40 dark:bg-orenda-900/20 p-2 space-y-1"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onCancel();
+      }}
+    >
+      <input
+        autoFocus
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-2 py-1 text-sm rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950"
+      />
+      {title && <div className="text-[10px] text-slate-500 font-mono">→ /wiki/{autoSlug}</div>}
+      {err && <div className="text-xs text-red-600">{err}</div>}
+      <div className="flex items-center gap-1 text-xs">
+        <button
+          type="submit"
+          disabled={creating || !title.trim()}
+          className="px-2 py-0.5 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white"
+        >
+          {creating ? '…' : 'Create'}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-2 py-0.5 rounded text-slate-500 hover:text-slate-700"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// MoveTargetPicker — list every other page (flat) the user can move
+// this page under, plus a "Top level" option. Avoids cycles by
+// excluding this page and its descendants (computed server-side; here
+// we just rely on the backend's 400 response).
+function MoveTargetPicker({
+  currentNodeId,
+  onPick,
+  onCancel,
+  err,
+  busy,
+}: {
+  tree: WikiTreeNode[];
+  currentNodeId: string;
+  onPick: (parentId: string) => void;
+  onCancel: () => void;
+  err: string | null;
+  busy: boolean;
+}): JSX.Element {
+  const [pages, setPages] = useState<WikiPage[] | null>(null);
+  useEffect(() => {
+    // Fetch the flat list once when the picker opens — the existing
+    // /pages endpoint returns the tree, so we call getPage for each
+    // leaf OR fall back to /pages and walk. Simpler: list every page
+    // via /pages/{slug} would be N requests; instead reuse the tree
+    // by flattening it.
+    api.listPages().then((r) => {
+      const out: WikiPage[] = [];
+      const walk = (n: WikiTreeNode): void => {
+        if (n.page.id !== currentNodeId) out.push(n.page);
+        (n.children ?? []).forEach(walk);
+      };
+      (r.tree ?? []).forEach(walk);
+      setPages(out);
+    });
+  }, [currentNodeId]);
+
+  return (
+    <div className="ml-6 my-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm p-2 text-xs">
+      <div className="font-medium mb-1">Move to…</div>
+      {err && <div className="text-red-600 mb-1">{err}</div>}
+      <div className="max-h-48 overflow-auto space-y-0.5">
+        <button
+          type="button"
+          onClick={() => onPick('')}
+          disabled={busy}
+          className="block w-full text-left px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+        >
+          ↩ Top level
+        </button>
+        {pages === null && <div className="text-slate-400 px-2">Loading…</div>}
+        {pages?.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => onPick(p.id)}
+            disabled={busy}
+            className="block w-full text-left px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 truncate"
+            title={p.title}
+          >
+            📄 {p.title}
+          </button>
+        ))}
+      </div>
+      <div className="mt-1">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-2 py-0.5 rounded text-slate-500 hover:text-slate-700"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}

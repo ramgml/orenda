@@ -1,0 +1,12 @@
+-- ============================================================================
+-- 001_init.down.sql — irreversible
+-- ============================================================================
+-- 001_init.sql shipped the entire Phase 0-1 schema as a single
+-- migration: every table (users, projects, tasks, comments,
+-- attachments, events, wiki_pages, …) and most indexes. Rolling
+-- it back would wipe every project, every task, every comment.
+--
+-- The runner has `orenda backup restore --from <file>` for exactly
+-- this case. Mark this down irreversible.
+--
+-- orenda:irreversible: would DROP every project/task/comment/attachment; restore from snapshot instead

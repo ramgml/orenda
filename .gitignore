@@ -1,7 +1,8 @@
 # --- Runtime data (NEVER commit) ---
+# Note: git cannot re-include files under an excluded directory, so
+# `!data/...` negations here would be dead rules. The tracked config
+# template lives at configs/config.example.yaml (Phase 28.21).
 data/
-!data/.gitkeep
-!data/config.example.yaml
 
 # --- Build artifacts ---
 bin/
@@ -9,11 +10,26 @@ dist/
 *.test
 *.out
 coverage.*
+tmp/
 
 # --- Frontend ---
 web/node_modules/
 web/dist/
 web/.vite/
+web/*.tsbuildinfo
+web/playwright-report/
+web/test-results/
+web/blob-report/
+web/playwright/.cache/
+
+# --- Embedded SPA build drop (Makefile copies web/dist → here before go build) ---
+# The directory itself must exist with .gitkeep so that //go:embed all:dist
+# compiles even when no production build has been produced yet (dev / vet).
+# We need to negate BOTH the directory (covered by the generic `dist/` rule
+# above) and the .gitkeep file inside it.
+!internal/embed/web/dist/
+internal/embed/web/dist/*
+!internal/embed/web/dist/.gitkeep
 
 # --- Go ---
 *.test
@@ -41,3 +57,14 @@ Thumbs.db
 # --- Logs ---
 *.log
 logs/
+
+# --- opencode runtime ---
+opencode.json
+opencode.json.tui-migration.bak
+tui.json
+
+# --- omp (assistant-private) ---
+.omp/
+# --- Parallel agent worktrees (nested option; see AGENTS.md) ---
+.worktrees/
+node_modules/

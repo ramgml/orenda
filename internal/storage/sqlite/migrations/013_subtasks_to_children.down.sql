@@ -1,0 +1,18 @@
+-- ============================================================================
+-- 013_subtasks_to_children.down.sql — irreversible
+-- ============================================================================
+-- The up migration moved every row of `subtasks` into `tasks` (creating
+-- child tasks with parent_task_id), then dropped the `subtasks` table.
+-- Rolling that back would require either:
+--
+--   (a) reproducing the original subtasks rows from the current tasks
+--       rows whose parent_task_id points at a former subtasks row — but
+--       those original rows (id, position, done flag) are gone;
+--   (b) leaving the data permanently as tasks and admitting we can't
+--       reconstruct the legacy view.
+--
+-- Neither is acceptable: (a) silently invents rows that may not match
+-- what the user had, (b) leaves orphan children rows. Restore from a
+-- snapshot instead (`orenda backup restore --from <file>`).
+--
+-- orenda:irreversible: subtasks rows were migrated into tasks; reconstructing them would silently invent data

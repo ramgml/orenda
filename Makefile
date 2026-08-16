@@ -2,6 +2,9 @@ SHELL := /bin/bash
 GO    := go
 NPM   := npm
 
+# air (live-reload) — may live in GOPATH/bin which is not always in PATH
+AIR   := $(shell command -v air 2>/dev/null || echo "$(shell go env GOPATH)/bin/air")
+
 BIN_DIR    := bin
 BINARY     := $(BIN_DIR)/orenda
 DATA_DIR   := data
@@ -12,13 +15,21 @@ DB_PATH    := $(DATA_DIR)/orenda.db
 WEB_DIR    := web
 WEB_DIST   := $(WEB_DIR)/dist
 
+# Where the Go embed.web.FS looks for files. `make build` copies web/dist
+# into here right before `go build` so //go:embed all:dist picks up the
+# SPA. The directory itself is committed (with .gitkeep) so the embed
+# compiles in a fresh checkout.
+EMBED_DIST := internal/embed/web/dist
+
 # Version
 VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.1.0")
 LDFLAGS    := -ldflags "-s -w -X main.version=$(VERSION)"
 
 .PHONY: all dev build test lint clean migrate-up migrate-down \
         backup backup-push backup-snapshot backup-status \
-        web-install web-dev web-build run version help
+        web-install web-dev web-build web-test test-e2e \
+        embed-dists run version help govulncheck \
+        web-format web-format-check
 
 all: build
 
@@ -27,26 +38,59 @@ help:
 	@grep -E '^##' Makefile | sed -E 's/## ?//'
 
 ## dev: Run Go (with air) + Vite dev-server (recommended for development)
+##
+## Phase 28.20: dev backend listens on :2138 by default — keeps it out of
+## the way of the usage/dogfood systemd instance on :2137. Override with
+## `make dev ORENDA_SERVER__PORT=2200` (or set the env var in your shell).
+## Both air and Vite see the same ORENDA_SERVER__PORT — the proxy-target
+## in web/vite.config.ts reads it from process.env.
 dev:
-	@command -v air >/dev/null 2>&1 || $(GO) install github.com/air-verse/air@latest
+	@command -v $(AIR) >/dev/null 2>&1 || $(GO) install github.com/air-verse/air@latest
 	@if [ ! -d "$(WEB_DIR)/node_modules" ]; then $(MAKE) web-install; fi
 	@trap 'kill 0' EXIT; \
+	  export ORENDA_SERVER__PORT=$${ORENDA_SERVER__PORT:-2138}; \
+	  echo "==> dev backend on :$$ORENDA_SERVER__PORT (override: make dev ORENDA_SERVER__PORT=...)"; \
 	  (cd $(WEB_DIR) && $(NPM) run dev) & \
-	  air
+	  $(AIR)
 
 ## build: Build production binary with embedded web/dist
-build: web-build
+##
+## Phase 27.1: web/dist is now embedded via `//go:embed all:dist` in
+## internal/embed/web/embed.go (no build tag needed). The Makefile
+## copies web/dist/* into internal/embed/web/dist/ right before `go build`
+## so the SPA lands inside the binary. The dist/ directory ships with a
+## .gitkeep, so a fresh checkout (no npm install / no npm run build) still
+## compiles — the resulting FS is just empty and DistSubFS falls back to
+## the on-disk web/dist/ during dev.
+build: web-build embed-dists
 	@mkdir -p $(BIN_DIR)
 	CGO_ENABLED=0 $(GO) build $(LDFLAGS) -o $(BINARY) ./cmd/orenda
 	@echo "Built $(BINARY)"
+
+## embed-dists: copy the freshly built web/dist/* into the embed drop.
+## Preserves .gitkeep so the directory stays under .gitignore tracking.
+embed-dists:
+	@mkdir -p $(EMBED_DIST)
+	@# Keep .gitkeep (always), refresh everything else from web/dist.
+	@touch $(EMBED_DIST)/.gitkeep
+	@if [ -d "$(WEB_DIST)" ]; then \
+		rsync -a --delete --exclude='.gitkeep' $(WEB_DIST)/ $(EMBED_DIST)/ ; \
+		echo "Embedded $(WEB_DIST) → $(EMBED_DIST)" ; \
+	else \
+		echo "WARNING: $(WEB_DIST) not present; embed will be empty" ; \
+	fi
 
 ## run: Run the production binary
 run: build
 	./$(BINARY) serve --config $(CONFIG)
 
-## test: Run all tests
+## test: Run all tests (Go + vitest)
+## Phase 26.F: vitest is part of the pre-commit / pre-push gate now
+## (no longer a separate "wave rule"). E2E stays separate — it requires
+## Chromium and a built binary; see test-e2e.
 test:
 	$(GO) test ./... -race -count=1
+	cd $(WEB_DIR) && $(NPM) run test
 
 ## lint: Run linters (golangci-lint + eslint)
 lint:
@@ -54,9 +98,32 @@ lint:
 	golangci-lint run ./...
 	cd $(WEB_DIR) && $(NPM) run lint
 
+## web-format: Format web/ sources with Prettier (writes in-place).
+## Phase 28.7: prettier setup. We deliberately do NOT auto-format
+## in `make lint` — that would create a giant mixed-style commit
+## the first time someone runs the target. Operators run this
+## explicitly when they're ready to absorb a formatter pass.
+web-format:
+	cd $(WEB_DIR) && $(NPM) run format
+
+## web-format-check: Verify formatting (CI-style). Exits non-zero
+## if any file would change — useful as a pre-push gate later.
+web-format-check:
+	cd $(WEB_DIR) && $(NPM) run format:check
+
+## test-e2e: Playwright E2E smoke suite.
+## Requires a built binary (make build). Spawns its own test server
+## on ORENDA_SERVER__PORT=21371 (override to avoid clashing with
+## the usage/dogfood instance on 2137 or `make dev` on 2138). The
+## webServer.config in web/playwright.config.ts already points at 21371.
+test-e2e: build
+	cd $(WEB_DIR) && $(NPM) run test:e2e
+
 ## clean: Remove build artifacts
 clean:
 	rm -rf $(BIN_DIR) $(WEB_DIST)
+	@# Restore the embed'd dist to its gitkeep-only state.
+	@find $(EMBED_DIST) -mindepth 1 -not -name '.gitkeep' -delete 2>/dev/null || true
 	$(GO) clean -cache -testcache
 
 ## migrate-up: Apply all pending migrations
@@ -95,6 +162,29 @@ web-dev:
 web-build:
 	cd $(WEB_DIR) && $(NPM) run build
 
+## web-test: Run the vitest suite (component / unit / hook tests)
+web-test:
+	cd $(WEB_DIR) && $(NPM) run test
+
 ## version: Print version
 version:
 	@echo $(VERSION)
+
+## govulncheck: Run Go's official vulnerability scanner against the
+## module's dependencies. Phase 28.6 (polish) — `lint` was previously
+## only ESLint + golangci-lint, neither of which cross-references the
+## Go vuln database. govulncheck pulls its own copy of the database
+## on each run (network access required) and exits non-zero on any
+## known CVE in the call graph — i.e. it does NOT flood you with
+## advisories for libraries you don't actually use.
+##
+## Installation is gated: govulncheck ships as `golang.org/x/vuln/cmd/govulncheck`.
+## If `which govulncheck` returns nothing, we install into the local
+## Go bin (GOBIN) and re-run. Subsequent invocations use the cached
+## binary.
+govulncheck:
+	@if ! command -v govulncheck >/dev/null 2>&1; then \
+		echo "installing govulncheck (first run only)..."; \
+		$(GO) install golang.org/x/vuln/cmd/govulncheck@latest; \
+	fi
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest ./...

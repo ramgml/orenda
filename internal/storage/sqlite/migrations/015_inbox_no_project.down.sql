@@ -1,0 +1,15 @@
+-- ============================================================================
+-- 015_inbox_no_project.down.sql — irreversible
+-- ============================================================================
+-- The up migration rebuilt the `tasks` table to make project_id
+-- nullable (Inbox support, Phase 16). Reverting this would require:
+--
+--   * restoring NOT NULL on tasks.project_id — which orphans any
+--     inbox row that was NULL during the up-time,
+--   * restoring the system-inbox project + system user rows that
+--     015 deleted.
+--
+-- Either of those is silently destructive. Restore from a snapshot
+-- instead.
+--
+-- orenda:irreversible: tasks-table rebuild deleted the system-inbox project + reset project_id to NOT NULL; rolling back would orphan live inbox rows

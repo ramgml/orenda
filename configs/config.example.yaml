@@ -1,0 +1,74 @@
+# Orenda configuration example.
+#
+# Tracked in git at configs/config.example.yaml (moved out of data/ in
+# Phase 28.21 — gitignore negations cannot re-include files under an
+# excluded directory, so the old data/config.example.yaml silently never
+# shipped to fresh clones and install.sh crashed mid-install).
+#
+# install.sh copies this to $DATA_DIR/config.yaml and rewrites the
+# data/ paths to absolute ones. For a manual setup:
+#   cp configs/config.example.yaml data/config.yaml
+#   export ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64)
+
+server:
+  host: "127.0.0.1"     # loopback only by default
+  port: 2137            # usage/dogfood port; `make dev` uses 2138 (Phase 28.20)
+  read_timeout: "30s"
+  write_timeout: "30s"
+  shutdown_timeout: "10s"
+
+storage:
+  data_dir: "data"
+  db_path: "data/orenda.db"
+  wal_mode: true
+  busy_timeout_ms: 5000
+
+auth:
+  # NEVER commit a real secret here. Leave empty and provide it via the
+  # ORENDA_AUTH__JWT_SECRET environment variable; scripts/install.sh
+  # generates a random one into $DATA_DIR/env on first install.
+  jwt_secret: ""
+  jwt_ttl: "24h"                        # OWASP guidance for cookie sessions (Phase 28.4)
+  cookie_name: "orenda_session"
+  cookie_secure: false                  # set true behind a TLS reverse proxy
+  bcrypt_cost: 12
+
+logging:
+  level: "info"        # debug | info | warn | error
+  format: "json"       # json | console
+  path: "data/logs/orenda.log"
+
+backup:
+  enabled: true
+  # Git remote — configure via UI Settings → Backups after first run
+  remote_url: ""
+  remote_auth: ""      # token or ssh key path
+  mirror_dir: "data/mirror"
+  snapshot_dir: "data/snapshots"
+  snapshot_rotation_days: 30
+  git_push_interval: "5m"
+  # NOTE: cron expressions are not parsed yet (Phase 7 debt) — snapshots
+  # run on a plain 24h ticker from process start.
+  sqlite_snapshot_cron: "0 3 * * *"
+  wal_archive_interval: "15m"
+
+# Token-bucket rate limits (Phase 28.8). Anonymous = per IP (covers
+# /api/v1/auth/login brute-force protection), authenticated = per
+# user/agent identity.
+ratelimit:
+  anon_burst: 60
+  anon_per_sec: 20
+  auth_burst: 300
+  auth_per_sec: 100
+
+bots: []               # Phase 10 — pluggable bots
+
+uploads:
+  dir: "data/uploads"
+  max_size_mb: 50
+  allowed_mimes:
+    - "image/*"
+    - "application/pdf"
+    - "text/*"
+    - "application/json"
+    - "application/markdown"

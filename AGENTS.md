@@ -4,7 +4,7 @@
 
 ## What is Orenda?
 
-Local-first productivity suite (tasks, calendar, wiki) where **AI-agents are first-class citizens**. Single Go binary + React SPA, SQLite, port **2137**. Backup via git + sqlite snapshots.
+Local-first productivity suite (tasks, calendar, wiki) where **AI-agents are first-class citizens**. Single Go binary + React SPA, SQLite, port **2137** (usage/dogfood instance) / **2138** (`make dev`). Backup via git + sqlite snapshots.
 
 ## Stack
 
@@ -13,7 +13,7 @@ Local-first productivity suite (tasks, calendar, wiki) where **AI-agents are fir
 | Backend | Go 1.22+ (chi, modernc.org/sqlite, jwt, gorilla/websocket, cobra) |
 | Frontend | React 18 + TS + Vite + Tailwind + shadcn/ui |
 | DB | SQLite (WAL mode) |
-| Migrations | golang-migrate (sequential `NNN_*.up.sql` / `NNN_*.down.sql`) |
+| Migrations | custom runner `sqlite.Migrate`/`MigrateDown` (sequential `NNN_*.sql` / `NNN_*.down.sql`) |
 
 ## Directory map
 
@@ -28,6 +28,7 @@ orenda/
 │   ├── config/                    # yaml + env
 │   ├── domain/                    # Entities + repository interfaces
 │   ├── embed/web/                 # embed.FS for React build
+│   ├── mcp/                       # MCP stdio server (Phase 25)
 │   ├── mirror/                    # Markdown mirror for git history
 │   ├── service/                   # Business logic
 │   └── storage/sqlite/            # Repositories + migrations
@@ -50,6 +51,9 @@ make lint
 ./bin/orenda serve    # Production on http://127.0.0.1:2137
 ./bin/orenda migrate up
 ./bin/orenda backup push
+./bin/orenda user create --email ... --display-name ... --password-stdin
+./bin/orenda agent <me|next|claim|context|submit|release|comment|await>   # agent CLI (Phase 25)
+./bin/orenda mcp-proxy # stdio MCP bridge (Phase 25)
 ```
 
 ## Coding rules
@@ -85,10 +89,21 @@ make lint
 ### When you start a phase
 1. Read `docs/PLAN.md` for the phase definition.
 2. Check Definition of Done.
-3. Create branch `phase-X-Y-short-name`.
+3. Create worktree + branch `phase-X-Y-short-name` (см. «Worktree per task» — обязательно, без исключений).
 4. Implement tasks in order.
 5. Run `make test && make lint`.
-6. Open PR with checklist from Definition of Done.
+6. Re-index the codebase knowledge graph after code changes: codebase-memory-mcp `index_repository` with `mode: "fast"` (`"full"` on first index). Code discovery runs through `search_graph`/`trace_path` — a stale graph misleads the next agent.
+7. Open PR via `.github/PULL_REQUEST_TEMPLATE.md` — it mechanically enforces the Definition of Done checklist (see next section).
+
+### Definition of Done is binary
+
+A task is done or not done — "almost done" is not done. Phases here have been signed off as complete while core flows were missing (Phase 18 shipped without lesson materialization, quiz answering, or any quiz-creation endpoint; the generator task stayed a placeholder nothing wrote to). These rules exist so that never happens silently again.
+
+1. **Verify every DoD item by execution.** A test run, a smoke walkthrough, a command whose output you can quote in the PR. "Implemented" and "should work" are not verification.
+2. **Report partial as partial.** If 4 of 6 DoD items pass, say exactly which 2 are missing and why. A PLAN.md checkbox turns `[x]` only when every item passes — never in good faith.
+3. **No silent scope reduction.** A requirement that is blocked, ambiguous, or wrong is surfaced (in the PR, or to the user) — not dropped, stubbed, or deferred to an unrecorded "later".
+4. **No stubs in delivered code.** No `TODO: implement`, no fields nothing writes to, no dead endpoints. An intentionally deferred seam is written down in `docs/PLAN.md` as a known gap, so the next agent sees it.
+5. **Self-review against the DoD before opening the PR.** Walk it top to bottom; attach one evidence line per item. An item without evidence means the PR is not ready.
 
 ### When you're stuck
 - Read [[docs/PRD.md]] for intent.
@@ -103,15 +118,20 @@ make lint
 - ❌ Don't add `any` types in TS.
 - ❌ Don't bypass auth "temporarily".
 - ❌ Don't commit `data/` contents (gitignored).
+- ❌ Don't edit the main working tree directly — worktree per task, always. Other agents may hold uncommitted work there; they don't know about you either.
+- ❌ Don't run `git checkout` / `git reset` / `git clean` / `git restore` in a checkout you didn't create.
 - ❌ Don't push to remote without explicit user request.
+- ❌ Don't report unverified or incomplete work as done. Partial delivery is reported as partial, with the missing items named — see «Definition of Done is binary».
 
 ## Key files to read first
 
+- `docs/SESSION.md` — **session snapshot** (current state, decisions, next steps; read first when resuming work)
+- `docs/CONTEXT.md` — **domain context** (what kanban / courses / delegation ARE — shared mental models that prevent wrong reinvention; concepts, not rules — read second)
 - `docs/PRD.md` — what we're building and why
 - `docs/PLAN.md` — phases, tasks, criteria
-- `internal/storage/sqlite/migrations/001_init.sql` — DB schema
-- `internal/config/config.go` — config structure
-- `cmd/orenda/main.go` — entry point and CLI
+- `internal/storage/sqlite/migrations/001_init.sql` — DB schema *(Phase 1)*
+- `internal/config/config.go` — config structure *(Phase 0)*
+- `cmd/orenda/main.go` — entry point and CLI *(Phase 0)*
 
 ## Communication
 
@@ -128,6 +148,34 @@ make lint
 - Merge to `dev` after review. Tag phase milestone: `git tag v0.1.0-phaseX`.
 - Promote to `main` via PR from `dev` when ready. Tag release: `git tag vX.Y.Z`.
 - See `CHANGELOG.md` for versioning policy and release notes.
+
+### Worktree per task (mandatory, unconditional)
+
+Agents run in parallel and **cannot see each other**. You cannot know whether another agent is working right now — assume there is always one. Therefore every task, even a one-file docs change, gets its own worktree. The main checkout is someone else's live workspace.
+
+```bash
+# Start of task: branch + worktree off dev, nested under .worktrees/
+git worktree add .worktrees/<task> -b phase-X-Y-<name> dev
+
+# ...work in .worktrees/<task>...
+
+# Commit early, commit often: uncommitted work is unprotected —
+# another agent's tree operation can silently destroy it.
+git add -A && git commit -m "phase(X.Y): ..."
+
+# After merge to dev:
+git worktree remove .worktrees/<task> && git worktree prune
+```
+
+Rules:
+
+- **The main checkout is read-only for you.** No edits there; no `git checkout` / `git reset` / `git clean` / `git restore` in any checkout you didn't create. Inspecting files read-only is fine.
+- One branch = one worktree. A branch cannot be checked out in two places; create the task branch with `git worktree add -b`.
+- Placement: **always nested `.worktrees/<task>`** — never a sibling `../` directory next to the repo. This is safe **only because** `.worktrees/` is in `.gitignore`: the leading dot keeps Go tooling out (`go test ./...` skips dot-dirs) and gitignore keeps `git add -A`, search and watchers clean. Any other location is forbidden: sibling checkouts pollute the shared parent directory seen by every project and agent, and an unignored nested checkout breaks the main tree (embedded-repo index garbage, duplicate module builds, watcher storms).
+- Gitignored content is not copied. In a fresh worktree run `npm install` in `web/` and `./bin/orenda migrate up` (each worktree gets its own `data/orenda.db`).
+- **Ports:** `:2137` is reserved for the usage/dogfood systemd instance (from `~/opt/orenda`). `:2138` is the dev default (`make dev`); `:21371` is E2E. Don't run two instances on the same port; pick one or set `ORENDA_SERVER__PORT` to something free. Phase 28.20 split these so dev and usage can co-exist.
+- Merge to `dev` is a deliberate act: only after review, and never against someone's uncommitted work in the main tree.
+- Remove the worktree right after its branch is merged; run `git worktree prune` occasionally.
 
 ## License
 
