@@ -10,7 +10,7 @@
  * cost.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 import { useAuth } from '@/features/auth/AuthContext';
 
@@ -125,11 +125,19 @@ export const wsClient = new WSClient();
  *
  * Returns nothing; pairs with react-query's invalidateQueries to refresh
  * server-state when an event arrives.
+ *
+ * Phase 28.23: the handler is kept in a ref (updated on every render)
+ * and the effect subscribes once per `topic`. Callers pass inline
+ * arrows, so depending on `fn` would unsubscribe+resubscribe on every
+ * render — an event arriving in that gap would be silently lost.
  */
 export function useWebSocketTopic(topic: string, fn: Listener): void {
+  const fnRef = useRef(fn);
+  fnRef.current = fn;
   useEffect(() => {
-    return wsClient.on(topic, fn);
-  }, [topic, fn]);
+    const handler: Listener = (msg) => fnRef.current(msg);
+    return wsClient.on(topic, handler);
+  }, [topic]);
 }
 
 /**
