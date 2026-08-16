@@ -19,18 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Security
-- **Phase 28.21 (2026-08-16):** `/api/v1/auth/login` removed from the rate-limiter skip list — anonymous login attempts now draw from the per-IP bucket (previously unlimited). systemd unit no longer ships a repo-public placeholder JWT secret; `install.sh` generates a random one into `$DATA_DIR/env` (mode 600) on first install.
+## [0.1.0] — 2026-08-16
 
-### Fixed
-- **Phase 28.21:** `install.sh` crashed on fresh clones — the config template lived under gitignored `data/` and was never tracked (gitignore negations cannot re-include files inside an excluded directory). Template moved to tracked `configs/config.example.yaml` (`jwt_ttl: 24h`, `ratelimit:` section, no `${...}` placeholder that was never expanded).
-
-### Docs
-- **Phase 28.21:** Phase 8 sync conflict resolution documented as delivery-order LWW (correct for single-device outbox; timestamp-based LWW deferred to multi-device era). Stale audit notes corrected (Phase 1 `/projects/:id/tasks` route exists; PLAN 28.8.5 "tracked" claim).
-
-## [0.1.0] — 2026-08-14
-
-First release cut from `dev` (350+ commits past `main`).
+First release cut from `dev` (367 commits past `main`).
 This is `pre-alpha` — single-user, single-binary, local-first. No
 migration guarantees between minors yet.
 
@@ -45,7 +36,7 @@ migration guarantees between minors yet.
 - **Phase 27.5:** `.down.sql` for every migration + `migrate down` runner with irreversible markers.
 - **Phase 27.6:** owner-side course editing — user curriculum swap (carries quizzes), quiz append in both namespaces, lesson content edit, generator-task retired on manual submit, `skip_generator`.
 - **Phase 27.7:** task card sidebar edits Status/Priority/Assignee; manual `done` stamps `completed_at`; awaiting normalized on direct status writes.
-- **Phase 27.8:** kanban columns = statuses — single axis (`columns.status`, migration 020, UNIQUE per board); DnD and status writes sync both ways; agent flow (claim/submit/review) moves the card. Frontend select reads project columns — pending (27.8.4).
+- **Phase 27.8:** kanban columns = statuses — single axis (`columns.status`, migration 020, UNIQUE per board); DnD and status writes sync both ways; agent flow (claim/submit/review) moves the card. Frontend select reads project columns (27.8.4).
 - **Phase 27.9:** WS multi-topic fan-out (`ws.AllTopics` + `subscribeAll`); report titles via `TaskTitleLookup`; course-task WS/activity via `courseTaskActivityRecorder`.
 - **Phase 27.10:** column color initialized on edit/reopen; `patchColumnHandler` publishes `column.updated`.
 - **Phase 27.11:** agent-namespace comment + await endpoints (`/api/v1/agent/tasks/{id}/comments`, `/api/v1/agent/events/await`); full-router OpenAPI route coverage.
@@ -70,21 +61,32 @@ migration guarantees between minors yet.
 - **Phase 28.20:** dev/dogfood separation — dev on `:2138`, usage on `:2137`, e2e on `:21371`; `install.sh` channel guard (refuse non-main + dirty, `--force` override); `update-dogfood.sh` one-command refresh; vite proxy follows `ORENDA_SERVER__PORT`; startup log carries `db_path`.
 - **Phase 10 (test-send UI):** `POST /api/v1/bots/test` one-off message through any configured bot (whitelist webhook/email/telegram/vk; `console` excluded); UI dropdown + submit; per-bot target pre-check.
 - **Phase 15 (close-out):** 409 `lock_taken` returns `holder_agent_id`/`holder_agent_name`/`claimed_at`; `/tasks/:id/context` and `/agent/tasks/{id}/context` carry `blocked_by` (open dependency ids) + `lock_holder`; `?ready=true` excludes self-assigned tasks.
+- **Phase 28.21:** tracked `configs/config.example.yaml` (install no longer crashes on fresh clones); `install.sh` generates a random JWT secret into `$DATA_DIR/env` (mode 600) — no repo-public placeholder in the systemd unit.
+- **Phase 28.23:** card density toggle UI on the kanban toolbar (closes the Phase 17 debt — the `orenda.kanban.cardDensity` flag finally has a writer); shared UI primitives (`Loading`/`ErrorBanner`/`EmptyState`); WS→Query invalidation for the `agents` topic; `AuthContext` unit tests.
 
 ### Changed
 - **Phase 27.8:** kanban card status now authoritative — `task.status ≡ column.status`. Sidebar select reads project columns.
 - **Phase 28.4:** JWT TTL 168h → 24h (forward-only — already-issued tokens honoured until exp); cookie `Secure` from config.
 - **Phase 28.20:** Vite proxy targets followers `ORENDA_SERVER__PORT` env, no longer hardcoded `:2137`.
+- **Phase 28.23:** `zustand` and `@tiptap/extension-bubble-menu` dropped from deps (unused); `idb` moved to runtime dependencies.
+
+### Fixed
+- **Phase 28.21:** `/api/v1/auth/login` was on the rate-limiter skip list — anonymous password guessing was unlimited; it now draws from the per-IP bucket.
+- **Phase 28.22:** N+1 in `GET /api/v1/agent/tasks` (batch `BlockersForTasks`); `/today` enrichment no longer scans the whole tasks table (`Filter.IDs`); dead code sweep (single `go vet` finding closed).
+- **Phase 28.23:** WS re-subscribe race in `useWebSocketTopic` — inline-arrow handlers caused unsubscribe+resubscribe on every render, events in the gap were lost; handler now lives in a ref, subscription keyed by topic only (mutation-checked).
 
 ### Security
 - **Phase 28.4:** `Secure` cookie attribute on JWT session + logout (loopback stays HTTP-friendly; HTTPS deploys opt in via `auth.cookie_secure: true`).
 - **Phase 28.10:** `style-src 'self'` removed `'unsafe-inline'` to reduce CSS-exfiltration surface.
 - **Phase 28.6:** opt-in pprof listener (loopback only by default); exposes heap/goroutine state — opt-in by design.
+- **Phase 28.21:** systemd unit no longer ships a repo-public placeholder JWT secret; login endpoint is rate-limited (see Fixed).
+
+### Docs
+- **Phase 28.21:** Phase 8 sync conflict resolution documented as delivery-order LWW (correct for single-device outbox; timestamp-based LWW deferred to the multi-device era).
 
 ### Known gaps (not blockers, documented for next release)
 - **Phase 7:** git client without `Status`/`TestConnection`; snapshot at 24h ticker (not cron 03:00).
-- **Phase 8:** LWW conflict resolution is delivery-order, not `updated_at`-based (current handler comment is misleading).
 - **Phase 10:** Email bot plain text (no HTML); VK Long Poll not implemented; weekly digest not implemented.
-- **Phase 17:** UI density toggle for task cards (state in localStorage, no UI); no time estimate/spent badges.
+- **Phase 17:** no time estimate/spent badges on task cards.
 - **Multi-user / multi-device sync:** next era.
 - **Lint residue:** ≈95 issues remaining (Phase 28.15–28.17 closed 230 of 325).
