@@ -219,11 +219,29 @@ func TestTaskRepo_Create_InvalidStatus(t *testing.T) {
 	tr := &task.Task{
 		ProjectID: p.ID, ColumnID: col.ID,
 		Title:  "x",
-		Status: task.Status("weird"),
+		Status: task.Status("space in status"), // shape-rejected (Phase 30.14)
 	}
 	err := repo.Create(context.Background(), tr)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, task.ErrInvalidInput)
+}
+
+// TestTaskRepo_Create_CustomMachineKeyStatus — Phase 30.14: a status
+// matching the column-machine-key regex (custom machine key) is valid.
+func TestTaskRepo_Create_CustomMachineKeyStatus(t *testing.T) {
+	db := setupUserDB(t)
+	p, col := setupTaskProject(t, db)
+	repo := NewTaskRepository(db)
+
+	tr := &task.Task{
+		ProjectID: p.ID, ColumnID: col.ID,
+		Title:  "x",
+		Status: task.Status("awaiting_review"), // custom but well-formed
+	}
+	require.NoError(t, repo.Create(context.Background(), tr))
+	got, err := repo.GetByID(context.Background(), tr.ID)
+	require.NoError(t, err)
+	assert.Equal(t, task.Status("awaiting_review"), got.Status)
 }
 
 // TestTaskRepo_ListAwaitingReview exercises the review-queue shape

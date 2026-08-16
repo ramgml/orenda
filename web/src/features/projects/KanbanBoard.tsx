@@ -66,6 +66,11 @@ export function KanbanBoard({
   const [tasks, setTasks] = useState<Task[]>([]);
   const [cols, setCols] = useState<Column[]>(columns);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState('');
+  const [bulkPriority, setBulkPriority] = useState('');
+  const [bulkAssignee, setBulkAssignee] = useState('');
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Persist the toggle in localStorage so the user's choice survives
   // navigation. Defaults to true (show) per Phase 14 UX request.
@@ -103,6 +108,13 @@ export function KanbanBoard({
     setCols(columns);
   }, [columns]);
 
+  useEffect(() => {
+    setSelectedTaskIds((current) => {
+      const available = new Set(tasks.map((task) => task.id));
+      return new Set(Array.from(current).filter((id) => available.has(id)));
+    });
+  }, [tasks]);
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   async function load(): Promise<void> {
@@ -124,6 +136,57 @@ export function KanbanBoard({
   useWebSocketTopic('tasks', () => {
     load();
   });
+
+  function toggleTaskSelection(taskId: string): void {
+    setSelectedTaskIds((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }
+
+  async function applyBulkEdit(): Promise<void> {
+    if (selectedTaskIds.size === 0) return;
+    const patch: Partial<Task> = {};
+    if (bulkStatus) patch.status = bulkStatus;
+    if (bulkPriority) patch.priority = bulkPriority as Task['priority'];
+    if (bulkAssignee === 'unassigned') {
+      patch.assignee_type = 'unassigned';
+      patch.assignee_id = '';
+    } else if (bulkAssignee) {
+      const [type, id] = bulkAssignee.split(':');
+      patch.assignee_type = type;
+      patch.assignee_id = id;
+    }
+    if (Object.keys(patch).length === 0) {
+      setError('Choose at least one field to update');
+      return;
+    }
+    setBulkBusy(true);
+    try {
+      const result = await api.bulkPatchTasks({
+        task_ids: Array.from(selectedTaskIds),
+        patch,
+      });
+      setTasks((current) =>
+        current.map((task) => result.tasks.find((updated) => updated.id === task.id) ?? task),
+      );
+      if (result.errors && Object.keys(result.errors).length > 0) {
+        setError(`Some tasks could not be updated: ${Object.keys(result.errors).join(', ')}`);
+      } else {
+        setError(null);
+      }
+      setSelectedTaskIds(new Set());
+      setBulkStatus('');
+      setBulkPriority('');
+      setBulkAssignee('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   function isColumnId(id: string): boolean {
     return cols.some((c) => c.id === id);
@@ -271,6 +334,17 @@ export function KanbanBoard({
               Show child tasks <span className="text-slate-400">({childCount})</span>
             </span>
           </label>
+          <button
+            type="button"
+            onClick={() =>
+              setSelectedTaskIds((current) =>
+                current.size > 0 ? new Set() : new Set(tasks.map((task) => task.id)),
+              )
+            }
+            className="text-xs rounded border border-slate-300 dark:border-slate-700 px-2 py-1"
+          >
+            {selectedTaskIds.size > 0 ? 'Clear selection' : 'Select tasks'}
+          </button>
           <label className="flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
             <input
               type="checkbox"
@@ -310,6 +384,8 @@ export function KanbanBoard({
                   setCols((cur) => cur.filter((c) => c.id !== colId));
                   setTasks((cur) => cur.filter((t) => t.column_id !== colId));
                 }}
+                selectedTaskIds={selectedTaskIds}
+                onToggleTask={toggleTaskSelection}
               />
             ))}
             <AddColumnTile projectId={projectId} onCreated={(c) => setCols((cur) => [...cur, c])} />
@@ -317,6 +393,53 @@ export function KanbanBoard({
         </SortableContext>
         <DragOverlay>{activeTask ? <TaskCard task={activeTask} /> : null}</DragOverlay>
       </DndContext>
+      {selectedTaskIds.size > 0 && (
+        <div className="sticky bottom-3 z-20 rounded-lg border border-orenda-300 bg-white dark:bg-slate-900 shadow-lg p-3 flex flex-wrap items-center gap-2">
+          <strong className="text-sm">{selectedTaskIds.size} selected</strong>
+          <select
+            aria-label="Bulk status"
+            value={bulkStatus}
+            onChange={(e) => setBulkStatus(e.target.value)}
+            className="rounded border px-2 py-1 text-sm bg-transparent"
+          >
+            <option value="">Status…</option>
+            {cols
+              .filter((column) => column.status)
+              .map((column) => (
+                <option key={column.id} value={column.status}>
+                  {column.name}
+                </option>
+              ))}
+          </select>
+          <select
+            aria-label="Bulk priority"
+            value={bulkPriority}
+            onChange={(e) => setBulkPriority(e.target.value)}
+            className="rounded border px-2 py-1 text-sm bg-transparent"
+          >
+            <option value="">Priority…</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+          </select>
+          <input
+            aria-label="Bulk assignee"
+            value={bulkAssignee}
+            onChange={(e) => setBulkAssignee(e.target.value)}
+            placeholder="assignee type:id"
+            className="rounded border px-2 py-1 text-sm bg-transparent w-40"
+          />
+          <button
+            type="button"
+            onClick={applyBulkEdit}
+            disabled={bulkBusy}
+            className="rounded bg-orenda-600 px-3 py-1 text-sm text-white disabled:opacity-50"
+          >
+            {bulkBusy ? 'Applying…' : 'Apply'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -335,6 +458,8 @@ function SortableColumnView({
   onCreate,
   onColumnUpdated,
   onColumnDeleted,
+  selectedTaskIds,
+  onToggleTask,
 }: {
   column: Column;
   projectId: string;
@@ -342,6 +467,8 @@ function SortableColumnView({
   onCreate: (title: string) => Promise<void>;
   onColumnUpdated: (col: Column) => void;
   onColumnDeleted: (colId: string) => void;
+  selectedTaskIds: ReadonlySet<string>;
+  onToggleTask: (taskId: string) => void;
 }): JSX.Element {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: column.id,
@@ -364,6 +491,9 @@ function SortableColumnView({
         // wipes the colour).
         color={column.color}
         wipLimit={column.wip_limit}
+        status={column.status}
+        selectedTaskIds={selectedTaskIds}
+        onToggleTask={onToggleTask}
         onCreate={onCreate}
         onColumnUpdated={onColumnUpdated}
         onColumnDeleted={onColumnDeleted}
@@ -387,6 +517,7 @@ function AddColumnTile({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
+  const [status, setStatus] = useState('');
   const [color, setColor] = useState('#94a3b8');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -401,10 +532,23 @@ function AddColumnTile({
     setBusy(true);
     setError(null);
     try {
-      const col = await api.createColumn(projectId, { name: trimmed, color });
+      const machineKey = status.trim().toLowerCase();
+      if (machineKey !== '' && !/^[a-z][a-z0-9_]*$/.test(machineKey)) {
+        setError(
+          'Machine key must start with a letter and contain only lowercase letters, numbers, and underscores',
+        );
+        setBusy(false);
+        return;
+      }
+      const col = await api.createColumn(projectId, {
+        name: trimmed,
+        color,
+        ...(machineKey ? { status: machineKey } : {}),
+      });
       onCreated(col);
       setName('');
       setColor('#94a3b8');
+      setStatus('');
       setOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -448,6 +592,16 @@ function AddColumnTile({
           className="w-10 h-6 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
         />
       </label>
+      <label className="text-xs text-slate-500">
+        Machine key (optional)
+        <input
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          data-testid="add-column-status"
+          placeholder="auto from name"
+          className="mt-1 w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 font-mono text-sm"
+        />
+      </label>
       {error && <p className="text-xs text-red-600">{error}</p>}
       <div className="flex gap-1 mt-auto">
         <button
@@ -463,6 +617,7 @@ function AddColumnTile({
             setOpen(false);
             setError(null);
             setName('');
+            setStatus('');
           }}
           className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 text-xs"
         >

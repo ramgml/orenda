@@ -338,11 +338,17 @@ class ApiClient {
     return this.http.get<ProjectBoard>(`/api/v1/projects/${projectId}/board`).then((r) => r.data);
   }
 
-  /** Update mutable column fields (name, position, wip_limit, color).
+  /** Update mutable column fields (name, position, wip_limit, color, status).
    * wip_limit=null → leave as-is; wip_limit=0 → clear; >0 → set. */
   updateColumn(
     columnId: string,
-    input: { name?: string; position?: number; wip_limit?: number | null; color?: string },
+    input: {
+      name?: string;
+      position?: number;
+      wip_limit?: number | null;
+      color?: string;
+      status?: string;
+    },
   ): Promise<Column> {
     return this.http.patch<Column>(`/api/v1/columns/${columnId}`, input).then((r) => r.data);
   }
@@ -353,7 +359,7 @@ class ApiClient {
    *  event so other tabs refresh. */
   createColumn(
     projectId: string,
-    input: { name: string; color?: string; wip_limit?: number | null },
+    input: { name: string; color?: string; wip_limit?: number | null; status?: string },
   ): Promise<Column> {
     return this.http
       .post<Column>(`/api/v1/projects/${projectId}/columns`, input)
@@ -586,6 +592,15 @@ class ApiClient {
 
   patchTask(taskId: string, input: Partial<Task>): Promise<Task> {
     return this.http.patch<Task>(`/api/v1/tasks/${taskId}`, input).then((r) => r.data);
+  }
+
+  bulkPatchTasks(input: {
+    task_ids: string[];
+    patch: Partial<Task>;
+  }): Promise<{ tasks: Task[]; errors?: Record<string, string> }> {
+    return this.http
+      .post<{ tasks: Task[]; errors?: Record<string, string> }>('/api/v1/tasks/bulk-edit', input)
+      .then((r) => r.data);
   }
 
   deleteTask(taskId: string): Promise<void> {

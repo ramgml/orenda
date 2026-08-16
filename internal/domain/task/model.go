@@ -7,6 +7,7 @@ package task
 
 import (
 	"errors"
+	"regexp"
 	"time"
 )
 
@@ -30,14 +31,51 @@ var AllStatuses = []Status{
 	StatusBacklog, StatusTodo, StatusInProgress, StatusReview, StatusDone,
 }
 
-// IsValid reports whether s is one of the known statuses.
+// StatusMachineKeyPattern is the regex that a machine key (column.status,
+// task.status set via axis collapse) must satisfy. Phase 27.8 made
+// columns carry their own machine key so projects can ship custom
+// statuses; this keeps the surface safe (no spaces, no quotes, no path
+// injection across the markdown mirror or WS payload).
+var StatusMachineKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// IsValid reports whether s is a usable status. Phase 27.8.4: the
+// canonical five (AllStatuses) are still accepted — agents that hard-
+// code them keep working — but a project may also define its own
+// status machine keys via column.status. As long as the value is a
+// well-formed machine key we trust the column invariant `task.status
+// ≡ column.status` enforced at the service layer.
+//
+// Task.Validate uses this; column-input validation lives next to the
+// column handlers (StatusMachineKeyPattern is reused there).
 func (s Status) IsValid() bool {
-	for _, v := range AllStatuses {
-		if s == v {
-			return true
-		}
+	if s == "" {
+		return false
 	}
-	return false
+	if _, ok := CanonicalStatus(string(s)); ok {
+		return true
+	}
+	return StatusMachineKeyPattern.MatchString(string(s))
+}
+
+// IsCanonical reports whether s is one of the five default statuses.
+// Code that needs to render an enum-style dropdown (instead of the
+// project board's columns) uses this; everywhere else IsValid is the
+// right choice.
+func (s Status) IsCanonical() bool {
+	_, ok := CanonicalStatus(string(s))
+	return ok
+}
+
+// CanonicalStatus looks up a default status by its string value.
+// Used by IsValid/IsCanonical to keep the canonical set authoritative
+// in exactly one place.
+func CanonicalStatus(v string) (Status, bool) {
+	switch Status(v) {
+	case StatusBacklog, StatusTodo, StatusInProgress, StatusReview, StatusDone:
+		return Status(v), true
+	default:
+		return "", false
+	}
 }
 
 // Priority enumerates task priority levels.

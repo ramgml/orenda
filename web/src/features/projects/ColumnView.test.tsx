@@ -67,7 +67,7 @@ describe('ColumnView — Phase 27.10 colour wiring', () => {
     vi.restoreAllMocks();
   });
 
-  function renderColumn(props: { color?: string; wipLimit?: number } = {}) {
+  function renderColumn(props: { color?: string; wipLimit?: number; status?: string } = {}) {
     // Phase 28.19: ColumnView renders TaskCard which calls useAgents,
     // so the test must mount inside a QueryClientProvider.
     const qc = new QueryClient({
@@ -84,6 +84,7 @@ describe('ColumnView — Phase 27.10 colour wiring', () => {
               tasks={[makeTask()]}
               color={props.color}
               wipLimit={props.wipLimit}
+              status={props.status}
               onCreate={async () => {}}
             />
           </MemoryRouter>
@@ -97,6 +98,19 @@ describe('ColumnView — Phase 27.10 colour wiring', () => {
     const dot = getByTestId('column-color-dot');
     expect(dot.dataset.columnColor).toBe('#ff8800');
     expect(dot.style.backgroundColor).toBe('rgb(255, 136, 0)');
+  });
+
+  it('preserves and submits the saved machine key when changed', async () => {
+    vi.mocked(api.updateColumn).mockResolvedValue({
+      ...makeColumn({ status: 'qa' }),
+    });
+    const { getByTestId, getByRole, getByTitle } = renderColumn({ status: 'review' });
+    fireEvent.click(getByTitle('Edit column'));
+    expect((getByTestId('column-status') as HTMLInputElement).value).toBe('review');
+    fireEvent.change(getByTestId('column-status'), { target: { value: 'qa' } });
+    fireEvent.click(getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(updateColumnSpy).toHaveBeenCalled());
+    expect(updateColumnSpy.mock.calls[0][1]).toMatchObject({ status: 'qa' });
   });
 
   it('falls back to a neutral slate when no colour is saved', () => {
