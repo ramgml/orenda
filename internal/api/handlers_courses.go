@@ -156,20 +156,9 @@ func deleteCourseHandler(deps *Dependencies) http.HandlerFunc {
 
 func approveCourseHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if deps.CourseService == nil {
-			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
-			return
-		}
-		c, err := deps.CourseService.ApproveCurriculum(r.Context(), chi.URLParam(r, "id"))
-		if err != nil {
-			if errors.Is(err, coursesvc.ErrTransition) {
-				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_transition"})
-				return
-			}
-			writeError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, c)
+		// Phase 29.5: shared with the agent-side activate endpoint
+		// (approveCourseCore lives in handlers_agent_courses.go).
+		approveCourseCore(w, r, deps)
 	}
 }
 
