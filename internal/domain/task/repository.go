@@ -64,6 +64,13 @@ type Repository interface {
 	// ListByProject + a separate follow-up call.
 	ListByProjectWithStats(ctx context.Context, f Filter) ([]*Task, error)
 
+	// ListByDueBetween returns tasks whose due_at falls within
+	// [from, to]. Phase 30.8: the calendar needs to render tasks
+	// alongside timed events. Tasks without a due_at are not
+	// returned. Result is unordered — the caller sorts (the
+	// calendar UI groups by date anyway).
+	ListByDueBetween(ctx context.Context, from, to time.Time) ([]*Task, error)
+
 	// ListChildren returns every direct child task of parentID (tasks
 	// where parent_task_id = parentID), ordered by position then
 	// creation time. Returns an empty slice when the parent has no

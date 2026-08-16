@@ -131,6 +131,7 @@ with Prettier before each commit. Skip with
 | 30.5 (Weekly digest) | ✅ | Background ticker (default 168h) sends a weekly summary to every bot the operator has subscribed: tasks done / created / awaiting / overdue, comments received, active timers. `notifier.digest_interval <= 0` disables it |
 | 30.6 (wiki [[ autocomplete) | ✅ | In the wiki editor, typing `[[` opens a popup listing every page; picking one inserts `[[slug]]`. The mirror parses it on save and records `wiki_links` so backlinks work |
 | 30.7 (reject needs comment) | ✅ | `POST /tasks/{id}/review {decision: "reject", comment: ""}` → 400 `invalid_input`. Approve without a comment is still allowed (silent ack). The agent now always knows *why* a return-to-fix was issued |
+| 30.8 (tasks on calendar) | ✅ | Tasks with a `due_at` render as all-day markers on the calendar (`📌 Title ✓` for done). New endpoint `GET /api/v1/tasks/with-due?from=&to=` powers the calendar's deadline lane |
 
 > Screenshots: not bundled in the repo (kept light — no binary blobs).
 > Run `make build && bin/orenda serve` and visit the four key pages:

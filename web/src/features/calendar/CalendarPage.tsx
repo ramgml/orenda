@@ -111,6 +111,18 @@ const PRESET_COLORS = [
  */
 export function CalendarPage(): JSX.Element {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  // Phase 30.8: tasks with a due_at are projected into the calendar
+  // as all-day events. We only carry the fields the calendar needs;
+  // the rest of the Task is available via the existing /tasks/{id}
+  // endpoint when the operator opens the row.
+  const [tasksByDue, setTasksByDue] = useState<
+    Array<{
+      id: string;
+      title: string;
+      due_at?: string | undefined;
+      status: string;
+    }>
+  >([]);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [view, setView] = useState<View>('week');
   const [cursor, setCursor] = useState<Date>(new Date());
@@ -131,15 +143,20 @@ export function CalendarPage(): JSX.Element {
 
   async function load(): Promise<void> {
     try {
-      const [list, ps] = await Promise.all([
+      const [list, ps, due] = await Promise.all([
         api.listEvents({
           from: range.from.toISOString(),
           to: range.to.toISOString(),
         }),
         api.listProjects(),
+        api.tasksWithDue({
+          from: range.from.toISOString(),
+          to: range.to.toISOString(),
+        }),
       ]);
       setEvents(list);
       setProjects(ps.map((p) => ({ id: p.id, name: p.name })));
+      setTasksByDue(due.tasks);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -156,8 +173,8 @@ export function CalendarPage(): JSX.Element {
   });
 
   const rbEvents: RBCEvent[] = useMemo(
-    () =>
-      events.map((e) => ({
+    () => [
+      ...events.map((e) => ({
         id: e.id,
         title: e.title,
         start: new Date(e.start_at),
@@ -165,7 +182,26 @@ export function CalendarPage(): JSX.Element {
         allDay: e.all_day,
         resource: e,
       })),
-    [events],
+      // Phase 30.8: tasks with a due_at become all-day deadlines on
+      // their due date. Click routes to the task modal via the
+      // existing resource pattern. Done tasks render with reduced
+      // opacity so the calendar still lists them but operators can
+      // distinguish at a glance.
+      ...tasksByDue
+        .filter((t) => !!t.due_at)
+        .map((t) => {
+          const due = new Date(t.due_at as string);
+          return {
+            id: `task-${t.id}`,
+            title: `📌 ${t.title}${t.status === 'done' ? ' ✓' : ''}`,
+            start: due,
+            end: due,
+            allDay: true,
+            resource: { task: t, kind: 'task' as const },
+          };
+        }),
+    ],
+    [events, tasksByDue],
   );
 
   function eventStyleGetter(rbEvent: RBCEvent): { style: React.CSSProperties } {

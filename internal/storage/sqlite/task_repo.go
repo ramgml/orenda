@@ -687,6 +687,42 @@ func (r *taskRepo) DeleteTag(ctx context.Context, id string) error {
 	return nil
 }
 
+// ListByDueBetween returns tasks whose due_at falls within
+// [from, to]. Phase 30.8: the calendar needs to render tasks
+// alongside timed events. Tasks without a due_at are not returned;
+// status is not filtered — the calendar renders done tasks
+// differently (shaded) but it still cares about them.
+func (r *taskRepo) ListByDueBetween(ctx context.Context, from, to time.Time) ([]*task.Task, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, project_id, parent_task_id, column_id, title, description,
+		       status, priority, assignee_type, assignee_id, awaiting,
+		       context_md, agent_notes, due_at, started_at, claimed_at,
+		       completed_at, time_estimate_s, time_spent_s, position,
+		       start_at, end_at, all_day, color, recurrence, created_at, updated_at
+		FROM tasks
+		WHERE due_at IS NOT NULL
+		  AND due_at >= ?
+		  AND due_at <= ?
+		ORDER BY due_at ASC`,
+		from.Format(time.RFC3339), to.Format(time.RFC3339))
+	if err != nil {
+		return nil, fmt.Errorf("task.ListByDueBetween: %w", err)
+	}
+	defer rows.Close()
+	out := make([]*task.Task, 0)
+	for rows.Next() {
+		tr, err := scanTaskRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("task.ListByDueBetween: scan: %w", err)
+		}
+		out = append(out, tr)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("task.ListByDueBetween: rows: %w", err)
+	}
+	return out, nil
+}
+
 // ListTagsForTask returns every tag attached to the given task,
 // ordered by name. Used by the task detail endpoint; the kanban
 // list endpoint uses TagsForTasks (batch) instead.

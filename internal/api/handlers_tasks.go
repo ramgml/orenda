@@ -666,3 +666,45 @@ func deleteChecklistItemHandler(deps *Dependencies) http.HandlerFunc {
 
 // deleteSubtaskHandler removed in Phase 14 — child tasks are full
 // tasks; use DELETE /api/v1/tasks/{id} instead.
+
+// tasksWithDueHandler lists tasks whose due_at falls within [from, to].
+// Phase 30.8: the calendar needs to render tasks alongside timed
+// events; the simplest seam is a dedicated endpoint that returns
+// just the tasks with a due_at in the requested window. We don't
+// filter by `done` status — done tasks appear shaded in the UI as
+// "completed on this date" — see the calendar's render layer.
+//
+// The endpoint is intentionally narrow: a single From/To window
+// keyed off the existing tasks repo. We don't paginate because the
+// realistic upper bound is a few hundred tasks per month (single
+// owner, single instance).
+func tasksWithDueHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		from, err := parseTimeQuery(r, "from")
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_from"})
+			return
+		}
+		to, err := parseTimeQuery(r, "to")
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_to"})
+			return
+		}
+		tasks, err := deps.Tasks.ListByDueBetween(r.Context(), from, to)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
+	}
+}
+
+// parseTimeQuery reads an RFC3339 time from r.URL.Query(). Empty
+// returns the zero value (caller decides whether that's an error).
+func parseTimeQuery(r *http.Request, key string) (time.Time, error) {
+	raw := r.URL.Query().Get(key)
+	if raw == "" {
+		return time.Time{}, fmt.Errorf("missing %q", key)
+	}
+	return time.Parse(time.RFC3339, raw)
+}

@@ -407,6 +407,17 @@ paths:
         '422': { description: column_not_empty }
 
   # ---- tasks ----
+  /api/v1/tasks/with-due:
+    get:
+      tags: [tasks]
+      summary: 'Phase 30.8: tasks with a due_at in [from, to]. Used by the calendar to render deadlines alongside timed events.'
+      security: [{ bearerAuth-cookie: [] }]
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_from / invalid_to }
   /api/v1/tasks/{id}:
     get:
       tags: [tasks]
