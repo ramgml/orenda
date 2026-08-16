@@ -21,7 +21,7 @@ status: pre-alpha
 > - **Phase 7**: `git client` без `Status`/`TestConnection`; snapshot по тикеру 24h (не cron 03:00) — низкий приоритет.
 > - **Phase 8**: ✅ LWW-семантика зафиксирована (2026-08-16, Phase 28.21): delivery-order LWW корректен для single-device PWA outbox (он флашит в порядке правок пользователя — arrival order ≡ edit order); timestamp-based LWW по `updated_at` отложен до эры multi-device. Комментарий `handlers_sync.go` переписан под это решение.
 > - **Phase 10**: VK Long Poll / Email HTML / Weekly digest — большие подфазы, не блокируют dogfooding.
-> - **Phase 17**: UI-тоггл плотности карточки (флаг читается из localStorage, переключателя нет); бейджи времени (estimate/spent) и таймера.
+> - **Phase 17**: ~~UI-тоггл плотности карточки~~ ✅ закрыт в 28.23.6 (чекбокс «Compact cards» на доске); остаются бейджи времени (estimate/spent) и таймера.
 >
 > Критичные дефекты:
 > 1. ✅ **Фронтенд WS никогда не подключався** → **закрыт 2026-08-12 в Phase 27.2 / PR 1.2** (cookie-based upgrade, см. секцию ниже). Realtime UI работает end-to-end.
@@ -1159,7 +1159,7 @@ make build
 
 ## Phase 17 — Карточки задач: информативная лицевая сторона (референсы: Weeek, Trello) *(3–4 дня)*
 
-> **Аудит 2026-08-12 (обновлено 2026-08-14):** 🟡 — `ListByProjectWithStats` с агрегатами, приоритет-кромка, due-бейдж, счётчики, AssigneeChip с 🤖 (имя через `useAgents()` hook с chips), pure-функции `taskCardBadges.ts` с тестами — есть. **✅ Phase Wave 4 PR 2** — InboxPage переиспользует TaskCard. **✅ Phase 28.19** — AssigneeChip показывает `Agent: <name> (<labels>)` (но Agent-карточки — agent_id для других). Остаётся: **UI-тоггл плотности** карточки (флаг `orenda.kanban.cardDensity` уже читается в localStorage, переключателя в UI нет); **бейджи времени** (estimate/spent/таймер не показываются).
+> **Аудит 2026-08-12 (обновлено 2026-08-14):** 🟡 — `ListByProjectWithStats` с агрегатами, приоритет-кромка, due-бейдж, счётчики, AssigneeChip с 🤖 (имя через `useAgents()` hook с chips), pure-функции `taskCardBadges.ts` с тестами — есть. **✅ Phase Wave 4 PR 2** — InboxPage переиспользует TaskCard. **✅ Phase 28.19** — AssigneeChip показывает `Agent: <name> (<labels>)` (но Agent-карточки — agent_id для других). Остаётся: ~~UI-тоггл плотности~~ ✅ 28.23.6 (чекбокс «Compact cards» пишет `orenda.kanban.cardDensity`); **бейджи времени** (estimate/spent/таймер не показываются).
 
 **Цель:** канбан-карточка отвечает на вопросы «что горит, кто занят, что внутри» без открытия задачи. Сейчас лицевая сторона — только title + бейдж `↳ child` (`web/src/features/projects/TaskCard.tsx`), при этом payload задачи уже несёт priority/due_at/assignee/awaiting, а бэкенд хранит checklists, children, комментарии, вложения и теги.
 
@@ -2685,3 +2685,28 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 - [x] **28.22.9** Stale-комментарии: `router.go` («auth/REST/WS land in later phases» — shipped), `config.go` («BotConfig placeholder for Phase 10» — shipped).
 
 **DoD (проверяется исполнением):** `go build ./...` + `go vet ./...` чистые (0 findings); `go test ./...` зелёный; golangci-lint 97 → 95 issues (роста нет); 2 новых repo-теста зелёные.
+---
+
+## Phase 28.23 (полировка) — frontend foundations: WS-race, deps-хигиена, density-toggle, shared UI primitives *(2026-08-16)*
+
+> Третья часть аудита 2026-08-16: frontend-находки. Ops-дыры закрыты в 28.21, backend-свип — в 28.22.
+
+**Задачи:**
+
+- [x] **28.23.1** WS re-subscribe race в `useWebSocketTopic` (`shared/ws.ts`): handler теперь в `useRef` (обновляется каждый рендер), подписка — один раз на `topic` (deps `[topic]`). Все ~11 call sites передают inline arrows — со старыми deps `[topic, fn]` каждый рендер делал unsubscribe+resubscribe, и событие, пришедшее в зазор, терялось. Тест `shared/ws.test.tsx` (3 кейса) пинит: стабильный handler identity между ререндерами, вызов последней версии closure, resubscribe при смене топика. **Mutation-check выполнен:** возврат deps `[topic, fn]` флипает первый тест red, откат — зелёный.
+- [x] **28.23.2** WS→Query invalidation для `agents`: `AppLayout` подписывается на топик `agents` и инвалидирует `agentsQueryKey` (shared cache AssigneeChip/AgentsPage/sidebar badge). Тест в `AppLayout.test.tsx` — dispatch WS-события → `invalidateQueries({queryKey: agentsQueryKey})`.
+- [x] **28.23.3** package.json hygiene: удалены `zustand` (ноль импортов в src/) и `@tiptap/extension-bubble-menu` (BubbleMenu импортируется из `@tiptap/react/menus`); `idb` переехал из devDependencies в dependencies (runtime-импорт в `shared/offline/db.ts`). `package-lock.json` синхронизирован.
+- [x] **28.23.4** `patchTaskOrQueue` double-cast убран: сигнатура `(task: Task, patch: Partial<Task>)`; offline-path мерджит патч поверх существующей задачи (`{...task, ...patch}`) вместо фабрикации Task из патча через `as unknown as Task`. Три call site (title/description/color) получили `if (!task) return` guard. Поведение online идентично.
+- [x] **28.23.5** Shared UI primitives: `shared/ui/Loading.tsx`, `ErrorBanner.tsx`, `EmptyState.tsx` — Tailwind + `dark:` варианты. Мигрированы рукодельные эквиваленты в `TodayPage` (loading + error), `InboxPage` (error + empty), `ReviewPage` (loading + error + empty) и красный баннер в `CalendarPage` (был `bg-red-50 text-red-800` без dark: — нечитаем в тёмной теме; ErrorBoundary fallback тоже мигрирован). Тесты `shared/ui/ui.test.tsx` (7 кейсов: рендер, dark-классы).
+- [x] **28.23.6** Card density toggle UI (долг Phase 17): `TaskCard` читал `orenda.kanban.cardDensity` из localStorage с Phase 17, но никто его не писал. `KanbanBoard` получил чекбокс «Compact cards» рядом с «Show child tasks» (тот же паттерн: localStorage + state; запись синхронная в onChange, чтобы тот же рендер-проход уже читал свежее значение). Тест `KanbanBoard.test.tsx` (2 кейса): тоггл переключает плотность без reload (due-badge скрывается/появляется) и persisted-флаг читается на mount.
+- [x] **28.23.7** `AuthContext.test.tsx` (NEW, 4 кейса): 401 от /me → `anonymous`; успешный /me → `authenticated` с профилем; logout зовёт endpoint и чистит state; logout чистит state даже при упавшем endpoint (finally). Конвенции axios-stub из `RequireAuth.test.tsx`.
+- [x] **28.23.8** Stale-комментарий в `CalendarPage.tsx`: «drag is on the roadmap» переписан — drag-reschedule живой (withDragAndDrop + onEventDrop PATCH'ит start_at/end_at).
+
+**DoD (verified 2026-08-16, worktree `phase-28-23-frontend-foundations`):**
+
+- `npx tsc --noEmit` — clean.
+- `npx vitest run` — 263/263 (было 246; +17: 3 ws + 1 AppLayout + 7 ui + 2 KanbanBoard + 4 AuthContext).
+- `npx prettier --check` на всех затронутых файлах — clean.
+- `npx eslint` на затронутых файлах — 0 errors, 0 warnings.
+- `make test-e2e` — 18/18 pass (21.9s).
+- Mutation check (28.23.1): инверсия deps → тест красный; revert → зелёный.

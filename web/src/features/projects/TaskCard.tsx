@@ -181,17 +181,10 @@ export function TaskCard({
  * (qwen, installer)" instead of an opaque id. The chip's visible
  * label stays the id slice so dense columns remain scannable.
  */
-function AssigneeChip({
-  task,
-  agent,
-}: {
-  task: Task;
-  agent?: Agent;
-}): JSX.Element | null {
+function AssigneeChip({ task, agent }: { task: Task; agent?: Agent }): JSX.Element | null {
   if (!task.assignee_type || !task.assignee_id) return null;
   if (task.assignee_type === 'agent') {
-    const labelSuffix =
-      agent && agent.type.length > 0 ? ` (${agent.type.join(', ')})` : '';
+    const labelSuffix = agent && agent.type.length > 0 ? ` (${agent.type.join(', ')})` : '';
     const title = agent ? `Agent: ${agent.name}${labelSuffix}` : `Agent: ${task.assignee_id}`;
     const display = agent?.name ?? task.assignee_id.slice(0, 6);
     return (

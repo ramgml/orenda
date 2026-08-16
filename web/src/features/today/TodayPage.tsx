@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { api, type Task } from '@/shared/api/client';
+import { ErrorBanner } from '@/shared/ui/ErrorBanner';
+import { Loading } from '@/shared/ui/Loading';
 import { useWebSocketTopic } from '@/shared/ws';
 
 /**
@@ -56,10 +58,10 @@ export function TodayPage(): JSX.Element {
   }, []);
 
   if (loading) {
-    return <p className="p-6 text-sm text-slate-400 italic">Loading…</p>;
+    return <Loading className="p-6" />;
   }
   if (error) {
-    return <p className="p-6 text-sm text-red-600">{error}</p>;
+    return <ErrorBanner message={error} className="m-6" />;
   }
   if (!data) return <></>;
 

@@ -80,6 +80,24 @@ export function KanbanBoard({
     window.localStorage.setItem('orenda.kanban.showChildren', String(showChildren));
   }, [showChildren]);
 
+  // Phase 28.23: card density toggle. TaskCard already reads
+  // `orenda.kanban.cardDensity` from localStorage (Phase 17), but
+  // nothing wrote the flag — this is the write side. Persisted
+  // synchronously in onChange so the same render pass that flips
+  // state also flips any other card surface reading localStorage.
+  const [compactCards, setCompactCards] = useState<boolean>(
+    () =>
+      typeof window !== 'undefined' &&
+      window.localStorage.getItem('orenda.kanban.cardDensity') === 'compact',
+  );
+
+  function onToggleCompact(next: boolean): void {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('orenda.kanban.cardDensity', next ? 'compact' : 'detailed');
+    }
+    setCompactCards(next);
+  }
+
   // Keep local cols in sync if the parent re-fetches the board.
   useEffect(() => {
     setCols(columns);
@@ -224,17 +242,28 @@ export function KanbanBoard({
         </div>
       )}
       <div className="flex items-center justify-between">
-        <label className="flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showChildren}
-            onChange={(e) => setShowChildren(e.target.checked)}
-            className="rounded border-slate-300"
-          />
-          <span>
-            Show child tasks <span className="text-slate-400">({childCount})</span>
-          </span>
-        </label>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showChildren}
+              onChange={(e) => setShowChildren(e.target.checked)}
+              className="rounded border-slate-300"
+            />
+            <span>
+              Show child tasks <span className="text-slate-400">({childCount})</span>
+            </span>
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={compactCards}
+              onChange={(e) => onToggleCompact(e.target.checked)}
+              className="rounded border-slate-300"
+            />
+            <span>Compact cards</span>
+          </label>
+        </div>
       </div>
       <DndContext
         sensors={sensors}

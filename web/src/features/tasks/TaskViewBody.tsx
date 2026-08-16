@@ -50,16 +50,17 @@ import { TaskFieldControls } from './TaskFieldControls';
  * The shape mirrors api.patchTask; we return the fresh Task so the
  * caller can update local state. On the queue path we can't return
  * the canonical server-side row (the sync hasn't happened yet) — we
- * return the optimistic merged task the caller can render until
- * the next fetch lands.
+ * merge the patch over the task the caller already holds, so every
+ * required field stays intact and nothing is fabricated.
  */
-async function patchTaskOrQueue(taskId: string, patch: Record<string, unknown>): Promise<Task> {
+async function patchTaskOrQueue(task: Task, patch: Partial<Task>): Promise<Task> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
-    await queueUpdateTask(taskId, patch);
-    // Optimistic local merge — the queue will replace it on sync.
-    return { ...(patch as unknown as Task), id: taskId } as Task;
+    await queueUpdateTask(task.id, patch);
+    // Optimistic local merge over the existing task — the queue will
+    // reconcile it with the server on sync.
+    return { ...task, ...patch };
   }
-  return api.patchTask(taskId, patch);
+  return api.patchTask(task.id, patch);
 }
 
 export function TaskViewBody({
@@ -200,9 +201,10 @@ export function TaskViewBody({
 
   // Description patch.
   const onSaveDescription = async (description: string): Promise<void> => {
+    if (!task) return;
     setBusy(true);
     try {
-      const t = await patchTaskOrQueue(taskId, { description });
+      const t = await patchTaskOrQueue(task, { description });
       setTask(t);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -213,10 +215,10 @@ export function TaskViewBody({
 
   // Title patch.
   const onSaveTitle = async (title: string): Promise<void> => {
-    if (!title.trim()) return;
+    if (!title.trim() || !task) return;
     setBusy(true);
     try {
-      const t = await patchTaskOrQueue(taskId, { title: title.trim() });
+      const t = await patchTaskOrQueue(task, { title: title.trim() });
       setTask(t);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -230,9 +232,10 @@ export function TaskViewBody({
   // shows a value; "clear" is its own button so users have an
   // obvious path to remove the stripe.
   const onSaveColor = async (color: string): Promise<void> => {
+    if (!task) return;
     setBusy(true);
     try {
-      const t = await patchTaskOrQueue(taskId, { color });
+      const t = await patchTaskOrQueue(task, { color });
       setTask(t);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

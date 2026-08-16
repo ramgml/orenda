@@ -26,6 +26,7 @@ import { enUS } from 'date-fns/locale';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 
 import { api, type CalendarEvent } from '@/shared/api/client';
+import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 import { useWebSocketTopic } from '@/shared/ws';
 
 const localizer = dateFnsLocalizer({
@@ -233,9 +234,10 @@ export function CalendarPage(): JSX.Element {
     setMode(null);
   }
 
-  // Drag-to-reschedule would need the withDragAndDrop addon (extra
-  // react-dnd dep). For now the calendar has click-to-edit and
-  // Edit-modal time pickers; drag is on the roadmap.
+  // Drag-to-reschedule is live: the calendar is wrapped in
+  // withDragAndDrop (react-big-calendar addon) and onEventDrop PATCHes
+  // the event's start_at/end_at on drop. Click-to-edit and the
+  // Edit-modal time pickers remain as the precise-input alternative.
 
   return (
     <section className="grid grid-cols-[260px,1fr] gap-4">
@@ -265,11 +267,7 @@ export function CalendarPage(): JSX.Element {
           }
         />
 
-        {error && (
-          <div className="rounded border border-red-300 bg-red-50 text-red-800 px-3 py-2 text-sm">
-            {error}
-          </div>
-        )}
+        {error && <ErrorBanner message={error} />}
 
         <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2 h-[75vh] calendar-shell">
           <CalendarErrorBoundary>
@@ -379,11 +377,7 @@ class CalendarErrorBoundary extends Component<{ children: ReactNode }, { error: 
   }
   render(): ReactNode {
     if (this.state.error) {
-      return (
-        <div className="rounded border border-red-300 bg-red-50 text-red-800 px-3 py-2 text-sm">
-          Calendar failed to render: {this.state.error.message}
-        </div>
-      );
+      return <ErrorBanner message={`Calendar failed to render: ${this.state.error.message}`} />;
     }
     return this.props.children;
   }

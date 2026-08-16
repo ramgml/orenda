@@ -22,6 +22,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthProvider } from '@/features/auth/AuthContext';
 import { AppLayout } from '@/features/layout/AppLayout';
+import { agentsQueryKey } from '@/shared/hooks/useAgents';
+import { wsClient } from '@/shared/ws';
 
 const { stubHttp } = vi.hoisted(() => ({
   stubHttp: {
@@ -44,6 +46,8 @@ vi.mock('axios', async (importOriginal) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  wsClient.disconnect();
+  wsClient['listeners'].clear();
 });
 
 afterEach(() => {
@@ -55,7 +59,7 @@ function mountShell(entry: string) {
   // the auth state lands in 'anonymous' and never makes a real request.
   stubHttp.get.mockRejectedValue(new AxiosError('no session'));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const utils = render(
     <QueryClientProvider client={client}>
       <AuthProvider>
         <MemoryRouter initialEntries={[entry]}>
@@ -69,6 +73,7 @@ function mountShell(entry: string) {
       </AuthProvider>
     </QueryClientProvider>,
   );
+  return { client, ...utils };
 }
 
 describe('AppLayout', () => {
@@ -110,6 +115,19 @@ describe('AppLayout', () => {
     // module resolves; we never resolve, so the fallback is what we see.
     await waitFor(() => {
       expect(screen.getByText('Loading…')).toBeTruthy();
+    });
+  });
+
+  it('invalidates the agents query on a WS "agents" event (Phase 28.23)', async () => {
+    const { client } = mountShell('/');
+    expect(await screen.findByText('CHILD HOME')).toBeTruthy();
+
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+
+    wsClient['listeners'].get('agents')?.forEach((fn) => fn({ topic: 'agents', body: {} }));
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: agentsQueryKey });
     });
   });
 });
