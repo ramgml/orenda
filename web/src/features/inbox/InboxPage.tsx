@@ -4,6 +4,8 @@ import { api, type Project, type Task } from '@/shared/api/client';
 import { TaskCard } from '@/features/projects/TaskCard';
 import { openTaskModal } from '@/features/tasks/TaskModal';
 import { queueUpdateTask } from '@/shared/offline/outbox';
+import { EmptyState } from '@/shared/ui/EmptyState';
+import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 
 /**
  * Inbox — flat list of unfiled tasks.
@@ -134,12 +136,10 @@ export function InboxPage(): JSX.Element {
         </button>
       </form>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <ErrorBanner message={error} />}
 
       {tasks.length === 0 ? (
-        <p className="text-sm text-slate-400 italic">
-          Nothing in the inbox. Quick-add a thought above to capture it here.
-        </p>
+        <EmptyState message="Nothing in the inbox. Quick-add a thought above to capture it here." />
       ) : (
         <ul className="space-y-2">
           {tasks.map((t) => (

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { api, type ReviewQueueItem, type Task } from '@/shared/api/client';
+import { EmptyState } from '@/shared/ui/EmptyState';
+import { ErrorBanner } from '@/shared/ui/ErrorBanner';
+import { Loading } from '@/shared/ui/Loading';
 import { useWebSocketTopic } from '@/shared/ws';
 
 /**
@@ -92,15 +95,12 @@ export function ReviewPage(): JSX.Element {
         <p className="text-sm text-slate-500 mt-1">Tasks waiting for your verdict. Newest first.</p>
       </header>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <ErrorBanner message={error} />}
 
       {loading ? (
-        <p className="text-sm text-slate-400 italic">Loading…</p>
+        <Loading />
       ) : items.length === 0 ? (
-        <div className="rounded border border-slate-200 dark:border-slate-800 p-6 text-center text-slate-400">
-          <p className="text-2xl mb-2">✓</p>
-          <p className="text-sm">Nothing to review — everything is up to date.</p>
-        </div>
+        <EmptyState icon="✓" message="Nothing to review — everything is up to date." />
       ) : (
         <ul className="space-y-2">
           {items.map((it) => (
