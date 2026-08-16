@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -131,4 +132,43 @@ func TestInbox_Create_InvalidJSON(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 	// sanity: error envelope contains the expected key
 	assert.True(t, strings.Contains(rr.Body.String(), "invalid_json"))
+}
+
+// Phase 30.10: quick capture carries an optional due date. The inbox
+// endpoint must persist it (previously due_at was silently dropped —
+// the field existed only in the project create path).
+func TestInbox_Create_AcceptsDueAt(t *testing.T) {
+	f := columnDeps(t)
+
+	rr := doReq(f.router, http.MethodPost, "/api/v1/inbox/tasks", f.cookie, map[string]any{
+		"title":  "with a deadline",
+		"due_at": "2026-09-01T00:00:00Z",
+	})
+	require.Equal(t, http.StatusCreated, rr.Code, rr.Body.String())
+	var created task.Task
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&created))
+	require.NotNil(t, created.DueAt, "due_at must round-trip through create")
+	assert.Equal(t, 2026, created.DueAt.Year())
+	assert.Equal(t, time.September, created.DueAt.Month())
+	assert.Equal(t, 1, created.DueAt.Day())
+
+	// And it persists: the list endpoint returns the same value.
+	rr = doReq(f.router, http.MethodGet, "/api/v1/inbox/tasks", f.cookie, nil)
+	require.Equal(t, http.StatusOK, rr.Code)
+	var list struct {
+		Tasks []task.Task `json:"tasks"`
+	}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&list))
+	require.Len(t, list.Tasks, 1)
+	require.NotNil(t, list.Tasks[0].DueAt, "due_at must survive a list round-trip")
+	assert.Equal(t, 1, list.Tasks[0].DueAt.Day())
+
+	// Omitting due_at stays legal — quick capture without a date.
+	rr = doReq(f.router, http.MethodPost, "/api/v1/inbox/tasks", f.cookie, map[string]any{
+		"title": "no deadline",
+	})
+	require.Equal(t, http.StatusCreated, rr.Code, rr.Body.String())
+	var plain task.Task
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&plain))
+	assert.Nil(t, plain.DueAt)
 }

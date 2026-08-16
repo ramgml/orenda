@@ -227,4 +227,68 @@ describe('QuickCapture', () => {
     expect(screen.getByRole('dialog')).toBeTruthy();
     expect(screen.queryByTestId('quick-capture-toast')).toBeNull();
   });
+
+  it('renders an optional due-date field that starts empty', () => {
+    mount();
+    fireEvent.click(screen.getByTestId('quick-capture-toggle'));
+    const due = screen.getByTestId('quick-capture-due') as HTMLInputElement;
+    expect(due).toBeTruthy();
+    expect(due.value).toBe('');
+  });
+
+  it('posts due_at as RFC3339 when a date is picked', async () => {
+    stubHttp.post.mockResolvedValueOnce({
+      data: { id: 'new-1', title: 'deadline', status: 'todo', priority: 'medium', awaiting: 'none' },
+    });
+
+    mount();
+    fireEvent.click(screen.getByTestId('quick-capture-toggle'));
+    fireEvent.change(screen.getByTestId('quick-capture-input'), { target: { value: 'deadline' } });
+    fireEvent.change(screen.getByTestId('quick-capture-due'), { target: { value: '2026-09-01' } });
+    fireEvent.click(screen.getByTestId('quick-capture-submit'));
+
+    await waitFor(() => {
+      expect(stubHttp.post).toHaveBeenCalledWith('/api/v1/inbox/tasks', {
+        title: 'deadline',
+        // Local midnight → UTC ISO; compute the same way the component does.
+        due_at: new Date('2026-09-01T00:00:00').toISOString(),
+      });
+    });
+  });
+
+  it('does not send due_at when no date is picked (hotkey flow unchanged)', async () => {
+    stubHttp.post.mockResolvedValueOnce({
+      data: { id: 'new-1', title: 'plain', status: 'todo', priority: 'medium', awaiting: 'none' },
+    });
+
+    mount();
+    fireEvent.click(screen.getByTestId('quick-capture-toggle'));
+    const textarea = screen.getByTestId('quick-capture-input');
+    fireEvent.change(textarea, { target: { value: 'plain' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', ctrlKey: true });
+
+    await waitFor(() => {
+      // Exact payload: no due_at key at all.
+      expect(stubHttp.post).toHaveBeenCalledWith('/api/v1/inbox/tasks', { title: 'plain' });
+    });
+  });
+
+  it('clears the due field after a successful capture', async () => {
+    stubHttp.post.mockResolvedValueOnce({
+      data: { id: 'new-1', title: 'once', status: 'todo', priority: 'medium', awaiting: 'none' },
+    });
+
+    mount();
+    fireEvent.click(screen.getByTestId('quick-capture-toggle'));
+    fireEvent.change(screen.getByTestId('quick-capture-input'), { target: { value: 'once' } });
+    fireEvent.change(screen.getByTestId('quick-capture-due'), { target: { value: '2026-09-01' } });
+    fireEvent.click(screen.getByTestId('quick-capture-submit'));
+
+    // Toast appears; dismiss it and reopen — the date must be gone
+    // (a stale deadline on the next capture would be a data bug).
+    expect(await screen.findByTestId('quick-capture-toast')).toBeTruthy();
+    fireEvent.click(screen.getByText('Dismiss'));
+    fireEvent.click(screen.getByTestId('quick-capture-toggle'));
+    expect((screen.getByTestId('quick-capture-due') as HTMLInputElement).value).toBe('');
+  });
 });
