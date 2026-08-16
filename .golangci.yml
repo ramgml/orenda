@@ -42,13 +42,20 @@ linters-settings:
     disabled-checks:
       - ifElseChain       # noisy
       - tooManyResultsChecker
+      # hugeParam is an opinionated style recommendation, not a correctness
+      # bug. Phase 28.15 already converted internal/api handler factories to
+      # pass Dependencies by pointer; for the remaining service / bot /
+      # storage / cmd code we deliberately keep value semantics — the
+      # structs are small enough that copy cost is below noise, and the
+      # API surface (function signatures) stays explicit.
+      - hugeParam
   revive:
     rules:
       - name: package-comments
       - name: exported
       - name: var-naming
       - name: error-strings
-      - name: error-returned
+      - name: error-return
       - name: error-naming
       - name: import-shadowing
       - name: indent-error-flow

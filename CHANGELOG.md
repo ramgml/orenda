@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Phase 30.1:** GitHub Actions CI (`.github/workflows/ci.yml`) — `lint` → `test` → `build` → `e2e` with fail-fast, concurrency cancel-in-progress, and Go 1.26 / Node 24 / golangci-lint-action v6 caching. Lint scope: PR uses `--new-from-merge-base` (incremental gate on new code), push to `main` runs full (release-branch guard), push to `dev` skips lint (PR gate is the contract). Web lint: eslint + prettier --check. `.golangci.yml` cleanup: disabled pre-existing `hugeParam` gocritic rule (Phase 28.15 closed this for API handlers); renamed revive rule `error-returned` → `error-return` to match current schema.
+
 ## [0.1.0] — 2026-08-16
 
 First release cut from `dev` (367 commits past `main`).
@@ -88,5 +91,6 @@ migration guarantees between minors yet.
 - **Phase 7:** git client without `Status`/`TestConnection`; snapshot at 24h ticker (not cron 03:00).
 - **Phase 10:** Email bot plain text (no HTML); VK Long Poll not implemented; weekly digest not implemented.
 - **Phase 17:** no time estimate/spent badges on task cards.
+- **Phase 30.1/30.16:** CI lint gate is incremental (`--new-from-merge-base`); 73 pre-existing lint issues remain in dev (gocritic dupImport/unnamedResult/paramTypeCombine, unparam, nilnil, unused, contextcheck, etc.). Tracked as Phase 30.16 — close opportunistically when touching the affected files.
 - **Multi-user / multi-device sync:** next era.
 - **Lint residue:** ≈95 issues remaining (Phase 28.15–28.17 closed 230 of 325).
