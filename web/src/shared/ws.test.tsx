@@ -58,6 +58,10 @@ describe('useWebSocketTopic', () => {
     // Still one subscription — no unsubscribe/resubscribe churn.
     expect(listenersOf('tasks')?.size).toBe(1);
 
+    // And the live handler is the latest render's closure.
+    dispatch('tasks');
+    expect(n).toBe(4);
+
     unmount();
     expect(listenersOf('tasks')?.size ?? 0).toBe(0);
   });
@@ -82,9 +86,12 @@ describe('useWebSocketTopic', () => {
 
   it('re-subscribes when the topic itself changes', () => {
     const fn = vi.fn();
-    const { rerender } = renderHook(({ topic }: { topic: string }) => useWebSocketTopic(topic, fn), {
-      initialProps: { topic: 'tasks' },
-    });
+    const { rerender } = renderHook(
+      ({ topic }: { topic: string }) => useWebSocketTopic(topic, fn),
+      {
+        initialProps: { topic: 'tasks' },
+      },
+    );
 
     expect(listenersOf('tasks')?.size).toBe(1);
 
