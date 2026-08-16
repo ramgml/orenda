@@ -15,7 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/ramgml/orenda/internal/api/ws"
@@ -255,6 +254,3 @@ func (s *Service) sendWithRetry(ctx context.Context, b bot.Bot, target string, m
 	}
 	return last
 }
-
-// ensure strings is referenced (used for Join in some branches).
-var _ = strings.Join

@@ -128,9 +128,8 @@ type RateLimitConfig struct {
 	AuthPerSec float64 `yaml:"auth_per_sec"`
 }
 
-// BotConfig is a placeholder for Phase 10 pluggable bots.
-//
-// Phase 0 loads the section so the YAML schema is stable across phases.
+// BotConfig is one entry of the `bots:` section (Phase 10 pluggable
+// bots — console/telegram/vk/email/webhook, all shipped).
 type BotConfig struct {
 	Name    string         `yaml:"name"`
 	Type    string         `yaml:"type"`

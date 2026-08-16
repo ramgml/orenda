@@ -126,6 +126,13 @@ func (f *fakeRepo) SetTaskDependencies(context.Context, string, []string) error 
 func (f *fakeRepo) Blockers(context.Context, string) ([]task.BlockerRow, error) {
 	return nil, nil
 }
+func (f *fakeRepo) BlockersForTasks(_ context.Context, ids []string) (map[string][]task.BlockerRow, error) {
+	out := make(map[string][]task.BlockerRow, len(ids))
+	for _, id := range ids {
+		out[id] = nil
+	}
+	return out, nil
+}
 func (f *fakeRepo) Dependents(context.Context, string) ([]string, error) {
 	return nil, nil
 }

@@ -22,6 +22,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Sentinel errors.
@@ -487,14 +489,9 @@ func parseTime(s string) time.Time {
 	return t
 }
 
-// newUUID is a small inline helper — UUIDv7 prefix isn't needed here,
-// any unique string works.
+// newUUID returns a random id for backup_log rows. Delegates to
+// google/uuid (already a dependency) — the previous hand-rolled
+// /dev/urandom reader silently produced an all-zeros id on error.
 func newUUID() string {
-	b := make([]byte, 16)
-	f, err := os.Open("/dev/urandom")
-	if err == nil {
-		defer f.Close()
-		_, _ = f.Read(b)
-	}
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+	return uuid.NewString()
 }

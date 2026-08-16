@@ -2666,3 +2666,22 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 **DoD (проверяется исполнением):** login флудится → 429; fresh-clone install не падает; дефолтного JWT-секрета в репо нет; `go test ./...` + vitest + E2E зелёные.
 
 **За скобкой (зафиксировано, не блокирует):** `uninstall.sh` молча глотает неизвестные флаги и без `--help`; `update-dogfood.sh` хардкодит remote `origin` и не имеет `--force`; нет CI — локальные гейты не enforced (кандидат на отдельную фазу); `git client Status/TestConnection` (Phase 7); `sync_ops` record-failures проглатываются (`_ = syncOpsRecord(...)`) — редкий путь, но молчит.
+---
+
+## Phase 28.22 (полировка) — backend sweep: N+1, мёртвый код, vet finding *(2026-08-16)*
+
+> Продолжение аудита 2026-08-16: механическая зачистка backend-находок. Ops-дыры закрыты в 28.21; frontend — 28.23.
+
+**Задачи:**
+
+- [x] **28.22.1** N+1 в `listAgentTasksHandler`: новый batch-примитив `task.Repository.BlockersForTasks(ctx, ids)` (по образцу `TagsForTasks` из 27.3 — pre-populated empty slice на каждый id); handler делает один запрос на весь листинг вместо `Blockers()` в цикле. Тест `TestTaskRepo_BlockersForTasks` (форма, Done-флаг, пустой вход, entry для незаблокированной задачи).
+- [x] **28.22.2** `handlers_today.go`: мёртвый `ids`-loop убран; enrichment больше не сканирует всю таблицу — новый `Filter.IDs` ограничивает `ListByProjectWithStats` видимыми задачами (было: 5 aggregate-запросов по всей БД ради ~дюжины карточек). Тест `TestTaskRepo_ListByProject_IDsFilter`.
+- [x] **28.22.3** Единственный `go vet` finding закрыт: мёртвый `RecordOld` (с недостижимым дублем append/return) удалён из `move_test.go`.
+- [x] **28.22.4** `event.go`: удалён дважды продублированный suppression-блок (`var _ = strconv.Itoa` × 2) + stale-комментарий «RRULE не используется» (используется — `handlers_calendar.go` зовёт `ExpandRecurrence` с Phase 23.3); мёртвый `newUUID() → ""` хелпер и его no-op вызов удалены (task repo сам назначает UUIDv7).
+- [x] **28.22.5** `backup.go::newUUID`: ручное чтение `/dev/urandom` (silent all-zeros id при ошибке) → `uuid.NewString()` (зависимость уже есть).
+- [x] **28.22.6** Три `var _ = ...` import-suppression'а удалены: `handlers_phase3.go` (activity — используется), `handlers_agent.go` (task/agent — agent-импорт удалён за ненадобностью), `notifier.go` (strings — единственным «использованием» была сама заглушка; импорт удалён).
+- [x] **28.22.7** Мёртвый `heartbeatRequest` decode в `handlers_agents.go` (структура никогда не читалась).
+- [x] **28.22.8** Мёртвый `ownerID := "" / _ = ownerID` в `handlers_courses.go` + 3-абзацный комментарий сжат до одного абзаца.
+- [x] **28.22.9** Stale-комментарии: `router.go` («auth/REST/WS land in later phases» — shipped), `config.go` («BotConfig placeholder for Phase 10» — shipped).
+
+**DoD (проверяется исполнением):** `go build ./...` + `go vet ./...` чистые (0 findings); `go test ./...` зелёный; golangci-lint 97 → 95 issues (роста нет); 2 новых repo-теста зелёные.

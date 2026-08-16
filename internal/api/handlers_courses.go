@@ -354,21 +354,11 @@ func listCoursesHandlerAgent(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "course repo not wired", http.StatusServiceUnavailable)
 			return
 		}
-		// Single-owner: list everything then filter by status. The
-		// volume is tiny (≤ tens of courses for a personal install).
-		ownerID := ""
-		// We pass an empty ownerID to ListCourses and let the repo
-		// decide the scope. SQLite task repo's "list all" mode
-		// isn't exposed here, so for the agent surface we use the
-		// query string filter approach.
-		_ = ownerID
-		// Use a simple iteration: ListCourses for the bootstrap owner
-		// is owner-scoped; for the agent we accept that the agent
-		// sees whatever the system owner has. In a multi-user
-		// future this would scope to the agent's bound owner.
-		// For Phase 18 we expose a "list all" via the underlying
-		// SQL — duplication avoided by going through a small
-		// helper.
+		// Single-owner: the agent sees whatever the system owner has;
+		// ListCourses("") is the "list all" form. A multi-user future
+		// would scope this to the agent's bound owner. The volume is
+		// tiny (≤ tens of courses for a personal install), so the
+		// ?status= filter below is applied in memory.
 		items, err := deps.Courses.ListCourses(r.Context(), "")
 		if err != nil {
 			writeError(w, err)

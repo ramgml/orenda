@@ -48,14 +48,6 @@ func (r *recordingRecorder) Record(_ context.Context, taskID string, _ activity.
 	return nil
 }
 
-// keep the older signature accessible via embedded calls
-func (r *recordingRecorder) RecordOld(_ context.Context, taskID, action, payload string) error {
-	r.calls = append(r.calls, taskID+":"+action+":"+payload)
-	return nil
-	r.calls = append(r.calls, taskID+":"+action+":"+payload)
-	return nil
-}
-
 func setupMoveDB(t *testing.T) *sql.DB {
 	t.Helper()
 	dir := t.TempDir()

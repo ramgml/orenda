@@ -149,10 +149,9 @@ func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		readyOnly := r.URL.Query().Get("ready") == "true"
 
-		// Single pass: list every "claimable" status task, hydrate
-		// blockers + lock status, filter. Not the prettiest but keeps
-		// the dep on ListByProject + Blockers + (missing) lock lookup.
-		// For a single-owner install the whole list is < few hundred.
+		// Single pass: list every "claimable" status task, then
+		// hydrate blockers with one batch query and filter. For a
+		// single-owner install the whole list is < few hundred.
 		f := task.Filter{Status: task.StatusTodo, AssigneeType: task.AssigneeAgent}
 		tasks, err := deps.Tasks.ListByProject(r.Context(), f)
 		if err != nil {
@@ -173,16 +172,22 @@ func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 			BlockedBy []string   `json:"blocked_by"`
 			Ready     bool       `json:"ready"`
 		}
+		// Phase 28.22: batch the blocker lookup — one round-trip for
+		// the whole list instead of a per-task N+1.
+		ids := make([]string, 0, len(tasks))
+		for _, tr := range tasks {
+			ids = append(ids, tr.ID)
+		}
+		blockersByTask, err := deps.Tasks.BlockersForTasks(r.Context(), ids)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
 		out := make([]row, 0, len(tasks))
 		for _, tr := range tasks {
-			blockers, err := deps.Tasks.Blockers(r.Context(), tr.ID)
-			if err != nil {
-				writeError(w, err)
-				return
-			}
 			var blockedBy []string
 			ready := true
-			for _, b := range blockers {
+			for _, b := range blockersByTask[tr.ID] {
 				if !b.Done {
 					blockedBy = append(blockedBy, b.BlockerID)
 					ready = false

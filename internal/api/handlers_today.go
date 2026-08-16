@@ -119,7 +119,11 @@ func getTodayHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		// Hydrate counters for the visible lists.
+		// Hydrate counters for the visible lists. Phase 28.22: the
+		// enrichment is restricted to the visible ids — previously it
+		// ran ListByProjectWithStats over EVERY task in the DB (5
+		// aggregate queries on the full table) just to decorate the
+		// ~dozen visible ones.
 		if len(overdue)+len(dueToday)+len(scheduled) > 0 {
 			ids := make([]string, 0, len(overdue)+len(dueToday)+len(scheduled))
 			for _, t := range overdue {
@@ -131,12 +135,11 @@ func getTodayHandler(deps *Dependencies) http.HandlerFunc {
 			for _, t := range scheduled {
 				ids = append(ids, t.ID)
 			}
-			enriched, err := deps.Tasks.ListByProjectWithStats(r.Context(), task.Filter{ProjectID: ""})
+			enriched, err := deps.Tasks.ListByProjectWithStats(r.Context(), task.Filter{IDs: ids})
 			if err == nil {
 				enrichByID(enriched, overdue)
 				enrichByID(enriched, dueToday)
 				enrichByID(enriched, scheduled)
-				_ = ids // suppress unused
 			}
 		}
 
