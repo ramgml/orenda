@@ -12,7 +12,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -69,12 +68,6 @@ func setupTgDeps(t *testing.T) tgDeps {
 // SQL directly in the test for seeding.
 func concreteToRepo(db *sql.DB) notifier.SubscriptionRepository {
 	return sqlite.NewBotSubscriptionRepository(db)
-}
-
-// seedSubscription inserts a row directly so the test doesn't have
-// to depend on the notifier CLI which isn't wired.
-func seedSubscription(t *testing.T, d tgDeps, id, userID, chatID string) {
-	_ = json.Marshal // keep the import in scope; the actual seeding lives in insertSub below.
 }
 
 // TestTgSubscriberLookup: bot_subscriptions.target_address is the

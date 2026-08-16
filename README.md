@@ -137,6 +137,7 @@ with Prettier before each commit. Skip with
 | 30.11 (WIP feedback) | ✅ | Dragging into a column that's at its WIP limit now surfaces a specific toast with the column's N-of-M count (instead of the raw backend error). Columns at the limit are ringed amber so the bottleneck is visible without opening the column header |
 | 30.12 (time badges) | ✅ | `TaskCard` shows ⏱ spent/estimate in H:MM:SS (red on over-budget) and a pulsing ● marker when a single-active-timer is open. Leaked timers stay visible even in compact mode |
 | 30.15 (ops scripts) | ✅ | `uninstall.sh` rejects unknown flags (was silently dropping them) and has `--help`. `update-dogfood.sh` has `--help`, `--force`, and `--remote <name>`. Smoke tests in `scripts/test_scripts.sh` cover both scripts' flag parsing |
+| 30.16 (lint sweep) | ✅ | First-pass mechanical cleanup closed ~8 pre-existing lint issues (unused test seam `var now`, dead `runBackupRestore`, empty `seedSubscription` stub, placeholder `depFixtures`/`reviewQueueFixture`, unused `agentPut`/`agentDelete`, `actorID` parameter in event publish, `cookie` parameter in `seedProjectAndTask`). ~85 issues remain — closed opportunistically |
 
 > Screenshots: not bundled in the repo (kept light — no binary blobs).
 > Run `make build && bin/orenda serve` and visit the four key pages:

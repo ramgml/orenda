@@ -129,14 +129,6 @@ func (a *agentCtx) agentPost(ctx context.Context, path string, body any) ([]byte
 	return a.doRaw(ctx, http.MethodPost, path, rdr, "application/json")
 }
 
-func (a *agentCtx) agentPut(ctx context.Context, path string, body any) ([]byte, int, error) {
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return nil, 0, err
-	}
-	return a.doRaw(ctx, http.MethodPut, path, bytes.NewReader(raw), "application/json")
-}
-
 func (a *agentCtx) do(ctx context.Context, method, path string, body io.Reader) ([]byte, int, error) {
 	return a.doRaw(ctx, method, path, body, "")
 }
