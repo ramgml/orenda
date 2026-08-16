@@ -1,4 +1,4 @@
-# Session Snapshot — 2026-08-16 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.21 + Phase 10 subphase (Test send UI) + Phase 15 (close-out); «Полировка» + 28.19 + 28.20 + Phase 10 Test send + Phase 15 close-out + 28.21 ops-hardening закрыты)
+# Session Snapshot — 2026-08-16 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.21 + Phase 10 subphase (Test send UI) + Phase 15 (close-out); «Полировка» + 28.19 + 28.20 + Phase 10 Test send + Phase 15 close-out + 28.21 ops-hardening + 28.22 backend sweep + 28.23 frontend foundations закрыты)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
@@ -274,6 +274,20 @@
 
 **Verify:** `go build` + `go vet` чистые; `go test ./...` 30/30 ok; golangci-lint 97 → 95 (роста нет).
 
+## Phase 28.23 — frontend foundations *(2026-08-16)*
+
+**Цель:** frontend-находки аудита 2026-08-16 (третья часть; 28.21 — ops, 28.22 — backend).
+
+- **WS re-subscribe race закрыт:** `useWebSocketTopic` держит handler в `useRef`, подписка — один раз на топик (раньше inline-arrow в deps `[topic, fn]` → unsubscribe+resubscribe на каждый рендер, событие в зазоре терялось). Тест пинит стабильный handler identity; **mutation-check**: возврат `[topic, fn]` → тест красный.
+- **WS→Query для agents:** `AppLayout` инвалидирует `agentsQueryKey` по топику `agents` — AssigneeChip-лейблы больше не протухают.
+- **package.json hygiene:** удалены `zustand` (0 импортов) и `@tiptap/extension-bubble-menu` (BubbleMenu из `@tiptap/react/menus`); `idb` → dependencies (runtime-импорт в offline/db.ts).
+- **`patchTaskOrQueue` без double-cast:** offline-path мерджит патч поверх существующей задачи вместо фабрикации Task из патча.
+- **Shared UI primitives:** `shared/ui/{Loading,ErrorBanner,EmptyState}.tsx` с dark:-вариантами; мигрированы Today/Inbox/Review/Calendar (красный баннер календаря был без dark: — нечитаем в тёмной теме).
+- **Density toggle UI (долг Phase 17):** чекбокс «Compact cards» на канбане пишет `orenda.kanban.cardDensity` (TaskCard читал флаг с Phase 17, писателя не было).
+- **AuthContext тесты** (4 кейса: anonymous / authenticated / logout / logout при упавшем endpoint) + stale-комментарий в CalendarPage (drag-reschedule живой, не «on the roadmap»).
+
+**Verify:** `npx tsc --noEmit` clean; vitest **263/263** (было 246, +17); prettier/eslint на затронутых файлах clean; `make test-e2e` 18/18.
+
 ## Метаданные
 
 - **Дата снапшота:** 2026-08-16
@@ -379,12 +393,11 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 
 ## Тесты
 
-**Последние зафиксированные прогоны** (Phase 28.21 ops-hardening, 2026-08-16):
-- `make test` — Go (30/30 packages ok) + vitest (246/246).
+**Последние зафиксированные прогоны** (Phase 28.23 frontend foundations, 2026-08-16):
+- `make test` — Go (30/30 packages ok) + vitest (263/263).
 - `make test-e2e` — 18/18 pass.
 - `npx tsc --noEmit` — clean; `go build ./...` — clean.
-- `TestOpenAPI_RouteCoverage` + `TestOpenAPI_RouteCoverage_FullRouter` — оба зелёные (роуты не менялись).
-- Fresh-clone smoke: `git clone` → `install.sh --force` → build+install+config+env; бинарь стартует; login флуд → 429 после anon-burst.
+- Mutation check: инверсия deps в `useWebSocketTopic` флипает `ws.test.tsx` red; revert — зелёный.
 - Coverage: domain 100%, services 70–100%, api 61%, storage 72%; фронт — компонентный/юнит (vitest + jsdom), e2e (Playwright + реальный бинарь).
 
 ### Запуск E2E локально
@@ -418,7 +431,7 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 - **Phase 15 close-out (agent UX контракт)** — **закрыта 2026-08-14** в `phase-15-agent-context`. (1) `409 lock_taken` теперь несёт `holder_agent_id`/`holder_agent_name`/`claimed_at` (раньше `taskLockRepo.Holder` был написан, но не подключён); (2) `/tasks/:id/context` и `/agent/tasks/{id}/context` несут `blocked_by` (open dependency ids) + `lock_holder` (agent_id/agent_name/acquired_at); (3) `?ready=true` исключает задачи, занятые самим агентом (раньше шумели в очереди). 6 handler-тестов, OpenAPI оба файла синхронны.
 - **Phase 28.21 (ops-hardening)** — **закрыта 2026-08-16** в `phase-28-21-ops-hardening`. Login rate-limit восстановлен, `configs/config.example.yaml` tracked (install.sh больше не падает на fresh clone), JWT-секрет генерируется в `$DATA_DIR/env` (mode 600), LWW-семантика Phase 8 зафиксирована документально.
 - **Multi-user / multi-device sync (Phase 11+)** — следующая эра.
-- **Аудит 2026-08-16 — открытые находки:** нет CI; `uninstall.sh` без `--help`/валидации флагов; `update-dogfood.sh` хардкодит remote `origin`; `sync_ops` write-errors проглатываются молча. Frontend-фундамент → Phase 28.23 (WS-race в `useWebSocketTopic`, zustand/idb deps, density toggle UI, `AuthContext` тесты).
+- **Аудит 2026-08-16 — открытые находки:** нет CI; `uninstall.sh` без `--help`/валидации флагов; `update-dogfood.sh` хардкодит remote `origin`; `sync_ops` write-errors проглатываются молча. ~~Frontend-фундамент → Phase 28.23~~ — **закрыто 2026-08-16** (WS-race, zustand/idb deps, density toggle UI, `AuthContext` тесты, shared UI primitives).
 - **Lint остаток (95 issues):** 45 hugeParam non-api (per Phase 28.15 commit); 15 unparam, 7 nilnil, 5 contextcheck — механические фиксы с diminishing returns. Не блокируют dogfooding.
 
 ## Файлы
