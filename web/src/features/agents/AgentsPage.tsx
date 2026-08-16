@@ -307,9 +307,7 @@ function ChipsInput(props: ChipsInputProps): JSX.Element {
           {label}
           <button
             type="button"
-            onClick={() =>
-              props.onChipsChange((prev) => prev.filter((l) => l !== label))
-            }
+            onClick={() => props.onChipsChange((prev) => prev.filter((l) => l !== label))}
             className="opacity-70 hover:opacity-100"
             aria-label={`Remove ${label}`}
           >
