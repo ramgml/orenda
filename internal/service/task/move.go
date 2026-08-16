@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ramgml/orenda/internal/api/ws"
@@ -675,6 +676,12 @@ const (
 // one as an optional dependency).
 func (s *Service) Review(ctx context.Context, taskID, userID string, decision ReviewDecision, comment string) (*task.Task, error) {
 	if decision != ReviewApprove && decision != ReviewReject {
+		return nil, ErrInvalidInput
+	}
+	// Phase 30.7: reject without a comment is a reject without a
+	// reason — the agent doesn't know what to fix. Approve is
+	// allowed without one (some approvals are silent ack).
+	if decision == ReviewReject && strings.TrimSpace(comment) == "" {
 		return nil, ErrInvalidInput
 	}
 	tr, err := s.Tasks.GetByID(ctx, taskID)
