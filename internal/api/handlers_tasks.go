@@ -416,7 +416,10 @@ func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in t
 	if in.AgentNotes != "" {
 		tr.AgentNotes = in.AgentNotes
 	}
-	if in.AssigneeType != "" {
+	if in.AssigneeType == "unassigned" {
+		tr.AssigneeType = ""
+		tr.AssigneeID = ""
+	} else if in.AssigneeType != "" {
 		tr.AssigneeType = in.AssigneeType
 	}
 	if in.AssigneeID != "" {

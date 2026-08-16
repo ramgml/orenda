@@ -152,7 +152,7 @@ export function KanbanBoard({
     if (bulkStatus) patch.status = bulkStatus;
     if (bulkPriority) patch.priority = bulkPriority as Task['priority'];
     if (bulkAssignee === 'unassigned') {
-      patch.assignee_type = '';
+      patch.assignee_type = 'unassigned';
       patch.assignee_id = '';
     } else if (bulkAssignee) {
       const [type, id] = bulkAssignee.split(':');
