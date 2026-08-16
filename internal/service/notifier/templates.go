@@ -113,6 +113,40 @@ var Default = map[string]Template{
 	"agent.offline":       Plain,
 	"backup.failed":       Plain,
 	"event.upcoming_1h":   Plain,
+	// Phase 30.5: weekly digest. The scheduler assembles a
+	// DigestStats snapshot and stuffs the rendered Message into
+	// Event.Meta["rendered"] via Plain-style template — we don't
+	// recompute here; the scheduler did it once with the right
+	// repo handles. See internal/service/notifier/digest.go for
+	// the formatter and cmd/orenda/main.go for the scheduler.
+	"digest.weekly": WeeklyDigestFromEvent,
+}
+
+// WeeklyDigestFromEvent is the template adapter for digest.weekly.
+// The scheduler pre-renders the message via RenderWeeklyDigest and
+// stuffs it into Event.Meta["body"]; this template just rebuilds a
+// Message with the right Kind/Target/Link so transports handle it
+// like any other notification.
+//
+// We deliberately don't recompute stats inside the template —
+// pulling all those repos into the template would force the
+// notifier package to depend on storage/sqlite, which is a
+// layering violation. The scheduler is the only place that owns
+// the data flow.
+func WeeklyDigestFromEvent(e Event) bot.Message {
+	body := e.Meta["body"]
+	title := e.Meta["title"]
+	if title == "" {
+		title = "Weekly digest"
+	}
+	return bot.Message{
+		Kind:       "digest.weekly",
+		Title:      title,
+		Body:       body,
+		Target:     e.UserID,
+		CallbackID: "",
+		Link:       e.Link,
+	}
 }
 
 // Render is a convenience used by the notifier.Service: looks up the

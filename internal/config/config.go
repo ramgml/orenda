@@ -41,6 +41,9 @@ type Config struct {
 	Bots      []BotConfig     `yaml:"bots"`
 	Uploads   UploadsConfig   `yaml:"uploads"`
 	RateLimit RateLimitConfig `yaml:"ratelimit"`
+	// Phase 30.5: weekly digest scheduler config. DigestInterval
+	// <= 0 disables the scheduler entirely.
+	Notifier NotifierConfig `yaml:"notifier"`
 }
 
 // ServerConfig controls the HTTP listener.
@@ -137,6 +140,15 @@ type BotConfig struct {
 	Enabled bool           `yaml:"enabled"`
 }
 
+// NotifierConfig tunes the Phase 30.5 weekly digest scheduler.
+// DigestInterval <= 0 disables it entirely; default is 168h (7
+// days). The scheduler fires once at startup then on each tick —
+// no exponential backoff, no jitter; the workload is light (six
+// scalar COUNT queries per active owner).
+type NotifierConfig struct {
+	DigestInterval time.Duration `yaml:"digest_interval"`
+}
+
 // UploadsConfig controls file attachments.
 type UploadsConfig struct {
 	Dir          string   `yaml:"dir"`
@@ -198,6 +210,12 @@ func DefaultConfig() *Config {
 		Uploads: UploadsConfig{
 			Dir:       "data/uploads",
 			MaxSizeMB: 50,
+		},
+		// Phase 30.5: weekly digest scheduler. 168h = 7 days is
+		// the natural cadence; operators can dial it up (24h for
+		// daily standup summaries) or set it to 0 to disable.
+		Notifier: NotifierConfig{
+			DigestInterval: 168 * time.Hour,
 		},
 		// Phase 28.8: rate-limit defaults moved here from the
 		// router's hard-coded constants. Values match what the
