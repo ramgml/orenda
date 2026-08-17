@@ -1,7 +1,7 @@
-# Session Snapshot — 2026-08-16 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.21 + Phase 10 subphase (Test send UI) + Phase 15 (close-out); «Полировка» + 28.19 + 28.20 + Phase 10 Test send + Phase 15 close-out + 28.21 ops-hardening + 28.22 backend sweep + 28.23 frontend foundations закрыты)
+# Session Snapshot — 2026-08-17 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.21 + Phase 10 subphase (Test send UI) + Phase 15 (close-out); «Полировка» + 28.19 + 28.20 + Phase 10 Test send + Phase 15 close-out + 28.21 ops-hardening + 28.22 backend sweep + 28.23 frontend foundations + Phase 29 + Phase 30 реестр целиком (последняя — 30.13) + Phase 31 целиком (31.1–31.11) закрыты; открытых задач нет)
 
-> Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
-> Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
+> Файл для восстановления контекста сессии — исторический снапшот.
+> **С 2026-08-17 (Phase 32.4) это больше НЕ входная точка агента:** из «Key files to read first» в AGENTS.md и из `instructions` в opencode.json файл убран; очередь работ и контекст — в dogfood-инстансе по `docs/DOGFOOD.md`. До заморозки (Phase 32.6) сюда ещё пишутся закрытия фаз.
 
 ## Аудит PLAN.md (2026-08-12) — Phase 26 завершён
 
@@ -288,9 +288,32 @@
 
 **Verify:** `npx tsc --noEmit` clean; vitest **263/263** (было 246, +17); prettier/eslint на затронутых файлах clean; `make test-e2e` 18/18.
 
+## Phase 29 (постановка) — Agent surfaces: wiki + создание курсов агентом *(2026-08-16)*
+
+**Продуктовое решение пользователя:** максимум работы перекладывается на агентов. Целевая сценария: «создай курс по X» внешнему агенту (opencode/MCP) → курс готов к обучению без единого действия человека. Диагностика сессии: wiki агентам недоступна вообще (user-side `/api/v1/pages/*`, agent-неймспейс без pages → MCP/skill wiki не покрывают); курсы агент наполняет (curriculum/materialize/quizzes есть), но создать не может (POST /courses только user-side).
+
+**Зафиксированные дизайн-решения** (полная постановка — PLAN.md Phase 29, задачи 29.1–29.7):
+
+1. Agent wiki REST — переиспользуем существующие хендлеры (user-ctx не читают, проверено grep'ом); схема без изменений (нет owner/author); mirror + WS достаются бесплатно.
+2. Владелец agent-created курса — `Users.FirstNonSystem`; `SkipGenerator` (агент сам генератор, generator task не спавнится).
+3. `POST /agent/courses/{id}/activate` (review → active) — общий сервисный путь с user-side approve; human approve в UI остаётся, request-changes доступен всегда. Аппрув-клик убран сознательно: это и есть «ручная работа», которую сценарий исключает.
+4. Поверхности: REST `/agent/pages/*` + `/agent/search` + CLI `orenda agent pages …` + MCP-тулы `orenda_pages_*`/`orenda_search` + skill-секция; openapi.yaml синхронизируется (coverage-тест 27.11.2 принудит).
+
+**Закрыта 2026-08-16** (29.1 — `phase-29-1-agent-wiki-rest`; 29.2–29.7 — `phase-29-2-7-agent-surfaces`):
+
+- **29.2 CLI:** `orenda agent pages list|get|put|delete|move|backlinks` + `orenda agent search`. Латентный баг транспорта: `doRaw` присваивал путь с query в `u.Path`, процент-кодируя `?` — `?ready=true` фильтр `next` молча не работал. Починен, запинен тестом.
+- **29.3 MCP:** 6 новых тулов (`orenda_pages_*`, `orenda_search`); латентный баг: `orenda_await` слал в user-side `/events/await` (401 на agent token) → теперь agent-namespace. 8 тестов.
+- **29.4/29.5 REST:** `POST /agent/courses` (owner=`FirstNonSystem`, `SkipGenerator` форсирован, 503 `owner_not_configured` без human user) + `POST /agent/courses/{id}/activate` (общий `approveCourseCore` с user-side approve; missing course теперь 404 на обоих surfaces — был 500). Отклонение: «activity с автором-агентом» не реализовано — курсового activity-контура нет вовсе (activity только у задач); user-side approve тоже молчит. Зафиксировано в PLAN 29.5.
+- **29.6:** openapi оба файла, SKILL.md §2.2/§4.3/§4.4 (end-to-end сценарий «build me a course on X») + §6.1 reference.
+- **29.7 smoke:** реальный бинарь + agent token + curl — курс создан→curriculum→materialize→activate, user-side видит `active`+`open`; wiki create/move/backlinks/search/edit/delete(cascade); CLI parity. `SMOKE OK`.
+
+## Phase 30 (реестр) — открытые задачи с приоритетами *(2026-08-16)*
+
+**Решение пользователя:** «долгов» как свободных записей нет — всё оформляется задачами с приоритетами. Полная инвентаризация PLAN/SESSION (каждый пункт сверен с кодом read-only) → **Phase 30 в PLAN.md**: 16 задач, P1 ×2 (CI 30.1, sync_ops 30.2), P2 ×6 (30.3–30.8: Phase 10 ×3, autocomplete, reject-comment, due в календаре), P3 ×8 (30.9–30.16). **Правило процесса:** новые отложенные работы при закрытии фазы получают номер 30.x, а не строку «за скобкой». Проверено и не заведено (уже закрыто в коде, не ре-листать): per-column color editor (`EditColumnModal` + color dot 27.10), events UI подписок (`selectedEvents` в Bots.tsx), optimistic move с revert (`KanbanBoard.tsx`), hot-reload backup (28.9), tracked config template (28.21). **Диспатч-контракт (2026-08-16):** порядок — волны W0–W4 в шапке реестра (30.8 разблокирована: all-day маркер дедлайна); claim-протокол — `[ ]`→`[~]` коммитом сразу в `dev` до создания worktree (единственный разрешённый self-merge), git-rebase решает гонки, бросил — верни `[ ]`.
+
 ## Метаданные
 
-- **Дата снапшота:** 2026-08-16
+- **Дата снапшота:** 2026-08-17
 - **Ветка:** `dev`
 - **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1–28.21 (полировка полностью закрыта + agent-type-labels + dev/dogfood separation + ops-hardening), Phase 10 subphase (Test send UI), Phase 15 close-out, Phase doc-audit. Multi-user / multi-device sync — следующая эра после полировки.
 - **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1/.../28.20/phase-10-test-send/phase-15-agent-context/phase-doc-audit)
@@ -393,11 +416,11 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 
 ## Тесты
 
-**Последние зафиксированные прогоны** (Phase 28.23 frontend foundations, 2026-08-16):
-- `make test` — Go (30/30 packages ok) + vitest (263/263).
-- `make test-e2e` — 18/18 pass.
-- `npx tsc --noEmit` — clean; `go build ./...` — clean.
-- Mutation check: инверсия deps в `useWebSocketTopic` флипает `ws.test.tsx` red; revert — зелёный.
+**Последние зафиксированные прогоны** (30.13 granular curriculum CRUD, 2026-08-17):
+- `make test` — Go (30/30 packages ok) + vitest (307/307).
+- `make test-e2e` — 20/20 pass (+1 `course-structure.spec.ts`).
+- `npx tsc --noEmit` — clean; `go build ./...` — clean; `golangci-lint --new-from-merge-base=origin/dev` — exit 0.
+- Mutation check: инверсия order-detection в `diffCurriculum` флипает 4 granular vitest red; revert — зелёный.
 - Coverage: domain 100%, services 70–100%, api 61%, storage 72%; фронт — компонентный/юнит (vitest + jsdom), e2e (Playwright + реальный бинарь).
 
 ### Запуск E2E локально
@@ -427,17 +450,31 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
   - ✅ `handlers_backup.go` комментарии → обновлено в Phase 28.9
 - **Phase 28.19 (agent type as free-form label set)** — **закрыта 2026-08-14** в `phase-28-19-agent-type-labels`. Чипы меток на канбан-карточке (`Agent: <name> (<labels>)`), серверный OR-фильтр `?type=a&type=b`, OpenAPI schema + route coverage зелёные.
 - **Phase 28.20 (dev/dogfood separation)** — **закрыта 2026-08-14** в `phase-28-20-dev-dogfood`. dev-flow на 2138, usage/dogfood (= `~/opt/orenda` на `main`) на 2137, e2e на 21371. `install.sh` channel guard (refuse non-main + dirty, `--force` override), `update-dogfood.sh` одной командой, vite прокси следует env, startup log несёт `db_path` для observability. Документация: ARCHITECTURE.md §12.4, AGENTS.md, README + SESSION.md.
-- **Phase 10 долги, оставшиеся за скобками:** VK Long Poll / Email HTML / Weekly digest. Это большие подфазы Phase 10 (DoD которой — полный набор ботов с HTML и weekly digest). Не блокируют dogfooding. **Test send UI закрыт 2026-08-14** в `phase-10-test-send` (POST /api/v1/bots/test, dropdown + submit в Settings → Bots, console исключён, per-bot pre-check).
+- **Phase 10 остаток:** VK Long Poll / Email HTML / Weekly digest — оформлены задачами **30.3–30.5** (P2). **Test send UI закрыт 2026-08-14** в `phase-10-test-send` (POST /api/v1/bots/test, dropdown + submit в Settings → Bots, console исключён, per-bot pre-check).
 - **Phase 15 close-out (agent UX контракт)** — **закрыта 2026-08-14** в `phase-15-agent-context`. (1) `409 lock_taken` теперь несёт `holder_agent_id`/`holder_agent_name`/`claimed_at` (раньше `taskLockRepo.Holder` был написан, но не подключён); (2) `/tasks/:id/context` и `/agent/tasks/{id}/context` несут `blocked_by` (open dependency ids) + `lock_holder` (agent_id/agent_name/acquired_at); (3) `?ready=true` исключает задачи, занятые самим агентом (раньше шумели в очереди). 6 handler-тестов, OpenAPI оба файла синхронны.
 - **Phase 28.21 (ops-hardening)** — **закрыта 2026-08-16** в `phase-28-21-ops-hardening`. Login rate-limit восстановлен, `configs/config.example.yaml` tracked (install.sh больше не падает на fresh clone), JWT-секрет генерируется в `$DATA_DIR/env` (mode 600), LWW-семантика Phase 8 зафиксирована документально.
+- **Phase 29 (agent surfaces: wiki + course creation)** — **закрыта 2026-08-16** (29.1 в `phase-29-1-agent-wiki-rest`, 29.2–29.7 в `phase-29-2-7-agent-surfaces`). Wiki целиком в agent-неймспейс (REST+CLI+MCP+skill), `POST /agent/courses` (owner=FirstNonSystem, SkipGenerator), `POST /agent/courses/{id}/activate`. Сценарий «агент создаёт курс целиком, человек только учится» воспроизводится smoke-скриптом.
+- **Phase 30 (реестр открытых задач)** — **создан 2026-08-16; реестр полностью закрыт 2026-08-17** (последняя — 30.13, `phase-30-13-course-curriculum-crud`). Правило: «долгов» как свободных записей больше нет; каждый открытый пункт — нумерованная задача 30.x с приоритетом (P1 процесс/данные, P2 продуктовые пробелы, P3 полировка/ops). Туда перенесены: Phase 10 подфазы (VK Long Poll / Email HTML / weekly digest → 30.3–30.5), `[[` autocomplete (→ 30.6), comment при reject (→ 30.7), due_at в календаре (→ 30.8), backup UX (→ 30.9), due в QuickCapture (→ 30.10), WIP-фидбек (→ 30.11), бейджи времени (→ 30.12), правка active-курса (→ 30.13), UI статусов + bulk-edit (→ 30.14), CI (→ 30.1), sync_ops молчание (→ 30.2), ops-скрипты (→ 30.15), lint-остаток 95 (→ 30.16). Проверено и НЕ заведено (закрыто в коде): color editor widget, events UI подписок, optimistic move, hot-reload backup, config template.
+- **30.13 (правка active-курса, granular CRUD)** — **закрыта 2026-08-17**. Granular endpoints со стабильными ID (user + agent mirrors): `POST /courses/{id}/modules`, `PUT /courses/{id}/structure` (IDs-only reorder, exact coverage в tx), `PATCH/DELETE /modules/{id}`, `POST /modules/{id}/lessons`, `PATCH/DELETE /lessons/{id}`, `PATCH/DELETE /quizzes/{qid}`; done/archived курсы заморожены (422). Прогресс студента выживает по построению (строки не пересоздаются). Editor в active-режиме — granular diff-save + dnd reorder + импорт программы из markdown (client-side парсер `curriculumMarkdown.ts`). E2E `course-structure.spec.ts` доказывает: rename/add на active-курсе не сбрасывает `done`/`open` уроки.
+- **Phase 31 (учебные напоминания в Today)** — **закрыта полностью 2026-08-17** (31.1–31.11). Все задачи [x]:
+  - 31.1 migration `022_study_planning` (pace_notes_md, study_course_id, study_proposals).
+  - 31.2 domain `study.Proposal` + sentinels; `Task.StudyCourseID`, `Course.PaceNotesMD`.
+  - 31.3 storage: `study_proposal_repo` + новые колонки в tasks/courses; `docs/DB.md` обновлён.
+  - 31.4 service `Propose/Accept (idempotent)/Dismiss` + WS-эмиты.
+  - 31.5 agent REST (`POST /agent/study-proposals`, `GET /agent/courses?status=active` enriched, `PATCH /agent/courses/{id}`).
+  - 31.6 user REST (`GET /api/v1/study-proposals`, `POST .../accept|dismiss`).
+  - 31.7 Today handler — `proposals[]` в payload + study-reminders в due_today, исключены из overdue.
+  - 31.8 MCP tools `orenda_courses_list`/`orenda_study_propose` + CLI parity.
+  - 31.9 frontend TodayPage tray с Accept/Dismiss + 📖-маркер + pace_notes display.
+  - 31.10 openapi schemas (`StudyProposal*`, `ActiveCourseProgress`, `TodayResponse`) + SKILL.md §4.5 «Plan my day».
+  - 31.11 smoke DoD: `scripts/smoke_phase31.sh` end-to-end (tutor create+pace_notes+curriculum+materialize+activate → planner GET active → 2 proposals → user GET /today → accept (201, idempotent re-accept 200, dismiss 200) → missed-day semantic → `SMOKE OK`). **Production gap закрыт:** `cmd/orenda/main.go` теперь wire-ит `studySvc` (без этого каждый study endpoint возвращал 503). Миграция `022_study_planning` (pace_notes_md, study_course_id, study_proposals); domain `study.Proposal` с sentinels; storage `study_proposal_repo` + новые колонки в tasks/courses; service `Propose/Accept (idempotent)/Dismiss` с WS-эмитами в topic `tasks`; agent REST (`POST /agent/study-proposals`, `GET /agent/courses?status=active` enriched с progress + pace_notes, `PATCH /agent/courses/{id}`); user REST (`GET /api/v1/study-proposals`, `POST .../accept|dismiss`); today handler с `proposals[]` в payload + исключение study-reminders из overdue; MCP tools `orenda_courses_list`/`orenda_study_propose` + CLI parity (`orenda agent courses list --status active`, `orenda agent study-propose`); frontend TodayPage tray с Accept/Dismiss + 📖-маркер на study-reminders в due_today + pace_notes display в CourseDetailPage; openapi schemas (StudyProposalView/Full, TodayResponse, ActiveCourseProgress); SKILL.md §4.5 «Plan my day». **31.11 в работе:** smoke DoD скриптом.
+- **Phase 32 (dogfood migration)** — **постановка 2026-08-17** (PLAN.md Phase 32, задачи 32.1–32.6). Перенос управления проектом из файлов (PLAN.md реестр + git claim-протокол, SESSION.md снапшоты) в dogfood-инстанс: задачи/claim — нативные, постановки и decision log — wiki (агенты через MCP, Phase 29), PLAN/SESSION — замороженный архив. 32.1 (релиз v0.2.0) блокируется явной командой пользователя на push; 32.2 — update-dogfood после 32.1; 32.3 закрыта (backup remote + restore-дрилл, gap снапшотов → пилот 32.5). **32.4 закрыта 2026-08-17** (`phase-32-4-dogfood-convention`): `docs/DOGFOOD.md` — конвенция и входная точка агента (`orenda agent next` / MCP вместо SESSION.md); AGENTS.md read-first обновлён; opencode.json instructions → DOGFOOD.md (файл gitignored — правка в main-checkout); `.opencode/agent/{backender,frontender}.md` обновлены. Остались: 32.5 (пилот 3 задач), 32.6 (заморозка файлового бэклога, включая переключение watchdog с PLAN-протокола).
 - **Multi-user / multi-device sync (Phase 11+)** — следующая эра.
-- **Аудит 2026-08-16 — открытые находки:** нет CI; `uninstall.sh` без `--help`/валидации флагов; `update-dogfood.sh` хардкодит remote `origin`; `sync_ops` write-errors проглатываются молча. ~~Frontend-фундамент → Phase 28.23~~ — **закрыто 2026-08-16** (WS-race, zustand/idb deps, density toggle UI, `AuthContext` тесты, shared UI primitives).
-- **Lint остаток (95 issues):** 45 hugeParam non-api (per Phase 28.15 commit); 15 unparam, 7 nilnil, 5 contextcheck — механические фиксы с diminishing returns. Не блокируют dogfooding.
 
 ## Файлы
 
 - `docs/PRD.md` — видение продукта
-- `docs/PLAN.md` — фазы и задачи (открытый бэклог: Phase 10 features + multi-user; «Полировка» полностью закрыта Phase 28.7–28.18 + Phase 28.19 + Phase 15 close-out)
+- `docs/PLAN.md` — фазы и задачи (исполняемый бэклог: **Phase 32 — постановка 2026-08-17** (dogfood migration; после 32.6 файл замораживается); Phase 30 реестр (17 задач) и Phase 31 (11 задач) полностью закрыты 2026-08-17; Phase 29 закрыта 2026-08-16; multi-user эра — следующая)
 - `docs/CONTEXT.md` — концепции продукта (семантика домена; хартия в шапке файла)
 - `docs/API.md` — REST reference
 - `docs/DB.md` — схема БД по миграциям

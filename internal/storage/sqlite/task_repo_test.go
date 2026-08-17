@@ -219,11 +219,29 @@ func TestTaskRepo_Create_InvalidStatus(t *testing.T) {
 	tr := &task.Task{
 		ProjectID: p.ID, ColumnID: col.ID,
 		Title:  "x",
-		Status: task.Status("weird"),
+		Status: task.Status("space in status"), // shape-rejected (Phase 30.14)
 	}
 	err := repo.Create(context.Background(), tr)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, task.ErrInvalidInput)
+}
+
+// TestTaskRepo_Create_CustomMachineKeyStatus — Phase 30.14: a status
+// matching the column-machine-key regex (custom machine key) is valid.
+func TestTaskRepo_Create_CustomMachineKeyStatus(t *testing.T) {
+	db := setupUserDB(t)
+	p, col := setupTaskProject(t, db)
+	repo := NewTaskRepository(db)
+
+	tr := &task.Task{
+		ProjectID: p.ID, ColumnID: col.ID,
+		Title:  "x",
+		Status: task.Status("awaiting_review"), // custom but well-formed
+	}
+	require.NoError(t, repo.Create(context.Background(), tr))
+	got, err := repo.GetByID(context.Background(), tr.ID)
+	require.NoError(t, err)
+	assert.Equal(t, task.Status("awaiting_review"), got.Status)
 }
 
 // TestTaskRepo_ListAwaitingReview exercises the review-queue shape
@@ -328,3 +346,46 @@ func TestTaskRepo_ListAwaitingReview_Empty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, items)
 }
+
+// TestTaskRepo_ListByDueBetween_Calendar pins the Phase 30.8
+// filter used by the calendar: tasks with a due_at in [from, to]
+// come back, others don't. Ordering is by due_at ASC.
+func TestTaskRepo_ListByDueBetween_Calendar(t *testing.T) {
+	db := setupUserDB(t)
+	p, col := setupTaskProject(t, db)
+	repo := NewTaskRepository(db)
+
+	now := time.Now().UTC()
+	early := now.AddDate(0, 0, -2).Format(time.RFC3339)
+	mid := now.AddDate(0, 0, 1).Format(time.RFC3339)
+	late := now.AddDate(0, 0, 10).Format(time.RFC3339)
+	outOfRange := now.AddDate(0, 0, 30).Format(time.RFC3339)
+
+	// In range: -2d, +1d, +10d.
+	for _, due := range []string{early, mid, late} {
+		require.NoError(t, repo.Create(context.Background(), &task.Task{
+			ProjectID: p.ID, ColumnID: col.ID, Title: "due-" + due,
+			DueAt: ptrTime(parseTime(due)),
+		}))
+	}
+	// Out of range past +30d.
+	require.NoError(t, repo.Create(context.Background(), &task.Task{
+		ProjectID: p.ID, ColumnID: col.ID, Title: "out-of-range",
+		DueAt: ptrTime(parseTime(outOfRange)),
+	}))
+	// No due_at at all — must not appear.
+	require.NoError(t, repo.Create(context.Background(), &task.Task{
+		ProjectID: p.ID, ColumnID: col.ID, Title: "no-due",
+	}))
+
+	got, err := repo.ListByDueBetween(context.Background(),
+		now.AddDate(0, 0, -3), now.AddDate(0, 0, 14))
+	require.NoError(t, err)
+	require.Len(t, got, 3, "exactly the three in-range tasks")
+	// Ordered by due_at ASC.
+	assert.Equal(t, "due-"+early, got[0].Title)
+	assert.Equal(t, "due-"+mid, got[1].Title)
+	assert.Equal(t, "due-"+late, got[2].Title)
+}
+
+func ptrTime(t time.Time) *time.Time { return &t }

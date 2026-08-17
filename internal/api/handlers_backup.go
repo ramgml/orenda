@@ -293,6 +293,39 @@ func writeBackupJSONError(w http.ResponseWriter, err error, op string) {
 	})
 }
 
+// backupStatusHandler returns the current state of the backup pipeline
+// without triggering any side-effects. Phase 30.9: the settings page
+// surfaces this so the operator can confirm the last snapshot
+// without running a test push.
+//
+// We don't expose cron-driven timers (the snapshot ticker is at 24h,
+// not the configured cron — that's a known gap; Phase 30.9 makes the
+// status visible without resolving it). Last push time lives in
+// backup_log rows written by the scheduler; we read them directly.
+func backupStatusHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		out := map[string]any{
+			"scheduler_disabled": deps.Backup == nil,
+		}
+		if deps.Backup != nil {
+			snapshots, err := deps.Backup.ListSnapshots(r.Context())
+			if err == nil {
+				out["snapshot_count"] = len(snapshots)
+				if len(snapshots) > 0 {
+					out["latest_snapshot"] = snapshots[0].Path
+					out["latest_snapshot_size"] = snapshots[0].Size
+					if !snapshots[0].ModTime.IsZero() {
+						out["latest_snapshot_unix"] = snapshots[0].ModTime.Unix()
+					}
+				}
+			} else {
+				out["snapshot_error"] = err.Error()
+			}
+		}
+		writeJSON(w, http.StatusOK, out)
+	}
+}
+
 // testBackupPushHandler runs one CommitAndPush and returns the outcome.
 func testBackupPushHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

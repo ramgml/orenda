@@ -83,6 +83,11 @@ func createInboxTaskHandler(deps *Dependencies) http.HandlerFunc {
 			ContextMD:    in.ContextMD,
 			AgentNotes:   in.AgentNotes,
 		}
+		// Phase 30.10: quick capture accepts an optional due date —
+		// same parsing contract as the project create endpoint.
+		if in.DueAt != nil {
+			tr.DueAt = parseOptionalTime(*in.DueAt)
+		}
 		// Defensive: if a caller passes project_id/column_id in the
 		// body, route them through the project endpoint instead. The
 		// inbox endpoint is for unfiled capture.

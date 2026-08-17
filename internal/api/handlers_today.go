@@ -16,6 +16,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/ramgml/orenda/internal/domain/study"
 	"github.com/ramgml/orenda/internal/domain/task"
 )
 
@@ -26,14 +27,35 @@ import (
 // Phase 20.3: UpcomingWeek is a compact "next 7 days" view grouped
 // by date — the dashboard renders one row per day with the count
 // of due tasks.
+//
+// Phase 31.7: Proposals is the pending-study-reminder tray that
+// the user accepts/dismisses one by one. Study reminders that the
+// user has already accepted surface under DueToday (read semantics,
+// never under Overdue — a missed day never turns red).
 type todayResponse struct {
-	Overdue        []*task.Task  `json:"overdue"`
-	DueToday       []*task.Task  `json:"due_today"`
-	ScheduledToday []*task.Task  `json:"scheduled_today"`
-	UpcomingWeek   []upcomingDay `json:"upcoming_week"`
-	AwaitingCount  int           `json:"awaiting_count"`
+	Overdue        []*task.Task        `json:"overdue"`
+	DueToday       []*task.Task        `json:"due_today"`
+	ScheduledToday []*task.Task        `json:"scheduled_today"`
+	UpcomingWeek   []upcomingDay       `json:"upcoming_week"`
+	AwaitingCount  int                 `json:"awaiting_count"`
+	Proposals      []studyProposalView `json:"proposals"`
 	// ActiveTimer is nil when no time entry is open.
 	ActiveTimer *activeTimerView `json:"active_timer,omitempty"`
+}
+
+// studyProposalView is the projected shape of a pending study
+// proposal as rendered on the Dashboard tray. Lightweight by
+// design — the front-end only needs title/course/target_date
+// plus the id and dismiss handling. The full Proposal entity
+// stays in the agent namespace where the planner writes it.
+type studyProposalView struct {
+	ID         string `json:"id"`
+	CourseID   string `json:"course_id,omitempty"`
+	Title      string `json:"title"`
+	BodyMD     string `json:"body_md,omitempty"`
+	TargetDate string `json:"target_date"`
+	AgentID    string `json:"agent_id"`
+	CreatedAt  string `json:"created_at"`
 }
 
 // upcomingDay is one row in the "next 7 days" section.
@@ -75,6 +97,12 @@ func getTodayHandler(deps *Dependencies) http.HandlerFunc {
 		// across all projects (NoProject=false, ProjectID="") and
 		// filter by status in code — the kanban "list everything"
 		// path doesn't accept a date range.
+		//
+		// Phase 31.7: study-reminders (tasks with study_course_id
+		// set) are EXCLUDED here. The product rule is "missed day
+		// never turns red" — only genuine project tasks escalate
+		// into overdue. The reminder still shows up under due_today
+		// for the current day.
 		overdue, err := deps.Tasks.ListByProject(r.Context(), task.Filter{
 			Status: task.StatusTodo, // simplified: only open tasks; we
 			// could also include in_progress but the dashboard is
@@ -86,6 +114,9 @@ func getTodayHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		overdueFiltered := overdue[:0]
 		for _, t := range overdue {
+			if t.StudyCourseID != "" {
+				continue
+			}
 			if t.DueAt != nil && t.DueAt.Before(startOfDay) {
 				overdueFiltered = append(overdueFiltered, t)
 			}
@@ -93,6 +124,9 @@ func getTodayHandler(deps *Dependencies) http.HandlerFunc {
 		overdue = overdueFiltered
 
 		// Due today: due_at between startOfDay and endOfDay.
+		// Study-reminders with due_at <= today are included so the
+		// user sees them in the "today" list even if they were
+		// filed on a previous day (no escalation, no missed-entry).
 		dueToday, err := deps.Tasks.ListByProject(r.Context(), task.Filter{
 			Status: task.StatusTodo,
 		})
@@ -105,7 +139,13 @@ func getTodayHandler(deps *Dependencies) http.HandlerFunc {
 			if t.DueAt == nil {
 				continue
 			}
-			if !t.DueAt.Before(startOfDay) && t.DueAt.Before(endOfDay) {
+			// Include if due in the [today, tomorrow) window, OR
+			// if it's a study-reminder filed on a previous day
+			// (we still want it on the tray today so the user
+			// can ack/dismiss it).
+			studyCarry := t.StudyCourseID != "" && !t.DueAt.After(startOfDay)
+			inWindow := !t.DueAt.Before(startOfDay) && t.DueAt.Before(endOfDay)
+			if studyCarry || inWindow {
 				dueTodayFiltered = append(dueTodayFiltered, t)
 			}
 		}
@@ -152,6 +192,17 @@ func getTodayHandler(deps *Dependencies) http.HandlerFunc {
 			}
 		}
 
+		// Pending study proposals — the tray the user accepts
+		// or dismisses one by one. nil-safe (deps.StudyService
+		// is set by the production wiring but tests may omit it).
+		proposals := []studyProposalView{}
+		if deps.StudyService != nil {
+			pending, err := deps.StudyService.ListPending(r.Context())
+			if err == nil {
+				proposals = projectProposalViews(pending)
+			}
+		}
+
 		// Active timer — look up the owner's open entry via the
 		// time-entry service. Phase 4's single-active-timer invariant
 		// is per-agent; for single-owner installs we probe by the
@@ -175,9 +226,30 @@ func getTodayHandler(deps *Dependencies) http.HandlerFunc {
 			ScheduledToday: scheduled,
 			UpcomingWeek:   week,
 			AwaitingCount:  awaiting,
+			Proposals:      proposals,
 			ActiveTimer:    active,
 		})
 	}
+}
+
+// projectProposalViews turns the service-level Pending proposals
+// into the lightweight Today-shape projection. Done in the
+// handler so the wire shape stays decoupled from the domain
+// entity's full field set.
+func projectProposalViews(items []*study.Proposal) []studyProposalView {
+	out := make([]studyProposalView, 0, len(items))
+	for _, p := range items {
+		out = append(out, studyProposalView{
+			ID:         p.ID,
+			CourseID:   p.CourseID,
+			Title:      p.Title,
+			BodyMD:     p.BodyMD,
+			TargetDate: p.TargetDate,
+			AgentID:    p.CreatedByAgent,
+			CreatedAt:  p.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return out
 }
 
 // upcomingWeek groups tasks by their due date over the next 7

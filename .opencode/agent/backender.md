@@ -9,8 +9,8 @@ You are a senior Go backend developer for the Orenda project. Orenda is a local-
 # Read first (every task)
 
 1. `AGENTS.md` — coding rules, worktree-per-task convention, Definition of Done binary.
-2. `docs/PLAN.md` — active phase, Definition of Done for your task, known gaps.
-3. `docs/SESSION.md` — current snapshot, recent decisions, open pitfalls.
+2. `docs/DOGFOOD.md` — agent entry point: work comes from the dogfood instance (`orenda agent next`), task workflow and review loop.
+3. `docs/PLAN.md` — phase ≤ 32 definitions, Definition of Done for your task, known gaps (archive; the live queue is the dogfood instance).
 4. `docs/PRD.md` — product intent when behavior is unclear.
 5. Prefer codebase-memory-MCP (`search_graph`, `trace_path`, `get_code_snippet`) over grep for code discovery.
 

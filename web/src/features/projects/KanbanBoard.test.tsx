@@ -135,4 +135,24 @@ describe('KanbanBoard — card density toggle', () => {
       true,
     );
   });
+
+  it('selects a task and applies a bulk priority update', async () => {
+    const task = makeTask();
+    stubHttp.post.mockResolvedValue({ data: { tasks: [{ ...task, priority: 'urgent' }] } });
+    mountBoard([task]);
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: /select dense task/i }));
+    fireEvent.change(screen.getByRole('combobox', { name: /bulk priority/i }), {
+      target: { value: 'urgent' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() => {
+      expect(stubHttp.post).toHaveBeenCalledWith('/api/v1/tasks/bulk-edit', {
+        task_ids: ['task-1'],
+        patch: { priority: 'urgent' },
+      });
+      expect(screen.queryByText('1 selected')).toBeNull();
+    });
+  });
 });

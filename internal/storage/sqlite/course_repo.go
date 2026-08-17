@@ -40,11 +40,14 @@ func (r *courseRepo) CreateCourse(ctx context.Context, c *course.Course) error {
 		c.ID = newUUID()
 	}
 	const q = `INSERT INTO courses
-		(id, title, intent_md, level, pace, status, owner_id, generator_task_id, created_at, updated_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+		(id, title, intent_md, level, pace, status, owner_id, generator_task_id,
+		 pace_notes_md, created_at, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?,
+	        ?, datetime('now'), datetime('now'))`
 	_, err := r.db.ExecContext(ctx, q,
 		c.ID, c.Title, c.IntentMD, c.Level, c.Pace, string(c.Status),
 		c.OwnerID, nullString(c.GeneratorTaskID),
+		c.PaceNotesMD,
 	)
 	if err != nil {
 		return fmt.Errorf("course.Create: %w", err)
@@ -59,13 +62,14 @@ func (r *courseRepo) CreateCourse(ctx context.Context, c *course.Course) error {
 
 func (r *courseRepo) GetCourse(ctx context.Context, id string) (*course.Course, error) {
 	const q = `SELECT id, title, intent_md, level, pace, status, owner_id,
-		COALESCE(generator_task_id, ''), created_at, updated_at
+		COALESCE(generator_task_id, ''), COALESCE(pace_notes_md, ''),
+		created_at, updated_at
 		FROM courses WHERE id = ?`
 	row := r.db.QueryRowContext(ctx, q, id)
 	var c course.Course
 	var status, created, updated string
 	if err := row.Scan(&c.ID, &c.Title, &c.IntentMD, &c.Level, &c.Pace,
-		&status, &c.OwnerID, &c.GeneratorTaskID, &created, &updated); err != nil {
+		&status, &c.OwnerID, &c.GeneratorTaskID, &c.PaceNotesMD, &created, &updated); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, course.ErrNotFound
 		}
@@ -80,7 +84,8 @@ func (r *courseRepo) GetCourse(ctx context.Context, id string) (*course.Course, 
 func (r *courseRepo) ListCourses(ctx context.Context, ownerID string) ([]*course.Course, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, title, intent_md, level, pace, status, owner_id,
-		        COALESCE(generator_task_id, ''), created_at, updated_at
+		        COALESCE(generator_task_id, ''), COALESCE(pace_notes_md, ''),
+		        created_at, updated_at
 		 FROM courses WHERE owner_id = ? ORDER BY updated_at DESC`, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("course.List: %w", err)
@@ -91,7 +96,7 @@ func (r *courseRepo) ListCourses(ctx context.Context, ownerID string) ([]*course
 		var c course.Course
 		var status, created, updated string
 		if err := rows.Scan(&c.ID, &c.Title, &c.IntentMD, &c.Level, &c.Pace,
-			&status, &c.OwnerID, &c.GeneratorTaskID, &created, &updated); err != nil {
+			&status, &c.OwnerID, &c.GeneratorTaskID, &c.PaceNotesMD, &created, &updated); err != nil {
 			return nil, err
 		}
 		c.Status = course.Status(status)
@@ -108,16 +113,39 @@ func (r *courseRepo) UpdateCourse(ctx context.Context, c *course.Course) error {
 	}
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE courses SET title=?, intent_md=?, level=?, pace=?, status=?,
-		    owner_id=?, generator_task_id=?, updated_at=datetime('now')
+		    owner_id=?, generator_task_id=?, pace_notes_md=?,
+		    updated_at=datetime('now')
 		 WHERE id = ?`,
 		c.Title, c.IntentMD, c.Level, c.Pace, string(c.Status),
-		c.OwnerID, nullString(c.GeneratorTaskID), c.ID,
+		c.OwnerID, nullString(c.GeneratorTaskID), c.PaceNotesMD, c.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("course.Update: %w", err)
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
+		return course.ErrNotFound
+	}
+	return nil
+}
+
+// UpdatePaceNotesMD is the narrow PATCH endpoint the agent-planner
+// uses to write pace_notes_md on an existing course (Phase 31). It
+// doesn't touch title/status/etc — those flow through UpdateCourse
+// when the human edits the course via the UI. Validate runs through
+// the Course struct so the cap and trim normalisation apply.
+func (r *courseRepo) UpdatePaceNotesMD(ctx context.Context, id, notes string) error {
+	tmp := &course.Course{ID: id, Title: "x", Status: course.StatusDraft, PaceNotesMD: notes}
+	if err := tmp.Validate(); err != nil {
+		return err
+	}
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE courses SET pace_notes_md = ?, updated_at = datetime('now') WHERE id = ?`,
+		tmp.PaceNotesMD, id)
+	if err != nil {
+		return fmt.Errorf("course.UpdatePaceNotesMD: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
 		return course.ErrNotFound
 	}
 	return nil
@@ -146,6 +174,52 @@ func (r *courseRepo) CreateModule(ctx context.Context, m *course.Module) error {
 	)
 	if err != nil {
 		return fmt.Errorf("course.CreateModule: %w", err)
+	}
+	return nil
+}
+
+// GetModule loads a single module by id. Phase 30.13 uses it to
+// walk module → course when gating granular edits on course status.
+func (r *courseRepo) GetModule(ctx context.Context, id string) (*course.Module, error) {
+	const q = `SELECT id, course_id, title, description, position
+		FROM course_modules WHERE id = ?`
+	row := r.db.QueryRowContext(ctx, q, id)
+	var m course.Module
+	if err := row.Scan(&m.ID, &m.CourseID, &m.Title, &m.Description, &m.Position); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, course.ErrNotFound
+		}
+		return nil, fmt.Errorf("course.GetModule: %w", err)
+	}
+	return &m, nil
+}
+
+// UpdateModule writes title and description in place. Position is
+// deliberately not written here — ApplyStructure owns ordering so a
+// rename can never clobber a concurrent reorder's positions.
+func (r *courseRepo) UpdateModule(ctx context.Context, m *course.Module) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE course_modules SET title=?, description=? WHERE id = ?`,
+		m.Title, m.Description, m.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("course.UpdateModule: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return course.ErrNotFound
+	}
+	return nil
+}
+
+// DeleteModule removes the module; lessons and quizzes cascade
+// (migration 019 FK ON DELETE CASCADE).
+func (r *courseRepo) DeleteModule(ctx context.Context, id string) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM course_modules WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("course.DeleteModule: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return course.ErrNotFound
 	}
 	return nil
 }
@@ -268,6 +342,20 @@ func (r *courseRepo) UpdateLesson(ctx context.Context, l *course.Lesson) error {
 	return nil
 }
 
+// DeleteLesson removes the lesson; its quizzes cascade. The row is
+// gone, so Progress counts shrink accordingly — deleting content is
+// an explicit act by the owner/tutor.
+func (r *courseRepo) DeleteLesson(ctx context.Context, id string) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM course_lessons WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("course.DeleteLesson: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return course.ErrNotFound
+	}
+	return nil
+}
+
 // UpdateLessonContent writes content_md / status / task_id without
 // touching the immutable fields (title, position). Phase 27.4 uses
 // this from MaterializeLesson so the tutor agent can patch a lesson
@@ -358,6 +446,35 @@ func (r *courseRepo) CreateQuiz(ctx context.Context, q *course.Quiz) error {
 	)
 	if err != nil {
 		return fmt.Errorf("course.CreateQuiz: %w", err)
+	}
+	return nil
+}
+
+// UpdateQuiz writes question_md/expected_md/kind in place (Phase
+// 30.13). Position and lesson_id are untouched — quiz order inside
+// a lesson is stable in the MVP.
+func (r *courseRepo) UpdateQuiz(ctx context.Context, q *course.Quiz) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE course_quizzes SET question_md=?, expected_md=?, kind=? WHERE id = ?`,
+		q.QuestionMD, q.ExpectedMD, string(q.Kind), q.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("course.UpdateQuiz: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return course.ErrNotFound
+	}
+	return nil
+}
+
+// DeleteQuiz removes the quiz row (Phase 30.13).
+func (r *courseRepo) DeleteQuiz(ctx context.Context, id string) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM course_quizzes WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("course.DeleteQuiz: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return course.ErrNotFound
 	}
 	return nil
 }
@@ -507,4 +624,116 @@ func lessonModuleID(lessons []*course.Lesson, lessonID string) string {
 		}
 	}
 	return ""
+}
+
+// ApplyStructure rewrites the course's module positions and lesson
+// (module_id, position) pairs in one transaction. The payload must
+// name every module and every lesson of the course exactly once —
+// partial payloads are rejected so a client bug can never orphan
+// rows. No rows are created or deleted, which is what preserves
+// student progress (lesson status) across a drag-and-drop reorder
+// of an active course (Phase 30.13).
+func (r *courseRepo) ApplyStructure(ctx context.Context, courseID string, modules []course.ModuleOrder) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("course.ApplyStructure: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Load the current module and lesson id sets of the course.
+	existingModules := map[string]struct{}{}
+	mrows, err := tx.QueryContext(ctx,
+		`SELECT id FROM course_modules WHERE course_id = ?`, courseID)
+	if err != nil {
+		return fmt.Errorf("course.ApplyStructure: load modules: %w", err)
+	}
+	for mrows.Next() {
+		var id string
+		if err := mrows.Scan(&id); err != nil {
+			mrows.Close()
+			return err
+		}
+		existingModules[id] = struct{}{}
+	}
+	mrows.Close()
+	if err := mrows.Err(); err != nil {
+		return err
+	}
+
+	existingLessons := map[string]struct{}{}
+	lrows, err := tx.QueryContext(ctx,
+		`SELECT l.id FROM course_lessons l
+		 JOIN course_modules m ON m.id = l.module_id
+		 WHERE m.course_id = ?`, courseID)
+	if err != nil {
+		return fmt.Errorf("course.ApplyStructure: load lessons: %w", err)
+	}
+	for lrows.Next() {
+		var id string
+		if err := lrows.Scan(&id); err != nil {
+			lrows.Close()
+			return err
+		}
+		existingLessons[id] = struct{}{}
+	}
+	lrows.Close()
+	if err := lrows.Err(); err != nil {
+		return err
+	}
+
+	// Validate exact coverage: no unknown, duplicate, or missing ids.
+	if len(modules) != len(existingModules) {
+		return course.ErrInvalidInput
+	}
+	seenModules := map[string]struct{}{}
+	seenLessons := map[string]struct{}{}
+	lessonCount := 0
+	for _, mo := range modules {
+		if _, ok := existingModules[mo.ModuleID]; !ok {
+			return course.ErrInvalidInput
+		}
+		if _, dup := seenModules[mo.ModuleID]; dup {
+			return course.ErrInvalidInput
+		}
+		seenModules[mo.ModuleID] = struct{}{}
+		for _, lid := range mo.LessonIDs {
+			if _, ok := existingLessons[lid]; !ok {
+				return course.ErrInvalidInput
+			}
+			if _, dup := seenLessons[lid]; dup {
+				return course.ErrInvalidInput
+			}
+			seenLessons[lid] = struct{}{}
+			lessonCount++
+		}
+	}
+	if lessonCount != len(existingLessons) {
+		return course.ErrInvalidInput
+	}
+
+	// Rewrite positions 1..n in payload order; lessons may move
+	// across modules freely (module_id is rewritten alongside).
+	for i, mo := range modules {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE course_modules SET position = ? WHERE id = ?`,
+			i+1, mo.ModuleID)
+		if err != nil {
+			return fmt.Errorf("course.ApplyStructure: module position: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return course.ErrInvalidInput
+		}
+		for j, lid := range mo.LessonIDs {
+			res, err := tx.ExecContext(ctx,
+				`UPDATE course_lessons SET module_id = ?, position = ? WHERE id = ?`,
+				mo.ModuleID, j+1, lid)
+			if err != nil {
+				return fmt.Errorf("course.ApplyStructure: lesson position: %w", err)
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				return course.ErrInvalidInput
+			}
+		}
+	}
+	return tx.Commit()
 }

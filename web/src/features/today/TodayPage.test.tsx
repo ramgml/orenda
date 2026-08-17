@@ -60,7 +60,13 @@ function mount() {
   );
 }
 
-function makeTask(overrides: Partial<{ id: string; title: string }> = {}): {
+function makeTask(
+  overrides: Partial<{
+    id: string;
+    title: string;
+    study_course_id: string;
+  }> = {},
+): {
   id: string;
   title: string;
   project_id: string;
@@ -71,6 +77,7 @@ function makeTask(overrides: Partial<{ id: string; title: string }> = {}): {
   time_spent_s: number;
   position: number;
   color: string;
+  study_course_id?: string;
   created_at: string;
   updated_at: string;
 } {
@@ -97,6 +104,7 @@ const emptyToday = {
   scheduled_today: [],
   upcoming_week: [],
   awaiting_count: 0,
+  proposals: [],
 };
 
 describe('TodayPage', () => {
@@ -129,6 +137,7 @@ describe('TodayPage', () => {
         scheduled_today: [],
         upcoming_week: [],
         awaiting_count: 0,
+        proposals: [],
       },
     });
 
@@ -150,6 +159,7 @@ describe('TodayPage', () => {
         scheduled_today: [],
         upcoming_week: [],
         awaiting_count: 3,
+        proposals: [],
       },
     });
 
@@ -229,5 +239,232 @@ describe('TodayPage', () => {
     wsClient['listeners'].get('tasks')?.forEach((fn) => fn({ topic: 'tasks', body: {} }));
 
     await waitFor(() => expect(stubHttp.get.mock.calls.length).toBeGreaterThan(before + 1));
+  });
+
+  // --- Phase 31.9: study proposals tray ---
+  //
+  // The tray is the Dashboard-side of the planner → user loop.
+  // Phase 31.5/31.6 added the API; here we test the render + accept
+  // and dismiss button wiring (no real network — the test just
+  // verifies the right endpoint is called and the tray re-fetches
+  // afterwards).
+
+  it('renders the proposal tray with each pending proposal', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        ...emptyToday,
+        proposals: [
+          {
+            id: 'p1',
+            course_id: 'c-1',
+            title: 'Read chapter 5',
+            body_md: 'rust-book chapter 5',
+            target_date: '2099-08-17',
+            agent_id: 'a-planner',
+            created_at: '2026-08-17T00:00:00Z',
+          },
+          {
+            id: 'p2',
+            title: 'Free-standing',
+            target_date: '2099-08-17',
+            agent_id: 'a-planner',
+            created_at: '2026-08-17T00:00:00Z',
+          },
+        ],
+      },
+    });
+
+    mount();
+
+    const tray = await screen.findByTestId('proposal-tray');
+    expect(tray).toBeTruthy();
+    const cards = screen.getAllByTestId('proposal-card');
+    expect(cards.length).toBe(2);
+    expect(cards[0].textContent).toContain('Read chapter 5');
+    expect(cards[0].textContent).toContain('rust-book chapter 5');
+    expect(cards[0].textContent).toContain('open course');
+    expect(cards[1].textContent).toContain('Free-standing');
+    expect(cards[1].textContent).not.toContain('open course'); // no course_id
+  });
+
+  it('does not render the tray when proposals is empty', async () => {
+    stubHttp.get.mockResolvedValueOnce({ data: emptyToday });
+    mount();
+    await screen.findByText(/Day is clear\./);
+    expect(screen.queryByTestId('proposal-tray')).toBeNull();
+  });
+
+  it('accept button calls POST /study-proposals/{id}/accept and re-fetches', async () => {
+    let getCallCount = 0;
+    stubHttp.get.mockImplementation(async () => {
+      getCallCount++;
+      return {
+        data: {
+          ...emptyToday,
+          proposals:
+            getCallCount === 1
+              ? [
+                  {
+                    id: 'p-accept',
+                    title: 'Read chapter 5',
+                    target_date: '2099-08-17',
+                    agent_id: 'a-planner',
+                    created_at: '2026-08-17T00:00:00Z',
+                  },
+                ]
+              : [],
+        },
+      };
+    });
+    stubHttp.post.mockResolvedValueOnce({ data: { ok: true } });
+
+    mount();
+    await screen.findByTestId('proposal-card');
+
+    const beforeAccept = getCallCount;
+    const acceptBtn = screen.getByTestId('proposal-accept');
+    acceptBtn.click();
+
+    // POST fires to /accept.
+    await waitFor(() =>
+      expect(stubHttp.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/v1/study-proposals/p-accept/accept'),
+      ),
+    );
+
+    // Re-fetch happened (parent load() re-runs).
+    await waitFor(() => expect(getCallCount).toBeGreaterThan(beforeAccept));
+  });
+
+  it('dismiss button calls POST /study-proposals/{id}/dismiss and re-fetches', async () => {
+    let getCallCount = 0;
+    stubHttp.get.mockImplementation(async () => {
+      getCallCount++;
+      return {
+        data: {
+          ...emptyToday,
+          proposals:
+            getCallCount === 1
+              ? [
+                  {
+                    id: 'p-dismiss',
+                    title: 'Skip this',
+                    target_date: '2099-08-17',
+                    agent_id: 'a-planner',
+                    created_at: '2026-08-17T00:00:00Z',
+                  },
+                ]
+              : [],
+        },
+      };
+    });
+    stubHttp.post.mockResolvedValueOnce({ data: { ok: true } });
+
+    mount();
+    await screen.findByTestId('proposal-card');
+
+    const beforeDismiss = getCallCount;
+    screen.getByTestId('proposal-dismiss').click();
+
+    await waitFor(() =>
+      expect(stubHttp.post).toHaveBeenCalledWith(
+        expect.stringContaining('/api/v1/study-proposals/p-dismiss/dismiss'),
+      ),
+    );
+    await waitFor(() => expect(getCallCount).toBeGreaterThan(beforeDismiss));
+  });
+
+  // --- Phase 31.9: study-marker on study-reminders ---
+  //
+  // Today carries 📖 for tasks with study_course_id set — that's the
+  // single visual distinction from a regular project task in the
+  // same section.
+
+  it('marks study-reminders with 📖 and a course link', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        ...emptyToday,
+        due_today: [
+          makeTask({
+            id: 'reminder-1',
+            title: 'Read chapter 5',
+            study_course_id: 'c-rust',
+          }),
+        ],
+      },
+    });
+
+    mount();
+
+    const li = await screen.findByTestId('today-study-task');
+    expect(li.textContent).toContain('📖');
+    expect(li.textContent).toContain('Read chapter 5');
+
+    const marker = screen.getByTestId('today-study-marker');
+    expect(marker.closest('a')?.getAttribute('href')).toBe('/courses/c-rust');
+  });
+
+  it('does not mark regular tasks (no study_course_id)', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        ...emptyToday,
+        due_today: [
+          makeTask({ id: 'regular-1', title: 'Bug fix' }), // no study_course_id
+        ],
+      },
+    });
+
+    mount();
+
+    const li = await screen.findByTestId('today-task');
+    expect(li.textContent).not.toContain('📖');
+    expect(li.textContent).toContain('Bug fix');
+    expect(screen.queryByTestId('today-study-marker')).toBeNull();
+  });
+
+  // --- Phase 31.9: invalidation on WS task events ---
+  //
+  // The tray is part of /today's payload, so the existing WS
+  // subscription on 'tasks' is enough — no separate hook needed.
+  // This test pins that a fresh proposal added by the agent via
+  // a study.proposed event shows up on the next fetch.
+
+  it('re-fetches the tray when a WS task event arrives', async () => {
+    let getCallCount = 0;
+    stubHttp.get.mockImplementation(async () => {
+      getCallCount++;
+      return {
+        data: {
+          ...emptyToday,
+          proposals:
+            getCallCount === 1
+              ? []
+              : [
+                  {
+                    id: 'p-new',
+                    title: 'Newly proposed',
+                    target_date: '2099-08-17',
+                    agent_id: 'a-planner',
+                    created_at: '2026-08-17T00:00:00Z',
+                  },
+                ],
+        },
+      };
+    });
+
+    wsClient.disconnect();
+    const before = getCallCount;
+    mount();
+    await screen.findByText(/Day is clear\./);
+
+    // Dispatch a WS event to trigger the existing useWebSocketTopic
+    // subscription. The handler calls load() which re-fetches; the
+    // second call returns one proposal.
+    wsClient['listeners']
+      .get('tasks')
+      ?.forEach((fn) => fn({ topic: 'tasks', body: { proposal_id: 'p-new' } }));
+
+    await waitFor(() => expect(getCallCount).toBeGreaterThan(before));
+    expect(await screen.findByTestId('proposal-card')).toBeTruthy();
   });
 });

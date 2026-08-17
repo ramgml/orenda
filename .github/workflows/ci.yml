@@ -1,0 +1,235 @@
+# CI pipeline for Orenda.
+#
+# Phases:
+#   lint     — golangci-lint (new-issues-only) + eslint + prettier --check
+#   test     — go test -race + vitest
+#   build    — make build (binary with embedded SPA)
+#   e2e      — Playwright against the built binary
+#
+# Triggers: pull_request on dev/main, push to dev/main, manual dispatch.
+# Concurrency: cancel previous runs on the same branch/ref to save CI minutes
+# when a PR gets force-pushed or amended.
+#
+# Lint scope:
+#   PR         → golangci-lint --new-from-merge-base (incremental gate;
+#                new code must be clean). 73 pre-existing issues remain —
+#                see Phase 30.16 in docs/PLAN.md.
+#   push main  → golangci-lint run (full regression guard on release branch).
+#   push dev   → lint skipped (dev is allowed to carry the pre-existing
+#                debt; the PR gate enforces cleanliness on what gets merged).
+#
+# Phase 30.1: this is the first CI workflow in the repo. Local gates
+# (`make test`, `make lint`, `make test-e2e`) remain the source of truth;
+# CI enforces them on every PR.
+name: ci
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Make `make` available; the repo's Makefile drives the build.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lint:
+    name: Lint (Go + Web)
+    # PR — gate what gets merged. push dev — skipped (PR gate is the
+    # contract). push main — gate the release branch.
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # golangci-lint --new-from-merge-base needs the merge-base
+          # commit in the local history.
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install golangci-lint
+        # Build from source with the local Go toolchain — the published
+        # v1.64.x binaries were built with go1.24 and refuse to load
+        # .golangci.yml against go.mod's `go 1.26.4` directive. Slower
+        # than the action's prebuilt cache, but always matches the
+        # project's Go version. When v2 stabilises and we migrate the
+        # config, switch back to golangci/golangci-lint-action@v6 with
+        # `version: v2.x.y`.
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.6
+
+      - name: golangci-lint run
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --depth=200 origin "${{ github.base_ref }}" || true
+            "$(go env GOPATH)/bin/golangci-lint" run --new-from-merge-base=origin/${{ github.base_ref }} ./...
+          else
+            "$(go env GOPATH)/bin/golangci-lint" run ./...
+          fi
+
+      - name: npm ci
+        working-directory: web
+        run: npm ci
+
+      - name: eslint
+        working-directory: web
+        run: npm run lint
+
+      - name: prettier --check
+        working-directory: web
+        run: npm run format:check
+
+  test:
+    name: Test (Go + vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [lint]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: npm ci
+        working-directory: web
+        run: npm ci
+
+      - name: Go test (race)
+        run: go test ./... -race -count=1
+
+      - name: vitest
+        working-directory: web
+        run: npm test
+
+  build:
+    name: Build (binary with embedded SPA)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [test]
+    steps:
+      - name: Checkout
+        with:
+          # Build step needs git tags for `make build` → VERSION=$(git describe).
+          fetch-depth: 0
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: npm ci
+        working-directory: web
+        run: npm ci
+
+      - name: make build
+        run: make build
+
+      - name: Verify binary
+        run: |
+          test -x bin/orenda
+          file bin/orenda
+          ./bin/orenda version
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: orenda-bin
+          path: bin/orenda
+          retention-days: 7
+          if-no-files-found: error
+
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [build]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Download binary
+        uses: actions/download-artifact@v4
+        with:
+          name: orenda-bin
+          path: bin
+
+      - name: npm ci
+        working-directory: web
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: make test-e2e
+        run: make test-e2e
+        env:
+          # Don't let CI accidentally talk to the developer's local instance.
+          ORENDA_SERVER__PORT: '21371'
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report
+            web/test-results
+          retention-days: 7
+          if-no-files-found: ignore

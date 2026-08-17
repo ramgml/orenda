@@ -11,7 +11,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"time"
 )
 
 // Message is the structured wire shape every bot implementation
@@ -162,6 +161,3 @@ func (c Console) Send(ctx context.Context, target string, msg Message) error {
 	_, err := c.Out.Write([]byte(line + "\n"))
 	return err
 }
-
-// now is a test seam.
-var now = time.Now

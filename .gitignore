@@ -62,9 +62,12 @@ logs/
 opencode.json
 opencode.json.tui-migration.bak
 tui.json
+# watchdog plugin: runtime snapshots, not for git
+.opencode/watchdog/state/
 
 # --- omp (assistant-private) ---
 .omp/
 # --- Parallel agent worktrees (nested option; see AGENTS.md) ---
 .worktrees/
 node_modules/
+orenda

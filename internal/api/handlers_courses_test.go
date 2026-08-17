@@ -45,6 +45,9 @@ func (r *fakeCourseRepo) ListCourses(context.Context, string) ([]*course.Course,
 func (r *fakeCourseRepo) UpdateCourse(context.Context, *course.Course) error {
 	return nil
 }
+func (r *fakeCourseRepo) UpdatePaceNotesMD(context.Context, string, string) error {
+	return nil
+}
 func (r *fakeCourseRepo) DeleteCourse(context.Context, string) error { return nil }
 func (r *fakeCourseRepo) CreateModule(context.Context, *course.Module) error {
 	return nil
@@ -117,6 +120,20 @@ func (r *fakeCourseRepo) SubmitCurriculum(_ context.Context, _ string, modules [
 	for _, q := range quizzes {
 		r.quizzes[q.ID] = q
 	}
+	return nil
+}
+
+// ---- Phase 30.13 granular CRUD surface (stubs) ----
+
+func (r *fakeCourseRepo) GetModule(context.Context, string) (*course.Module, error) {
+	return nil, course.ErrNotFound
+}
+func (r *fakeCourseRepo) UpdateModule(context.Context, *course.Module) error { return nil }
+func (r *fakeCourseRepo) DeleteModule(context.Context, string) error         { return nil }
+func (r *fakeCourseRepo) DeleteLesson(context.Context, string) error         { return nil }
+func (r *fakeCourseRepo) UpdateQuiz(context.Context, *course.Quiz) error     { return nil }
+func (r *fakeCourseRepo) DeleteQuiz(context.Context, string) error           { return nil }
+func (r *fakeCourseRepo) ApplyStructure(context.Context, string, []course.ModuleOrder) error {
 	return nil
 }
 

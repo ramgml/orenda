@@ -23,11 +23,6 @@ type reviewCountResponse struct {
 	Count int `json:"count"`
 }
 
-// reviewFixture extends columnDeps with task-create access for seeding.
-type reviewQueueFixture struct {
-	colFixtures
-}
-
 // 1) Empty queue: 200 with empty tasks/count=0.
 func TestReviewQueue_Empty(t *testing.T) {
 	f := columnDeps(t)

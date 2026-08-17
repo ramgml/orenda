@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/task"
 )
@@ -218,122 +219,158 @@ func patchTaskHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		// Phase 13: capture the colour BEFORE applyTaskPatch overwrites it
-		// so the activity row can report both sides of the transition.
-		prevColor := tr.Color
-		// Phase 27.7: same idea for status / priority / assignee. We
-		// snapshot before apply so the activity rows can report both
-		// sides; the side-effects (status=done → completed_at, awaiting
-		// normalisation) are applied after apply to tr.
-		prevStatus := tr.Status
-		prevPriority := tr.Priority
-		prevAssigneeType := tr.AssigneeType
-		prevAssigneeID := tr.AssigneeID
-
-		applyTaskPatch(r.Context(), deps, tr, in)
-
-		// Phase 27.7: status side-effects. We let the caller set
-		// completed_at explicitly (in.CompletedAt *string), but a
-		// status=done without an explicit completed_at fills it in
-		// — without this, /reports time and Progress both under-count
-		// work the user marks done through the sidebar.
-		statusChanged := in.Status != "" && tr.Status != prevStatus
-		if statusChanged && tr.Status == task.StatusDone && in.CompletedAt == nil {
-			now := time.Now().UTC()
-			tr.CompletedAt = &now
+		actorID := ""
+		if id, ok := IdentityFrom(r.Context()); ok && id != nil {
+			actorID = id.UserID
 		}
-		// Awaiting normalisation. The agent flow normally drives
-		// awaiting (claim → agent, submit → human, …). A manual
-		// status change through the UI is the owner's override and
-		// gets its own canonical mapping:
-		//   done     → none  (work is over)
-		//   review   → human (a reviewer must now act)
-		//   anything else → none (the new status is "no one in particular")
-		// We deliberately do NOT preserve awaiting=agent across a
-		// manual status change — the owner is explicitly taking the
-		// wheel and the agent's claim is implicitly released.
-		if statusChanged {
-			switch tr.Status {
-			case task.StatusDone:
-				tr.Awaiting = task.AwaitingNone
-			case task.StatusReview:
-				tr.Awaiting = task.AwaitingHuman
-			default:
-				tr.Awaiting = task.AwaitingNone
-			}
-		}
-
-		if err := deps.Tasks.Update(r.Context(), tr); err != nil {
+		if err := applyTaskPatchAndEffects(r.Context(), deps, tr, in, actorID); err != nil {
 			writeError(w, err)
 			return
 		}
-		if deps.TaskService != nil {
-			deps.TaskService.MirrorSave(r.Context(), tr)
-		}
-
-		// Phase 13: colour change → activity row. "" on either side means
-		// "no colour" (CSS null); the diff is still meaningful so we
-		// always emit when in.Color was provided.
-		if in.Color != nil && prevColor != tr.Color && deps.TaskService != nil {
-			actorID := ""
-			if id, ok := IdentityFrom(r.Context()); ok && id != nil {
-				actorID = id.UserID
-			}
-			deps.TaskService.RecordActivity(
-				r.Context(), tr.ID, actorID,
-				activity.ActionColorChanged,
-				fmt.Sprintf(`{"from":%q,"to":%q}`, prevColor, tr.Color),
-			)
-		}
-
-		// Phase 13: tag replacement. We diff against the current set so
-		// a no-op PATCH (the frontend often re-sends the same set) does
-		// not flood the activity feed.
-		if in.Tags != nil {
-			applyTaskTagsChange(r.Context(), deps, tr.ID, *in.Tags)
-		}
-
-		// Phase 27.7: status / priority / assignee changes get their
-		// own activity rows. We only emit when the caller actually
-		// sent the field (so a PATCH that touches unrelated fields
-		// doesn't pollute the feed) and when the value truly
-		// changed. The payload format mirrors ActionColorChanged
-		// (typed JSON object) so the ActivityLog component can render
-		// both sides of the transition without extra plumbing.
-		if deps.TaskService != nil {
-			actorID := ""
-			if id, ok := IdentityFrom(r.Context()); ok && id != nil {
-				actorID = id.UserID
-			}
-			if statusChanged {
-				deps.TaskService.RecordActivity(
-					r.Context(), tr.ID, actorID,
-					activity.ActionStatusChanged,
-					fmt.Sprintf(`{"from":%q,"to":%q}`, prevStatus, tr.Status),
-				)
-			}
-			if in.Priority != "" && tr.Priority != prevPriority {
-				deps.TaskService.RecordActivity(
-					r.Context(), tr.ID, actorID,
-					activity.ActionPriorityChanged,
-					fmt.Sprintf(`{"from":%q,"to":%q}`, prevPriority, tr.Priority),
-				)
-			}
-			if (in.AssigneeType != "" || in.AssigneeID != "") &&
-				(tr.AssigneeType != prevAssigneeType || tr.AssigneeID != prevAssigneeID) {
-				deps.TaskService.RecordActivity(
-					r.Context(), tr.ID, actorID,
-					activity.ActionAssigned,
-					fmt.Sprintf(
-						`{"from":{"type":%q,"id":%q},"to":{"type":%q,"id":%q}}`,
-						prevAssigneeType, prevAssigneeID,
-						tr.AssigneeType, tr.AssigneeID,
-					),
-				)
-			}
-		}
 
 		writeJSON(w, http.StatusOK, tr)
+
+		// Phase 30.14: publish task.updated on the `tasks` topic so a
+		// second tab (or a user who navigates away and back) sees the
+		// changes a sibling tab made through PATCH. The agent-flow
+		// events already publish (claim/submit/review/deps_changed);
+		// PATCH had no WS broadcast, which is the long-standing
+		// cross-tab visibility gap. Bulk-edit shares the same emit so
+		// the kanban bulk-action bar doesn't need a separate path.
+		if deps.WSHub != nil {
+			deps.WSHub.Publish(r.Context(), ws.Event{
+				Topic: "tasks",
+				Body: map[string]any{
+					"type": "task.updated",
+					"task": tr,
+				},
+			})
+		}
+	}
+}
+
+// applyTaskPatchAndEffects is the shared mutation path for single and bulk
+// task edits. Keeping side effects here prevents bulk updates from silently
+// bypassing completion timestamps, awaiting normalization, mirrors, or audit
+// rows.
+func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput, actorID string) error {
+	prevColor := tr.Color
+	prevStatus := tr.Status
+	prevPriority := tr.Priority
+	prevAssigneeType := tr.AssigneeType
+	prevAssigneeID := tr.AssigneeID
+
+	applyTaskPatch(ctx, deps, tr, in)
+	statusChanged := in.Status != "" && tr.Status != prevStatus
+	if statusChanged && tr.Status == task.StatusDone && in.CompletedAt == nil {
+		now := time.Now().UTC()
+		tr.CompletedAt = &now
+	}
+	if statusChanged {
+		switch tr.Status {
+		case task.StatusDone:
+			tr.Awaiting = task.AwaitingNone
+		case task.StatusReview:
+			tr.Awaiting = task.AwaitingHuman
+		default:
+			tr.Awaiting = task.AwaitingNone
+		}
+	}
+	if err := deps.Tasks.Update(ctx, tr); err != nil {
+		return err
+	}
+	if deps.TaskService != nil {
+		deps.TaskService.MirrorSave(ctx, tr)
+	}
+	if in.Color != nil && prevColor != tr.Color && deps.TaskService != nil {
+		deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionColorChanged,
+			fmt.Sprintf(`{"from":%q,"to":%q}`, prevColor, tr.Color))
+	}
+	if in.Tags != nil {
+		applyTaskTagsChange(ctx, deps, tr.ID, *in.Tags)
+	}
+	if deps.TaskService != nil {
+		if statusChanged {
+			deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionStatusChanged,
+				fmt.Sprintf(`{"from":%q,"to":%q}`, prevStatus, tr.Status))
+		}
+		if in.Priority != "" && tr.Priority != prevPriority {
+			deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionPriorityChanged,
+				fmt.Sprintf(`{"from":%q,"to":%q}`, prevPriority, tr.Priority))
+		}
+		if (in.AssigneeType != "" || in.AssigneeID != "") &&
+			(tr.AssigneeType != prevAssigneeType || tr.AssigneeID != prevAssigneeID) {
+			deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionAssigned,
+				fmt.Sprintf(`{"from":{"type":%q,"id":%q},"to":{"type":%q,"id":%q}}`,
+					prevAssigneeType, prevAssigneeID, tr.AssigneeType, tr.AssigneeID))
+		}
+	}
+	return nil
+}
+
+type bulkTaskPatchInput struct {
+	TaskIDs []string  `json:"task_ids"`
+	Patch   taskInput `json:"patch"`
+}
+
+type bulkTaskPatchResponse struct {
+	Tasks  []*task.Task      `json:"tasks"`
+	Errors map[string]string `json:"errors,omitempty"`
+}
+
+// bulkPatchTasksHandler applies the same PATCH semantics to several tasks.
+// The operation is best-effort: one malformed or missing task does not hide
+// successful updates to the other selected tasks; the response identifies
+// failures by task id. Every successful row emits task.updated so open boards
+// refetch through their existing WebSocket subscription.
+func bulkPatchTasksHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var in bulkTaskPatchInput
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		if len(in.TaskIDs) == 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "task_ids_required"})
+			return
+		}
+		seen := make(map[string]struct{}, len(in.TaskIDs))
+		for _, id := range in.TaskIDs {
+			if id == "" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "task_id_required"})
+				return
+			}
+			if _, ok := seen[id]; ok {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "duplicate_task_id"})
+				return
+			}
+			seen[id] = struct{}{}
+		}
+
+		actorID := ""
+		if id, ok := IdentityFrom(r.Context()); ok && id != nil {
+			actorID = id.UserID
+		}
+		out := bulkTaskPatchResponse{Tasks: make([]*task.Task, 0, len(in.TaskIDs)), Errors: make(map[string]string)}
+		for _, id := range in.TaskIDs {
+			tr, err := deps.Tasks.GetByID(r.Context(), id)
+			if err != nil {
+				out.Errors[id] = err.Error()
+				continue
+			}
+			if err := applyTaskPatchAndEffects(r.Context(), deps, tr, in.Patch, actorID); err != nil {
+				out.Errors[id] = err.Error()
+				continue
+			}
+			out.Tasks = append(out.Tasks, tr)
+			if deps.WSHub != nil {
+				deps.WSHub.Publish(r.Context(), ws.Event{
+					Topic: "tasks",
+					Body:  map[string]any{"type": "task.updated", "task": tr},
+				})
+			}
+		}
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 
@@ -379,7 +416,10 @@ func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in t
 	if in.AgentNotes != "" {
 		tr.AgentNotes = in.AgentNotes
 	}
-	if in.AssigneeType != "" {
+	if in.AssigneeType == "unassigned" {
+		tr.AssigneeType = ""
+		tr.AssigneeID = ""
+	} else if in.AssigneeType != "" {
 		tr.AssigneeType = in.AssigneeType
 	}
 	if in.AssigneeID != "" {
@@ -666,3 +706,45 @@ func deleteChecklistItemHandler(deps *Dependencies) http.HandlerFunc {
 
 // deleteSubtaskHandler removed in Phase 14 — child tasks are full
 // tasks; use DELETE /api/v1/tasks/{id} instead.
+
+// tasksWithDueHandler lists tasks whose due_at falls within [from, to].
+// Phase 30.8: the calendar needs to render tasks alongside timed
+// events; the simplest seam is a dedicated endpoint that returns
+// just the tasks with a due_at in the requested window. We don't
+// filter by `done` status — done tasks appear shaded in the UI as
+// "completed on this date" — see the calendar's render layer.
+//
+// The endpoint is intentionally narrow: a single From/To window
+// keyed off the existing tasks repo. We don't paginate because the
+// realistic upper bound is a few hundred tasks per month (single
+// owner, single instance).
+func tasksWithDueHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		from, err := parseTimeQuery(r, "from")
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_from"})
+			return
+		}
+		to, err := parseTimeQuery(r, "to")
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_to"})
+			return
+		}
+		tasks, err := deps.Tasks.ListByDueBetween(r.Context(), from, to)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
+	}
+}
+
+// parseTimeQuery reads an RFC3339 time from r.URL.Query(). Empty
+// returns the zero value (caller decides whether that's an error).
+func parseTimeQuery(r *http.Request, key string) (time.Time, error) {
+	raw := r.URL.Query().Get(key)
+	if raw == "" {
+		return time.Time{}, fmt.Errorf("missing %q", key)
+	}
+	return time.Parse(time.RFC3339, raw)
+}

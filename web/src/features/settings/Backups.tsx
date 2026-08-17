@@ -20,6 +20,16 @@ export function BackupsSettingsPage(): JSX.Element {
   const [settings, setSettings] = useState<BackupSettings | null>(null);
   const [snapshots, setSnapshots] = useState<BackupSnapshot[]>([]);
   const [log, setLog] = useState<BackupLogEntry[]>([]);
+  // Phase 30.9: read-only status from GET /api/v1/backups/status —
+  // snapshot count + latest snapshot path/size. Safe to poll.
+  const [status, setStatus] = useState<{
+    scheduler_disabled: boolean;
+    snapshot_count?: number;
+    latest_snapshot?: string;
+    latest_snapshot_size?: number;
+    latest_snapshot_unix?: number;
+    snapshot_error?: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<'push' | 'snapshot' | 'restore' | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -45,14 +55,16 @@ export function BackupsSettingsPage(): JSX.Element {
 
   async function load(): Promise<void> {
     try {
-      const [s, snaps, l] = await Promise.all([
+      const [s, snaps, l, status] = await Promise.all([
         api.getBackupSettings(),
         api.listBackupSnapshots(),
         api.listBackupLog({ limit: 20 }),
+        api.getBackupStatus(),
       ]);
       setSettings(s);
       setSnapshots(snaps.snapshots ?? []);
       setLog(l.log ?? []);
+      setStatus(status);
       setError(null);
       if (!formInitialized) {
         setFormEnabled(s.enabled);
@@ -331,6 +343,26 @@ export function BackupsSettingsPage(): JSX.Element {
 
       <div className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950">
         <h2 className="font-semibold mb-2">Snapshots ({snapshots.length})</h2>
+        {/* Phase 30.9: status line — count + latest snapshot timestamp
+            without having to scroll the snapshot list. Pulled from
+            GET /api/v1/backups/status (read-only). */}
+        {status && !status.scheduler_disabled && (
+          <p className="text-xs text-slate-500 mb-2">
+            {status.snapshot_count ?? 0} snapshot
+            {(status.snapshot_count ?? 0) === 1 ? '' : 's'} on disk
+            {status.latest_snapshot && (
+              <>
+                {' '}
+                · latest{' '}
+                <span className="font-mono">
+                  {status.latest_snapshot_unix
+                    ? new Date(status.latest_snapshot_unix * 1000).toLocaleString()
+                    : status.latest_snapshot}
+                </span>
+              </>
+            )}
+          </p>
+        )}
         {snapshots.length === 0 ? (
           <p className="text-slate-500 text-sm">No snapshots yet.</p>
         ) : (

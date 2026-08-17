@@ -170,10 +170,12 @@ describe('CourseCurriculumEditor', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('is read-only when the course is not draft/review', () => {
+  it('is read-only when the course is done/archived', () => {
+    // Phase 30.13: active courses are editable granularly; only the
+    // frozen terminal statuses keep the read-only gate.
     const { getByTestId } = render(
       <CourseCurriculumEditor
-        course={makeCourse({ status: 'active' })}
+        course={makeCourse({ status: 'done' })}
         initialModules={[]}
         onCancel={() => {}}
         onSaved={() => {}}

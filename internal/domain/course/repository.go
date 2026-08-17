@@ -15,10 +15,26 @@ type Repository interface {
 	ListCourses(ctx context.Context, ownerID string) ([]*Course, error)
 	UpdateCourse(ctx context.Context, c *Course) error
 	DeleteCourse(ctx context.Context, id string) error
+	// UpdatePaceNotesMD writes only the free-form pace notes — the
+	// narrow PATCH the agent-planner uses (Phase 31). It does NOT
+	// touch title/status/etc; the human edits those through
+	// UpdateCourse.
+	UpdatePaceNotesMD(ctx context.Context, id, notes string) error
 
 	// ---- Modules ----
 	CreateModule(ctx context.Context, m *Module) error
 	ListModules(ctx context.Context, courseID string) ([]*Module, error)
+	// GetModule fetches a single module by id. Phase 30.13 uses it
+	// to walk module → course for status gating of granular edits.
+	GetModule(ctx context.Context, id string) (*Module, error)
+	// UpdateModule writes title and description in place (Phase
+	// 30.13). Position is managed exclusively by ApplyStructure so
+	// drag-and-drop never fights rename writes.
+	UpdateModule(ctx context.Context, m *Module) error
+	// DeleteModule removes the module; lessons and quizzes cascade
+	// (migration 019). Deleting content intentionally drops the
+	// progress those lessons carried.
+	DeleteModule(ctx context.Context, id string) error
 
 	// ---- Lessons ----
 	CreateLesson(ctx context.Context, l *Lesson) error
@@ -36,6 +52,9 @@ type Repository interface {
 	// status is opaque to the repo (the service enforces the lifecycle);
 	// taskID is empty to clear the link.
 	UpdateLessonContent(ctx context.Context, lessonID, contentMD string, status LessonStatus, taskID string) error
+	// DeleteLesson removes the lesson; its quizzes cascade (Phase
+	// 30.13). Progress shrinks by construction — the row is gone.
+	DeleteLesson(ctx context.Context, id string) error
 
 	// GetQuiz fetches a single quiz by id. Used by AnswerQuiz.
 	GetQuiz(ctx context.Context, id string) (*Quiz, error)
@@ -55,6 +74,13 @@ type Repository interface {
 	// ListQuizzesInCourse returns every quiz for the course in a
 	// single query (lessons + quizzes joined).
 	ListQuizzesInCourse(ctx context.Context, courseID string) ([]*Quiz, error)
+	// UpdateQuiz writes question_md/expected_md/kind in place (Phase
+	// 30.13). Position is untouched — quiz order inside a lesson is
+	// managed by the editor through delete+recreate or future
+	// reorder; the MVP keeps quiz order stable.
+	UpdateQuiz(ctx context.Context, q *Quiz) error
+	// DeleteQuiz removes the quiz (Phase 30.13).
+	DeleteQuiz(ctx context.Context, id string) error
 
 	// ---- Progress ----
 	// Progress returns lesson counts for the course.
@@ -79,4 +105,17 @@ type Repository interface {
 		lessons []*Lesson,
 		quizzes []*Quiz,
 	) error
+
+	// ---- Structure (Phase 30.13 granular reorder) ----
+	//
+	// ApplyStructure rewrites module positions and lesson
+	// (module_id, position) pairs atomically. The payload must
+	// cover the course exactly: every module of the course exactly
+	// once, every lesson of the course exactly once across the
+	// modules. Unknown, duplicate, or missing IDs → ErrInvalidInput
+	// and nothing is written. Unlike SubmitCurriculum no rows are
+	// deleted or re-inserted, so lesson status (student progress)
+	// and task links survive the reorder — that is the whole point
+	// of the method.
+	ApplyStructure(ctx context.Context, courseID string, modules []ModuleOrder) error
 }

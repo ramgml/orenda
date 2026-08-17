@@ -23,6 +23,11 @@ import {
  * editor and rebuild the program themselves. In active, structural
  * edits are disabled — the owner edits a single lesson's content
  * from the lesson page (LessonPage → updateLessonContent).
+ *
+ * Phase 30.13: the editor is also available in active, but saving
+ * goes through the granular endpoints (create/rename/delete +
+ * IDs-only reorder) instead of the destructive swap, so lesson
+ * status/progress and task links survive the edit.
  */
 export function CourseDetailPage(): JSX.Element {
   const { id } = useParams<{ id: string }>();
@@ -133,7 +138,10 @@ export function CourseDetailPage(): JSX.Element {
     }),
   }));
 
-  const editable = course.status === 'draft' || course.status === 'review';
+  // Phase 30.13: active courses edit granularly (progress-safe);
+  // draft/review keep the atomic swap; done/archived are frozen.
+  const editable =
+    course.status === 'draft' || course.status === 'review' || course.status === 'active';
 
   return (
     <section className="p-6 max-w-3xl mx-auto space-y-6">
@@ -150,6 +158,26 @@ export function CourseDetailPage(): JSX.Element {
           </p>
         )}
       </header>
+
+      {/* Phase 31.9: pace notes — read-only display; the agent-side
+          planner writes these (PATCH /api/v1/agent/courses/{id}) and
+          they drive study-proposal generation. The user can read
+          them here so they know what the planner thinks the cadence
+          should be. Editing from this UI is deferred — see PLAN 31.9
+          "за скобкой" notes. */}
+      {course.pace_notes_md && (
+        <details
+          data-testid="course-pace-notes"
+          className="rounded border border-slate-200 dark:border-slate-800 p-3 text-sm bg-white dark:bg-slate-950"
+        >
+          <summary className="cursor-pointer text-slate-700 dark:text-slate-200 font-medium">
+            Pace notes (from the planner)
+          </summary>
+          <pre className="mt-2 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-400 font-sans">
+            {course.pace_notes_md}
+          </pre>
+        </details>
+      )}
 
       {/* Lifecycle actions */}
       {course.status === 'review' && (
@@ -205,7 +233,11 @@ export function CourseDetailPage(): JSX.Element {
           >
             {editing ? 'Done editing' : 'Edit curriculum'}
           </button>
-          <span className="text-xs text-slate-500">Modules, lessons, quizzes — atomic swap.</span>
+          <span className="text-xs text-slate-500">
+            {course.status === 'active'
+              ? 'Granular edits — student progress is preserved.'
+              : 'Modules, lessons, quizzes — atomic swap.'}
+          </span>
         </div>
       )}
 

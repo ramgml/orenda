@@ -50,6 +50,7 @@ import (
 	eventservice "github.com/ramgml/orenda/internal/service/event"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
+	studysvc "github.com/ramgml/orenda/internal/service/study"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
@@ -167,6 +168,10 @@ type Dependencies struct {
 	// Phase 18: course repository + service.
 	Courses       course.Repository
 	CourseService *coursesvc.Service
+	// Phase 31: study service. Propose / Accept / Dismiss lives here.
+	// nil-safe — handlers return 503 when the service hasn't been
+	// wired (e.g. tests).
+	StudyService *studysvc.Service
 }
 
 // SyncOpsStore is the small surface the sync endpoint needs for
@@ -329,6 +334,11 @@ func NewRouter(deps *Dependencies) http.Handler {
 			})
 
 			r.Route("/tasks", func(r chi.Router) {
+				// Phase 30.8: tasks with a due_at in [from, to]. The
+				// calendar uses this to render deadlines alongside
+				// timed events. Empty from/to → 400 invalid_input.
+				r.Get("/with-due", tasksWithDueHandler(deps))
+				r.Post("/bulk-edit", bulkPatchTasksHandler(deps))
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", getTaskHandler(deps))
 					r.Patch("/", patchTaskHandler(deps))
@@ -447,6 +457,19 @@ func NewRouter(deps *Dependencies) http.Handler {
 			// due-today, scheduled-today, awaiting count, active timer.
 			r.Get("/today", getTodayHandler(deps))
 
+			// Phase 31.6: study proposals (the Dashboard tray).
+			// The proposals table is single-owner (no per-user
+			// scoping) so the user's cookie is enough — we don't
+			// filter by Identity.UserID. List is "pending only";
+			// resolved proposals live in the audit feed.
+			r.Route("/study-proposals", func(r chi.Router) {
+				r.Get("/", listStudyProposalsHandler(deps))
+				r.Route("/{id}", func(r chi.Router) {
+					r.Post("/accept", acceptStudyProposalHandler(deps))
+					r.Post("/dismiss", dismissStudyProposalHandler(deps))
+				})
+			})
+
 			// Phase 18: courses (LMS). User side — full CRUD, approve,
 			// request-changes, complete lesson. The agent side is
 			// mounted under RequireAgent further below.
@@ -463,8 +486,23 @@ func NewRouter(deps *Dependencies) http.Handler {
 					// retires the generator task when present so
 					// a sleeping tutor cannot overwrite manual work.
 					r.Put("/curriculum", submitCurriculumHandlerUser(deps))
+					// Phase 30.13: granular structure edits with
+					// stable IDs — safe on active courses (student
+					// progress survives; see handlers_course_structure.go).
+					r.Post("/modules", createModuleHandler(deps))
+					r.Put("/structure", applyStructureHandler(deps))
 				})
 			})
+			// Phase 30.13: module/lesson/quiz granular CRUD (flat by id).
+			r.Route("/modules/{id}", func(r chi.Router) {
+				r.Patch("/", updateModuleHandler(deps))
+				r.Delete("/", deleteModuleHandler(deps))
+				r.Post("/lessons", createLessonHandler(deps))
+			})
+			r.Patch("/lessons/{id}", renameLessonHandler(deps))
+			r.Delete("/lessons/{id}", deleteLessonHandler(deps))
+			r.Patch("/quizzes/{qid}", updateQuizHandler(deps))
+			r.Delete("/quizzes/{qid}", deleteQuizHandler(deps))
 			r.Post("/lessons/{id}/complete", completeLessonHandler(deps))
 			// Phase 27.6: user-side quiz CRUD + lesson content edits.
 			r.Post("/lessons/{id}/quizzes", addQuizHandler(deps))
@@ -518,6 +556,10 @@ func NewRouter(deps *Dependencies) http.Handler {
 				r.Post("/test", testBackupPushHandler(deps))
 				r.Post("/snapshot", backupSnapshotHandler(deps))
 				r.Get("/snapshots", listBackupSnapshotsHandler(deps))
+				// Phase 30.9: read-only status snapshot — count of
+				// snapshots + path / size of the most recent one.
+				// The operator can hit /backups/test to actually push.
+				r.Get("/status", backupStatusHandler(deps))
 				r.Post("/restore", restoreBackupHandler(deps))
 				r.Get("/log", listBackupLogHandler(deps))
 			})
@@ -570,9 +612,30 @@ func NewRouter(deps *Dependencies) http.Handler {
 				// the WS hub and the agent id is the filter key.
 				r.Post("/agent/events/await", agentAwaitHandler(deps))
 				// Phase 18: courses for the tutor agent.
+				// Phase 29.4/29.5: the agent can also create a course
+				// (owner = first non-system user, generator task
+				// skipped — the agent IS the generator) and drive it
+				// review → active without a human click. The human
+				// approve gate in the UI is unchanged.
 				r.Route("/agent/courses", func(r chi.Router) {
 					r.Get("/", listCoursesHandlerAgent(deps))
+					r.Post("/", createCourseHandlerAgent(deps))
 					r.Put("/{id}/curriculum", submitCurriculumHandlerAgent(deps))
+					r.Post("/{id}/activate", activateCourseHandlerAgent(deps))
+					// Phase 30.13: granular structure edits — the same
+					// progress-preserving ops the owner has, for tutor
+					// agents maintaining a live course.
+					r.Post("/{id}/modules", createModuleHandler(deps))
+					r.Put("/{id}/structure", applyStructureHandler(deps))
+				})
+				r.Route("/agent/modules", func(r chi.Router) {
+					r.Patch("/{id}", updateModuleHandler(deps))
+					r.Delete("/{id}", deleteModuleHandler(deps))
+					r.Post("/{id}/lessons", createLessonHandler(deps))
+				})
+				r.Route("/agent/quizzes", func(r chi.Router) {
+					r.Patch("/{qid}", updateQuizHandler(deps))
+					r.Delete("/{qid}", deleteQuizHandler(deps))
 				})
 				// Phase 27.4: lesson materialization. The tutor writes
 				// the lesson body and links an exercise task; the
@@ -584,7 +647,39 @@ func NewRouter(deps *Dependencies) http.Handler {
 					// tutors can add a single quiz to an existing
 					// lesson without re-submitting the whole tree.
 					r.Post("/{id}/quizzes", addQuizHandlerAgent(deps))
+					// Phase 30.13: rename / delete a lesson in place.
+					r.Patch("/{id}", renameLessonHandler(deps))
+					r.Delete("/{id}", deleteLessonHandler(deps))
 				})
+				// Phase 29.1: agent wiki + search. The wiki handlers
+				// never read the user session (grep-verified: no
+				// IdentityFrom/userIDFromCtx in handlers_wiki.go), so
+				// they mount verbatim — the same service, the same
+				// markdown mirror and WS events the user side gets.
+				// wiki_pages has no owner column, so there is no
+				// permission model to bypass. PUT /{slug} is the
+				// upsert (create + update in one verb); no bare POST.
+				r.Route("/agent/pages", func(r chi.Router) {
+					r.Get("/", listPagesHandler(deps))
+					r.Route("/{slug}", func(r chi.Router) {
+						r.Get("/", getPageHandler(deps))
+						r.Put("/", savePageHandler(deps))
+						r.Delete("/", deletePageHandler(deps))
+						r.Patch("/move", movePageHandler(deps))
+						r.Get("/backlinks", getPageBacklinksHandler(deps))
+					})
+				})
+				r.Get("/agent/search", searchHandler(deps))
+
+				// Phase 31.5: agent-side study surface. POST
+				// /agent/study-proposals is the planner's only
+				// surface; PATCH /agent/courses/{id} is the narrow
+				// pace_notes_md edit (a separate verb so the
+				// planner can't touch title/status/etc). Both are
+				// mounted under RequireAgent so a bearer token
+				// resolves through to the agent id.
+				r.Post("/agent/study-proposals", proposeStudyHandlerAgent(deps))
+				r.Patch("/agent/courses/{id}", patchCoursePaceNotesHandlerAgent(deps))
 			})
 		}
 	})

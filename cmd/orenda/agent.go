@@ -129,14 +129,6 @@ func (a *agentCtx) agentPost(ctx context.Context, path string, body any) ([]byte
 	return a.doRaw(ctx, http.MethodPost, path, rdr, "application/json")
 }
 
-func (a *agentCtx) agentPut(ctx context.Context, path string, body any) ([]byte, int, error) {
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return nil, 0, err
-	}
-	return a.doRaw(ctx, http.MethodPut, path, bytes.NewReader(raw), "application/json")
-}
-
 func (a *agentCtx) do(ctx context.Context, method, path string, body io.Reader) ([]byte, int, error) {
 	return a.doRaw(ctx, method, path, body, "")
 }
@@ -146,7 +138,16 @@ func (a *agentCtx) doRaw(ctx context.Context, method, path string, body io.Reade
 	if err != nil {
 		return nil, 0, fmt.Errorf("bad base url: %w", err)
 	}
-	u.Path = strings.TrimRight(u.Path, "/") + path
+	// path may carry a query string ("/api/v1/agent/search?q=…").
+	// Assigning it to u.Path verbatim would percent-encode the '?'
+	// into the path — which is exactly how the pre-29.2 `next`
+	// command silently broke its ?ready=true filter. Split first.
+	rel, err := url.Parse(path)
+	if err != nil {
+		return nil, 0, fmt.Errorf("bad request path: %w", err)
+	}
+	u.Path = strings.TrimRight(u.Path, "/") + rel.Path
+	u.RawQuery = rel.RawQuery
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
 	if err != nil {
 		return nil, 0, err
@@ -219,6 +220,10 @@ Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
 	cmd.AddCommand(newAgentSubmitCmd())
 	cmd.AddCommand(newAgentCommentCmd())
 	cmd.AddCommand(newAgentAwaitCmd())
+	cmd.AddCommand(newAgentPagesCmd())
+	cmd.AddCommand(newAgentSearchCmd())
+	cmd.AddCommand(newAgentCoursesCmd())
+	cmd.AddCommand(newAgentStudyProposeCmd())
 	return cmd
 }
 
@@ -505,5 +510,320 @@ func newAgentAwaitCmd() *cobra.Command {
 	}
 	cmd.Flags().IntVar(&timeoutSecs, "timeout", 30, "long-poll timeout in seconds (max 60)")
 	_ = time.Duration(0)
+	return cmd
+}
+
+// ---------------------------------------------------------------------------
+// Phase 29.2: wiki + search surface for the agent CLI.
+// ---------------------------------------------------------------------------
+
+// newAgentPagesCmd wires `orenda agent pages <list|get|put|delete|move|backlinks>`.
+// The wiki endpoints live in the agent namespace (Phase 29.1); the
+// CLI is a thin shim over them, same -json contract as the rest of
+// the tree.
+func newAgentPagesCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "pages",
+		Short: "Manage wiki pages (list/get/put/delete/move/backlinks)",
+	}
+	cmd.AddCommand(newAgentPagesListCmd())
+	cmd.AddCommand(newAgentPagesGetCmd())
+	cmd.AddCommand(newAgentPagesPutCmd())
+	cmd.AddCommand(newAgentPagesDeleteCmd())
+	cmd.AddCommand(newAgentPagesMoveCmd())
+	cmd.AddCommand(newAgentPagesBacklinksCmd())
+	return cmd
+}
+
+// agentPagesGet is the shared GET-and-print helper for the pages
+// subcommands.
+func agentPagesGet(cmd *cobra.Command, path string, okCodes ...int) error {
+	ctx, err := resolveAgentCtx(cmd)
+	if err != nil {
+		return err
+	}
+	raw, code, err := ctx.agentGet(cmd.Context(), path)
+	if err != nil {
+		return err
+	}
+	ok := false
+	for _, c := range okCodes {
+		if code == c {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		return fmt.Errorf("agent pages: HTTP %d: %s", code, raw)
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return err
+	}
+	return printJSON(cmd, v)
+}
+
+func newAgentPagesListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "Print the wiki page tree",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return agentPagesGet(cmd, "/api/v1/agent/pages", http.StatusOK)
+		},
+	}
+}
+
+func newAgentPagesGetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "get <slug>",
+		Short: "Fetch a wiki page by slug",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return agentPagesGet(cmd, "/api/v1/agent/pages/"+url.PathEscape(args[0]), http.StatusOK)
+		},
+	}
+}
+
+func newAgentPagesPutCmd() *cobra.Command {
+	var (
+		title    string
+		file     string
+		parentID string
+	)
+	cmd := &cobra.Command{
+		Use:   "put <slug>",
+		Short: "Create or update a wiki page (markdown from --file or stdin)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			var content []byte
+			if file != "" && file != "-" {
+				content, err = os.ReadFile(file)
+				if err != nil {
+					return fmt.Errorf("agent pages put: read %s: %w", file, err)
+				}
+			} else {
+				content, err = io.ReadAll(cmd.InOrStdin())
+				if err != nil {
+					return fmt.Errorf("agent pages put: read stdin: %w", err)
+				}
+			}
+			body := map[string]any{
+				"slug":       args[0],
+				"title":      title,
+				"content_md": string(content),
+			}
+			if parentID != "" {
+				body["parent_id"] = parentID
+			}
+			raw, mErr := json.Marshal(body)
+			if mErr != nil {
+				return mErr
+			}
+			respBody, code, err := ctx.doRaw(cmd.Context(), http.MethodPut,
+				"/api/v1/agent/pages/"+url.PathEscape(args[0]),
+				bytes.NewReader(raw), "application/json")
+			if err != nil {
+				return err
+			}
+			if code != http.StatusOK && code != http.StatusCreated {
+				return fmt.Errorf("agent pages put: HTTP %d: %s", code, respBody)
+			}
+			var v any
+			if err := json.Unmarshal(respBody, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		},
+	}
+	cmd.Flags().StringVar(&title, "title", "", "page title (defaults to the slug)")
+	cmd.Flags().StringVar(&file, "file", "", "markdown source file ('-' or empty = stdin)")
+	cmd.Flags().StringVar(&parentID, "parent", "", "parent page id (empty = root)")
+	return cmd
+}
+
+func newAgentPagesDeleteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "delete <slug>",
+		Short: "Delete a wiki page (children are cascade-deleted by the service)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			raw, code, err := ctx.do(cmd.Context(), http.MethodDelete,
+				"/api/v1/agent/pages/"+url.PathEscape(args[0]), nil)
+			if err != nil {
+				return err
+			}
+			if code != http.StatusNoContent && code != http.StatusOK {
+				return fmt.Errorf("agent pages delete: HTTP %d: %s", code, raw)
+			}
+			_, _ = cmd.OutOrStdout().Write([]byte("deleted\n"))
+			return nil
+		},
+	}
+}
+
+func newAgentPagesMoveCmd() *cobra.Command {
+	var parentID string
+	cmd := &cobra.Command{
+		Use:   "move <slug>",
+		Short: "Move a wiki page under a new parent (empty --parent = root)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			var rdr io.Reader
+			raw, mErr := json.Marshal(map[string]any{"parent_id": parentID})
+			if mErr != nil {
+				return mErr
+			}
+			rdr = bytes.NewReader(raw)
+			resp, code, err := ctx.doRaw(cmd.Context(), http.MethodPatch,
+				"/api/v1/agent/pages/"+url.PathEscape(args[0])+"/move", rdr, "application/json")
+			if err != nil {
+				return err
+			}
+			if code != http.StatusNoContent && code != http.StatusOK {
+				return fmt.Errorf("agent pages move: HTTP %d: %s", code, resp)
+			}
+			_, _ = cmd.OutOrStdout().Write([]byte("moved\n"))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&parentID, "parent", "", "new parent page id (empty = root)")
+	return cmd
+}
+
+func newAgentPagesBacklinksCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "backlinks <slug>",
+		Short: "List pages that link to <slug>",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return agentPagesGet(cmd,
+				"/api/v1/agent/pages/"+url.PathEscape(args[0])+"/backlinks", http.StatusOK)
+		},
+	}
+}
+
+func newAgentSearchCmd() *cobra.Command {
+	var (
+		typ   string
+		limit int
+	)
+	cmd := &cobra.Command{
+		Use:   "search <query>",
+		Short: "Full-text search across pages, tasks, and comments",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			q := url.Values{}
+			q.Set("q", args[0])
+			if typ != "" {
+				q.Set("type", typ)
+			}
+			if limit > 0 {
+				q.Set("limit", strconv.Itoa(limit))
+			}
+			return agentPagesGet(cmd, "/api/v1/agent/search?"+q.Encode(), http.StatusOK)
+		},
+	}
+	cmd.Flags().StringVar(&typ, "type", "", "restrict to a hit type (page|task|comment)")
+	cmd.Flags().IntVar(&limit, "limit", 0, "max hits (0 = server default)")
+	return cmd
+}
+
+// newAgentCoursesCmd wires `orenda agent courses list`.
+//
+// Phase 31.8: the planner reads the active-course list to know
+// what to propose. With --status active the response carries
+// progress + pace notes for each course so the planner doesn't
+// have to round-trip per-course.
+func newAgentCoursesCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "courses",
+		Short: "Course-related agent commands",
+	}
+	cmd.AddCommand(newAgentCoursesListCmd())
+	return cmd
+}
+
+func newAgentCoursesListCmd() *cobra.Command {
+	var status string
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List courses (active = progress + pace notes enriched)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := "/api/v1/agent/courses"
+			if status != "" {
+				path += "?status=" + url.QueryEscape(status)
+			}
+			return agentPagesGet(cmd, path, http.StatusOK)
+		},
+	}
+	cmd.Flags().StringVar(&status, "status", "", "filter by status (draft|review|active|done|archived)")
+	return cmd
+}
+
+// newAgentStudyProposeCmd wires `orenda agent study-propose`.
+//
+// Phase 31.8: the planner's only study-side surface. Files a
+// pending proposal that the user can accept or dismiss from the
+// Dashboard tray.
+func newAgentStudyProposeCmd() *cobra.Command {
+	var (
+		courseID   string
+		title      string
+		bodyMD     string
+		targetDate string
+	)
+	cmd := &cobra.Command{
+		Use:   "study-propose",
+		Short: "File a pending study proposal (the Dashboard tray picks it up)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if title == "" || targetDate == "" {
+				return fmt.Errorf("study-propose: --title and --target-date are required")
+			}
+			body := map[string]string{
+				"title":       title,
+				"target_date": targetDate,
+			}
+			if courseID != "" {
+				body["course_id"] = courseID
+			}
+			if bodyMD != "" {
+				body["body_md"] = bodyMD
+			}
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			raw, code, err := ctx.agentPost(cmd.Context(),
+				"/api/v1/agent/study-proposals", body)
+			if err != nil {
+				return err
+			}
+			if code != http.StatusCreated {
+				return fmt.Errorf("agent study-propose: HTTP %d: %s", code, raw)
+			}
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		},
+	}
+	cmd.Flags().StringVar(&courseID, "course-id", "", "optional course id (omit for a free-standing reminder)")
+	cmd.Flags().StringVar(&title, "title", "", "proposal title (required)")
+	cmd.Flags().StringVar(&bodyMD, "body-md", "", "optional markdown body")
+	cmd.Flags().StringVar(&targetDate, "target-date", "", "YYYY-MM-DD (required)")
 	return cmd
 }

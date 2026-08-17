@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/project"
+	taskdomain "github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/service/task"
 )
 
@@ -78,21 +81,34 @@ func moveTaskHandler(deps *Dependencies) http.HandlerFunc {
 }
 
 // columnInput is the body of PATCH /api/v1/columns/:id.
+//
+// Status (Phase 27.8 + 30.14) is the column's machine key. Pointer to
+// distinguish "leave unchanged" (nil/missing) from explicit clear (""
+// = column drops its status, tasks in it fall back to the default
+// StatusTodo on the next move). When set, it must satisfy the task
+// machine-key regex (see domain/task.StatusMachineKeyPattern).
 type columnInput struct {
 	Name     string  `json:"name"`
 	Position float64 `json:"position"`
 	WIPLimit *int    `json:"wip_limit"`
 	Color    string  `json:"color"`
+	Status   *string `json:"status"`
 }
 
 // createColumnInput is the body of POST /api/v1/projects/{id}/columns.
 //
 // Name is required (empty → 400). WIPLimit and Color are optional. The
 // board id is looked up from the project, so the caller never sends it.
+//
+// Status is the column's machine key; if empty, the service slugifies
+// Name into a stable machine key (matches the migration-020 backfill
+// behaviour so existing tools keep working). When provided it must
+// satisfy task.StatusMachineKeyPattern.
 type createColumnInput struct {
 	Name     string `json:"name"`
 	Color    string `json:"color"`
 	WIPLimit *int   `json:"wip_limit"`
+	Status   string `json:"status"`
 }
 
 // createColumnHandler appends a new column to the project's (single)
@@ -130,13 +146,28 @@ func createColumnHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
+		// Phase 30.14: validate the explicit machine key. An empty
+		// status is fine — the service slugifies Name. A non-empty
+		// status must satisfy the regex; otherwise the column can't
+		// be the destination of any task (task.status must match the
+		// regex too) and we'd surface an opaque 500 later.
+		if in.Status != "" && !taskdomain.StatusMachineKeyPattern.MatchString(in.Status) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_status"})
+			return
+		}
+
 		col := &project.Column{
 			Name:     in.Name,
 			Color:    in.Color,
 			WIPLimit: in.WIPLimit,
+			Status:   in.Status,
 		}
 		created, err := deps.Projects.CreateColumn(r.Context(), projectID, col)
 		if err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "status_exists"})
+				return
+			}
 			writeError(w, err)
 			return
 		}
@@ -160,9 +191,17 @@ func createColumnHandler(deps *Dependencies) http.HandlerFunc {
 
 // patchColumnHandler updates mutable column fields.
 //
-// Allowed fields: name, position, wip_limit, color. wip_limit=0 means
-// "remove the limit" (stored as NULL). 422 is returned when a new
-// non-zero wip_limit is below the current task count in that column.
+// Allowed fields: name, position, wip_limit, color, status (Phase 30.14).
+// wip_limit=0 means "remove the limit" (stored as NULL). 422 is
+// returned when a new non-zero wip_limit is below the current task
+// count in that column.
+//
+// Status semantics: the column's machine key changes for every task
+// already in the column (Phase 27.8 invariant `task.status ≡
+// column.status`). We perform an explicit fan-out: every task gets a
+// status update with the same machine key, an activity row
+// "task.status_changed", and a `task.updated` WS event. The kanban UI
+// refetches via its existing topic subscription.
 func patchColumnHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var in columnInput
@@ -227,9 +266,63 @@ func patchColumnHandler(deps *Dependencies) http.HandlerFunc {
 			}
 		}
 
+		// Phase 30.14: validate a machine-key change before applying it.
+		// nil = leave unchanged, "&"" = clear, "&<name>" = set.
+		// Clear is only acceptable when no tasks live in the column (the
+		// fan-out below can't migrate them to "no status").
+		statusChanged := false
+		if in.Status != nil {
+			if *in.Status != "" && !taskdomain.StatusMachineKeyPattern.MatchString(*in.Status) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_status"})
+				return
+			}
+			if *in.Status != col.Status {
+				if *in.Status == "" && deps.Tasks != nil {
+					n, err := deps.Tasks.CountByColumn(r.Context(), col.ID)
+					if err != nil {
+						writeError(w, err)
+						return
+					}
+					if n > 0 {
+						writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+							"error":   "column_not_empty",
+							"current": n,
+						})
+						return
+					}
+				}
+				col.Status = *in.Status
+				statusChanged = true
+			}
+		}
+
 		if err := deps.Projects.UpdateColumn(r.Context(), col); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "unique") {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "status_exists"})
+				return
+			}
 			writeError(w, err)
 			return
+		}
+
+		// Status fan-out (Phase 30.14). All tasks in this column adopt
+		// the new machine key; we don't touch their column_id (they
+		// stay in the same column, the axis collapse invariant
+		// `task.status ≡ column.status` is restored by the manual
+		// status write). On any per-task failure we keep the column
+		// update (column has the new status) and return the first
+		// fan-out error in the body; the UI's "task.updated" events
+		// already notify the affected tasks. We log the error so an
+		// operator can see the partial state.
+		if statusChanged && col.Status != "" && deps.Tasks != nil {
+			if err := fanOutColumnStatus(r.Context(), deps, col); err != nil {
+				if deps.Logger != nil {
+					deps.Logger.Warn("column.status fan-out partial",
+						zap.String("column_id", col.ID),
+						zap.String("status", col.Status),
+						zap.Error(err))
+				}
+			}
 		}
 
 		// Phase 27.10: parity with create/delete — broadcast

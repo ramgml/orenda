@@ -6,6 +6,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/google/uuid"
 
 	"github.com/ramgml/orenda/internal/domain/project"
 )
@@ -290,12 +293,19 @@ func (r *projectRepo) UpdateColumn(ctx context.Context, c *project.Column) error
 	if c.Color != "" {
 		color = sql.NullString{String: c.Color, Valid: true}
 	}
+	// Phase 30.14: nullable status (machine key). UNIQUE(board_id, status)
+	// index will surface a duplicate as a constraint error — handlers
+	// translate that into a 409.
+	var status sql.NullString
+	if c.Status != "" {
+		status = sql.NullString{String: c.Status, Valid: true}
+	}
 	const q = `
 		UPDATE columns
-		SET name = ?, position = ?, wip_limit = ?, color = ?
+		SET name = ?, position = ?, wip_limit = ?, color = ?, status = ?
 		WHERE id = ?
 	`
-	res, err := r.db.ExecContext(ctx, q, c.Name, c.Position, wipLimit, color, c.ID)
+	res, err := r.db.ExecContext(ctx, q, c.Name, c.Position, wipLimit, color, status, c.ID)
 	if err != nil {
 		return fmt.Errorf("project.UpdateColumn: %w", err)
 	}
@@ -385,11 +395,79 @@ func (r *projectRepo) GetColumn(ctx context.Context, id string) (*project.Column
 	return &col, nil
 }
 
+// slugifyColumnStatus mirrors the slugify rule used by the
+// migration-020 backfill so freshly inserted columns land on the same
+// canonical machine keys as old boards. The five default column
+// names (`backlog`, `todo`, `in_progress`, `review`, `done`) keep
+// their lowercase form verbatim — agent flow hard-codes those.
+// Custom names are lowercased, non-[a-z0-9] is replaced with '_', and
+// runs of '_' collapse.
+func slugifyColumnStatus(name string) string {
+	switch name {
+	case "backlog", "todo", "in_progress", "review", "done":
+		return name
+	}
+	var b strings.Builder
+	b.Grow(len(name))
+	prevUnderscore := false
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+			prevUnderscore = false
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevUnderscore = false
+		default:
+			if !prevUnderscore {
+				b.WriteByte('_')
+				prevUnderscore = true
+			}
+		}
+	}
+	out := b.String()
+	out = strings.Trim(out, "_")
+	if out == "" {
+		return "custom"
+	}
+	return out
+}
+
+// uniqueSlugifiedColumnStatus returns a slugified machine key for
+// `name` that doesn't collide with any existing column.status on the
+// given board. The UNIQUE(board_id, status) index requires it.
+func uniqueSlugifiedColumnStatus(ctx context.Context, db *sql.DB, boardID, name string) string {
+	base := slugifyColumnStatus(name)
+	const q = `SELECT 1 FROM columns WHERE board_id = ? AND status = ? LIMIT 1`
+	var dummy int
+	err := db.QueryRowContext(ctx, q, boardID, base).Scan(&dummy)
+	if err == sql.ErrNoRows {
+		return base
+	}
+	// Collision: append _2, _3, … until we find a free slot.
+	for n := 2; n < 1000; n++ {
+		candidate := fmt.Sprintf("%s_%d", base, n)
+		err = db.QueryRowContext(ctx, q, boardID, candidate).Scan(&dummy)
+		if err == sql.ErrNoRows {
+			return candidate
+		}
+	}
+	// Pathological: 1000+ columns on the same board with the same slug.
+	// Fall through to a deterministic suffix.
+	return fmt.Sprintf("%s_%s", base, uuid.NewString()[:6])
+}
+
 // CreateColumn appends a new column to the project's (single) board. The
 // position is chosen as max(existing positions) + 1024 so the new column
 // always lands at the end of the board and reordering a single column
 // stays a midpoint operation. Name and (optional) WIP/Color come from c;
 // c.ID, BoardID, and Position are filled in by the repo.
+//
+// Phase 30.14: status (machine key). When c.Status is empty, a stable
+// machine key is slugified from Name (matching the migration-020
+// backfill so existing tools keep working). When the slug collides
+// with an already-existing status on this board, "_2", "_3", … is
+// appended (matching the migration's dedup rule).
 //
 // Returns project.ErrNotFound when the project has no board (project
 // missing or freshly seeded). Returns ErrInvalidInput when c.Name is empty.
@@ -427,12 +505,20 @@ func (r *projectRepo) CreateColumn(ctx context.Context, projectID string, c *pro
 		color = sql.NullString{String: c.Color, Valid: true}
 	}
 
+	// Resolve the machine key. Hand-crafted columns arrive with the
+	// status field already filled in (after the handler validates the
+	// regex). Otherwise slugify from Name with the same rules as
+	// migration 020.
+	if c.Status == "" {
+		c.Status = uniqueSlugifiedColumnStatus(ctx, r.db, board.ID, c.Name)
+	}
+
 	const ins = `
-		INSERT INTO columns (id, board_id, name, position, wip_limit, color)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO columns (id, board_id, name, position, wip_limit, color, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 	if _, err := r.db.ExecContext(ctx, ins,
-		c.ID, c.BoardID, c.Name, c.Position, wipLimit, color,
+		c.ID, c.BoardID, c.Name, c.Position, wipLimit, color, sql.NullString{String: c.Status, Valid: c.Status != ""},
 	); err != nil {
 		return nil, fmt.Errorf("project.CreateColumn: insert: %w", err)
 	}

@@ -54,6 +54,8 @@ function stubEmptyList() {
   stubHttp.get.mockImplementation((url: string) => {
     if (url === '/api/v1/events') return Promise.resolve({ data: { events: [] } });
     if (url === '/api/v1/projects') return Promise.resolve({ data: { projects: [] } });
+    // Phase 30.8: tasks with a due_at — empty for the smoke tests.
+    if (url === '/api/v1/tasks/with-due') return Promise.resolve({ data: { tasks: [] } });
     return Promise.resolve({ data: {} });
   });
 }

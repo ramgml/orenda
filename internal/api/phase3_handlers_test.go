@@ -401,6 +401,56 @@ func TestP3_ClaimReleaseSubmitReview(t *testing.T) {
 	assert.Equal(t, "done", tr.Status)
 }
 
+// TestP3_ReviewWithoutCommentReturnsBadRequest pins Phase 30.17: a
+// reject with no comment must surface as 400 invalid_input, not 500
+// internal. Service-level validation (TaskService.Review) returns
+// taskservice.ErrInvalidInput; the handler defers to writeError;
+// writeError must map that service-package sentinel to 400. Before
+// Phase 30.17, the map only listed domain.ErrInvalidInput variants,
+// so the service-package sentinel fell through to the default 500.
+// We also test bogus decision, which goes through the same code path
+// on the service side (ErrInvalidInput for "decision != approve and
+// != reject").
+func TestP3_ReviewWithoutCommentReturnsBadRequest(t *testing.T) {
+	router, db := buildP3Router(t)
+	cookie := p3Login(t, router)
+	p, col := p3SeedProject(t, router, cookie, "Rev")
+	taskID := p3SeedTask(t, router, cookie, p, col, "t")
+	agentID := p3SeedAgent(t, db, "rev1")
+
+	// Drive the task to status=review so the reject path is valid
+	// from a state-machine perspective.
+	rr := p3AuthJSON(router, http.MethodPost,
+		"/api/v1/tasks/"+taskID+"/claim", cookie,
+		map[string]any{"agent_id": agentID})
+	require.Equal(t, http.StatusOK, rr.Code, "claim")
+	rr = p3AuthJSON(router, http.MethodPost,
+		"/api/v1/tasks/"+taskID+"/submit", cookie,
+		map[string]any{"agent_id": agentID})
+	require.Equal(t, http.StatusOK, rr.Code, "submit")
+
+	// 1) reject without comment → 400 invalid_input.
+	rr = p3AuthJSON(router, http.MethodPost,
+		"/api/v1/tasks/"+taskID+"/review", cookie,
+		map[string]any{"decision": "reject"})
+	assert.Equal(t, http.StatusBadRequest, rr.Code, "body=%s", rr.Body.String())
+	var resp map[string]string
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	assert.Equal(t, "invalid_input", resp["error"])
+
+	// 2) reject with whitespace-only comment → still 400.
+	rr = p3AuthJSON(router, http.MethodPost,
+		"/api/v1/tasks/"+taskID+"/review", cookie,
+		map[string]any{"decision": "reject", "comment": "   \n  "})
+	assert.Equal(t, http.StatusBadRequest, rr.Code, "body=%s", rr.Body.String())
+
+	// 3) bogus decision → 400 (service rejects "approve" != "reject").
+	rr = p3AuthJSON(router, http.MethodPost,
+		"/api/v1/tasks/"+taskID+"/review", cookie,
+		map[string]any{"decision": "bogus"})
+	assert.Equal(t, http.StatusBadRequest, rr.Code, "body=%s", rr.Body.String())
+}
+
 // randLite returns a UUID-shaped random-ish string (avoids google/uuid import).
 func randLite() string {
 	const hex = "0123456789abcdef"

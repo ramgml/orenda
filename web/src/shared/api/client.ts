@@ -69,8 +69,62 @@ export interface Course {
   pace: string;
   status: 'draft' | 'review' | 'active' | 'done' | 'archived';
   owner_id: string;
+  /**
+   * Phase 31: free-form pace notes. Set by the agent-planner
+   * through PATCH /api/v1/agent/courses/{id} and read by the
+   * Dashboard tray / Today suggestions. omitempty so the field
+   * doesn't pollute legacy payloads.
+   */
+  pace_notes_md?: string;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Phase 30.13: named row types for the course tree. These mirror the
+ * server's course.Module / course.Lesson / course.Quiz entities and
+ * are shared by getCourse, the granular structure endpoints, and the
+ * structure-reorder response (all emit the same tree shape).
+ */
+export interface CourseModule {
+  id: string;
+  course_id: string;
+  title: string;
+  description?: string;
+  position: number;
+}
+
+export interface CourseLesson {
+  id: string;
+  module_id: string;
+  title: string;
+  position: number;
+  status: string;
+  // Phase 27.4: lesson body and exercise link. The backend emits
+  // these on every tree response (listLessonsInCourse scans
+  // `content_md` and `task_id`), so the frontend can resolve a
+  // single lesson without an extra round-trip.
+  content_md?: string;
+  task_id?: string;
+}
+
+export interface CourseQuiz {
+  id: string;
+  lesson_id: string;
+  position: number;
+  question_md: string;
+  expected_md?: string;
+  kind: 'open' | 'exact';
+}
+
+/** Full course tree — the shape of GET /api/v1/courses/{id} and of
+ *  PUT /api/v1/courses/{id}/structure (Phase 30.13). */
+export interface CourseTree {
+  course: Course;
+  modules: CourseModule[];
+  lessons: CourseLesson[];
+  quizzes?: CourseQuiz[];
+  progress: { lessons_total: number; lessons_done: number };
 }
 
 export interface Project {
@@ -135,6 +189,13 @@ export interface Task {
   awaiting: string;
   context_md?: string;
   agent_notes?: string;
+  /**
+   * Phase 31: free-form study reminder marker. Empty/undefined
+   * means "regular task"; non-empty means "soft reminder from a
+   * study proposal". The Today screen reads this to apply the
+   * no-escalation read semantics (a missed day never turns red).
+   */
+  study_course_id?: string;
   /** Calendar fields (Phase 12/14). A task with both start_at and
    * end_at shows on the calendar; otherwise it's a plain kanban row. */
   start_at?: string;
@@ -215,6 +276,35 @@ export interface TaskCounters {
   children_done: number;
   checklist_total: number;
   checklist_done: number;
+}
+
+// StudyProposalView — Phase 31.9: the lightweight projection the
+// Dashboard tray renders. The full Proposal entity (with body_md,
+// accepted_task_id, resolved_at) stays in the agent namespace.
+export interface StudyProposalView {
+  id: string;
+  course_id?: string;
+  title: string;
+  body_md?: string;
+  target_date: string; // YYYY-MM-DD
+  agent_id: string;
+  created_at: string;
+}
+
+// StudyProposalFull — returned by the accept/dismiss endpoints
+// because the user tray may want to confirm the title / agent after
+// the action. Phase 31.9.
+export interface StudyProposalFull {
+  id: string;
+  course_id?: string;
+  title: string;
+  body_md?: string;
+  target_date: string;
+  status: 'pending' | 'accepted' | 'dismissed';
+  created_by_agent: string;
+  accepted_task_id?: string;
+  created_at: string;
+  resolved_at?: string;
 }
 
 export interface Agent {
@@ -338,11 +428,17 @@ class ApiClient {
     return this.http.get<ProjectBoard>(`/api/v1/projects/${projectId}/board`).then((r) => r.data);
   }
 
-  /** Update mutable column fields (name, position, wip_limit, color).
+  /** Update mutable column fields (name, position, wip_limit, color, status).
    * wip_limit=null → leave as-is; wip_limit=0 → clear; >0 → set. */
   updateColumn(
     columnId: string,
-    input: { name?: string; position?: number; wip_limit?: number | null; color?: string },
+    input: {
+      name?: string;
+      position?: number;
+      wip_limit?: number | null;
+      color?: string;
+      status?: string;
+    },
   ): Promise<Column> {
     return this.http.patch<Column>(`/api/v1/columns/${columnId}`, input).then((r) => r.data);
   }
@@ -353,7 +449,7 @@ class ApiClient {
    *  event so other tabs refresh. */
   createColumn(
     projectId: string,
-    input: { name: string; color?: string; wip_limit?: number | null },
+    input: { name: string; color?: string; wip_limit?: number | null; status?: string },
   ): Promise<Column> {
     return this.http
       .post<Column>(`/api/v1/projects/${projectId}/columns`, input)
@@ -588,6 +684,15 @@ class ApiClient {
     return this.http.patch<Task>(`/api/v1/tasks/${taskId}`, input).then((r) => r.data);
   }
 
+  bulkPatchTasks(input: {
+    task_ids: string[];
+    patch: Partial<Task>;
+  }): Promise<{ tasks: Task[]; errors?: Record<string, string> }> {
+    return this.http
+      .post<{ tasks: Task[]; errors?: Record<string, string> }>('/api/v1/tasks/bulk-edit', input)
+      .then((r) => r.data);
+  }
+
   deleteTask(taskId: string): Promise<void> {
     return this.http.delete<void>(`/api/v1/tasks/${taskId}`).then(() => undefined);
   }
@@ -603,6 +708,17 @@ class ApiClient {
     return this.http.get<{ tasks: Task[] }>('/api/v1/inbox/tasks', { params }).then((r) => r.data);
   }
 
+  /**
+   * Phase 30.8: tasks with a due_at in [from, to]. The calendar uses
+   * this to render deadlines alongside timed events. The returned
+   * tasks are unordered by the API; the calendar sorts by date.
+   */
+  tasksWithDue(params: { from: string; to: string }): Promise<{ tasks: Task[] }> {
+    return this.http
+      .get<{ tasks: Task[] }>('/api/v1/tasks/with-due', { params })
+      .then((r) => r.data);
+  }
+
   /** Create a task with project_id explicitly empty (Inbox). */
   createInboxTask(input: {
     title: string;
@@ -612,6 +728,10 @@ class ApiClient {
     priority?: string;
     assignee_type?: string;
     assignee_id?: string;
+    // Phase 30.10: optional due_at (ISO 8601). Undefined → no
+    // deadline; the field is opt-in so the hotkey capture flow
+    // stays one keystroke from thinking to done.
+    due_at?: string;
   }): Promise<Task> {
     return this.http.post<Task>('/api/v1/inbox/tasks', input).then((r) => r.data);
   }
@@ -722,6 +842,9 @@ class ApiClient {
     upcoming_week: { date: string; count: number }[];
     awaiting_count: number;
     active_timer?: { task_id: string; started_at: string };
+    // Phase 31.9: pending study proposals for the Dashboard tray.
+    // Empty array when none; never null.
+    proposals: StudyProposalView[];
   }> {
     return this.http
       .get<{
@@ -731,7 +854,39 @@ class ApiClient {
         upcoming_week: { date: string; count: number }[];
         awaiting_count: number;
         active_timer?: { task_id: string; started_at: string };
+        proposals: StudyProposalView[];
       }>(`/api/v1/today`)
+      .then((r) => r.data);
+  }
+
+  // ---- Study proposals (Phase 31.9) ----
+
+  // Lightweight projection of a pending study proposal as rendered
+  // on the Dashboard tray. The full Proposal entity (with body_md,
+  // accepted_task_id, etc.) stays in the agent namespace.
+  listStudyProposals(): Promise<{ proposals: StudyProposalView[] }> {
+    return this.http
+      .get<{ proposals: StudyProposalView[] }>(`/api/v1/study-proposals`)
+      .then((r) => r.data);
+  }
+
+  acceptStudyProposal(id: string): Promise<{
+    proposal: StudyProposalFull;
+    task: Task;
+    already_accepted: boolean;
+  }> {
+    return this.http
+      .post<{
+        proposal: StudyProposalFull;
+        task: Task;
+        already_accepted: boolean;
+      }>(`/api/v1/study-proposals/${id}/accept`)
+      .then((r) => r.data);
+  }
+
+  dismissStudyProposal(id: string): Promise<{ proposal: StudyProposalFull }> {
+    return this.http
+      .post<{ proposal: StudyProposalFull }>(`/api/v1/study-proposals/${id}/dismiss`)
       .then((r) => r.data);
   }
 
@@ -837,68 +992,8 @@ class ApiClient {
     return this.http.post<Course>('/api/v1/courses', input).then((r) => r.data);
   }
 
-  getCourse(id: string): Promise<{
-    course: Course;
-    modules: {
-      id: string;
-      course_id: string;
-      title: string;
-      description?: string;
-      position: number;
-    }[];
-    lessons: {
-      id: string;
-      module_id: string;
-      title: string;
-      position: number;
-      status: string;
-      // Phase 27.4: lesson body and exercise link. The backend
-      // emits these on every tree response (listLessonsInCourse
-      // scans `content_md` and `task_id`), so the frontend can
-      // resolve a single lesson without an extra round-trip.
-      content_md?: string;
-      task_id?: string;
-    }[];
-    quizzes?: {
-      id: string;
-      lesson_id: string;
-      position: number;
-      question_md: string;
-      expected_md?: string;
-      kind: 'open' | 'exact';
-    }[];
-    progress: { lessons_total: number; lessons_done: number };
-  }> {
-    return this.http
-      .get<{
-        course: Course;
-        modules: {
-          id: string;
-          course_id: string;
-          title: string;
-          description?: string;
-          position: number;
-        }[];
-        lessons: {
-          id: string;
-          module_id: string;
-          title: string;
-          position: number;
-          status: string;
-          content_md?: string;
-          task_id?: string;
-        }[];
-        quizzes?: {
-          id: string;
-          lesson_id: string;
-          position: number;
-          question_md: string;
-          expected_md?: string;
-          kind: 'open' | 'exact';
-        }[];
-        progress: { lessons_total: number; lessons_done: number };
-      }>(`/api/v1/courses/${id}`)
-      .then((r) => r.data);
+  getCourse(id: string): Promise<CourseTree> {
+    return this.http.get<CourseTree>(`/api/v1/courses/${id}`).then((r) => r.data);
   }
 
   approveCourse(id: string): Promise<Course> {
@@ -978,15 +1073,10 @@ class ApiClient {
       expected_md?: string;
       kind: 'exact' | 'open';
     },
-  ): Promise<{
-    id: string;
-    lesson_id: string;
-    position: number;
-    question_md: string;
-    expected_md?: string;
-    kind: 'exact' | 'open';
-  }> {
-    return this.http.post(`/api/v1/lessons/${lessonId}/quizzes`, input).then((r) => r.data);
+  ): Promise<CourseQuiz> {
+    return this.http
+      .post<CourseQuiz>(`/api/v1/lessons/${lessonId}/quizzes`, input)
+      .then((r) => r.data);
   }
 
   updateLessonContent(
@@ -994,6 +1084,63 @@ class ApiClient {
     input: { content_md: string; task_id?: string },
   ): Promise<unknown> {
     return this.http.put(`/api/v1/lessons/${lessonId}/content`, input).then((r) => r.data);
+  }
+
+  // ---- Phase 30.13: granular structure edits (stable IDs) ----
+  //
+  // The atomic swap above is destructive (rows are reinserted, so
+  // lesson status/progress is lost). For active courses the UI edits
+  // via these surgical endpoints so student progress survives.
+
+  createCourseModule(
+    courseId: string,
+    input: { title: string; description?: string },
+  ): Promise<CourseModule> {
+    return this.http
+      .post<CourseModule>(`/api/v1/courses/${courseId}/modules`, input)
+      .then((r) => r.data);
+  }
+
+  updateModule(id: string, input: { title: string; description?: string }): Promise<CourseModule> {
+    return this.http.patch<CourseModule>(`/api/v1/modules/${id}`, input).then((r) => r.data);
+  }
+
+  deleteModule(id: string): Promise<void> {
+    return this.http.delete(`/api/v1/modules/${id}`).then(() => undefined);
+  }
+
+  createModuleLesson(moduleId: string, input: { title: string }): Promise<CourseLesson> {
+    return this.http
+      .post<CourseLesson>(`/api/v1/modules/${moduleId}/lessons`, input)
+      .then((r) => r.data);
+  }
+
+  renameLesson(id: string, title: string): Promise<CourseLesson> {
+    return this.http.patch<CourseLesson>(`/api/v1/lessons/${id}`, { title }).then((r) => r.data);
+  }
+
+  deleteLesson(id: string): Promise<void> {
+    return this.http.delete(`/api/v1/lessons/${id}`).then(() => undefined);
+  }
+
+  updateQuiz(
+    qid: string,
+    input: { question_md: string; expected_md?: string; kind?: 'exact' | 'open' },
+  ): Promise<CourseQuiz> {
+    return this.http.patch<CourseQuiz>(`/api/v1/quizzes/${qid}`, input).then((r) => r.data);
+  }
+
+  deleteQuiz(qid: string): Promise<void> {
+    return this.http.delete(`/api/v1/quizzes/${qid}`).then(() => undefined);
+  }
+
+  applyCourseStructure(
+    courseId: string,
+    modules: { module_id: string; lesson_ids: string[] }[],
+  ): Promise<CourseTree> {
+    return this.http
+      .put<CourseTree>(`/api/v1/courses/${courseId}/structure`, { modules })
+      .then((r) => r.data);
   }
 
   // ---- Wiki (Phase 5) ----
@@ -1094,6 +1241,21 @@ class ApiClient {
 
   testBackupPush(): Promise<{ status: string }> {
     return this.http.post<{ status: string }>('/api/v1/backups/test', {}).then((r) => r.data);
+  }
+
+  /**
+   * Phase 30.9: read-only backup status (snapshot count + latest
+   * path/size). No side-effects; safe to poll.
+   */
+  getBackupStatus(): Promise<{
+    scheduler_disabled: boolean;
+    snapshot_count?: number;
+    latest_snapshot?: string;
+    latest_snapshot_size?: number;
+    latest_snapshot_unix?: number;
+    snapshot_error?: string;
+  }> {
+    return this.http.get('/api/v1/backups/status').then((r) => r.data);
   }
 
   createSnapshot(): Promise<{ path: string }> {

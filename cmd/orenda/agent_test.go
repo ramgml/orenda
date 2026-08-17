@@ -165,3 +165,100 @@ func TestResolveAgentCtx_Missing(t *testing.T) {
 		t.Errorf("error should mention --url or --token, got: %s", err.Error())
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Phase 29.2: pages/search subcommands against an httptest server.
+// The full cobra tree is executed so flag inheritance and arg
+// parsing are exercised, not just the transport.
+// ---------------------------------------------------------------------------
+
+// runAgentCLI executes the agent command tree with the global
+// --url/--token flags pointed at srv and returns stdout.
+func runAgentCLI(t *testing.T, srv *httptest.Server, args ...string) (string, error) {
+	t.Helper()
+	root := newAgentCmd()
+	var out strings.Builder
+	root.SetOut(&out)
+	full := append([]string{"--url", srv.URL, "--token", "test-token"}, args...)
+	root.SetArgs(full)
+	err := root.Execute()
+	return out.String(), err
+}
+
+func TestAgentPagesPut_SendsPUTWithMarkdown(t *testing.T) {
+	md := "# Hello\n\nSee [[other-page]].\n"
+	mdFile := filepath.Join(t.TempDir(), "page.md")
+	require.NoError(t, os.WriteFile(mdFile, []byte(md), 0o600))
+
+	var gotMethod, gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"p-1","slug":"my-page","title":"My Page"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	out, err := runAgentCLI(t, srv, "pages", "put", "my-page", "--title", "My Page", "--file", mdFile)
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodPut, gotMethod, "pages put must use PUT (the endpoint is an upsert)")
+	assert.Equal(t, "/api/v1/agent/pages/my-page", gotPath)
+	assert.Equal(t, "My Page", gotBody["title"])
+	assert.Equal(t, md, gotBody["content_md"])
+	assert.Contains(t, out, "my-page")
+}
+
+func TestAgentPagesPut_ReadsStdin(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"p-2","slug":"stdin-page"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	root := newAgentCmd()
+	var out strings.Builder
+	root.SetOut(&out)
+	root.SetIn(strings.NewReader("from stdin\n"))
+	root.SetArgs([]string{"--url", srv.URL, "--token", "test-token",
+		"pages", "put", "stdin-page", "--title", "Stdin"})
+	require.NoError(t, root.Execute())
+	assert.Equal(t, "from stdin\n", gotBody["content_md"])
+}
+
+func TestAgentPagesMove_SendsPATCH(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+
+	out, err := runAgentCLI(t, srv, "pages", "move", "child-page", "--parent", "parent-id-1")
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodPatch, gotMethod)
+	assert.Equal(t, "/api/v1/agent/pages/child-page/move", gotPath)
+	assert.Equal(t, "parent-id-1", gotBody["parent_id"])
+	assert.Contains(t, out, "moved")
+}
+
+func TestAgentSearch_EncodesQuery(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"hits":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := runAgentCLI(t, srv, "search", "hello world", "--type", "page", "--limit", "5")
+	require.NoError(t, err)
+	assert.Contains(t, gotQuery, "q=hello+world")
+	assert.Contains(t, gotQuery, "type=page")
+	assert.Contains(t, gotQuery, "limit=5")
+}

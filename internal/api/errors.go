@@ -11,6 +11,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
 	"github.com/ramgml/orenda/internal/domain/wiki"
+	taskservice "github.com/ramgml/orenda/internal/service/task"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
 )
 
@@ -28,6 +29,15 @@ func SetAPILogger(l *zap.Logger) { apiLogger = l }
 // and writes a small JSON body. Unknown errors become 500.
 //
 // Use this from every handler so the wire format stays consistent.
+//
+// Phase 30.7 added a service-side validation that rejects a review
+// without a comment (decision=reject && trim(comment) == ""), but
+// the original switch only mapped domain-package sentinels
+// (task.ErrInvalidInput, etc.). Service packages — task/taskservice —
+// have their own ErrInvalidInput that wasn't covered, so the path
+// rendered 500 {"error":"internal"} instead of 400. Phase 30.17
+// completes the mapping: every ErrInvalidInput from any layer
+// resolves to 400 invalid_input.
 func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, project.ErrColumnNotEmpty):
@@ -44,6 +54,7 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, user.ErrInvalidInput),
 		errors.Is(err, project.ErrInvalidInput),
 		errors.Is(err, task.ErrInvalidInput),
+		errors.Is(err, taskservice.ErrInvalidInput),
 		errors.Is(err, wiki.ErrInvalidInput),
 		errors.Is(err, wikiservice.ErrInvalidInput):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})

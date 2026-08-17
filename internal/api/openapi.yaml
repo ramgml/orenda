@@ -113,7 +113,7 @@ components:
         title: { type: string }
         status:
           type: string
-          enum: [backlog, todo, in_progress, review, done]
+          description: Canonical status or a project-defined column machine key.
         priority:
           type: string
           enum: [low, medium, high, urgent]
@@ -125,8 +125,28 @@ components:
           type: string
           enum: [none, human, agent]
         due_at: { type: string, format: date-time }
+        # Phase 31: study-reminder marker. Non-empty means "soft
+        # reminder accepted from a study proposal"; the Today
+        # screen reads this to apply the no-escalation policy
+        # (missed day never turns red). Loose FK to courses.id —
+        # ON DELETE SET NULL on the row, so a course deletion
+        # clears the link but keeps the task.
+        study_course_id: { type: string }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+
+    Column:
+      type: object
+      properties:
+        id: { type: string }
+        board_id: { type: string }
+        name: { type: string }
+        position: { type: number }
+        wip_limit: { type: integer, nullable: true }
+        color: { type: string }
+        status:
+          type: string
+          description: Lowercase machine key used as task.status for this column.
 
     Course:
       type: object
@@ -144,6 +164,107 @@ components:
           type: string
           enum: [casual, regular, intensive]
         owner_id: { type: string }
+        # Phase 31: free-form pace notes. Set by the agent-planner
+        # through PATCH /api/v1/agent/courses/{id} and read by the
+        # Dashboard tray / Today suggestions. Trimmed + capped at
+        # 64 KiB by course.Course.Validate.
+        pace_notes_md: { type: string }
+
+    # Phase 31.5: progress sub-object attached to active courses
+    # in the agent-side list. Lets the planner see how far the
+    # student is and what lessons are still open.
+    ActiveCourseProgress:
+      type: object
+      properties:
+        lessons_total: { type: integer }
+        lessons_done: { type: integer }
+        open_lessons:
+          type: array
+          items: { $ref: '#/components/schemas/OpenLesson' }
+        last_completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    OpenLesson:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        module_id: { type: string }
+        module_title: { type: string }
+        position: { type: integer }
+
+    # Phase 31.6: study proposal (lightweight Dashboard-tray shape).
+    # Today/projects paths only need the tray fields; the full
+    # entity lives in the agent namespace and the user accept/
+    # dismiss response.
+    StudyProposalView:
+      type: object
+      properties:
+        id: { type: string }
+        course_id: { type: string }
+        title: { type: string }
+        body_md: { type: string }
+        target_date:
+          type: string
+          description: 'YYYY-MM-DD — the day the proposal suggests as a study slot'
+        agent_id: { type: string }
+        created_at: { type: string, format: date-time }
+
+    # Phase 31.6: full proposal shape returned by accept/dismiss.
+    # Same as StudyProposalView plus the resolved state and the
+    # accepted_task_id pointer.
+    StudyProposalFull:
+      allOf:
+        - $ref: '#/components/schemas/StudyProposalView'
+        - type: object
+          properties:
+            status:
+              type: string
+              enum: [pending, accepted, dismissed]
+            created_by_agent: { type: string }
+            accepted_task_id: { type: string }
+            resolved_at:
+              type: string
+              format: date-time
+              nullable: true
+
+    # Phase 31.7: payload returned by /today. Inline because the
+    # frontend imports the same shape — keeping it as a named
+    # schema lets openapi.yaml consumers (codegen, validators)
+    # reference it instead of duplicating.
+    TodayResponse:
+      type: object
+      properties:
+        overdue:
+          type: array
+          items: { $ref: '#/components/schemas/Task' }
+        due_today:
+          type: array
+          items: { $ref: '#/components/schemas/Task' }
+        scheduled_today:
+          type: array
+          items: { $ref: '#/components/schemas/Task' }
+        upcoming_week:
+          type: array
+          items:
+            type: object
+            properties:
+              date: { type: string, description: 'YYYY-MM-DD' }
+              count: { type: integer }
+        awaiting_count: { type: integer }
+        active_timer:
+          type: object
+          nullable: true
+          properties:
+            task_id: { type: string }
+            started_at: { type: string, format: date-time }
+        proposals:
+          type: array
+          description: 'Phase 31.7: pending study proposals for the Dashboard tray. Empty array when none.'
+          items: { $ref: '#/components/schemas/StudyProposalView' }
+
 
     Agent:
       type: object
@@ -240,6 +361,7 @@ paths:
                   ws_connections: { type: integer }
                   db_bytes: { type: integer }
                   db_path: { type: string }
+                  sync_ops_record_failures: { type: integer, description: 'Phase 30.2: count of sync_ops.Record() failures since process start. Non-zero indicates outbox idempotency table is unhealthy and the client may replay ops.' }
 
   # ---- auth ----
   /api/v1/auth/login:
@@ -350,6 +472,18 @@ paths:
       tags: [projects]
       summary: Append a column to the project's board.
       security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                color: { type: string }
+                wip_limit: { type: integer, minimum: 0, nullable: true }
+                status: { type: string, pattern: '^[a-z][a-z0-9_]*$' }
       responses: { '201': { description: created } }
 
   /api/v1/projects/{id}/tasks:
@@ -392,10 +526,24 @@ paths:
   /api/v1/columns/{id}:
     patch:
       tags: [projects]
-      summary: Update a column (name/wip_limit/color).
+      summary: Update a column (name/position/wip_limit/color/status).
       security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                position: { type: number }
+                wip_limit: { type: integer, minimum: 0, nullable: true }
+                color: { type: string }
+                status: { type: string, pattern: '^[a-z][a-z0-9_]*$' }
       responses:
         '200': { description: ok }
+        '400': { description: invalid status or input }
+        '409': { description: duplicate status on this board }
         '422': { description: wip_limit_too_small }
     delete:
       tags: [projects]
@@ -406,6 +554,46 @@ paths:
         '422': { description: column_not_empty }
 
   # ---- tasks ----
+  /api/v1/tasks/bulk-edit:
+    post:
+      tags: [tasks]
+      summary: Apply one partial task patch to several tasks.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [task_ids, patch]
+              properties:
+                task_ids:
+                  type: array
+                  minItems: 1
+                  items: { type: string }
+                patch:
+                  type: object
+                  properties:
+                    status: { type: string }
+                    priority: { type: string, enum: [low, medium, high, urgent] }
+                    assignee_type: { type: string }
+                    assignee_id: { type: string }
+                    completed_at: { type: string, format: date-time, nullable: true }
+      responses:
+        '200':
+          description: Updated tasks and per-task errors (if any).
+        '400': { description: invalid request }
+  /api/v1/tasks/with-due:
+    get:
+      tags: [tasks]
+      summary: 'Phase 30.8: tasks with a due_at in [from, to]. Used by the calendar to render deadlines alongside timed events.'
+      security: [{ bearerAuth-cookie: [] }]
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_from / invalid_to }
   /api/v1/tasks/{id}:
     get:
       tags: [tasks]
@@ -870,9 +1058,14 @@ paths:
   /api/v1/today:
     get:
       tags: [today]
-      summary: Daily-driver dashboard payload (overdue + due-today + scheduled + awaiting).
+      summary: Daily-driver dashboard payload (overdue + due-today + scheduled + awaiting + study proposals).
       security: [{ bearerAuth-cookie: [] }]
-      responses: { '200': { description: ok } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TodayResponse' }
 
   # ---- courses ----
   /api/v1/courses:
@@ -939,6 +1132,170 @@ paths:
       responses:
         '200': { description: ok }
         '422': { description: invalid_transition }
+
+  # Phase 30.13: granular structure edits with stable IDs. Unlike the
+  # curriculum swap these never delete+reinsert rows, so lesson status
+  # (student progress) and task links survive. Allowed on
+  # draft/review/active; done/archived courses are frozen (422).
+  /api/v1/courses/{id}/modules:
+    post:
+      tags: [courses]
+      summary: Append a module to the course (owner-side, Phase 30.13).
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                description: { type: string }
+      responses:
+        '201': { description: created }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+
+  /api/v1/courses/{id}/structure:
+    put:
+      tags: [courses]
+      summary: Drag-and-drop reorder — module order + lesson order per module (Phase 30.13).
+      description: |
+        IDs-only payload; must name every module and every lesson of
+        the course exactly once (400 otherwise, nothing written).
+        Lessons may move across modules. Positions are rewritten
+        1..n in payload order. Returns the refreshed course tree.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [modules]
+              properties:
+                modules:
+                  type: array
+                  items:
+                    type: object
+                    required: [module_id, lesson_ids]
+                    properties:
+                      module_id: { type: string }
+                      lesson_ids: { type: array, items: { type: string } }
+      responses:
+        '200': { description: ok (course tree) }
+        '400': { description: invalid_input (unknown/duplicate/missing ids) }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+
+  /api/v1/modules/{id}:
+    patch:
+      tags: [courses]
+      summary: Rename a module / edit its description in place (Phase 30.13).
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                description: { type: string }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+    delete:
+      tags: [courses]
+      summary: Delete a module; lessons and quizzes cascade (progress of those lessons is dropped).
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '204': { description: deleted }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+
+  /api/v1/modules/{id}/lessons:
+    post:
+      tags: [courses]
+      summary: Append a lesson to the module; the lesson is born locked (Phase 30.13).
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+      responses:
+        '201': { description: created }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+
+  /api/v1/lessons/{id}:
+    patch:
+      tags: [courses]
+      summary: Rename a lesson in place; status/content/task link preserved (Phase 30.13).
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+    delete:
+      tags: [courses]
+      summary: Delete a lesson; its quizzes cascade.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '204': { description: deleted }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+
+  /api/v1/quizzes/{qid}:
+    patch:
+      tags: [courses]
+      summary: Edit a quiz's question/expected answer/kind in place (Phase 30.13). Empty kind = exact.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question_md]
+              properties:
+                question_md: { type: string }
+                expected_md: { type: string }
+                kind: { type: string, enum: [open, exact] }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+    delete:
+      tags: [courses]
+      summary: Delete a quiz.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '204': { description: deleted }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
 
   # Phase 27.6: owner-side content edit for active courses. The
   # agent-only PUT /agent/lessons/{id}/content still owns the
@@ -1287,6 +1644,12 @@ paths:
       summary: List snapshots.
       security: [{ bearerAuth-cookie: [] }]
       responses: { '200': { description: ok } }
+  /api/v1/backups/status:
+    get:
+      tags: [backups]
+      summary: 'Phase 30.9: read-only backup status (snapshot count + latest path/size + timestamp).'
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
 
   /api/v1/backups/restore:
     post:
@@ -1481,9 +1844,73 @@ paths:
   /api/v1/agent/courses:
     get:
       tags: [agent, courses]
-      summary: List courses (tutor's view; ?status=draft filters).
+      summary: List courses (tutor's view; ?status=active enriches with progress).
+      description: |
+        Optional ?status= filter. When status=active the row carries
+        a progress sub-object (lessons_total, lessons_done, open_lessons)
+        so the planner has everything it needs in one round-trip.
       security: [{ bearerAuth-agent: [] }]
-      responses: { '200': { description: ok } }
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [draft, review, active, done, archived] }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  courses:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Course'
+                        - type: object
+                          properties:
+                            progress:
+                              $ref: '#/components/schemas/ActiveCourseProgress'
+    post:
+      tags: [agent, courses]
+      summary: Create a draft course (Phase 29.4) — "agent, build me a course on X".
+      description: |
+        The course is owned by the first non-system user
+        (single-owner install). The generator task is NOT spawned —
+        the calling agent is the generator (SkipGenerator is
+        forced). Follow with PUT curriculum, materialize the
+        lessons, then POST activate; no human click is required.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                intent_md: { type: string }
+      responses:
+        '201': { description: created (draft course) }
+        '400': { description: missing_title | invalid_json }
+        '503': { description: owner_not_configured (no human user yet) }
+
+  # Phase 29.5: agent-side activation. Shares the approve path with
+  # POST /api/v1/courses/{id}/approve (review → active, first
+  # lesson unlocked). The human-approve gate in the UI is
+  # unchanged; this endpoint removes the mandatory click from the
+  # "agent builds the whole course" scenario.
+  /api/v1/agent/courses/{id}/activate:
+    post:
+      tags: [agent, courses]
+      summary: Activate a course (review → active), same transition as owner approve.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
 
   /api/v1/agent/courses/{id}/curriculum:
     put:
@@ -1523,7 +1950,135 @@ paths:
       security: [{ bearerAuth-agent: [] }]
       responses:
         '201': { description: created }
+
+  # Phase 31.5: planner writes a study proposal that the user can
+  # accept or dismiss from the Dashboard tray. created_by_agent is
+  # stamped from the bearer token, never from the body.
+  /api/v1/agent/study-proposals:
+    post:
+      tags: [agent, study]
+      summary: File a pending study proposal.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, target_date]
+              properties:
+                course_id:   { type: string, description: optional course link }
+                title:       { type: string }
+                body_md:     { type: string }
+                target_date: { type: string, description: 'YYYY-MM-DD' }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StudyProposalFull' }
+        '400': { description: missing_title_or_target_date | invalid_json | invalid_input }
+        '401': { description: missing agent identity }
+        '503': { description: study service not wired }
+
+  # Phase 31.5: narrow PATCH for pace_notes_md. Title/status/etc.
+  # are owned by the human; only pace notes are agent-editable.
+  /api/v1/agent/courses/{id}:
+    patch:
+      tags: [agent, courses, study]
+      summary: Update course pace notes (PaceNotesMD).
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pace_notes_md: { type: string, description: 'free-form markdown; ≤ 64 KiB' }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Course' }
+        '400': { description: invalid_pace_notes_md }
+        '404': { description: course not found }
         '400': { description: invalid_input }
+
+  # Phase 31.6: user-side study proposal surface. The Dashboard
+  # tray renders the pending list; accept/dismiss land here.
+  /api/v1/study-proposals:
+    get:
+      tags: [study]
+      summary: List pending study proposals (the Dashboard tray).
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  proposals:
+                    type: array
+                    items: { $ref: '#/components/schemas/StudyProposalView' }
+        '503': { description: study service not wired }
+  /api/v1/study-proposals/{id}/accept:
+    post:
+      tags: [study]
+      summary: Accept a study proposal (materialise an inbox task).
+      description: |
+        201 on a fresh materialisation; 200 on an idempotent
+        re-accept of an already-accepted proposal (returns the
+        original task id). 409 on accept of a dismissed proposal;
+        404 on unknown id.
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: ok (idempotent re-accept)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  proposal:         { $ref: '#/components/schemas/StudyProposalFull' }
+                  task:             { $ref: '#/components/schemas/Task' }
+                  already_accepted: { type: boolean }
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  proposal:         { $ref: '#/components/schemas/StudyProposalFull' }
+                  task:             { $ref: '#/components/schemas/Task' }
+                  already_accepted: { type: boolean }
+        '404': { description: proposal not found }
+        '409': { description: proposal_resolved }
+        '503': { description: study service not wired }
+  /api/v1/study-proposals/{id}/dismiss:
+    post:
+      tags: [study]
+      summary: Dismiss a study proposal.
+      description: |
+        200 on a fresh dismiss. 409 on dismiss of an already-
+        accepted proposal; 404 on unknown id.
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  proposal: { $ref: '#/components/schemas/StudyProposalFull' }
+        '404': { description: proposal not found }
+        '409': { description: proposal_resolved }
+        '503': { description: study service not wired }
 
   /api/v1/agent/lessons/{id}/materialize:
     post:
@@ -1569,6 +2124,203 @@ paths:
         '200': { description: ok }
         '400': { description: invalid_input }
         '404': { description: lesson not found }
+
+  # Phase 30.13: agent-side mirrors of the granular structure ops —
+  # same handlers, same progress-preserving semantics as the user
+  # side; tutors can maintain a live course without the curriculum
+  # swap (which resets lesson progress).
+  /api/v1/agent/courses/{id}/modules:
+    post:
+      tags: [agent, courses]
+      summary: Append a module to the course (agent-side, Phase 30.13).
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                description: { type: string }
+      responses:
+        '201': { description: created }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+
+  /api/v1/agent/courses/{id}/structure:
+    put:
+      tags: [agent, courses]
+      summary: Reorder modules/lessons, IDs-only, exact coverage (Phase 30.13).
+      description: |
+        Same contract as PUT /api/v1/courses/{id}/structure: every
+        module and lesson of the course exactly once, positions
+        rewritten 1..n, lessons may move across modules. Returns the
+        refreshed course tree.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok (course tree) }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+
+  /api/v1/agent/modules/{id}:
+    patch:
+      tags: [agent, courses]
+      summary: Rename a module / edit description (agent-side, Phase 30.13).
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
+    delete:
+      tags: [agent, courses]
+      summary: Delete a module; lessons and quizzes cascade.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '204': { description: deleted }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
+
+  /api/v1/agent/modules/{id}/lessons:
+    post:
+      tags: [agent, courses]
+      summary: Append a lesson to the module; born locked (agent-side, Phase 30.13).
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '201': { description: created }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
+
+  /api/v1/agent/lessons/{id}:
+    patch:
+      tags: [agent, courses]
+      summary: Rename a lesson in place; status/content preserved (agent-side, Phase 30.13).
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
+    delete:
+      tags: [agent, courses]
+      summary: Delete a lesson; quizzes cascade.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '204': { description: deleted }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
+
+  /api/v1/agent/quizzes/{qid}:
+    patch:
+      tags: [agent, courses]
+      summary: Edit a quiz in place (agent-side, Phase 30.13). Empty kind = exact.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
+    delete:
+      tags: [agent, courses]
+      summary: Delete a quiz.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '204': { description: deleted }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
+
+  # Phase 29.1: agent wiki + search. Same handlers as the user side —
+  # wiki_pages has no owner column, so the bearer token is the only
+  # gate. PUT /{slug} is the upsert (create + update); no bare POST.
+  /api/v1/agent/pages:
+    get:
+      tags: [agent, wiki]
+      summary: List the wiki page tree (agent side).
+      security: [{ bearerAuth-agent: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/agent/pages/{slug}:
+    get:
+      tags: [agent, wiki]
+      summary: Get a wiki page by slug (agent side).
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '404': { description: page not found }
+    put:
+      tags: [agent, wiki]
+      summary: Upsert a wiki page (agent side). URL slug is authoritative.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                content_md: { type: string }
+                parent_id: { type: string }
+                position: { type: integer }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '409': { description: slug_taken }
+    delete:
+      tags: [agent, wiki]
+      summary: Delete a wiki page (agent side). Cascades wiki_links.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '204': { description: deleted }
+        '404': { description: page not found }
+
+  /api/v1/agent/pages/{slug}/move:
+    patch:
+      tags: [agent, wiki]
+      summary: Move a page under a new parent (agent side). Empty parent_id = root.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                parent_id: { type: string }
+      responses:
+        '204': { description: moved }
+        '400': { description: cycle or invalid parent }
+        '404': { description: page not found }
+
+  /api/v1/agent/pages/{slug}/backlinks:
+    get:
+      tags: [agent, wiki]
+      summary: List pages that link to this one (agent side).
+      security: [{ bearerAuth-agent: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/agent/search:
+    get:
+      tags: [agent, wiki]
+      summary: FTS5 search across tasks/pages/comments (agent side).
+      security: [{ bearerAuth-agent: [] }]
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string }
+        - in: query
+          name: type
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer }
+      responses: { '200': { description: ok } }
 
   # ---- SPA fallback ----
   /{catchAll}:

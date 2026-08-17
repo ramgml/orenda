@@ -3,7 +3,13 @@ import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import { Markdown } from 'tiptap-markdown';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
+import {
+  flattenWikiTree,
+  WikiLinkSuggestion,
+  type WikiLinkItem,
+  type WikiTreeNode,
+} from './WikiLinkSuggestion';
 
 /**
  * Notion-style markdown editor built on Tiptap.
@@ -18,16 +24,29 @@ import { useEffect } from 'react';
  * BubbleMenu shows a small floating toolbar when the user selects
  * text: B / I / link / H1 / H2 / list — that's the Notion "floating
  * menu on selection" UX.
+ *
+ * Phase 30.6: when `pages` is provided, typing `[[` opens a popup
+ * with matching page titles; picking one inserts `[[slug]]` as plain
+ * text — the markdown mirror parses those on save and records
+ * `wiki_links` rows so backlinks work.
  */
 export function MarkdownEditor({
   value,
   onChange,
   placeholder,
+  pages,
 }: {
   value: string;
   onChange: (md: string) => void;
   placeholder?: string;
+  /**
+   * Hierarchical list of wiki pages for the [[…]] suggestion popup.
+   * When omitted, the suggestion extension is not mounted (so other
+   * callers — tests, simple forms — don't pay the cost).
+   */
+  pages?: WikiTreeNode[];
 }): JSX.Element {
+  const wikiItems: WikiLinkItem[] = useMemo(() => (pages ? flattenWikiTree(pages) : []), [pages]);
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -46,6 +65,13 @@ export function MarkdownEditor({
         transformPastedText: true,
         transformCopiedText: true,
       }),
+      ...(pages
+        ? [
+            WikiLinkSuggestion({
+              getItems: () => wikiItems,
+            }),
+          ]
+        : []),
     ],
     content: value,
     editorProps: {

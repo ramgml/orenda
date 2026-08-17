@@ -79,12 +79,6 @@ func TestTaskDependencies_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rr.Code, rr.Body.String())
 }
 
-// depFixtures is intentionally unused — Phase 15 tests reuse the
-// columnDeps fixture and read taskRepo directly. Kept as a type
-// marker for future dep-only test cases.
-type depFixtures struct {
-	colFixtures
-}
-
-// _ = depFixtures{}
-var _ = func() {} // keep the unused depFixtures type referenced
+// depFixtures placeholder was removed — the type was reserved for a
+// future dep-only test case that hasn't materialised. Phase 15 tests
+// reuse columnDeps and read taskRepo directly.

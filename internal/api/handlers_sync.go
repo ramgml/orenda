@@ -22,6 +22,8 @@ import (
 	"net/http"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/ramgml/orenda/internal/domain/comment"
 	"github.com/ramgml/orenda/internal/domain/event"
 	"github.com/ramgml/orenda/internal/domain/task"
@@ -340,9 +342,35 @@ func syncOpsSeen(ctx context.Context, deps *Dependencies, clientID string) (bool
 }
 
 // syncOpsRecord records an applied op.
+//
+// Phase 30.2: a failing Record used to be silently swallowed by the
+// six `_ = syncOpsRecord(...)` call sites, which meant the PWA outbox
+// could replay the same op forever (server-side idempotency lookup
+// would re-fire every Sync) and the operator would never see why. We
+// now bump the liveStats counter and emit a zig.Warn — the stats
+// endpoint exposes the counter as `sync_ops_record_failures` so the
+// owner can spot a stuck record path from /api/v1/stats without
+// grepping logs.
+//
+// The original six call sites still discard the returned error; they
+// don't need to change because the side effects (counter + log) live
+// inside the helper. Tested via TestSyncOpsRecordFailsAndCounts.
 func syncOpsRecord(ctx context.Context, deps *Dependencies, clientID, serverID string) error {
 	if deps.SyncOps == nil {
 		return nil
 	}
-	return deps.SyncOps.Record(ctx, clientID, serverID)
+	err := deps.SyncOps.Record(ctx, clientID, serverID)
+	if err != nil {
+		liveStats.syncOpsRecordFailures.Add(1)
+		logger := deps.Logger
+		if logger == nil {
+			logger = zap.L()
+		}
+		logger.Warn("sync_ops record failed; client may replay this op",
+			zap.String("client_id", clientID),
+			zap.String("server_id", serverID),
+			zap.Error(err),
+		)
+	}
+	return err
 }

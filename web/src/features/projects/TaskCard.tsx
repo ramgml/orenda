@@ -14,6 +14,7 @@ import {
   progressLabel,
   taskDueState,
 } from './taskCardBadges';
+import { TimeBadge } from './TimeBadge';
 
 /**
  * Single draggable task card.
@@ -165,6 +166,23 @@ export function TaskCard({
               📎 {counters.attachments}
             </span>
           )}
+          {/* Phase 30.12: time-spent / estimate badge. Renders only
+              when at least one of the two is set; turns red when
+              spent exceeds the estimate (operator has overrun). The
+              active-timer "●" replaces the spent count when a
+              started_at timestamp is present without a completed_at
+              (single-active-timer constraint, Phase 4). Hidden in
+              compact mode to keep the row height stable. */}
+          {detailed &&
+            (task.time_estimate_s != null ||
+              task.time_spent_s > 0 ||
+              (task.started_at != null && task.completed_at == null)) && (
+              <TimeBadge
+                estimateS={task.time_estimate_s ?? null}
+                spentS={task.time_spent_s}
+                timerActive={task.started_at != null && task.completed_at == null}
+              />
+            )}
         </div>
       )}
     </div>

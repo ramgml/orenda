@@ -148,52 +148,6 @@ func runBackupStatus(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func runBackupRestore(cmd *cobra.Command, in restoreInput) error {
-	if in.From == "" {
-		return fmt.Errorf("backup restore: --from <snapshot.db> is required")
-	}
-
-	cfgPath, _ := cmd.Flags().GetString("config")
-	cfg, err := loadConfigForCLI(cfgPath)
-	if err != nil {
-		return err
-	}
-
-	if in.To == "" {
-		in.To = cfg.ResolveDBPath(".")
-	}
-
-	// Refuse if the server is listening on the configured port: replacing
-	// the sqlite file while another process has it open corrupts WAL/SHM.
-	// When --to is something other than the live DB path the user is
-	// restoring to a copy, so the live server is irrelevant.
-	isInPlace := in.To == cfg.ResolveDBPath(".")
-	if isInPlace && backup.IsServerRunning(cmd.Context(), cfg.Server.Host, cfg.Server.Port) {
-		return fmt.Errorf("backup restore: server is running on %s:%d — stop the server first (e.g. `Ctrl+C` or `systemctl --user stop orenda`)",
-			cfg.Server.Host, cfg.Server.Port)
-	}
-
-	if !in.Yes {
-		fmt.Printf("About to restore:\n  from: %s\n  to:   %s\n", in.From, in.To)
-		if isInPlace {
-			fmt.Println("This OVERWRITES the live database. Pass --yes to confirm.")
-		} else {
-			fmt.Println("Pass --yes to proceed.")
-		}
-		return nil // dry-run when --yes is missing
-	}
-
-	// Restore is filesystem-only; no need to open the DB.
-	if err := backup.New(backup.Config{
-		SnapshotDir: cfg.Backup.SnapshotDir,
-		DBPath:      cfg.ResolveDBPath("."),
-	}, nil).Restore(cmd.Context(), in.From, in.To); err != nil {
-		return err
-	}
-	fmt.Printf("restored: %s <- %s\n", in.To, in.From)
-	return nil
-}
-
 // Phase 22: enhanced restore pipeline.
 //
 // Steps (when restoring in place to the live DB path):

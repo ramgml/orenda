@@ -20,10 +20,13 @@ export function ColumnView({
   tasks,
   color,
   wipLimit,
+  status,
   onCreate,
   onColumnUpdated,
   onColumnDeleted,
   dragHandleProps,
+  selectedTaskIds,
+  onToggleTask,
 }: {
   columnId: string;
   name: string;
@@ -36,6 +39,8 @@ export function ColumnView({
   /** Saved WIP limit. Used to initialise the EditColumnModal so the
    *  field doesn't reset to "unlimited" on every reopen. */
   wipLimit?: number;
+  /** Phase 30.14: machine key used as task.status on this column. */
+  status?: string;
   onCreate: (title: string) => Promise<void>;
   onColumnUpdated?: (col: Column) => void;
   /**
@@ -54,6 +59,8 @@ export function ColumnView({
    // layouts that don't support column reordering).
    */
   dragHandleProps?: Record<string, unknown>;
+  selectedTaskIds?: ReadonlySet<string>;
+  onToggleTask?: (taskId: string) => void;
 }): JSX.Element {
   const { setNodeRef, isOver } = useDroppable({ id: columnId });
   const navigate = useNavigate();
@@ -84,13 +91,24 @@ export function ColumnView({
     openTaskModal(navigate, location, taskId);
   }
 
+  // Phase 30.11: a column is "at-limit" when the saved WIP limit is
+  // non-null and the live card count has reached it. We visualise
+  // this with a red ring so the operator sees the bottleneck
+  // without opening the column header. (A column that's *over* the
+  // limit isn't possible — Move rejects — but we render the
+  // at-limit state anyway because dnd-kit can momentarily show the
+  // optimistic position before the 422 arrives.)
+  const atLimit = wipLimit != null && wipLimit > 0 && tasks.length >= wipLimit;
+
   return (
     <div
       ref={setNodeRef}
       className={`rounded-lg border bg-slate-50 dark:bg-slate-900 p-3 flex flex-col min-h-[200px] transition-colors ${
         isOver
           ? 'border-orenda-500 bg-orenda-50 dark:bg-orenda-900/20'
-          : 'border-slate-200 dark:border-slate-800'
+          : atLimit
+            ? 'border-amber-400 dark:border-amber-500 ring-1 ring-amber-300/40 dark:ring-amber-500/30'
+            : 'border-slate-200 dark:border-slate-800'
       }`}
     >
       <div
@@ -140,7 +158,17 @@ export function ColumnView({
 
       <ul className="space-y-2 flex-1">
         {tasks.map((t) => (
-          <li key={t.id}>
+          <li key={t.id} className="flex items-start gap-1">
+            {onToggleTask && (
+              <input
+                type="checkbox"
+                aria-label={`Select ${t.title}`}
+                checked={selectedTaskIds?.has(t.id) ?? false}
+                onChange={() => onToggleTask(t.id)}
+                onClick={(e) => e.stopPropagation()}
+                className="mt-3 ml-1 rounded border-slate-300"
+              />
+            )}
             <TaskCard task={t} onOpen={openTask} />
           </li>
         ))}
@@ -176,6 +204,7 @@ export function ColumnView({
           initialName={name}
           initialColor={color}
           initialWipLimit={wipLimit}
+          initialStatus={status}
           currentTaskCount={tasks.length}
           onClose={() => setEditing(false)}
           onSaved={(col) => {
@@ -202,6 +231,7 @@ interface EditColumnModalProps {
   /** Saved WIP limit (number) or undefined for "no limit". The empty
    *  string in the input represents the same state. */
   initialWipLimit?: number;
+  initialStatus?: string;
   /** Number of tasks currently in the column — shown as a hint before
    * the user confirms the delete. Mirrors what the server will
    * enforce (422 when non-zero). */
@@ -220,6 +250,7 @@ function EditColumnModal({
   initialName,
   initialColor,
   initialWipLimit,
+  initialStatus,
   currentTaskCount,
   onClose,
   onSaved,
@@ -234,6 +265,7 @@ function EditColumnModal({
   const [wip, setWip] = useState<string>(
     initialWipLimit === undefined ? '' : String(initialWipLimit),
   );
+  const [machineKey, setMachineKey] = useState(initialStatus ?? '');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Two-step confirm: first click arms the button ("Delete column"),
@@ -269,6 +301,17 @@ function EditColumnModal({
         name: name.trim(),
         wip_limit: wipNum,
       };
+      const normalizedKey = machineKey.trim().toLowerCase();
+      if (normalizedKey !== '' && !/^[a-z][a-z0-9_]*$/.test(normalizedKey)) {
+        setError(
+          'Machine key must start with a letter and contain only lowercase letters, numbers, and underscores',
+        );
+        setBusy(false);
+        return;
+      }
+      if (normalizedKey !== '' && normalizedKey !== (initialStatus ?? '')) {
+        payload.status = normalizedKey;
+      }
       const savedColor = initialColor ?? '';
       if (color !== savedColor) {
         payload.color = color;
@@ -334,6 +377,19 @@ function EditColumnModal({
               }}
               className="mt-1 block w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
             />
+          </label>
+          <label className="block text-sm">
+            Machine key
+            <input
+              value={machineKey}
+              onChange={(e) => setMachineKey(e.target.value)}
+              data-testid="column-status"
+              placeholder="e.g. in_review"
+              className="mt-1 block w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent font-mono"
+            />
+            <span className="mt-1 block text-xs text-slate-500">
+              Lowercase machine key; changing it updates tasks in this column.
+            </span>
           </label>
           <label className="block text-sm">
             Color

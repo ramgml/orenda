@@ -53,6 +53,7 @@ import (
 	"github.com/ramgml/orenda/internal/service/notifier"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
+	studyservice "github.com/ramgml/orenda/internal/service/study"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
@@ -638,6 +639,17 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	commentSvc := commentservice.New(sqlite.NewCommentRepository(db), hub, nil)
 	activityRepo := sqlite.NewActivityRepository(db)
 	activityRecorder := activityservice.New(activityRepo)
+	// Phase 31.4: study service — proposal materialisation (Accept)
+	// reads/writes task rows through tasksRepo, so we pass the same
+	// instance the task service uses. The live hub + recorder wire
+	// the WS fan-out so accept/dismiss events reach the Dashboard
+	// tray in real time.
+	studySvc := studyservice.New(
+		sqlite.NewStudyProposalRepository(db),
+		sqlite.NewTaskRepository(db),
+		hub,
+		nil, // task_service.Recorder would be a circular adapter; accept/dismiss don't audit-row
+	)
 	taskSvc := taskservice.New(tasksRepo, taskLocks, taskRecorderFor(activityRecorder), commentAdderFor(commentSvc), hub)
 	taskSvc.Mirror = mirrorSvc
 	taskSvc.Columns = projects // Phase 23.1 + 16.7: WIP lookup + inbox→project filing
@@ -752,46 +764,22 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			// normal case after `orenda subscription add telegram …
 			// target=<chat_id>`.
 			tg.OnMessage = func(ctx context.Context, m bot.InboxMessage) error {
-				subRepo := sqlite.NewBotSubscriptionRepository(db)
-				addr := int64ToString(m.ChatID)
-				subs, err := subRepo.ListByBotType(ctx, "telegram")
-				var owner string
-				if err == nil {
-					for _, s := range subs {
-						if s.Enabled && s.TargetAddress == addr {
-							owner = s.UserID
-							break
-						}
-					}
-				}
-				if owner == "" {
-					return nil
-				}
-				title := strings.TrimSpace(m.Text)
-				if len(title) > 200 {
-					title = title[:200] + "…"
-				}
-				now := time.Now().UTC()
-				tr := &task.Task{
-					ProjectID:    "",
-					Title:        title,
-					Status:       task.StatusTodo,
-					Priority:     task.PriorityMedium,
-					Awaiting:     task.AwaitingNone,
-					AssigneeType: task.AssigneeUser,
-					AssigneeID:   owner,
-					TimeSpentS:   0,
-					Position:     0,
-					AllDay:       false,
-					CreatedAt:    now,
-					UpdatedAt:    now,
-				}
-				_ = owner
-				if err := tasksRepo.Create(ctx, tr); err != nil {
-					return err
-				}
-				return tg.SendReply(ctx, m.ChatID, "✅ Captured to Inbox")
+				return captureToInbox(ctx, db, tasksRepo, "telegram", int64ToString(m.ChatID), m.Text, func(reply string) error {
+					return tg.SendReply(ctx, m.ChatID, reply)
+				})
 			}
+		}
+	}
+
+	// Phase 30.3: VK Long Poll OnMessage hook. Same inbox-capture flow
+	// as Telegram, but routed through vk.Send (peer_id is the same as
+	// the message's peer_id). Skipped when no VK bot is registered
+	// (e.g., telegram-only install).
+	if vk, ok := botRegistry.Get("vk").(*bot.VK); ok && vk != nil {
+		vk.OnMessage = func(ctx context.Context, m bot.InboxMessage) error {
+			return captureToInbox(ctx, db, tasksRepo, "vk", int64ToString(m.ChatID), m.Text, func(reply string) error {
+				return vk.Send(ctx, int64ToString(m.ChatID), bot.Message{Title: reply})
+			})
 		}
 	}
 
@@ -895,8 +883,13 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		SearchService:    searchSvc,
 		Courses:          courseRepo,
 		CourseService:    courseSvc,
-		Notifier:         notifierSvc,
-		Backup:           backupSvc,
+		// Phase 31: study service wires the user-side accept/dismiss
+		// + the agent-side propose. nil-safe in handlers (they check
+		// before calling) but the production binary must wire it
+		// here or every study endpoint returns 503.
+		StudyService: studySvc,
+		Notifier:     notifierSvc,
+		Backup:       backupSvc,
 		// Phase 28.1 polish.1: UI-editable override repo. PUT
 		// /api/v1/backups/settings writes here; GET merges it over
 		// the in-memory cfg (see handlers_backup.go). Settings take
@@ -938,6 +931,28 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Kick off the recurring-event reminder scheduler. It loops on
 	// ctx.Done() and exits with the server.
 	go reminder.Run(ctx)
+
+	// Phase 30.5: weekly digest scheduler. Ticks every 7 days
+	// (configurable via cfg.Notifier.DigestInterval — default 168h).
+	// The scheduler queries the storage layer per-owner for the
+	// period stats, renders via notifier.RenderWeeklyDigest, and
+	// pushes a "digest.weekly" event through the same notifier
+	// pipeline as any other notification — so every bot the
+	// operator has subscribed to (Telegram, VK, Email, Webhook,
+	// Console) gets the digest. Disabled when DigestInterval is
+	// zero or negative (operator opt-out).
+	if cfg.Notifier.DigestInterval > 0 {
+		digest := &digestScheduler{
+			interval: cfg.Notifier.DigestInterval,
+			logger:   logger,
+			db:       db,
+			users:    userListerAdapter{repo: sqlite.NewUserRepository(db)},
+			notifier: notifierDigestAdapter{svc: notifierSvc},
+		}
+		go digest.Run(ctx)
+		logger.Info("weekly digest scheduler started",
+			zap.Duration("interval", cfg.Notifier.DigestInterval))
+	}
 
 	// Phase 28.6: opt-in pprof listener for live debugging. Off by
 	// default — pprof endpoints expose heap, goroutine, and CPU
@@ -1208,4 +1223,110 @@ func buildLogger(cfg *config.Config) (*zap.Logger, error) {
 }
 
 // suppress unused-import warning on systems without time package usage.
+// ----------------------------------------------------------------------------
+// Phase 30.5: weekly digest scheduler adapters.
+// ----------------------------------------------------------------------------
+
+// userListerAdapter wraps the SQLite UserRepository for the digest
+// scheduler's narrow ownerLister interface. The user table doesn't
+// store an Active column — every row is by definition active
+// (the only "deactivation" path is Delete, which removes the row
+// entirely), so we treat every row as Active=true.
+type userListerAdapter struct {
+	repo *sqlite.UserRepo
+}
+
+func (a userListerAdapter) ListAll(ctx context.Context) ([]ownerRecord, error) {
+	users, err := a.repo.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ownerRecord, 0, len(users))
+	for _, u := range users {
+		out = append(out, ownerRecord{ID: u.ID, Active: true})
+	}
+	return out, nil
+}
+
+// notifierDigestAdapter wraps the notifier service so the digest
+// scheduler's narrow digestNotifier interface can be satisfied
+// without pulling the entire notifier package surface.
+type notifierDigestAdapter struct {
+	svc *notifierservice.Service
+}
+
+func (a notifierDigestAdapter) Notify(ctx context.Context, e notifyEvent) error {
+	return a.svc.Notify(ctx, notifierservice.Event{
+		Type:   e.Type,
+		UserID: e.UserID,
+		Title:  e.Title,
+		Body:   e.Body,
+		Link:   e.Link,
+		Meta:   e.Meta,
+	})
+}
+
 var _ = time.Second
+
+// captureToInbox is the shared Phase 21/30.3 inbox-capture flow,
+// reused by the Telegram and VK OnMessage hooks. It looks up the user
+// subscribed to (botType, targetAddress), creates an inbox task with
+// the message text as the title (truncated to 200 chars), and invokes
+// `reply` with the friendly "✅ Captured to Inbox" string.
+//
+// No subscription → silently drop (the bot receives messages from
+// strangers too; we don't reply, but we don't surface the spam
+// either). Reply failures are swallowed — there's nothing the user
+// can do from inside Telegram/VK about a transient transport error,
+// and the task is already on disk.
+//
+// Lives outside runServe as a free function so both bot hooks share
+// the same code path. Dependencies are passed explicitly rather than
+// captured as closures (Go closures over *sql.DB / *sqlite.TaskRepo
+// work but are harder to test in isolation).
+func captureToInbox(
+	ctx context.Context,
+	db *sql.DB,
+	tasks task.Repository,
+	botType, targetAddress, text string,
+	reply func(string) error,
+) error {
+	subRepo := sqlite.NewBotSubscriptionRepository(db)
+	subs, err := subRepo.ListByBotType(ctx, botType)
+	var owner string
+	if err == nil {
+		for _, s := range subs {
+			if s.Enabled && s.TargetAddress == targetAddress {
+				owner = s.UserID
+				break
+			}
+		}
+	}
+	if owner == "" {
+		return nil
+	}
+	title := strings.TrimSpace(text)
+	if len(title) > 200 {
+		title = title[:200] + "…"
+	}
+	now := time.Now().UTC()
+	tr := &task.Task{
+		ProjectID:    "",
+		Title:        title,
+		Status:       task.StatusTodo,
+		Priority:     task.PriorityMedium,
+		Awaiting:     task.AwaitingNone,
+		AssigneeType: task.AssigneeUser,
+		AssigneeID:   owner,
+		TimeSpentS:   0,
+		Position:     0,
+		AllDay:       false,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := tasks.Create(ctx, tr); err != nil {
+		return err
+	}
+	_ = reply("✅ Captured to Inbox")
+	return nil
+}

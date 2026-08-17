@@ -1,3 +1,8 @@
+---
+name: orenda
+description: Work with the Orenda productivity suite (tasks, kanban, wiki, courses) via REST API, `orenda agent` CLI, or MCP tools. Use when the user mentions Orenda, orenda tasks, claiming/submitting tasks, agent delegation loop, review queue, inbox, or importing notes into Orenda.
+---
+
 # Orenda — Agent Skill
 
 > **Audience:** AI agents that work with Orenda via its REST API or the `orenda agent` CLI.
@@ -75,6 +80,15 @@ orenda agent comment <id> "...markdown..."   # leave a comment as the agent
 orenda agent submit <id>   # mark ready for human review
 orenda agent release <id>  # give up a claim
 orenda agent await         # long-poll for the next event
+
+# Wiki + search (Phase 29.2):
+orenda agent pages list                    # wiki page tree
+orenda agent pages get <slug>              # fetch one page
+orenda agent pages put <slug> --title "T" --file page.md   # upsert ('-'/empty = stdin)
+orenda agent pages move <slug> --parent <page-id>          # reparent (empty = root)
+orenda agent pages backlinks <slug>        # who links here
+orenda agent pages delete <slug>           # delete (children cascade)
+orenda agent search "query" --type page --limit 5          # FTS5 across pages/tasks/comments
 ```
 
 Flags → env → config file. Use `-json` for scripts.
@@ -210,7 +224,112 @@ subcommands:
 ```
 orenda_me / orenda_list_tasks / orenda_claim / orenda_release
 orenda_submit / orenda_context / orenda_await
+orenda_pages_list / orenda_pages_get / orenda_pages_save
+orenda_pages_delete / orenda_pages_move / orenda_search   # Phase 29.3
 ```
+
+### 4.4 "Build me a course on X" — end-to-end, no human clicks (Phase 29)
+
+The user asks for a course; you deliver it ready to study. The whole
+lifecycle is agent-driveable:
+
+```bash
+# 1. Create the draft course. Owned by the system owner; no
+#    generator task is spawned — YOU are the generator.
+curl -s -X POST "$ORENDA_URL/api/v1/agent/courses" \
+  -H "Authorization: Bearer $ORENDA_AGENT_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"title":"Learn OpenCode","intent_md":"beginner, 30 min/day"}'
+# → 201 {"id":"c-1","status":"draft",...}
+
+# 2. Submit the curriculum (modules → lessons → quizzes, one tx).
+curl -s -X PUT "$ORENDA_URL/api/v1/agent/courses/c-1/curriculum" \
+  -H "Authorization: Bearer $ORENDA_AGENT_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"modules":[{"title":"Basics","position":1,"lessons":[
+        {"title":"Intro","position":1,"quizzes":[
+          {"position":1,"question_md":"2+2?","expected_md":"4","kind":"exact"}]},
+        {"title":"Deep dive","position":2}]}]}'
+# → course flips draft → review.
+
+# 3. Materialize each lesson (locked → open) and add quizzes.
+curl -s -X POST "$ORENDA_URL/api/v1/agent/lessons/<lesson-id>/materialize" \
+  -H "Authorization: Bearer $ORENDA_AGENT_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"content_md":"# Intro\n..."}'
+
+# 4. Activate: review → active, first lesson unlocked for the student.
+curl -s -X POST "$ORENDA_URL/api/v1/agent/courses/c-1/activate" \
+  -H "Authorization: Bearer $ORENDA_AGENT_TOKEN"
+# → 200 {"status":"active",...}
+```
+
+Activation from `draft` is rejected (422) — the curriculum must be
+submitted first. The human can still review, request changes, or
+archive at any point; activation just removes the mandatory click.
+
+Use the wiki tools to park reference material the course links to:
+`orenda_pages_save` a page per topic, then `[[slug]]`-link it from
+lesson content.
+
+### 4.5 "Plan my day" — propose study reminders (Phase 31)
+
+The user asks "what should I study today?" You pull the active
+courses (with progress), read the planner notes, propose N
+reminders, and let the user accept/dismiss them on the Dashboard
+tray. The whole loop is opt-in: the platform never schedules
+anything on its own.
+
+```bash
+# 1. Read the active courses. With ?status=active the rows carry
+#    progress + pace_notes_md so we don't round-trip per-course.
+curl -s "$ORENDA_URL/api/v1/agent/courses?status=active" \
+  -H "Authorization: Bearer $ORENDA_AGENT_TOKEN" | jq '.courses[] | {id, title, pace, pace_notes_md, progress}'
+# → e.g. {"id":"c-rust","pace":"regular","pace_notes_md":"3 times a week, mornings",
+#         "progress":{"lessons_total":12,"lessons_done":7,"open_lessons":[...]}}
+
+# 2. Read pace_notes_md + progress. Pick a subset of open_lessons
+#    that fits the user's stated cadence (e.g. "study 1 lesson/day").
+#    Compose one proposal per lesson, with the lesson title as the
+#    proposal title and the body_md containing a 1-line why-now.
+
+# 3. File each proposal — one POST per reminder.
+for lesson in "${LESSONS[@]}"; do
+  curl -s -X POST "$ORENDA_URL/api/v1/agent/study-proposals" \
+    -H "Authorization: Bearer $ORENDA_AGENT_TOKEN" -H 'Content-Type: application/json' \
+    -d "{\"course_id\":\"c-rust\",\"title\":\"$lesson\",\"body_md\":\"$lesson notes\",\"target_date\":\"$(date +%Y-%m-%d)\"}"
+done
+# → 201 per call; the user's Dashboard tray now shows them.
+
+# 4. The user reviews the tray and accepts/dismisses each one.
+#    (This happens in the UI; you do NOT call accept/dismiss — that's
+#    a user-only endpoint.) The accepted reminder becomes an inbox
+#    task with study_course_id set and due_at = max(target_date, today).
+```
+
+The plan loop is read-only from the agent's side until the
+proposal POSTs land; after that, the user takes over the
+accept/dismiss decisions. Don't try to bypass the tray — the
+opt-in pattern is the whole point.
+
+#### Idempotency
+
+`POST /api/v1/agent/study-proposals` always creates a new pending
+proposal (the planner may want to revise a target date by filing a
+new one). Accept is idempotent on the user side: re-accepting the
+same proposal returns the existing task id (200, not 201).
+
+#### Don't escalate reminders to "overdue"
+
+A study reminder has `study_course_id` set; the Today screen reads
+this and never surfaces reminders under `overdue`. A missed day
+doesn't turn red — the user can still ack it on the tray today.
+
+#### When to skip proposing
+
+- The user said "no reminders today" earlier — read their
+  intent from comments/notes, not from this skill.
+- The course is `done` or `archived` — `GET ...?status=active`
+  already filters those.
+- All open lessons are completed (`progress.lessons_done ==
+  progress.lessons_total`) — there's nothing to suggest.
 
 ---
 
@@ -240,12 +359,26 @@ orenda_submit / orenda_context / orenda_await
 | POST | `/api/v1/agent/tasks/{id}/submit` | Mark ready for human review. |
 | GET | `/api/v1/agent/tasks/{id}/context` | Full snapshot: task + comments + activity + children + checklists. |
 | GET | `/api/v1/agent/courses?status=draft` | Phase 18: courses the tutor can claim. |
+| POST | `/api/v1/agent/courses` | Phase 29.4: create a draft course (owner = system owner, no generator task — you are the generator). |
+| POST | `/api/v1/agent/courses/{id}/activate` | Phase 29.5: review → active (same transition as the owner's Approve click). |
 | PUT | `/api/v1/agent/courses/{id}/curriculum` | Phase 18: tutor's atomic curriculum swap. Phase 27.6: the payload now carries per-lesson `quizzes` (`{position, question_md, expected_md?, kind: 'exact'|'open'}`) and per-module `description`; submit the whole program in one tx. |
 | POST | `/api/v1/agent/lessons/{id}/materialize` | Phase 27.4: tutor writes lesson content (`content_md`, optional `task_id`); lesson flips locked → open. |
 | PUT | `/api/v1/agent/lessons/{id}/content` | Phase 27.4: in-place content update (same handler). |
 | POST | `/api/v1/agent/lessons/{id}/quizzes` | Phase 27.6 (closes Phase 18.6): append a single quiz to an existing lesson without re-submitting the whole curriculum. |
 | POST | `/api/v1/agent/tasks/{id}/comments` | Add a comment authored by the agent (Phase 27.11). |
 | POST | `/api/v1/agent/events/await` | Long-poll for events scoped to the agent's id (Phase 27.11; timeout ≤ 60s). |
+| GET | `/api/v1/agent/pages` | Phase 29.1: wiki page tree. |
+| GET | `/api/v1/agent/pages/{slug}` | Fetch one page. |
+| PUT | `/api/v1/agent/pages/{slug}` | Upsert a page (`{title, content_md, parent_id?}`). `[[slug]]` links are indexed on save. |
+| DELETE | `/api/v1/agent/pages/{slug}` | Delete a page (children cascade). |
+| PATCH | `/api/v1/agent/pages/{slug}/move` | Reparent (`{parent_id}`, empty = root). |
+| GET | `/api/v1/agent/pages/{slug}/backlinks` | Pages linking here. |
+| GET | `/api/v1/agent/search?q=&type=&limit=` | FTS5 across pages/tasks/comments. |
+| GET | `/api/v1/agent/courses?status=active` | Phase 31.5: list courses. With `?status=active` the row carries a `progress` sub-object (lessons_total / lessons_done / open_lessons[]) and `pace_notes_md` so the planner has everything in one round-trip. |
+| POST | `/api/v1/agent/courses/{id}/curriculum` | (Also Phase 18 — see above.) |
+| POST | `/api/v1/agent/courses/{id}/activate` | (Also Phase 29.5 — see above.) |
+| PATCH | `/api/v1/agent/courses/{id}` | Phase 31.5: narrow update of `pace_notes_md` only. The body's `pace_notes_md` is trimmed + capped at 64 KiB by `course.Course.Validate`. |
+| POST | `/api/v1/agent/study-proposals` | Phase 31.5: file a pending study proposal. Body: `{course_id?, title, body_md?, target_date (YYYY-MM-DD)}`. The Dashboard tray picks it up. Created by the planner; the user accepts or dismisses. |
 
 ### 6.2 Common task fields
 

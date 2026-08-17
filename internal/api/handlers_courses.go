@@ -25,11 +25,13 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -107,36 +109,14 @@ func getCourseHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "course repo not wired", http.StatusServiceUnavailable)
 			return
 		}
-		id := chi.URLParam(r, "id")
-		c, err := deps.Courses.GetCourse(r.Context(), id)
+		// Phase 30.13: the loader is shared with the structure
+		// reorder endpoint (handlers_course_structure.go).
+		tree, err := loadCourseTree(r, deps, chi.URLParam(r, "id"))
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		modules, err := deps.Courses.ListModules(r.Context(), id)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		lessons, err := deps.Courses.ListLessonsInCourse(r.Context(), id)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		quizzes, err := deps.Courses.ListQuizzesInCourse(r.Context(), id)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		prog, err := deps.Courses.Progress(r.Context(), id)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, courseTreeResponse{
-			Course: c, Modules: modules, Lessons: lessons,
-			Quizzes: quizzes, Progress: prog,
-		})
+		writeJSON(w, http.StatusOK, tree)
 	}
 }
 
@@ -156,20 +136,9 @@ func deleteCourseHandler(deps *Dependencies) http.HandlerFunc {
 
 func approveCourseHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if deps.CourseService == nil {
-			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
-			return
-		}
-		c, err := deps.CourseService.ApproveCurriculum(r.Context(), chi.URLParam(r, "id"))
-		if err != nil {
-			if errors.Is(err, coursesvc.ErrTransition) {
-				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_transition"})
-				return
-			}
-			writeError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, c)
+		// Phase 29.5: shared with the agent-side activate endpoint
+		// (approveCourseCore lives in handlers_agent_courses.go).
+		approveCourseCore(w, r, deps)
 	}
 }
 
@@ -347,7 +316,11 @@ func submitCurriculumHandlerUser(deps *Dependencies) http.HandlerFunc {
 }
 
 // listCoursesHandlerAgent lists courses for the agent (tutor's
-// view). Optional ?status= filter.
+// view). Optional ?status= filter. Phase 31.5: when the filter is
+// "active" the row is enriched with progress + pace notes so the
+// planner has everything it needs to propose study reminders in a
+// single round-trip (no /courses/{id} follow-up for the canonical
+// fields the planner actually uses).
 func listCoursesHandlerAgent(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Courses == nil {
@@ -374,8 +347,112 @@ func listCoursesHandlerAgent(deps *Dependencies) http.HandlerFunc {
 			}
 			items = filtered
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"courses": items})
+		// Phase 31.5 enrichment: only active courses. Drafts are
+		// the tutor's own work; done/archived are terminal. The
+		// planner reads active courses to know what to suggest.
+		out := make([]map[string]any, 0, len(items))
+		for _, c := range items {
+			row := map[string]any{
+				"id":            c.ID,
+				"title":         c.Title,
+				"intent_md":     c.IntentMD,
+				"level":         c.Level,
+				"pace":          c.Pace,
+				"status":        c.Status,
+				"pace_notes_md": c.PaceNotesMD,
+				"owner_id":      c.OwnerID,
+				"created_at":    c.CreatedAt,
+				"updated_at":    c.UpdatedAt,
+			}
+			if c.Status == course.StatusActive {
+				row, err = enrichActiveCourse(r.Context(), deps, row, c.ID)
+				if err != nil {
+					writeError(w, err)
+					return
+				}
+			}
+			out = append(out, row)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"courses": out})
 	}
+}
+
+// activeCourseProgress is the enrichment Phase 31.5 adds to the
+// agent-side course list. The planner uses these counts to pace its
+// proposals (e.g. "you've done 7/10 lessons — schedule one today").
+// open_lessons lists the unlocked, not-yet-done lessons so the
+// planner can suggest specific lesson reviews instead of a generic
+// "study today" nudge.
+type activeCourseProgress struct {
+	LessonsTotal    int                `json:"lessons_total"`
+	LessonsDone     int                `json:"lessons_done"`
+	OpenLessons     []*openLessonEntry `json:"open_lessons"`
+	LastCompletedAt *string            `json:"last_completed_at,omitempty"`
+}
+
+type openLessonEntry struct {
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	ModuleID   string `json:"module_id"`
+	ModuleName string `json:"module_title"`
+	Position   int    `json:"position"`
+}
+
+// enrichActiveCourse walks a course's modules and lessons to attach
+// progress counters and the list of open lessons. Vol 1: single
+// SQL per course — there are at most tens of courses for a personal
+// install, each with at most a few dozen lessons. The "open
+// lessons" enrichment is the only per-row fanout; everything else
+// is constant time.
+func enrichActiveCourse(ctx context.Context, deps *Dependencies, base map[string]any, courseID string) (map[string]any, error) {
+	progress, err := deps.Courses.Progress(ctx, courseID)
+	if err != nil {
+		return base, err
+	}
+	open := []*openLessonEntry{}
+	var lastDone *time.Time
+
+	modules, err := deps.Courses.ListModules(ctx, courseID)
+	if err != nil {
+		return base, err
+	}
+	for _, m := range modules {
+		lessons, err := deps.Courses.ListLessons(ctx, m.ID)
+		if err != nil {
+			return base, err
+		}
+		for _, l := range lessons {
+			if l.Status != course.LessonOpen {
+				// done and locked are both out of the "open"
+				// pool. course_lessons has no updated_at/
+				// completed_at column (status is set implicitly
+				// when the CompleteLesson service runs), so we
+				// surface nil for last_completed_at — the field
+				// stays in the wire shape but omitted from JSON
+				// until a later column lands.
+				continue
+			}
+			open = append(open, &openLessonEntry{
+				ID:         l.ID,
+				Title:      l.Title,
+				ModuleID:   m.ID,
+				ModuleName: m.Title,
+				Position:   l.Position,
+			})
+		}
+	}
+	if lastDone != nil {
+		s := lastDone.UTC().Format(time.RFC3339)
+		base["last_completed_at"] = &s
+	}
+
+	prog := activeCourseProgress{
+		LessonsTotal: progress.LessonsTotal,
+		LessonsDone:  progress.LessonsDone,
+		OpenLessons:  open,
+	}
+	base["progress"] = &prog
+	return base, nil
 }
 
 // userIDFromCtx returns the session user id (empty if anonymous).

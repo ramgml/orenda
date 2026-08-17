@@ -521,6 +521,18 @@ the Phase 28.1 UI showed a yellow "Restart Orenda to apply the new
 remote" banner. The Phase 28.9 commit replaced that banner with
 "The next push will use the new remote".
 
+**Coverage and RPO on the dogfood instance (configured 2026-08-17, Phase 32.3):**
+
+- Remote: `ssh://ssh.sourcecraft.dev/ram56/orenda-backup.git` (private).
+- Off-host: the **markdown mirror only** (tasks/pages/comments as
+  Obsidian-style files), pushed every 5 min ⇒ content RPO ≤ 5 min.
+- Local-only: **SQLite snapshots** (`snapshots/`, 24 h ticker from
+  process start, 30-day rotation) ⇒ the relational state (locks,
+  proposals, time entries) never leaves the host today. Restore path
+  verified: `orenda backup restore --from <snapshot> --to <tmp>` passes
+  integrity + FK checks. Closing the off-host snapshot gap is a Phase
+  32.5 pilot task.
+
 ### 12.3. Local-only deployment guarantee
 
 The deployment model: one user, one machine, one binary. No
