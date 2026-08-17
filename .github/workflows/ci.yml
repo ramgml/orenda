@@ -72,24 +72,22 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        # Pin to a release built with go1.26.x so the linter can parse
-        # go.mod's `go 1.26.4` directive. `latest` resolves to v1.64.8,
-        # which was built with go1.24 and refuses to load the config
-        # ("Go language version used to build golangci-lint is lower than
-        # the targeted Go version"). v1.64.6 is the latest v1.x built
-        # with go1.26.4. When v2 stabilises and we migrate the config,
-        # bump this.
-        with:
-          version: v1.64.6
+        # Build from source with the local Go toolchain — the published
+        # v1.64.x binaries were built with go1.24 and refuse to load
+        # .golangci.yml against go.mod's `go 1.26.4` directive. Slower
+        # than the action's prebuilt cache, but always matches the
+        # project's Go version. When v2 stabilises and we migrate the
+        # config, switch back to golangci/golangci-lint-action@v6 with
+        # `version: v2.x.y`.
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.6
 
       - name: golangci-lint run
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch --depth=200 origin "${{ github.base_ref }}" || true
-            golangci-lint run --new-from-merge-base=origin/${{ github.base_ref }} ./...
+            "$(go env GOPATH)/bin/golangci-lint" run --new-from-merge-base=origin/${{ github.base_ref }} ./...
           else
-            golangci-lint run ./...
+            "$(go env GOPATH)/bin/golangci-lint" run ./...
           fi
 
       - name: npm ci
