@@ -62,6 +62,8 @@ logs/
 opencode.json
 opencode.json.tui-migration.bak
 tui.json
+# watchdog plugin: runtime snapshots, not for git
+.opencode/watchdog/state/
 
 # --- omp (assistant-private) ---
 .omp/
