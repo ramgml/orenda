@@ -214,6 +214,89 @@ func (r *stubRepo) SubmitCurriculum(ctx context.Context, courseID string, module
 	return nil
 }
 
+// ---- Phase 30.13 granular CRUD surface ----
+
+func (r *stubRepo) GetModule(ctx context.Context, id string) (*course.Module, error) {
+	m, ok := r.modules[id]
+	if !ok {
+		return nil, course.ErrNotFound
+	}
+	return m, nil
+}
+func (r *stubRepo) UpdateModule(ctx context.Context, m *course.Module) error {
+	cur, ok := r.modules[m.ID]
+	if !ok {
+		return course.ErrNotFound
+	}
+	cur.Title = m.Title
+	cur.Description = m.Description
+	return nil
+}
+func (r *stubRepo) DeleteModule(ctx context.Context, id string) error {
+	if _, ok := r.modules[id]; !ok {
+		return course.ErrNotFound
+	}
+	delete(r.modules, id)
+	for lid, l := range r.lessons {
+		if l.ModuleID == id {
+			delete(r.lessons, lid)
+			for qid, q := range r.quizzes {
+				if q.LessonID == lid {
+					delete(r.quizzes, qid)
+				}
+			}
+		}
+	}
+	return nil
+}
+func (r *stubRepo) DeleteLesson(ctx context.Context, id string) error {
+	if _, ok := r.lessons[id]; !ok {
+		return course.ErrNotFound
+	}
+	delete(r.lessons, id)
+	for qid, q := range r.quizzes {
+		if q.LessonID == id {
+			delete(r.quizzes, qid)
+		}
+	}
+	return nil
+}
+func (r *stubRepo) UpdateQuiz(ctx context.Context, q *course.Quiz) error {
+	cur, ok := r.quizzes[q.ID]
+	if !ok {
+		return course.ErrNotFound
+	}
+	cur.QuestionMD = q.QuestionMD
+	cur.ExpectedMD = q.ExpectedMD
+	cur.Kind = q.Kind
+	return nil
+}
+func (r *stubRepo) DeleteQuiz(ctx context.Context, id string) error {
+	if _, ok := r.quizzes[id]; !ok {
+		return course.ErrNotFound
+	}
+	delete(r.quizzes, id)
+	return nil
+}
+func (r *stubRepo) ApplyStructure(ctx context.Context, courseID string, modules []course.ModuleOrder) error {
+	for i, mo := range modules {
+		m, ok := r.modules[mo.ModuleID]
+		if !ok || m.CourseID != courseID {
+			return course.ErrInvalidInput
+		}
+		m.Position = i + 1
+		for j, lid := range mo.LessonIDs {
+			l, ok := r.lessons[lid]
+			if !ok {
+				return course.ErrInvalidInput
+			}
+			l.ModuleID = mo.ModuleID
+			l.Position = j + 1
+		}
+	}
+	return nil
+}
+
 // stubTaskCreator records what the service asks for. Phase 27.4 uses
 // this to assert the generator + review task shape. Phase 27.6
 // extends it with CompleteTask so tests can verify the
