@@ -185,6 +185,17 @@ type Task struct {
 	// having to default an empty array.
 	Tags []Tag `json:"tags,omitempty"`
 
+	// Phase 31: study reminder marker. Non-empty ⇔ this task is a
+	// soft "study today" nudge created from a study_proposal that
+	// the user accepted. The link is loose — deleting the course
+	// clears this id (the reminder itself survives) and there is no
+	// referential link to specific lessons/quizzes. Today reads
+	// this to decide whether to surface the task under "due_today"
+	// (always, when due_at <= today) vs. escalate missed days into
+	// "overdue" (never). omitempty: a task without the link stays
+	// a plain task in the JSON payload.
+	StudyCourseID string `json:"study_course_id,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

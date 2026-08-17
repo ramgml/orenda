@@ -18,6 +18,7 @@ package course
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -87,16 +88,22 @@ var (
 
 // Course is the top-level entity.
 type Course struct {
-	ID              string    `json:"id"`
-	Title           string    `json:"title"`
-	IntentMD        string    `json:"intent_md"`
-	Level           string    `json:"level"`
-	Pace            string    `json:"pace"`
-	Status          Status    `json:"status"`
-	OwnerID         string    `json:"owner_id"`
-	GeneratorTaskID string    `json:"generator_task_id,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID              string `json:"id"`
+	Title           string `json:"title"`
+	IntentMD        string `json:"intent_md"`
+	Level           string `json:"level"`
+	Pace            string `json:"pace"`
+	Status          Status `json:"status"`
+	OwnerID         string `json:"owner_id"`
+	GeneratorTaskID string `json:"generator_task_id,omitempty"`
+	// Phase 31: free-form pace notes. The agent-planner reads this
+	// alongside Pace to propose study tasks; the user can also edit
+	// it through the UI. Markdown allowed; size capped to keep the
+	// payload sane. omitempty so old single-task GETs (which don't
+	// fetch the column) stay compact.
+	PaceNotesMD string    `json:"pace_notes_md,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Validate checks the course's basic fields. Status transitions are
@@ -122,6 +129,16 @@ func (c *Course) Validate() error {
 	case "":
 		// default
 	default:
+		return ErrInvalidInput
+	}
+	// Phase 31: pace_notes_md is free-form markdown. Trim leading
+	// whitespace (the form may carry a stray newline) and cap the
+	// size — 64 KiB is far beyond any realistic "3 times a week,
+	// mornings; after a failed quiz repeat the lesson" note but
+	// well below the size at which a malicious payload would slow
+	// down the agent-planner read path.
+	c.PaceNotesMD = strings.TrimSpace(c.PaceNotesMD)
+	if len(c.PaceNotesMD) > 65536 {
 		return ErrInvalidInput
 	}
 	return nil
