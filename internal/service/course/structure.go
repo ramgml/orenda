@@ -25,19 +25,19 @@ import (
 	"github.com/ramgml/orenda/internal/domain/course"
 )
 
-// editableCourse loads the course and gates structural mutations on
-// its status: draft/review/active are editable, done/archived are
-// frozen. All granular ops below go through this gate so the rule
-// lives in exactly one place.
-func (s *Service) editableCourse(ctx context.Context, courseID string) (*course.Course, error) {
+// requireEditableCourse gates structural mutations on the course
+// status: draft/review/active are editable, done/archived are frozen.
+// All granular ops below go through this gate so the rule lives in
+// exactly one place.
+func (s *Service) requireEditableCourse(ctx context.Context, courseID string) error {
 	c, err := s.Repo.GetCourse(ctx, courseID)
 	if err != nil {
-		return nil, ErrNotFound
+		return ErrNotFound
 	}
 	if c.Status == course.StatusDone || c.Status == course.StatusArchived {
-		return nil, ErrTransition
+		return ErrTransition
 	}
-	return c, nil
+	return nil
 }
 
 // courseOfModule walks module → course and applies the editability
@@ -47,7 +47,7 @@ func (s *Service) courseOfModule(ctx context.Context, moduleID string) (*course.
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	if _, err := s.editableCourse(ctx, m.CourseID); err != nil {
+	if err := s.requireEditableCourse(ctx, m.CourseID); err != nil {
 		return nil, err
 	}
 	return m, nil
@@ -83,7 +83,7 @@ func (s *Service) AddModule(ctx context.Context, courseID, title, description st
 	if title == "" {
 		return nil, ErrInvalidInput
 	}
-	if _, err := s.editableCourse(ctx, courseID); err != nil {
+	if err := s.requireEditableCourse(ctx, courseID); err != nil {
 		return nil, err
 	}
 	existing, err := s.Repo.ListModules(ctx, courseID)
@@ -221,7 +221,7 @@ func (s *Service) DeleteQuiz(ctx context.Context, quizID string) error {
 // of the course named exactly once) inside the same transaction, so
 // a malformed payload leaves the tree untouched.
 func (s *Service) ApplyStructure(ctx context.Context, courseID string, modules []course.ModuleOrder) error {
-	if _, err := s.editableCourse(ctx, courseID); err != nil {
+	if err := s.requireEditableCourse(ctx, courseID); err != nil {
 		return err
 	}
 	if err := s.Repo.ApplyStructure(ctx, courseID, modules); err != nil {
