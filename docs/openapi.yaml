@@ -125,6 +125,13 @@ components:
           type: string
           enum: [none, human, agent]
         due_at: { type: string, format: date-time }
+        # Phase 31: study-reminder marker. Non-empty means "soft
+        # reminder accepted from a study proposal"; the Today
+        # screen reads this to apply the no-escalation policy
+        # (missed day never turns red). Loose FK to courses.id —
+        # ON DELETE SET NULL on the row, so a course deletion
+        # clears the link but keeps the task.
+        study_course_id: { type: string }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
@@ -157,6 +164,107 @@ components:
           type: string
           enum: [casual, regular, intensive]
         owner_id: { type: string }
+        # Phase 31: free-form pace notes. Set by the agent-planner
+        # through PATCH /api/v1/agent/courses/{id} and read by the
+        # Dashboard tray / Today suggestions. Trimmed + capped at
+        # 64 KiB by course.Course.Validate.
+        pace_notes_md: { type: string }
+
+    # Phase 31.5: progress sub-object attached to active courses
+    # in the agent-side list. Lets the planner see how far the
+    # student is and what lessons are still open.
+    ActiveCourseProgress:
+      type: object
+      properties:
+        lessons_total: { type: integer }
+        lessons_done: { type: integer }
+        open_lessons:
+          type: array
+          items: { $ref: '#/components/schemas/OpenLesson' }
+        last_completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    OpenLesson:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        module_id: { type: string }
+        module_title: { type: string }
+        position: { type: integer }
+
+    # Phase 31.6: study proposal (lightweight Dashboard-tray shape).
+    # Today/projects paths only need the tray fields; the full
+    # entity lives in the agent namespace and the user accept/
+    # dismiss response.
+    StudyProposalView:
+      type: object
+      properties:
+        id: { type: string }
+        course_id: { type: string }
+        title: { type: string }
+        body_md: { type: string }
+        target_date:
+          type: string
+          description: 'YYYY-MM-DD — the day the proposal suggests as a study slot'
+        agent_id: { type: string }
+        created_at: { type: string, format: date-time }
+
+    # Phase 31.6: full proposal shape returned by accept/dismiss.
+    # Same as StudyProposalView plus the resolved state and the
+    # accepted_task_id pointer.
+    StudyProposalFull:
+      allOf:
+        - $ref: '#/components/schemas/StudyProposalView'
+        - type: object
+          properties:
+            status:
+              type: string
+              enum: [pending, accepted, dismissed]
+            created_by_agent: { type: string }
+            accepted_task_id: { type: string }
+            resolved_at:
+              type: string
+              format: date-time
+              nullable: true
+
+    # Phase 31.7: payload returned by /today. Inline because the
+    # frontend imports the same shape — keeping it as a named
+    # schema lets openapi.yaml consumers (codegen, validators)
+    # reference it instead of duplicating.
+    TodayResponse:
+      type: object
+      properties:
+        overdue:
+          type: array
+          items: { $ref: '#/components/schemas/Task' }
+        due_today:
+          type: array
+          items: { $ref: '#/components/schemas/Task' }
+        scheduled_today:
+          type: array
+          items: { $ref: '#/components/schemas/Task' }
+        upcoming_week:
+          type: array
+          items:
+            type: object
+            properties:
+              date: { type: string, description: 'YYYY-MM-DD' }
+              count: { type: integer }
+        awaiting_count: { type: integer }
+        active_timer:
+          type: object
+          nullable: true
+          properties:
+            task_id: { type: string }
+            started_at: { type: string, format: date-time }
+        proposals:
+          type: array
+          description: 'Phase 31.7: pending study proposals for the Dashboard tray. Empty array when none.'
+          items: { $ref: '#/components/schemas/StudyProposalView' }
+
 
     Agent:
       type: object
@@ -950,9 +1058,14 @@ paths:
   /api/v1/today:
     get:
       tags: [today]
-      summary: Daily-driver dashboard payload (overdue + due-today + scheduled + awaiting).
+      summary: Daily-driver dashboard payload (overdue + due-today + scheduled + awaiting + study proposals).
       security: [{ bearerAuth-cookie: [] }]
-      responses: { '200': { description: ok } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TodayResponse' }
 
   # ---- courses ----
   /api/v1/courses:
@@ -1731,9 +1844,34 @@ paths:
   /api/v1/agent/courses:
     get:
       tags: [agent, courses]
-      summary: List courses (tutor's view; ?status=draft filters).
+      summary: List courses (tutor's view; ?status=active enriches with progress).
+      description: |
+        Optional ?status= filter. When status=active the row carries
+        a progress sub-object (lessons_total, lessons_done, open_lessons)
+        so the planner has everything it needs in one round-trip.
       security: [{ bearerAuth-agent: [] }]
-      responses: { '200': { description: ok } }
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [draft, review, active, done, archived] }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  courses:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Course'
+                        - type: object
+                          properties:
+                            progress:
+                              $ref: '#/components/schemas/ActiveCourseProgress'
     post:
       tags: [agent, courses]
       summary: Create a draft course (Phase 29.4) — "agent, build me a course on X".
@@ -1834,7 +1972,11 @@ paths:
                 body_md:     { type: string }
                 target_date: { type: string, description: 'YYYY-MM-DD' }
       responses:
-        '201': { description: created }
+        '201':
+          description: created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StudyProposalFull' }
         '400': { description: missing_title_or_target_date | invalid_json | invalid_input }
         '401': { description: missing agent identity }
         '503': { description: study service not wired }
@@ -1855,7 +1997,11 @@ paths:
               properties:
                 pace_notes_md: { type: string, description: 'free-form markdown; ≤ 64 KiB' }
       responses:
-        '200': { description: ok }
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Course' }
         '400': { description: invalid_pace_notes_md }
         '404': { description: course not found }
         '400': { description: invalid_input }
@@ -1868,7 +2014,16 @@ paths:
       summary: List pending study proposals (the Dashboard tray).
       security: [{ cookieAuth: [] }]
       responses:
-        '200': { description: ok }
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  proposals:
+                    type: array
+                    items: { $ref: '#/components/schemas/StudyProposalView' }
         '503': { description: study service not wired }
   /api/v1/study-proposals/{id}/accept:
     post:
@@ -1881,8 +2036,26 @@ paths:
         404 on unknown id.
       security: [{ cookieAuth: [] }]
       responses:
-        '200': { description: ok (idempotent re-accept) }
-        '201': { description: created }
+        '200':
+          description: ok (idempotent re-accept)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  proposal:         { $ref: '#/components/schemas/StudyProposalFull' }
+                  task:             { $ref: '#/components/schemas/Task' }
+                  already_accepted: { type: boolean }
+        '201':
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  proposal:         { $ref: '#/components/schemas/StudyProposalFull' }
+                  task:             { $ref: '#/components/schemas/Task' }
+                  already_accepted: { type: boolean }
         '404': { description: proposal not found }
         '409': { description: proposal_resolved }
         '503': { description: study service not wired }
@@ -1895,7 +2068,14 @@ paths:
         accepted proposal; 404 on unknown id.
       security: [{ cookieAuth: [] }]
       responses:
-        '200': { description: ok }
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  proposal: { $ref: '#/components/schemas/StudyProposalFull' }
         '404': { description: proposal not found }
         '409': { description: proposal_resolved }
         '503': { description: study service not wired }
