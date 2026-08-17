@@ -53,6 +53,7 @@ import (
 	"github.com/ramgml/orenda/internal/service/notifier"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
+	studyservice "github.com/ramgml/orenda/internal/service/study"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
@@ -638,6 +639,17 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	commentSvc := commentservice.New(sqlite.NewCommentRepository(db), hub, nil)
 	activityRepo := sqlite.NewActivityRepository(db)
 	activityRecorder := activityservice.New(activityRepo)
+	// Phase 31.4: study service — proposal materialisation (Accept)
+	// reads/writes task rows through tasksRepo, so we pass the same
+	// instance the task service uses. The live hub + recorder wire
+	// the WS fan-out so accept/dismiss events reach the Dashboard
+	// tray in real time.
+	studySvc := studyservice.New(
+		sqlite.NewStudyProposalRepository(db),
+		sqlite.NewTaskRepository(db),
+		hub,
+		nil, // task_service.Recorder would be a circular adapter; accept/dismiss don't audit-row
+	)
 	taskSvc := taskservice.New(tasksRepo, taskLocks, taskRecorderFor(activityRecorder), commentAdderFor(commentSvc), hub)
 	taskSvc.Mirror = mirrorSvc
 	taskSvc.Columns = projects // Phase 23.1 + 16.7: WIP lookup + inbox→project filing
@@ -871,8 +883,13 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		SearchService:    searchSvc,
 		Courses:          courseRepo,
 		CourseService:    courseSvc,
-		Notifier:         notifierSvc,
-		Backup:           backupSvc,
+		// Phase 31: study service wires the user-side accept/dismiss
+		// + the agent-side propose. nil-safe in handlers (they check
+		// before calling) but the production binary must wire it
+		// here or every study endpoint returns 503.
+		StudyService: studySvc,
+		Notifier:     notifierSvc,
+		Backup:       backupSvc,
 		// Phase 28.1 polish.1: UI-editable override repo. PUT
 		// /api/v1/backups/settings writes here; GET merges it over
 		// the in-memory cfg (see handlers_backup.go). Settings take
