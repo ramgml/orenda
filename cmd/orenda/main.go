@@ -915,6 +915,19 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		RateLimitAnonPerSec: cfg.RateLimit.AnonPerSec,
 		RateLimitAuthBurst:  cfg.RateLimit.AuthBurst,
 		RateLimitAuthPerSec: cfg.RateLimit.AuthPerSec,
+		// Phase 32.2: advertise which optional features this binary
+		// actually wired. Pre-fix, Capabilities{} zero-valued (every
+		// flag false) regardless of what's wired below — clients
+		// couldn't tell if FTS / WebSocket / Backup were available.
+		Capabilities: api.Capabilities{
+			Auth:      true, // cookie + bearer wired above
+			RESTTasks: true, // tasksRepo wired above
+			WebSocket: hub != nil,
+			Backup:    backupSvc != nil,
+			Bots:      botRegistry != nil,
+			FTS:       searchSvc != nil,
+			PWA:       true, // web/dist embedded at build time (27.1)
+		},
 	})
 
 	// HTTP server with graceful shutdown.
