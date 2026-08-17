@@ -76,6 +76,20 @@ func (r *stubRepo) UpdateCourse(ctx context.Context, c *course.Course) error {
 	r.courses[c.ID] = c
 	return nil
 }
+
+// UpdatePaceNotesMD is the narrow PATCH added in Phase 31; the stub
+// forwards to the same map so service tests that exercise the
+// update path see the new value through GetCourse without
+// duplicating persistence logic.
+func (r *stubRepo) UpdatePaceNotesMD(ctx context.Context, id, notes string) error {
+	c, ok := r.courses[id]
+	if !ok {
+		return course.ErrNotFound
+	}
+	c.PaceNotesMD = notes
+	r.courses[id] = c
+	return nil
+}
 func (r *stubRepo) DeleteCourse(ctx context.Context, id string) error {
 	delete(r.courses, id)
 	return nil

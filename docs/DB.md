@@ -58,16 +58,40 @@ backup_log         id · type · status · message · snapshot_path · created_a
 sync_ops           client_id (PK) · server_id · op · target · applied_at
 ```
 
-## Courses (LMS, migration 019)
+## Courses (LMS, migration 019, pace_notes on 022)
 
 ```text
 courses            id · title · intent_md · level · pace · status (draft|review|active|done|archived)
-                   · owner_id →users · generator_task_id →tasks (NULL) · created_at · updated_at
+                   · owner_id →users · generator_task_id →tasks (NULL) · pace_notes_md (Phase 31, default '')
+                   · created_at · updated_at
 course_modules     id · course_id →courses CASCADE · title · description · position
 course_lessons     id · module_id →modules CASCADE · title · content_md · status (locked|open|done) · position
                    · task_id →tasks SET NULL
 course_quizzes     id · lesson_id →lessons CASCADE · position · question_md · expected_md · kind (open|exact)
 ```
+
+`pace_notes_md` (Phase 31) is the agent-planner's read signal and the user's
+free-form scratchpad for "how should the course be paced?". Trim + ≤ 64 KiB
+enforced by `course.Course.Validate`; the repo's `UpdatePaceNotesMD` is the
+narrow PATCH the agent uses (no title/status noise).
+
+## Study reminders (Phase 31, migration 022)
+
+A study reminder is an inbox task with a non-null `study_course_id` linking
+to the course. The reminder survives the course (FK SET NULL on `tasks`),
+and the course CASCADEs `study_proposals` when removed.
+
+```text
+tasks.study_course_id    TEXT →courses(id) ON DELETE SET NULL  · partial idx_tasks_study_course
+study_proposals          id · course_id →courses CASCADE (NULL allowed) · title · body_md
+                         · target_date (YYYY-MM-DD) · status (pending|accepted|dismissed)
+                         · created_by_agent →agents(id) · accepted_task_id →tasks(id) SET NULL
+                         · created_at · resolved_at
+```
+
+The lifecycle: pending (visible in tray) → accept → inbox task (materialises
+the reminder with `due_at = max(target_date, today)`) or dismiss. Mark* methods
+are idempotent — see `study.MarkAccepted` / `MarkDismissed`.
 
 ## FTS5 (migration 008)
 
@@ -115,5 +139,6 @@ rolls back one version per invocation. Header markers change runner behaviour:
 | 019_courses.sql | courses / course_modules / course_lessons / course_quizzes + FK indexes |
 | 020_columns_status.sql | columns.status machine key (backfill from name, slug for customs) + UNIQUE(board_id, status) |
 | 021_agent_type_labels.sql | agents.type backfill (scalar → JSON-array); idempotent on re-run; down is lossy on multi-label rows |
+| 022_study_planning.sql | courses.pace_notes_md (default '') · tasks.study_course_id (FK SET NULL) + partial idx · study_proposals |
 
 *(номер 018 пропущен — зарезервированная нумерация съехала от текста фаз; не используется)*

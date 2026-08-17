@@ -40,11 +40,14 @@ func (r *courseRepo) CreateCourse(ctx context.Context, c *course.Course) error {
 		c.ID = newUUID()
 	}
 	const q = `INSERT INTO courses
-		(id, title, intent_md, level, pace, status, owner_id, generator_task_id, created_at, updated_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+		(id, title, intent_md, level, pace, status, owner_id, generator_task_id,
+		 pace_notes_md, created_at, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?,
+	        ?, datetime('now'), datetime('now'))`
 	_, err := r.db.ExecContext(ctx, q,
 		c.ID, c.Title, c.IntentMD, c.Level, c.Pace, string(c.Status),
 		c.OwnerID, nullString(c.GeneratorTaskID),
+		c.PaceNotesMD,
 	)
 	if err != nil {
 		return fmt.Errorf("course.Create: %w", err)
@@ -59,13 +62,14 @@ func (r *courseRepo) CreateCourse(ctx context.Context, c *course.Course) error {
 
 func (r *courseRepo) GetCourse(ctx context.Context, id string) (*course.Course, error) {
 	const q = `SELECT id, title, intent_md, level, pace, status, owner_id,
-		COALESCE(generator_task_id, ''), created_at, updated_at
+		COALESCE(generator_task_id, ''), COALESCE(pace_notes_md, ''),
+		created_at, updated_at
 		FROM courses WHERE id = ?`
 	row := r.db.QueryRowContext(ctx, q, id)
 	var c course.Course
 	var status, created, updated string
 	if err := row.Scan(&c.ID, &c.Title, &c.IntentMD, &c.Level, &c.Pace,
-		&status, &c.OwnerID, &c.GeneratorTaskID, &created, &updated); err != nil {
+		&status, &c.OwnerID, &c.GeneratorTaskID, &c.PaceNotesMD, &created, &updated); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, course.ErrNotFound
 		}
@@ -80,7 +84,8 @@ func (r *courseRepo) GetCourse(ctx context.Context, id string) (*course.Course, 
 func (r *courseRepo) ListCourses(ctx context.Context, ownerID string) ([]*course.Course, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, title, intent_md, level, pace, status, owner_id,
-		        COALESCE(generator_task_id, ''), created_at, updated_at
+		        COALESCE(generator_task_id, ''), COALESCE(pace_notes_md, ''),
+		        created_at, updated_at
 		 FROM courses WHERE owner_id = ? ORDER BY updated_at DESC`, ownerID)
 	if err != nil {
 		return nil, fmt.Errorf("course.List: %w", err)
@@ -91,7 +96,7 @@ func (r *courseRepo) ListCourses(ctx context.Context, ownerID string) ([]*course
 		var c course.Course
 		var status, created, updated string
 		if err := rows.Scan(&c.ID, &c.Title, &c.IntentMD, &c.Level, &c.Pace,
-			&status, &c.OwnerID, &c.GeneratorTaskID, &created, &updated); err != nil {
+			&status, &c.OwnerID, &c.GeneratorTaskID, &c.PaceNotesMD, &created, &updated); err != nil {
 			return nil, err
 		}
 		c.Status = course.Status(status)
@@ -108,16 +113,39 @@ func (r *courseRepo) UpdateCourse(ctx context.Context, c *course.Course) error {
 	}
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE courses SET title=?, intent_md=?, level=?, pace=?, status=?,
-		    owner_id=?, generator_task_id=?, updated_at=datetime('now')
+		    owner_id=?, generator_task_id=?, pace_notes_md=?,
+		    updated_at=datetime('now')
 		 WHERE id = ?`,
 		c.Title, c.IntentMD, c.Level, c.Pace, string(c.Status),
-		c.OwnerID, nullString(c.GeneratorTaskID), c.ID,
+		c.OwnerID, nullString(c.GeneratorTaskID), c.PaceNotesMD, c.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("course.Update: %w", err)
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
+		return course.ErrNotFound
+	}
+	return nil
+}
+
+// UpdatePaceNotesMD is the narrow PATCH endpoint the agent-planner
+// uses to write pace_notes_md on an existing course (Phase 31). It
+// doesn't touch title/status/etc — those flow through UpdateCourse
+// when the human edits the course via the UI. Validate runs through
+// the Course struct so the cap and trim normalisation apply.
+func (r *courseRepo) UpdatePaceNotesMD(ctx context.Context, id, notes string) error {
+	tmp := &course.Course{ID: id, Title: "x", Status: course.StatusDraft, PaceNotesMD: notes}
+	if err := tmp.Validate(); err != nil {
+		return err
+	}
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE courses SET pace_notes_md = ?, updated_at = datetime('now') WHERE id = ?`,
+		tmp.PaceNotesMD, id)
+	if err != nil {
+		return fmt.Errorf("course.UpdatePaceNotesMD: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
 		return course.ErrNotFound
 	}
 	return nil

@@ -45,6 +45,9 @@ func (r *fakeCourseRepo) ListCourses(context.Context, string) ([]*course.Course,
 func (r *fakeCourseRepo) UpdateCourse(context.Context, *course.Course) error {
 	return nil
 }
+func (r *fakeCourseRepo) UpdatePaceNotesMD(context.Context, string, string) error {
+	return nil
+}
 func (r *fakeCourseRepo) DeleteCourse(context.Context, string) error { return nil }
 func (r *fakeCourseRepo) CreateModule(context.Context, *course.Module) error {
 	return nil
