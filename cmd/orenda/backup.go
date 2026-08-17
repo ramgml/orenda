@@ -24,8 +24,13 @@ func newBackupCmd() *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:   "push",
 		Short: "Commit and push the mirror directory to the configured remote",
-		RunE:  runBackupPush,
+		Long: "Without flags: commit any pending changes in the mirror and push.\n" +
+			"  --with-snapshots also runs a fresh SQLite snapshot, copies it\n" +
+			"  into the mirror's snapshots/ directory, writes manifest.json\n" +
+			"  (sha256 + size), and commits both. Phase 32.5 pilot task #1.",
+		RunE: runBackupPush,
 	})
+	cmd.Flags().Bool("with-snapshots", false, "also push a fresh sqlite snapshot to the mirror repo")
 	cmd.AddCommand(&cobra.Command{
 		Use:   "snapshot",
 		Short: "Create a SQLite snapshot of the database",
@@ -92,11 +97,20 @@ func backupService(ctx context.Context, cfgPath string) (*backup.Service, func()
 
 func runBackupPush(cmd *cobra.Command, _ []string) error {
 	cfgPath, _ := cmd.Flags().GetString("config")
+	withSnapshots, _ := cmd.Flags().GetBool("with-snapshots")
 	svc, cleanup, err := backupService(cmd.Context(), cfgPath)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
+
+	if withSnapshots {
+		if err := svc.PushWithSnapshot(cmd.Context()); err != nil {
+			return err
+		}
+		fmt.Println("backup pushed with snapshot")
+		return nil
+	}
 
 	if err := svc.CommitAndPush(cmd.Context(), "manual backup"); err != nil {
 		return err
