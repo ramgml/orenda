@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { api, type Task } from '@/shared/api/client';
+import {
+  api,
+  type StudyProposalView,
+  type Task,
+} from '@/shared/api/client';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 import { Loading } from '@/shared/ui/Loading';
 import { useWebSocketTopic } from '@/shared/ws';
@@ -71,7 +75,8 @@ export function TodayPage(): JSX.Element {
     total === 0 &&
     data.awaiting_count === 0 &&
     !data.active_timer &&
-    (data.upcoming_week ?? []).length === 0
+    (data.upcoming_week ?? []).length === 0 &&
+    (data.proposals ?? []).length === 0
   ) {
     return (
       <section className="p-6 max-w-3xl mx-auto">
@@ -128,7 +133,141 @@ export function TodayPage(): JSX.Element {
       />
 
       <UpcomingWeek days={data.upcoming_week ?? []} />
+
+      <ProposalTray
+        proposals={data.proposals}
+        onChange={() => void load()}
+      />
     </section>
+  );
+}
+
+/**
+ * ProposalTray — Phase 31.9. The Dashboard section that lists
+ * pending study proposals. Each card carries accept / dismiss
+ * buttons; both actions call the server and trigger a re-fetch
+ * (the parent owns the data and the WS subscription already covers
+ * the "tasks" topic for invalidation).
+ *
+ * Acceptance is idempotent on the server (200 instead of 201 on a
+ * re-accept) so we treat 200 and 201 as success — the UI doesn't
+ * need to know.
+ */
+function ProposalTray({
+  proposals,
+  onChange,
+}: {
+  proposals: StudyProposalView[];
+  onChange: () => void;
+}): JSX.Element {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const accept = useCallback(
+    async (id: string): Promise<void> => {
+      setBusy(id);
+      setError(null);
+      try {
+        await api.acceptStudyProposal(id);
+        onChange();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [onChange],
+  );
+
+  const dismiss = useCallback(
+    async (id: string): Promise<void> => {
+      setBusy(id);
+      setError(null);
+      try {
+        await api.dismissStudyProposal(id);
+        onChange();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [onChange],
+  );
+
+  if (proposals.length === 0) return <></>;
+
+  return (
+    <div data-testid="proposal-tray">
+      <div className="flex items-center gap-2 mb-2">
+        <span aria-hidden className="inline-block h-2 w-2 rounded-full bg-indigo-500" />
+        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          Proposed for today ({proposals.length})
+        </h2>
+      </div>
+      {error && (
+        <ErrorBanner
+          message={error}
+          className="mb-2 text-xs"
+        />
+      )}
+      <ul className="space-y-2">
+        {proposals.map((p) => (
+          <li
+            key={p.id}
+            data-testid="proposal-card"
+            className="rounded border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950 p-3 text-sm"
+          >
+            <div className="flex justify-between items-start gap-2">
+              <div className="flex-1 min-w-0">
+                <Link
+                  to={p.course_id ? `/courses/${p.course_id}` : '#'}
+                  className="text-slate-800 dark:text-slate-100 hover:underline font-medium"
+                >
+                  📖 {p.title}
+                </Link>
+                {p.course_id && (
+                  <Link
+                    to={`/courses/${p.course_id}`}
+                    className="ml-2 text-xs text-indigo-700 dark:text-indigo-300 hover:underline"
+                  >
+                    open course →
+                  </Link>
+                )}
+                {p.body_md && (
+                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-400 line-clamp-2">
+                    {p.body_md}
+                  </p>
+                )}
+                <p className="mt-1 text-[10px] text-slate-500 font-mono">
+                  target: {p.target_date} · from agent {p.agent_id.slice(0, 8)}
+                </p>
+              </div>
+              <div className="flex gap-1 shrink-0">
+                <button
+                  type="button"
+                  data-testid="proposal-accept"
+                  disabled={busy !== null}
+                  onClick={() => void accept(p.id)}
+                  className="rounded bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-3 py-1 text-xs"
+                >
+                  {busy === p.id ? '…' : 'Accept'}
+                </button>
+                <button
+                  type="button"
+                  data-testid="proposal-dismiss"
+                  disabled={busy !== null}
+                  onClick={() => void dismiss(p.id)}
+                  className="rounded bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-700 dark:text-slate-200 px-3 py-1 text-xs"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -139,6 +278,7 @@ type TodayResponse = {
   upcoming_week?: { date: string; count: number }[];
   awaiting_count: number;
   active_timer?: { task_id: string; started_at: string };
+  proposals: StudyProposalView[];
 };
 
 function TodaySection({
@@ -169,17 +309,36 @@ function TodaySection({
         <p className="text-xs text-slate-400 italic pl-4">{emptyText}</p>
       ) : (
         <ul className="space-y-1">
-          {tasks.map((t) => (
-            <li
-              key={t.id}
-              className="rounded border border-slate-200 dark:border-slate-800 p-2 text-sm bg-white dark:bg-slate-950"
-            >
-              <Link
-                to={`/tasks/${t.id}`}
-                className="text-slate-800 dark:text-slate-100 hover:underline"
+          {tasks.map((t) => {
+            // Phase 31.9: study-reminders carry a study_course_id
+            // and get a 📖-marker that links to the course. The
+            // marker is the only thing visually distinguishing a
+            // soft reminder from a real project task in the same
+            // due_today list.
+            const studyLink = t.study_course_id
+              ? `/courses/${t.study_course_id}`
+              : null;
+            return (
+              <li
+                key={t.id}
+                data-testid={studyLink ? 'today-study-task' : 'today-task'}
+                className="rounded border border-slate-200 dark:border-slate-800 p-2 text-sm bg-white dark:bg-slate-950"
               >
-                {t.title}
-              </Link>
+                <Link
+                  to={`/tasks/${t.id}`}
+                  className="text-slate-800 dark:text-slate-100 hover:underline"
+                >
+                  {studyLink ? '📖 ' : ''}{t.title}
+                </Link>
+                {studyLink && (
+                  <Link
+                    to={studyLink}
+                    data-testid="today-study-marker"
+                    className="ml-2 text-[10px] text-indigo-700 dark:text-indigo-300 hover:underline"
+                  >
+                    open course →
+                  </Link>
+                )}
               <span className="ml-2 text-[10px] text-slate-400 font-mono">
                 {showTime && t.start_at
                   ? new Date(t.start_at).toLocaleTimeString([], {
@@ -190,8 +349,9 @@ function TodaySection({
                     ? new Date(t.due_at).toLocaleDateString()
                     : t.status}
               </span>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

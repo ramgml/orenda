@@ -69,6 +69,13 @@ export interface Course {
   pace: string;
   status: 'draft' | 'review' | 'active' | 'done' | 'archived';
   owner_id: string;
+  /**
+   * Phase 31: free-form pace notes. Set by the agent-planner
+   * through PATCH /api/v1/agent/courses/{id} and read by the
+   * Dashboard tray / Today suggestions. omitempty so the field
+   * doesn't pollute legacy payloads.
+   */
+  pace_notes_md?: string;
   created_at: string;
   updated_at: string;
 }
@@ -182,6 +189,13 @@ export interface Task {
   awaiting: string;
   context_md?: string;
   agent_notes?: string;
+  /**
+   * Phase 31: free-form study reminder marker. Empty/undefined
+   * means "regular task"; non-empty means "soft reminder from a
+   * study proposal". The Today screen reads this to apply the
+   * no-escalation read semantics (a missed day never turns red).
+   */
+  study_course_id?: string;
   /** Calendar fields (Phase 12/14). A task with both start_at and
    * end_at shows on the calendar; otherwise it's a plain kanban row. */
   start_at?: string;
@@ -262,6 +276,35 @@ export interface TaskCounters {
   children_done: number;
   checklist_total: number;
   checklist_done: number;
+}
+
+// StudyProposalView — Phase 31.9: the lightweight projection the
+// Dashboard tray renders. The full Proposal entity (with body_md,
+// accepted_task_id, resolved_at) stays in the agent namespace.
+export interface StudyProposalView {
+  id: string;
+  course_id?: string;
+  title: string;
+  body_md?: string;
+  target_date: string; // YYYY-MM-DD
+  agent_id: string;
+  created_at: string;
+}
+
+// StudyProposalFull — returned by the accept/dismiss endpoints
+// because the user tray may want to confirm the title / agent after
+// the action. Phase 31.9.
+export interface StudyProposalFull {
+  id: string;
+  course_id?: string;
+  title: string;
+  body_md?: string;
+  target_date: string;
+  status: 'pending' | 'accepted' | 'dismissed';
+  created_by_agent: string;
+  accepted_task_id?: string;
+  created_at: string;
+  resolved_at?: string;
 }
 
 export interface Agent {
@@ -799,6 +842,9 @@ class ApiClient {
     upcoming_week: { date: string; count: number }[];
     awaiting_count: number;
     active_timer?: { task_id: string; started_at: string };
+    // Phase 31.9: pending study proposals for the Dashboard tray.
+    // Empty array when none; never null.
+    proposals: StudyProposalView[];
   }> {
     return this.http
       .get<{
@@ -808,7 +854,41 @@ class ApiClient {
         upcoming_week: { date: string; count: number }[];
         awaiting_count: number;
         active_timer?: { task_id: string; started_at: string };
+        proposals: StudyProposalView[];
       }>(`/api/v1/today`)
+      .then((r) => r.data);
+  }
+
+  // ---- Study proposals (Phase 31.9) ----
+
+  // Lightweight projection of a pending study proposal as rendered
+  // on the Dashboard tray. The full Proposal entity (with body_md,
+  // accepted_task_id, etc.) stays in the agent namespace.
+  listStudyProposals(): Promise<{ proposals: StudyProposalView[] }> {
+    return this.http
+      .get<{ proposals: StudyProposalView[] }>(`/api/v1/study-proposals`)
+      .then((r) => r.data);
+  }
+
+  acceptStudyProposal(id: string): Promise<{
+    proposal: StudyProposalFull;
+    task: Task;
+    already_accepted: boolean;
+  }> {
+    return this.http
+      .post<{
+        proposal: StudyProposalFull;
+        task: Task;
+        already_accepted: boolean;
+      }>(`/api/v1/study-proposals/${id}/accept`)
+      .then((r) => r.data);
+  }
+
+  dismissStudyProposal(id: string): Promise<{ proposal: StudyProposalFull }> {
+    return this.http
+      .post<{ proposal: StudyProposalFull }>(
+        `/api/v1/study-proposals/${id}/dismiss`,
+      )
       .then((r) => r.data);
   }
 
