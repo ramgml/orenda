@@ -222,6 +222,8 @@ Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
 	cmd.AddCommand(newAgentAwaitCmd())
 	cmd.AddCommand(newAgentPagesCmd())
 	cmd.AddCommand(newAgentSearchCmd())
+	cmd.AddCommand(newAgentCoursesCmd())
+	cmd.AddCommand(newAgentStudyProposeCmd())
 	return cmd
 }
 
@@ -735,5 +737,93 @@ func newAgentSearchCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&typ, "type", "", "restrict to a hit type (page|task|comment)")
 	cmd.Flags().IntVar(&limit, "limit", 0, "max hits (0 = server default)")
+	return cmd
+}
+
+// newAgentCoursesCmd wires `orenda agent courses list`.
+//
+// Phase 31.8: the planner reads the active-course list to know
+// what to propose. With --status active the response carries
+// progress + pace notes for each course so the planner doesn't
+// have to round-trip per-course.
+func newAgentCoursesCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "courses",
+		Short: "Course-related agent commands",
+	}
+	cmd.AddCommand(newAgentCoursesListCmd())
+	return cmd
+}
+
+func newAgentCoursesListCmd() *cobra.Command {
+	var status string
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List courses (active = progress + pace notes enriched)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := "/api/v1/agent/courses"
+			if status != "" {
+				path += "?status=" + url.QueryEscape(status)
+			}
+			return agentPagesGet(cmd, path, http.StatusOK)
+		},
+	}
+	cmd.Flags().StringVar(&status, "status", "", "filter by status (draft|review|active|done|archived)")
+	return cmd
+}
+
+// newAgentStudyProposeCmd wires `orenda agent study-propose`.
+//
+// Phase 31.8: the planner's only study-side surface. Files a
+// pending proposal that the user can accept or dismiss from the
+// Dashboard tray.
+func newAgentStudyProposeCmd() *cobra.Command {
+	var (
+		courseID   string
+		title      string
+		bodyMD     string
+		targetDate string
+	)
+	cmd := &cobra.Command{
+		Use:   "study-propose",
+		Short: "File a pending study proposal (the Dashboard tray picks it up)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if title == "" || targetDate == "" {
+				return fmt.Errorf("study-propose: --title and --target-date are required")
+			}
+			body := map[string]string{
+				"title":       title,
+				"target_date": targetDate,
+			}
+			if courseID != "" {
+				body["course_id"] = courseID
+			}
+			if bodyMD != "" {
+				body["body_md"] = bodyMD
+			}
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			raw, code, err := ctx.agentPost(cmd.Context(),
+				"/api/v1/agent/study-proposals", body)
+			if err != nil {
+				return err
+			}
+			if code != http.StatusCreated {
+				return fmt.Errorf("agent study-propose: HTTP %d: %s", code, raw)
+			}
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		},
+	}
+	cmd.Flags().StringVar(&courseID, "course-id", "", "optional course id (omit for a free-standing reminder)")
+	cmd.Flags().StringVar(&title, "title", "", "proposal title (required)")
+	cmd.Flags().StringVar(&bodyMD, "body-md", "", "optional markdown body")
+	cmd.Flags().StringVar(&targetDate, "target-date", "", "YYYY-MM-DD (required)")
 	return cmd
 }

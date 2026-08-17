@@ -89,6 +89,8 @@ func TestOrendaTools_ListIncludesWikiAndSearch(t *testing.T) {
 		// Phase 29.3 additions.
 		"orenda_pages_list", "orenda_pages_get", "orenda_pages_save",
 		"orenda_pages_delete", "orenda_pages_move", "orenda_search",
+		// Phase 31.8 additions.
+		"orenda_courses_list", "orenda_study_propose",
 	} {
 		assert.True(t, names[want], "tools/list must include %s", want)
 	}
@@ -169,4 +171,103 @@ func TestOrendaTools_AwaitUsesAgentNamespace(t *testing.T) {
 	assert.Equal(t, "/api/v1/agent/events/await", rec.path)
 	assert.Equal(t, "Bearer tok-abc", rec.authHdr)
 	assert.Equal(t, float64(1), rec.body["timeout_s"])
+}
+
+// TestOrendaTools_CoursesListEncodesStatus — Phase 31.8: the
+// optional ?status= filter is the only knob the planner turns.
+// Pin: status present → query string carries it; absent → path
+// is the bare agent namespace.
+func TestOrendaTools_CoursesListEncodesStatus(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+
+	// With status.
+	callTool(t, srv, "orenda_courses_list", map[string]any{"status": "active"})
+	assert.Equal(t, "/api/v1/agent/courses", rec.path)
+	assert.Equal(t, "active", rec.query.Get("status"))
+}
+
+// TestOrendaTools_CoursesListNoStatus — omitting status keeps the
+// URL clean (no trailing "?").
+func TestOrendaTools_CoursesListNoStatus(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_courses_list", map[string]any{})
+	assert.Equal(t, "/api/v1/agent/courses", rec.path)
+	assert.Empty(t, rec.query.Encode(),
+		"empty status must not produce a trailing ?status= on the URL")
+}
+
+// TestOrendaTools_StudyProposeSendsPOST — Phase 31.8: the body is
+// POSTed to /api/v1/agent/study-proposals with title/target_date
+// required and course_id/body_md optional.
+func TestOrendaTools_StudyProposeSendsPOST(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_study_propose", map[string]any{
+		"course_id":   "c-1",
+		"title":       "Read chapter 5",
+		"body_md":     "rust-book chapter 5",
+		"target_date": "2099-08-17",
+	})
+	assert.Equal(t, http.MethodPost, rec.method)
+	assert.Equal(t, "/api/v1/agent/study-proposals", rec.path)
+	assert.Equal(t, "c-1", rec.body["course_id"])
+	assert.Equal(t, "Read chapter 5", rec.body["title"])
+	assert.Equal(t, "rust-book chapter 5", rec.body["body_md"])
+	assert.Equal(t, "2099-08-17", rec.body["target_date"])
+}
+
+// TestOrendaTools_StudyProposeOmitsOptionalFields — when the
+// planner doesn't supply course_id or body_md, those keys must
+// not appear in the body (avoid sending empty strings the server
+// would store as-is).
+func TestOrendaTools_StudyProposeOmitsOptionalFields(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_study_propose", map[string]any{
+		"title":       "Free-standing",
+		"target_date": "2099-08-17",
+	})
+	_, hasCourse := rec.body["course_id"]
+	_, hasBody := rec.body["body_md"]
+	assert.False(t, hasCourse, "course_id must not appear when caller omitted it")
+	assert.False(t, hasBody, "body_md must not appear when caller omitted it")
+}
+
+// TestOrendaTools_StudyProposeRequiresTitleAndDate — the tool
+// refuses inputs that the server would 400 on; the planner sees a
+// readable error instead of a useless HTTP traceback.
+func TestOrendaTools_StudyProposeRequiresTitleAndDate(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{"empty title", map[string]any{"title": "", "target_date": "2099-08-17"},
+			"title and target_date are required"},
+		{"empty date", map[string]any{"title": "Read chapter 5", "target_date": ""},
+			"title and target_date are required"},
+		{"both empty", map[string]any{}, "title and target_date are required"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := call(t, srv, fmt.Sprintf(
+				`{"jsonrpc":"2.0","id":99,"method":"tools/call","params":{"name":"orenda_study_propose","arguments":%s}}`,
+				mustMarshal(t, tc.args)))
+			errObj, ok := resp["error"].(map[string]any)
+			require.True(t, ok, "tool should return an error, got %v", resp)
+			// JSON-RPC's error message is the static "tool error";
+			// the actual reason lands in the "data" field (the
+			// original error string).
+			data, _ := errObj["data"].(string)
+			assert.Contains(t, data, tc.want)
+		})
+	}
+	// No HTTP call should have hit the fake server.
+	assert.Empty(t, rec.path, "validation should happen before the network call")
+}
+
+// mustMarshal is a tiny test helper that fails fast on JSON errors.
+func mustMarshal(t *testing.T, v any) string {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	require.NoError(t, err)
+	return string(raw)
 }

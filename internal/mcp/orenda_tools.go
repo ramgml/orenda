@@ -321,6 +321,71 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			return agentGet(ctx, httpc, cfg, "/api/v1/agent/search?"+v.Encode())
 		},
 	})
+
+	// ------------------------------------------------------------------
+	// Phase 31.8: study-planning surface. The external planner
+	// calls `orenda_study_propose` to file a pending proposal; the
+	// user accepts/dismisses from the Dashboard tray (Phase 31.6).
+	// `orenda_courses_list` is the read side of the planner loop —
+	// it returns courses (filtered by status) with progress + pace
+	// notes attached, so the planner has everything it needs to
+	// propose specific reminders.
+	// ------------------------------------------------------------------
+
+	s.Register(Tool{
+		Name:        "orenda_courses_list",
+		Description: "List courses; with ?status=active the planner's view (progress + pace notes + open lessons).",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"status": map[string]any{"type": "string", "description": "Filter by status (draft|review|active|done|archived). Omit = list all."},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			v := url.Values{}
+			if s := stringParam(params, "status"); s != "" {
+				v.Set("status", s)
+			}
+			path := "/api/v1/agent/courses"
+			if len(v) > 0 {
+				path += "?" + v.Encode()
+			}
+			return agentGet(ctx, httpc, cfg, path)
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_study_propose",
+		Description: "File a pending study proposal that the user can accept/dismiss from the Dashboard tray.",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"title", "target_date"},
+			"properties": map[string]any{
+				"course_id":   map[string]any{"type": "string", "description": "Optional course link; omit for a free-standing reminder"},
+				"title":       map[string]any{"type": "string"},
+				"body_md":     map[string]any{"type": "string"},
+				"target_date": map[string]any{"type": "string", "description": "YYYY-MM-DD"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			title, _ := params["title"].(string)
+			targetDate, _ := params["target_date"].(string)
+			if title == "" || targetDate == "" {
+				return nil, fmt.Errorf("orenda_study_propose: title and target_date are required")
+			}
+			body := map[string]any{
+				"title":       title,
+				"target_date": targetDate,
+			}
+			if c := stringParam(params, "course_id"); c != "" {
+				body["course_id"] = c
+			}
+			if b := stringParam(params, "body_md"); b != "" {
+				body["body_md"] = b
+			}
+			return agentPost(ctx, httpc, cfg, "/api/v1/agent/study-proposals", body)
+		},
+	})
 }
 
 // stringParam reads an optional string parameter.
