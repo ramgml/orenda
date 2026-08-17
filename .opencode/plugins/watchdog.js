@@ -11,6 +11,11 @@
 //
 // The first tick after startup only establishes the baseline (never fires),
 // so a long-true condition doesn't alarm on every opencode restart.
+//
+// Delivery on fire: prompt into the most recently updated session + TUI toast
+// + desktop notification (notify-send, best effort). Delivery failures are
+// logged, never swallowed. Rule option "remind_s": re-deliver every N seconds
+// while the condition stays true, so a missed notification is not lost.
 
 const DEFAULT_TIMEOUT_S = 60;
 
@@ -39,16 +44,37 @@ async function runCheck(directory, checkPath, timeoutS, extraEnv) {
   return { code, stdout: stdout.trim(), stderr: stderr.trim() };
 }
 
+async function desktopNotify(client, text) {
+  try {
+    const proc = Bun.spawn(["notify-send", "--app-name=Orenda", "Orenda watchdog", text.slice(0, 300)], {
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    const code = await proc.exited;
+    if (code !== 0) {
+      const err = await new Response(proc.stderr).text();
+      await log(client, "warn", `watchdog: notify-send exited ${code}: ${err.trim()}`);
+    }
+  } catch (err) {
+    // notify-send absent (headless server, macOS) — prompt path still applies.
+    if (!String(err).includes("ENOENT")) {
+      await log(client, "warn", `watchdog: desktop notify failed: ${err}`);
+    }
+  }
+}
+
 async function deliver(client, rule, output) {
   const template = rule.prompt ?? `Watchdog rule "${rule.name}" fired.`;
   const text = template.replace("{{output}}", output || "(no details)");
 
+  await desktopNotify(client, text);
+
   try {
     await client.tui.showToast({
-      body: { title: "Watchdog", message: rule.name, variant: "info" },
+      body: { title: "Watchdog", message: rule.name, variant: "warning" },
     });
-  } catch {
-    // TUI may be absent (headless/server mode) — prompt path still applies.
+  } catch (err) {
+    await log(client, "warn", `watchdog[${rule.name}]: toast failed: ${err}`);
   }
 
   try {
@@ -59,11 +85,12 @@ async function deliver(client, rule, output) {
       return;
     }
     sessions.sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0));
+    const target = sessions[0];
     await client.session.prompt({
-      path: { id: sessions[0].id },
+      path: { id: target.id },
       body: { parts: [{ type: "text", text }] },
     });
-    await log(client, "info", `watchdog[${rule.name}]: fired, prompt delivered`);
+    await log(client, "info", `watchdog[${rule.name}]: fired, prompt delivered to session ${target.id}`);
   } catch (err) {
     await log(client, "error", `watchdog[${rule.name}]: prompt failed: ${err}`);
   }
@@ -72,7 +99,9 @@ async function deliver(client, rule, output) {
 function startRule(client, directory, rule) {
   const checkPath = rule.check.startsWith("/") ? rule.check : `${directory}/${rule.check}`;
   const timeoutS = rule.timeout_s ?? DEFAULT_TIMEOUT_S;
+  const remindMs = rule.remind_s ? rule.remind_s * 1000 : 0;
   let fired = false;
+  let lastFiredAt = 0;
   let firstTick = true;
 
   const tick = async () => {
@@ -88,14 +117,18 @@ function startRule(client, directory, rule) {
     firstTick = false;
 
     if (result.code === 0) {
-      if (!fired) {
+      const remindDue = remindMs > 0 && fired && Date.now() - lastFiredAt >= remindMs;
+      if (!fired || remindDue) {
         fired = true;
+        lastFiredAt = Date.now();
         if (!baseline) await deliver(client, rule, result.stdout);
       }
     } else if (result.code === 1) {
       fired = false;
+      lastFiredAt = 0;
     } else {
       fired = false;
+      lastFiredAt = 0;
       await log(
         client,
         "warn",

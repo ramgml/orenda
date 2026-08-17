@@ -4,13 +4,15 @@
       "name": "plan-claimable",
       "description": "PLAN.md registry: fires when a task becomes claimable (its [~] predecessors got merged) or a new free task appears in the plan. Semantics: docs/PLAN.md claim protocol ([ ]/[~]/[x] markers + 'close X.Y' / 'Merge phase-X-Y-*' commits on the local dev branch). Watched phases are auto-detected (phases with 'docs(plan): claim/close N.' commits on dev + the newest phase in the plan); set PLAN_WATCH_PHASES env here to override.",
       "interval_s": 120,
+      "remind_s": 900,
       "check": ".opencode/watchdog/checks/plan-unblocked.sh",
       "prompt": "Watchdog: в PLAN.md появились задачи, доступные для claim:\n{{output}}\n\nСверься с claim-протоколом (docs/PLAN.md, секция реестра) и спроси меня, какую берём."
     },
     {
       "name": "orenda-ready-queue",
-      "description": "Usage instance (:2137) agent queue: fires while GET /api/v1/agent/tasks?ready=true returns count > 0. Requires ORENDA_AGENT_TOKEN in the environment (and optionally ORENDA_URL).",
+      "description": "Usage instance (:2137) agent queue: fires while GET /api/v1/agent/tasks?ready=true returns count > 0. Requires ORENDA_AGENT_TOKEN in the environment (falls back to the token in ~/.config/opencode/opencode.json mcp.orenda args; optionally ORENDA_URL).",
       "interval_s": 300,
+      "remind_s": 1800,
       "check": ".opencode/watchdog/checks/orenda-ready.sh",
       "prompt": "Watchdog: в очереди usage-инстанса Orenda есть свободные задачи (ready=true):\n{{output}}\n\nПокажи список и спроси, разбираем ли."
     }
