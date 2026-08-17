@@ -1,4 +1,4 @@
-# Session Snapshot — 2026-08-17 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.21 + Phase 10 subphase (Test send UI) + Phase 15 (close-out); «Полировка» + 28.19 + 28.20 + Phase 10 Test send + Phase 15 close-out + 28.21 ops-hardening + 28.22 backend sweep + 28.23 frontend foundations + Phase 29 + Phase 30 реестр целиком (последняя — 30.13) закрыты)
+# Session Snapshot — 2026-08-17 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.21 + Phase 10 subphase (Test send UI) + Phase 15 (close-out); «Полировка» + 28.19 + 28.20 + Phase 10 Test send + Phase 15 close-out + 28.21 ops-hardening + 28.22 backend sweep + 28.23 frontend foundations + Phase 29 + Phase 30 реестр целиком (последняя — 30.13) + Phase 31 целиком (31.1–31.11) закрыты; открытых задач нет)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
@@ -473,7 +473,7 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 ## Файлы
 
 - `docs/PRD.md` — видение продукта
-- `docs/PLAN.md` — фазы и задачи (открыто: **Phase 31 — постановка 2026-08-17** (учебные напоминания в Today), multi-user эра; **Phase 30 реестр полностью закрыт 2026-08-17** — все 17 задач; Phase 29 закрыта 2026-08-16; «Полировка» полностью закрыта Phase 28.7–28.18 + Phase 28.19 + Phase 15 close-out)
+- `docs/PLAN.md` — фазы и задачи (**открытых задач нет**: Phase 30 реестр (17 задач) и Phase 31 (11 задач) полностью закрыты 2026-08-17; Phase 29 закрыта 2026-08-16; новая работа — постановкой фазы 32+ или задачей в реестре Phase 30; multi-user эра — следующая)
 - `docs/CONTEXT.md` — концепции продукта (семантика домена; хартия в шапке файла)
 - `docs/API.md` — REST reference
 - `docs/DB.md` — схема БД по миграциям
