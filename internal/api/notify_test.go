@@ -111,7 +111,7 @@ func getNotifications(t *testing.T, router http.Handler, cookie string) map[stri
 // retained for test-runner symmetry — callers that don't need a
 // session can pass any string; we just keep the signature stable
 // while the router/seed split matures.
-func seedProjectAndTask(t *testing.T, db *sqlLite, _ string) (projectID, taskID, agentID string) {
+func seedProjectAndTask(t *testing.T, db *sqlLite, _ string) (taskID, agentID string) {
 	t.Helper()
 	projRepo := sqlite.NewProjectRepository(db)
 	taskRepo := sqlite.NewTaskRepository(db)
@@ -135,15 +135,14 @@ func seedProjectAndTask(t *testing.T, db *sqlLite, _ string) (projectID, taskID,
 	require.NoError(t, err)
 	a := &agent.Agent{Name: "demo-agent", Type: []string{"custom"}, TokenID: tok.ID, Status: agent.StatusOnline}
 	require.NoError(t, agentRepo.Create(context.Background(), a))
-	return p.ID, tr.ID, a.ID
+	return tr.ID, a.ID
 }
 
 // When an agent claims a task via /tasks/:id/claim the project owner
 // receives an in-app notification with type "task.assigned_to_me".
 func TestNotify_ClaimProducesInboxRow(t *testing.T) {
 	router, cookie, db := notifRouter(t)
-	projectID, taskID, agentID := seedProjectAndTask(t, db, cookie)
-	_ = projectID
+	taskID, agentID := seedProjectAndTask(t, db, cookie)
 
 	body, _ := json.Marshal(map[string]string{"agent_id": agentID})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+taskID+"/claim", bytes.NewReader(body))
@@ -163,8 +162,7 @@ func TestNotify_ClaimProducesInboxRow(t *testing.T) {
 // claim twice with the same agent_id collapses via dedup_key.
 func TestNotify_ClaimDedupesAcrossCalls(t *testing.T) {
 	router, cookie, db := notifRouter(t)
-	projectID, taskID, agentID := seedProjectAndTask(t, db, cookie)
-	_ = projectID
+	taskID, agentID := seedProjectAndTask(t, db, cookie)
 
 	body, _ := json.Marshal(map[string]string{"agent_id": agentID})
 	// First call succeeds.
@@ -205,8 +203,7 @@ func TestNotify_ClaimDedupesAcrossCalls(t *testing.T) {
 // Phase 6.4); confirm it still works after our changes.
 func TestNotify_SubmitStillProducesRow(t *testing.T) {
 	router, cookie, db := notifRouter(t)
-	projectID, taskID, agentID := seedProjectAndTask(t, db, cookie)
-	_ = projectID
+	taskID, agentID := seedProjectAndTask(t, db, cookie)
 
 	// Claim first so submit is happy.
 	claimBody, _ := json.Marshal(map[string]string{"agent_id": agentID})

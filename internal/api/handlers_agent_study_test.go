@@ -24,7 +24,7 @@ import (
 // router under /agent/study-proposals and /agent/courses/{id} so
 // tests can drive the same auth path the production binary uses
 // (RequireAgent middleware + chi URL params).
-func buildAgentStudyDeps(t *testing.T) (*Dependencies, string, string, string) {
+func buildAgentStudyDeps(t *testing.T) (*Dependencies, string, string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -72,7 +72,7 @@ func buildAgentStudyDeps(t *testing.T) (*Dependencies, string, string, string) {
 	)
 	require.NoError(t, err)
 
-	return deps, agentID, courseID, "http://test"
+	return deps, agentID, courseID
 }
 
 // ---------------------------------------------------------------------------
@@ -88,20 +88,20 @@ func seedAuthIdentity(r *http.Request, agentID string) *http.Request {
 	return r.WithContext(WithIdentity(r.Context(), &Identity{AgentID: agentID}))
 }
 
-// withRouteParam sets a chi route parameter on the request so
-// handlers that call chi.URLParam can read it. The router normally
-// does this; bypassing the router in a direct handler test means
-// we have to mint a RouteContext ourselves.
-func withRouteParam(r *http.Request, key, value string) *http.Request {
+// withRouteParam sets the chi "id" route parameter on the request
+// so handlers that call chi.URLParam(r, "id") can read it. The router
+// normally does this; bypassing the router in a direct handler test
+// means we have to mint a RouteContext ourselves.
+func withRouteParam(r *http.Request, value string) *http.Request {
 	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add(key, value)
+	rctx.URLParams.Add("id", value)
 	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
 }
 
 // TestAgentStudyPropose_HappyPath: the planner posts a proposal,
 // the handler stamps agent_id, returns 201 + proposal.
 func TestAgentStudyPropose_HappyPath(t *testing.T) {
-	deps, agentID, _, _ := buildAgentStudyDeps(t)
+	deps, agentID, _ := buildAgentStudyDeps(t)
 
 	body, _ := json.Marshal(map[string]string{
 		"title":       "Read chapter 5",
@@ -125,7 +125,7 @@ func TestAgentStudyPropose_HappyPath(t *testing.T) {
 // TestAgentStudyPropose_MissingFields: title or target_date
 // empty → 400 with a stable error key.
 func TestAgentStudyPropose_MissingFields(t *testing.T) {
-	deps, agentID, _, _ := buildAgentStudyDeps(t)
+	deps, agentID, _ := buildAgentStudyDeps(t)
 	cases := []struct {
 		name string
 		body map[string]string
@@ -151,7 +151,7 @@ func TestAgentStudyPropose_MissingFields(t *testing.T) {
 // agent_id in the context → 401 (defence in depth — the
 // middleware should reject first, but handlers must guard).
 func TestAgentStudyPropose_NoIdentity(t *testing.T) {
-	deps, _, _, _ := buildAgentStudyDeps(t)
+	deps, _, _ := buildAgentStudyDeps(t)
 	body, _ := json.Marshal(map[string]string{
 		"title": "Read", "target_date": "2099-08-17",
 	})
@@ -180,7 +180,7 @@ func TestAgentStudyPropose_NoServiceWired(t *testing.T) {
 // notes through the narrow PATCH; the row returns with the trimmed
 // value + 200.
 func TestPatchCoursePaceNotes_HappyPath(t *testing.T) {
-	deps, _, courseID, _ := buildAgentStudyDeps(t)
+	deps, _, courseID := buildAgentStudyDeps(t)
 
 	body, _ := json.Marshal(map[string]string{
 		"pace_notes_md": "3 times a week, mornings",
@@ -188,7 +188,7 @@ func TestPatchCoursePaceNotes_HappyPath(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPatch, "/api/v1/agent/courses/"+courseID, bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	r = seedAuthIdentity(r, "a-planner")
-	r = withRouteParam(r, "id", courseID)
+	r = withRouteParam(r, courseID)
 	w := httptest.NewRecorder()
 
 	patchCoursePaceNotesHandlerAgent(deps).ServeHTTP(w, r)
@@ -204,13 +204,13 @@ func TestPatchCoursePaceNotes_HappyPath(t *testing.T) {
 // stripped by the repo's Course.Validate — the response shows
 // the trimmed form.
 func TestPatchCoursePaceNotes_Trims(t *testing.T) {
-	deps, _, courseID, _ := buildAgentStudyDeps(t)
+	deps, _, courseID := buildAgentStudyDeps(t)
 
 	body, _ := json.Marshal(map[string]string{"pace_notes_md": "  trim me  "})
 	r := httptest.NewRequest(http.MethodPatch, "/api/v1/agent/courses/"+courseID, bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	r = seedAuthIdentity(r, "a-planner")
-	r = withRouteParam(r, "id", courseID)
+	r = withRouteParam(r, courseID)
 	w := httptest.NewRecorder()
 
 	patchCoursePaceNotesHandlerAgent(deps).ServeHTTP(w, r)
@@ -223,14 +223,14 @@ func TestPatchCoursePaceNotes_Trims(t *testing.T) {
 // TestPatchCoursePaceNotes_Oversized: oversized payload → 400
 // (the repo's Course.Validate rejects >64 KiB).
 func TestPatchCoursePaceNotes_Oversized(t *testing.T) {
-	deps, _, courseID, _ := buildAgentStudyDeps(t)
+	deps, _, courseID := buildAgentStudyDeps(t)
 
 	huge := strings.Repeat("x", 65537)
 	body, _ := json.Marshal(map[string]string{"pace_notes_md": huge})
 	r := httptest.NewRequest(http.MethodPatch, "/api/v1/agent/courses/"+courseID, bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	r = seedAuthIdentity(r, "a-planner")
-	r = withRouteParam(r, "id", courseID)
+	r = withRouteParam(r, courseID)
 	w := httptest.NewRecorder()
 
 	patchCoursePaceNotesHandlerAgent(deps).ServeHTTP(w, r)
@@ -240,13 +240,13 @@ func TestPatchCoursePaceNotes_Oversized(t *testing.T) {
 // TestPatchCoursePaceNotes_UnknownCourse: course id not in DB →
 // 404.
 func TestPatchCoursePaceNotes_UnknownCourse(t *testing.T) {
-	deps, _, _, _ := buildAgentStudyDeps(t)
+	deps, _, _ := buildAgentStudyDeps(t)
 
 	body, _ := json.Marshal(map[string]string{"pace_notes_md": "nope"})
 	r := httptest.NewRequest(http.MethodPatch, "/api/v1/agent/courses/no-such-course", bytes.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	r = seedAuthIdentity(r, "a-planner")
-	r = withRouteParam(r, "id", "no-such-course")
+	r = withRouteParam(r, "no-such-course")
 	w := httptest.NewRecorder()
 
 	patchCoursePaceNotesHandlerAgent(deps).ServeHTTP(w, r)
@@ -267,7 +267,7 @@ func TestPatchCoursePaceNotes_UnknownCourse(t *testing.T) {
 // pinned here by constructing the same logical row through a
 // direct call into enrichActiveCourse.
 func TestEnrichActiveCourse_AttachedProgress(t *testing.T) {
-	deps, _, courseID, _ := buildAgentStudyDeps(t)
+	deps, _, courseID := buildAgentStudyDeps(t)
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	ctx := r.Context()

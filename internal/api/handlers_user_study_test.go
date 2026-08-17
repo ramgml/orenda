@@ -22,7 +22,7 @@ import (
 // so the user-side handler tests can drive the same code path the
 // production router uses (deps.StudyService → Service.Propose /
 // Accept / Dismiss / ListPending).
-func buildUserStudyDeps(t *testing.T) (*Dependencies, string, string, string, string) {
+func buildUserStudyDeps(t *testing.T) (*Dependencies, string, string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -73,14 +73,14 @@ func buildUserStudyDeps(t *testing.T) (*Dependencies, string, string, string, st
 		taskID, "Existing task", "todo", courseID)
 	require.NoError(t, err)
 
-	return deps, ownerID, agentID, courseID, taskID
+	return deps, agentID, courseID
 }
 
-// withRouteParam sets a chi route parameter on the request so
-// handlers that call chi.URLParam can read it.
-func withRouteParam2(r *http.Request, key, value string) *http.Request {
+// withRouteParam sets the chi "id" route parameter on the request so
+// handlers that call chi.URLParam(r, "id") can read it.
+func withRouteParam2(r *http.Request, value string) *http.Request {
 	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add(key, value)
+	rctx.URLParams.Add("id", value)
 	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rctx))
 }
 
@@ -101,7 +101,7 @@ func seedPropose(t *testing.T, deps *Dependencies, agentID, courseID, title stri
 // pending proposals and the response shape matches what the SPA
 // expects (a `proposals` key wrapping the array).
 func TestListStudyProposals_HappyPath(t *testing.T) {
-	deps, _, agentID, courseID, _ := buildUserStudyDeps(t)
+	deps, agentID, courseID := buildUserStudyDeps(t)
 	p1 := seedPropose(t, deps, agentID, courseID, "Read chapter 5")
 	p2 := seedPropose(t, deps, agentID, courseID, "Practice exercises")
 
@@ -127,7 +127,7 @@ func TestListStudyProposals_HappyPath(t *testing.T) {
 // TestListStudyProposals_ExcludesResolved — only pending. After
 // accept/dismiss the proposal must drop off the tray.
 func TestListStudyProposals_ExcludesResolved(t *testing.T) {
-	deps, _, agentID, courseID, _ := buildUserStudyDeps(t)
+	deps, agentID, courseID := buildUserStudyDeps(t)
 	p1 := seedPropose(t, deps, agentID, courseID, "Will be accepted")
 	p2 := seedPropose(t, deps, agentID, courseID, "Will be dismissed")
 	_ = p1
@@ -163,11 +163,11 @@ func TestListStudyProposals_NoServiceWired(t *testing.T) {
 // TestAcceptStudyProposal_HappyPath — 201 + task + proposal in the
 // response body.
 func TestAcceptStudyProposal_HappyPath(t *testing.T) {
-	deps, _, agentID, courseID, _ := buildUserStudyDeps(t)
+	deps, agentID, courseID := buildUserStudyDeps(t)
 	p := seedPropose(t, deps, agentID, courseID, "Read chapter 5")
 
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/study-proposals/"+p.ID+"/accept", nil)
-	r = withRouteParam2(r, "id", p.ID)
+	r = withRouteParam2(r, p.ID)
 	w := httptest.NewRecorder()
 	acceptStudyProposalHandler(deps).ServeHTTP(w, r)
 	require.Equal(t, http.StatusCreated, w.Code, "body=%s", w.Body.String())
@@ -189,12 +189,12 @@ func TestAcceptStudyProposal_HappyPath(t *testing.T) {
 // proposal returns 200 (not 201), already_accepted=true, and the
 // original task id (no duplicate row).
 func TestAcceptStudyProposal_Idempotent(t *testing.T) {
-	deps, _, agentID, courseID, _ := buildUserStudyDeps(t)
+	deps, agentID, courseID := buildUserStudyDeps(t)
 	p := seedPropose(t, deps, agentID, courseID, "Idempotent")
 
 	// First accept → 201.
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/study-proposals/"+p.ID+"/accept", nil)
-	r = withRouteParam2(r, "id", p.ID)
+	r = withRouteParam2(r, p.ID)
 	w := httptest.NewRecorder()
 	acceptStudyProposalHandler(deps).ServeHTTP(w, r)
 	require.Equal(t, http.StatusCreated, w.Code)
@@ -206,7 +206,7 @@ func TestAcceptStudyProposal_Idempotent(t *testing.T) {
 
 	// Second accept → 200 with the original task id.
 	r = httptest.NewRequest(http.MethodPost, "/api/v1/study-proposals/"+p.ID+"/accept", nil)
-	r = withRouteParam2(r, "id", p.ID)
+	r = withRouteParam2(r, p.ID)
 	w = httptest.NewRecorder()
 	acceptStudyProposalHandler(deps).ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK, w.Code)
@@ -223,13 +223,13 @@ func TestAcceptStudyProposal_Idempotent(t *testing.T) {
 // of a dismissed proposal surfaces 409 with the proposal_resolved
 // error key. This is the lifecycle guard from the service.
 func TestAcceptStudyProposal_OnDismissed_ReturnsConflict(t *testing.T) {
-	deps, _, agentID, courseID, _ := buildUserStudyDeps(t)
+	deps, agentID, courseID := buildUserStudyDeps(t)
 	p := seedPropose(t, deps, agentID, courseID, "Dismissed first")
 	_, err := deps.StudyService.Dismiss(context.Background(), p.ID)
 	require.NoError(t, err)
 
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/study-proposals/"+p.ID+"/accept", nil)
-	r = withRouteParam2(r, "id", p.ID)
+	r = withRouteParam2(r, p.ID)
 	w := httptest.NewRecorder()
 	acceptStudyProposalHandler(deps).ServeHTTP(w, r)
 	require.Equal(t, http.StatusConflict, w.Code)
@@ -239,9 +239,9 @@ func TestAcceptStudyProposal_OnDismissed_ReturnsConflict(t *testing.T) {
 // TestAcceptStudyProposal_UnknownProposal — 404 with body that
 // says "proposal not found".
 func TestAcceptStudyProposal_UnknownProposal(t *testing.T) {
-	deps, _, _, _, _ := buildUserStudyDeps(t)
+	deps, _, _ := buildUserStudyDeps(t)
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/study-proposals/no-such/accept", nil)
-	r = withRouteParam2(r, "id", "no-such")
+	r = withRouteParam2(r, "no-such")
 	w := httptest.NewRecorder()
 	acceptStudyProposalHandler(deps).ServeHTTP(w, r)
 	require.Equal(t, http.StatusNotFound, w.Code)
@@ -250,11 +250,11 @@ func TestAcceptStudyProposal_UnknownProposal(t *testing.T) {
 // TestDismissStudyProposal_HappyPath — 200 + the (now dismissed)
 // proposal.
 func TestDismissStudyProposal_HappyPath(t *testing.T) {
-	deps, _, agentID, courseID, _ := buildUserStudyDeps(t)
+	deps, agentID, courseID := buildUserStudyDeps(t)
 	p := seedPropose(t, deps, agentID, courseID, "Skip this")
 
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/study-proposals/"+p.ID+"/dismiss", nil)
-	r = withRouteParam2(r, "id", p.ID)
+	r = withRouteParam2(r, p.ID)
 	w := httptest.NewRecorder()
 	dismissStudyProposalHandler(deps).ServeHTTP(w, r)
 	require.Equal(t, http.StatusOK, w.Code)
@@ -269,13 +269,13 @@ func TestDismissStudyProposal_HappyPath(t *testing.T) {
 // TestDismissStudyProposal_OnAccepted_ReturnsConflict — dismiss
 // of an accepted proposal is the symmetric lifecycle guard.
 func TestDismissStudyProposal_OnAccepted_ReturnsConflict(t *testing.T) {
-	deps, _, agentID, courseID, _ := buildUserStudyDeps(t)
+	deps, agentID, courseID := buildUserStudyDeps(t)
 	p := seedPropose(t, deps, agentID, courseID, "Accepted first")
 	_, err := deps.StudyService.Accept(context.Background(), p.ID)
 	require.NoError(t, err)
 
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/study-proposals/"+p.ID+"/dismiss", nil)
-	r = withRouteParam2(r, "id", p.ID)
+	r = withRouteParam2(r, p.ID)
 	w := httptest.NewRecorder()
 	dismissStudyProposalHandler(deps).ServeHTTP(w, r)
 	require.Equal(t, http.StatusConflict, w.Code)
@@ -284,9 +284,9 @@ func TestDismissStudyProposal_OnAccepted_ReturnsConflict(t *testing.T) {
 
 // TestDismissStudyProposal_UnknownProposal — 404.
 func TestDismissStudyProposal_UnknownProposal(t *testing.T) {
-	deps, _, _, _, _ := buildUserStudyDeps(t)
+	deps, _, _ := buildUserStudyDeps(t)
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/study-proposals/no-such/dismiss", nil)
-	r = withRouteParam2(r, "id", "no-such")
+	r = withRouteParam2(r, "no-such")
 	w := httptest.NewRecorder()
 	dismissStudyProposalHandler(deps).ServeHTTP(w, r)
 	require.Equal(t, http.StatusNotFound, w.Code)
