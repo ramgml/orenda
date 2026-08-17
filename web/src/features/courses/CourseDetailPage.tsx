@@ -159,6 +159,26 @@ export function CourseDetailPage(): JSX.Element {
         )}
       </header>
 
+      {/* Phase 31.9: pace notes — read-only display; the agent-side
+          planner writes these (PATCH /api/v1/agent/courses/{id}) and
+          they drive study-proposal generation. The user can read
+          them here so they know what the planner thinks the cadence
+          should be. Editing from this UI is deferred — see PLAN 31.9
+          "за скобкой" notes. */}
+      {course.pace_notes_md && (
+        <details
+          data-testid="course-pace-notes"
+          className="rounded border border-slate-200 dark:border-slate-800 p-3 text-sm bg-white dark:bg-slate-950"
+        >
+          <summary className="cursor-pointer text-slate-700 dark:text-slate-200 font-medium">
+            Pace notes (from the planner)
+          </summary>
+          <pre className="mt-2 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-400 font-sans">
+            {course.pace_notes_md}
+          </pre>
+        </details>
+      )}
+
       {/* Lifecycle actions */}
       {course.status === 'review' && (
         <div className="flex gap-2">
