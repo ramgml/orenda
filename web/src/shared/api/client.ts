@@ -886,9 +886,7 @@ class ApiClient {
 
   dismissStudyProposal(id: string): Promise<{ proposal: StudyProposalFull }> {
     return this.http
-      .post<{ proposal: StudyProposalFull }>(
-        `/api/v1/study-proposals/${id}/dismiss`,
-      )
+      .post<{ proposal: StudyProposalFull }>(`/api/v1/study-proposals/${id}/dismiss`)
       .then((r) => r.data);
   }
 

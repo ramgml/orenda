@@ -46,10 +46,7 @@ export function MarkdownEditor({
    */
   pages?: WikiTreeNode[];
 }): JSX.Element {
-  const wikiItems: WikiLinkItem[] = useMemo(
-    () => (pages ? flattenWikiTree(pages) : []),
-    [pages],
-  );
+  const wikiItems: WikiLinkItem[] = useMemo(() => (pages ? flattenWikiTree(pages) : []), [pages]);
   const editor = useEditor({
     extensions: [
       StarterKit.configure({

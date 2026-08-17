@@ -352,7 +352,8 @@ export function BackupsSettingsPage(): JSX.Element {
             {(status.snapshot_count ?? 0) === 1 ? '' : 's'} on disk
             {status.latest_snapshot && (
               <>
-                {' '}· latest{' '}
+                {' '}
+                · latest{' '}
                 <span className="font-mono">
                   {status.latest_snapshot_unix
                     ? new Date(status.latest_snapshot_unix * 1000).toLocaleString()

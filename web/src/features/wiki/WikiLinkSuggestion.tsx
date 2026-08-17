@@ -18,12 +18,7 @@
 // contracts explicit.
 import { Extension, type Editor, type Range } from '@tiptap/core';
 import Suggestion from '@tiptap/suggestion';
-import {
-  forwardRef,
-  useEffect,
-  useImperativeHandle,
-  useState,
-} from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 
@@ -62,17 +57,11 @@ interface SuggestionRenderProps {
  *     working Selection), so we don't unit-test it here — Playwright
  *     covers it end-to-end in the existing `wiki` flow.
  */
-export function filterItems(
-  query: string,
-  all: WikiLinkItem[],
-): WikiLinkItem[] {
+export function filterItems(query: string, all: WikiLinkItem[]): WikiLinkItem[] {
   const q = query.toLowerCase().trim();
   if (!q) return all.slice(0, 8);
   return all
-    .filter(
-      (p) =>
-        p.title.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q),
-    )
+    .filter((p) => p.title.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q))
     .slice(0, 8);
 }
 
@@ -88,8 +77,7 @@ export function WikiLinkSuggestion(config: WikiLinkConfig) {
         suggestion: {
           char: '[[',
           startOfLine: false,
-          items: ({ query }: { query: string }) =>
-            filterItems(query, config.getItems()),
+          items: ({ query }: { query: string }) => filterItems(query, config.getItems()),
           command: ({
             editor,
             range,
@@ -99,12 +87,7 @@ export function WikiLinkSuggestion(config: WikiLinkConfig) {
             range: Range;
             props: { slug: string; label: string };
           }) => {
-            editor
-              .chain()
-              .focus()
-              .deleteRange(range)
-              .insertContent(`[[${props.slug}]]`)
-              .run();
+            editor.chain().focus().deleteRange(range).insertContent(`[[${props.slug}]]`).run();
           },
           render: () => {
             let renderer: ReactRendererLite | null = null;
@@ -277,9 +260,7 @@ const SuggestionList = forwardRef<SuggestionListHandle, SuggestionRenderProps>(
             }`}
           >
             <div className="font-medium truncate">{item.title}</div>
-            <div className="text-[10px] text-slate-400 font-mono truncate">
-              {item.slug}
-            </div>
+            <div className="text-[10px] text-slate-400 font-mono truncate">{item.slug}</div>
           </button>
         ))}
       </div>,

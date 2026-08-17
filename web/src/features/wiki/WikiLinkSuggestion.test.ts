@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  filterItems,
-  flattenWikiTree,
-  type WikiLinkItem,
-} from './WikiLinkSuggestion';
+import { filterItems, flattenWikiTree, type WikiLinkItem } from './WikiLinkSuggestion';
 
 const pages: WikiLinkItem[] = [
   { slug: 'architecture', title: 'Architecture' },
@@ -100,8 +96,8 @@ describe('flattenWikiTree', () => {
   });
 
   it('skips nodes with no children field', () => {
-    expect(
-      flattenWikiTree([{ page: { slug: 'leaf', title: 'Leaf' } }]),
-    ).toEqual([{ slug: 'leaf', title: 'Leaf' }]);
+    expect(flattenWikiTree([{ page: { slug: 'leaf', title: 'Leaf' } }])).toEqual([
+      { slug: 'leaf', title: 'Leaf' },
+    ]);
   });
 });

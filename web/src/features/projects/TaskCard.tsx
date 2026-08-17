@@ -180,9 +180,7 @@ export function TaskCard({
               <TimeBadge
                 estimateS={task.time_estimate_s ?? null}
                 spentS={task.time_spent_s}
-                timerActive={
-                  task.started_at != null && task.completed_at == null
-                }
+                timerActive={task.started_at != null && task.completed_at == null}
               />
             )}
         </div>
