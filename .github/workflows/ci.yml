@@ -73,8 +73,15 @@ jobs:
 
       - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v6
+        # Pin to a release built with go1.26.x so the linter can parse
+        # go.mod's `go 1.26.4` directive. `latest` resolves to v1.64.8,
+        # which was built with go1.24 and refuses to load the config
+        # ("Go language version used to build golangci-lint is lower than
+        # the targeted Go version"). v1.64.6 is the latest v1.x built
+        # with go1.26.4. When v2 stabilises and we migrate the config,
+        # bump this.
         with:
-          version: latest
+          version: v1.64.6
 
       - name: golangci-lint run
         run: |
