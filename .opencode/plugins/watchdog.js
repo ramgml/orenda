@@ -12,10 +12,13 @@
 // The first tick after startup only establishes the baseline (never fires),
 // so a long-true condition doesn't alarm on every opencode restart.
 //
-// Delivery on fire: prompt into the most recently updated session + TUI toast
-// + desktop notification (notify-send, best effort). Delivery failures are
-// logged, never swallowed. Rule option "remind_s": re-deliver every N seconds
-// while the condition stays true, so a missed notification is not lost.
+// Delivery on fire: prompt into session(s) + TUI toast + desktop notification
+// (notify-send, best effort). Default routing: the most recently updated
+// session. Rule option "broadcast": true prompts ALL sessions instead — safe
+// when agents coordinate claims out-of-band (e.g. the git claim protocol).
+// Delivery failures are logged, never swallowed. Rule option "remind_s":
+// re-deliver every N seconds while the condition stays true, so a missed
+// notification is not lost.
 
 const DEFAULT_TIMEOUT_S = 60;
 
@@ -85,12 +88,18 @@ async function deliver(client, rule, output) {
       return;
     }
     sessions.sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0));
-    const target = sessions[0];
-    await client.session.prompt({
-      path: { id: target.id },
-      body: { parts: [{ type: "text", text }] },
-    });
-    await log(client, "info", `watchdog[${rule.name}]: fired, prompt delivered to session ${target.id}`);
+    const targets = rule.broadcast ? sessions : [sessions[0]];
+    for (const target of targets) {
+      try {
+        await client.session.prompt({
+          path: { id: target.id },
+          body: { parts: [{ type: "text", text }] },
+        });
+        await log(client, "info", `watchdog[${rule.name}]: fired, prompt delivered to session ${target.id}`);
+      } catch (err) {
+        await log(client, "error", `watchdog[${rule.name}]: prompt to session ${target.id} failed: ${err}`);
+      }
+    }
   } catch (err) {
     await log(client, "error", `watchdog[${rule.name}]: prompt failed: ${err}`);
   }
