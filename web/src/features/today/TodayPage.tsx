@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import {
-  api,
-  type StudyProposalView,
-  type Task,
-} from '@/shared/api/client';
+import { api, type StudyProposalView, type Task } from '@/shared/api/client';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 import { Loading } from '@/shared/ui/Loading';
 import { useWebSocketTopic } from '@/shared/ws';
@@ -134,10 +130,7 @@ export function TodayPage(): JSX.Element {
 
       <UpcomingWeek days={data.upcoming_week ?? []} />
 
-      <ProposalTray
-        proposals={data.proposals}
-        onChange={() => void load()}
-      />
+      <ProposalTray proposals={data.proposals} onChange={() => void load()} />
     </section>
   );
 }
@@ -205,12 +198,7 @@ function ProposalTray({
           Proposed for today ({proposals.length})
         </h2>
       </div>
-      {error && (
-        <ErrorBanner
-          message={error}
-          className="mb-2 text-xs"
-        />
-      )}
+      {error && <ErrorBanner message={error} className="mb-2 text-xs" />}
       <ul className="space-y-2">
         {proposals.map((p) => (
           <li
@@ -315,9 +303,7 @@ function TodaySection({
             // marker is the only thing visually distinguishing a
             // soft reminder from a real project task in the same
             // due_today list.
-            const studyLink = t.study_course_id
-              ? `/courses/${t.study_course_id}`
-              : null;
+            const studyLink = t.study_course_id ? `/courses/${t.study_course_id}` : null;
             return (
               <li
                 key={t.id}
@@ -328,7 +314,8 @@ function TodaySection({
                   to={`/tasks/${t.id}`}
                   className="text-slate-800 dark:text-slate-100 hover:underline"
                 >
-                  {studyLink ? '📖 ' : ''}{t.title}
+                  {studyLink ? '📖 ' : ''}
+                  {t.title}
                 </Link>
                 {studyLink && (
                   <Link
@@ -339,16 +326,16 @@ function TodaySection({
                     open course →
                   </Link>
                 )}
-              <span className="ml-2 text-[10px] text-slate-400 font-mono">
-                {showTime && t.start_at
-                  ? new Date(t.start_at).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })
-                  : t.due_at
-                    ? new Date(t.due_at).toLocaleDateString()
-                    : t.status}
-              </span>
+                <span className="ml-2 text-[10px] text-slate-400 font-mono">
+                  {showTime && t.start_at
+                    ? new Date(t.start_at).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
+                    : t.due_at
+                      ? new Date(t.due_at).toLocaleDateString()
+                      : t.status}
+                </span>
               </li>
             );
           })}

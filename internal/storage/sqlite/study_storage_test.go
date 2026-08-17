@@ -121,7 +121,7 @@ func TestCourseRepo_PaceNotesMDRoundTrip(t *testing.T) {
 	repo := NewCourseRepository(db)
 
 	t.Run("create persists pace_notes_md", func(t *testing.T) {
-		c := newCourseDraft("c-pn-create", "u-pn")
+		c := newCourseDraft("c-pn-create")
 		c.PaceNotesMD = "3 раза в неделю, по утрам"
 		require.NoError(t, repo.CreateCourse(ctx, c))
 		got, err := repo.GetCourse(ctx, c.ID)
@@ -130,7 +130,7 @@ func TestCourseRepo_PaceNotesMDRoundTrip(t *testing.T) {
 	})
 
 	t.Run("update writes pace_notes_md", func(t *testing.T) {
-		c := newCourseDraft("c-pn-update", "u-pn")
+		c := newCourseDraft("c-pn-update")
 		require.NoError(t, repo.CreateCourse(ctx, c))
 
 		c.PaceNotesMD = "после проваленного квиза — повторить"
@@ -142,7 +142,7 @@ func TestCourseRepo_PaceNotesMDRoundTrip(t *testing.T) {
 	})
 
 	t.Run("narrow UpdatePaceNotesMD", func(t *testing.T) {
-		c := newCourseDraft("c-pn-narrow", "u-pn")
+		c := newCourseDraft("c-pn-narrow")
 		c.PaceNotesMD = "initial"
 		require.NoError(t, repo.CreateCourse(ctx, c))
 
@@ -154,7 +154,7 @@ func TestCourseRepo_PaceNotesMDRoundTrip(t *testing.T) {
 	})
 
 	t.Run("UpdatePaceNotesMD trims whitespace", func(t *testing.T) {
-		c := newCourseDraft("c-pn-trim", "u-pn")
+		c := newCourseDraft("c-pn-trim")
 		require.NoError(t, repo.CreateCourse(ctx, c))
 
 		require.NoError(t, repo.UpdatePaceNotesMD(ctx, c.ID, "  hello  \n"))
@@ -164,7 +164,7 @@ func TestCourseRepo_PaceNotesMDRoundTrip(t *testing.T) {
 	})
 
 	t.Run("UpdatePaceNotesMD rejects oversized content", func(t *testing.T) {
-		c := newCourseDraft("c-pn-huge", "u-pn")
+		c := newCourseDraft("c-pn-huge")
 		require.NoError(t, repo.CreateCourse(ctx, c))
 
 		huge := make([]byte, 65537)
@@ -184,15 +184,16 @@ func TestCourseRepo_PaceNotesMDRoundTrip(t *testing.T) {
 	_ = db // unused assert above silences shadowing
 }
 
-// newCourseDraft returns a minimal valid draft course owned by
-// ownerID. The TestCourse_Create contract requires Title, so we
-// always set it.
-func newCourseDraft(id, ownerID string) *course.Course {
+// newCourseDraft returns a minimal valid draft course. The owner
+// is hardcoded to "u-pn" because every caller in this package uses
+// the same owner — the parameter was carried for symmetry but never
+// actually varied.
+func newCourseDraft(id string) *course.Course {
 	return &course.Course{
 		ID:      id,
 		Title:   "Draft",
 		Status:  course.StatusDraft,
-		OwnerID: ownerID,
+		OwnerID: "u-pn",
 		Level:   "beginner",
 		Pace:    "casual",
 	}

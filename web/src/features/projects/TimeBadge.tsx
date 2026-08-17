@@ -51,18 +51,14 @@ export function TimeBadge({
   }
 
   const spentLabel = formatHMMSS(spentS);
-  const overBudget =
-    estimateS != null && spentS > estimateS;
-  const estimateLabel =
-    estimateS != null ? formatHMMSS(estimateS) : null;
+  const overBudget = estimateS != null && spentS > estimateS;
+  const estimateLabel = estimateS != null ? formatHMMSS(estimateS) : null;
 
   return (
     <span
       data-testid="time-badge"
       className={`inline-flex items-center px-1.5 py-0.5 rounded border font-mono ${
-        overBudget
-          ? 'border-red-300 bg-red-50 text-red-700'
-          : 'border-slate-300 text-slate-600'
+        overBudget ? 'border-red-300 bg-red-50 text-red-700' : 'border-slate-300 text-slate-600'
       }`}
       title={estimateLabel ? `${spentLabel} of ${estimateLabel}` : spentLabel}
     >

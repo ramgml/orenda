@@ -60,11 +60,13 @@ function mount() {
   );
 }
 
-function makeTask(overrides: Partial<{
-  id: string;
-  title: string;
-  study_course_id: string;
-}> = {}): {
+function makeTask(
+  overrides: Partial<{
+    id: string;
+    title: string;
+    study_course_id: string;
+  }> = {},
+): {
   id: string;
   title: string;
   project_id: string;

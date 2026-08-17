@@ -26,7 +26,7 @@ type studySvcFixture struct {
 	db       *sql.DB
 }
 
-func setupStudySvc(t *testing.T) (*studySvcFixture, string, string, string) {
+func setupStudySvc(t *testing.T) (*studySvcFixture, string, string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -68,7 +68,7 @@ func setupStudySvc(t *testing.T) (*studySvcFixture, string, string, string) {
 		courseID, "Rust", ownerID)
 	require.NoError(t, err)
 
-	return &studySvcFixture{svc: svc, hub: hub, recorder: rec, db: db}, ownerID, courseID, agentID
+	return &studySvcFixture{svc: svc, hub: hub, recorder: rec, db: db}, courseID, agentID
 }
 
 // bodyField fetches a string field from the event body. We use
@@ -107,7 +107,7 @@ func proposalFromEvent(t *testing.T, ev ws.Event) *study.Proposal {
 // study.proposed event with proposal_id + agent_id + course_id.
 func TestService_Propose_PersistsAndEmits(t *testing.T) {
 	ctx := context.Background()
-	fx, _, courseID, agentID := setupStudySvc(t)
+	fx, courseID, agentID := setupStudySvc(t)
 
 	in := ProposeInput{
 		CourseID:   courseID,
@@ -139,7 +139,7 @@ func TestService_Propose_PersistsAndEmits(t *testing.T) {
 // with study_course_id and due_at = target_date's end-of-day.
 func TestService_Accept_HappyPath(t *testing.T) {
 	ctx := context.Background()
-	fx, _, courseID, agentID := setupStudySvc(t)
+	fx, courseID, agentID := setupStudySvc(t)
 
 	p, err := fx.svc.Propose(ctx, agentID, ProposeInput{
 		CourseID: courseID, Title: "Read chapter 5", TargetDate: "2099-08-17",
@@ -178,7 +178,7 @@ func TestService_Accept_HappyPath(t *testing.T) {
 // AlreadyAccepted flag is set.
 func TestService_Accept_Idempotent(t *testing.T) {
 	ctx := context.Background()
-	fx, _, courseID, agentID := setupStudySvc(t)
+	fx, courseID, agentID := setupStudySvc(t)
 
 	p, err := fx.svc.Propose(ctx, agentID, ProposeInput{
 		CourseID: courseID, Title: "Idempotent", TargetDate: "2099-08-17",
@@ -209,7 +209,7 @@ func TestService_Accept_Idempotent(t *testing.T) {
 // in 2026 lands with due_at = today, not 2024.
 func TestService_Accept_TargetDateBeforeToday_UsesToday(t *testing.T) {
 	ctx := context.Background()
-	fx, _, courseID, agentID := setupStudySvc(t)
+	fx, courseID, agentID := setupStudySvc(t)
 
 	p, err := fx.svc.Propose(ctx, agentID, ProposeInput{
 		CourseID: courseID, Title: "Old proposal", TargetDate: "2024-01-01",
@@ -230,7 +230,7 @@ func TestService_Accept_TargetDateBeforeToday_UsesToday(t *testing.T) {
 // materialises, hub sees study.dismissed.
 func TestService_Dismiss_HappyPath(t *testing.T) {
 	ctx := context.Background()
-	fx, _, courseID, agentID := setupStudySvc(t)
+	fx, courseID, agentID := setupStudySvc(t)
 
 	p, err := fx.svc.Propose(ctx, agentID, ProposeInput{
 		CourseID: courseID, Title: "Skip this", TargetDate: "2099-08-17",
@@ -260,7 +260,7 @@ func TestService_Dismiss_HappyPath(t *testing.T) {
 // not idempotent.
 func TestService_Accept_OnDismissed_ReturnsTransition(t *testing.T) {
 	ctx := context.Background()
-	fx, _, courseID, agentID := setupStudySvc(t)
+	fx, courseID, agentID := setupStudySvc(t)
 
 	p, err := fx.svc.Propose(ctx, agentID, ProposeInput{
 		CourseID: courseID, Title: "Don't double-dip", TargetDate: "2099-08-17",
@@ -278,7 +278,7 @@ func TestService_Accept_OnDismissed_ReturnsTransition(t *testing.T) {
 // returns the existing task.
 func TestService_Accept_OnAlreadyAccepted_IsIdempotent(t *testing.T) {
 	ctx := context.Background()
-	fx, _, courseID, agentID := setupStudySvc(t)
+	fx, courseID, agentID := setupStudySvc(t)
 
 	p, err := fx.svc.Propose(ctx, agentID, ProposeInput{
 		CourseID: courseID, Title: "Repeat", TargetDate: "2099-08-17",
@@ -296,7 +296,7 @@ func TestService_Accept_OnAlreadyAccepted_IsIdempotent(t *testing.T) {
 // errors from the repo. Empty title fails (Phase 31.2 contract).
 func TestService_Propose_InvalidInput(t *testing.T) {
 	ctx := context.Background()
-	fx, _, _, agentID := setupStudySvc(t)
+	fx, _, agentID := setupStudySvc(t)
 
 	_, err := fx.svc.Propose(ctx, agentID, ProposeInput{
 		Title: "", TargetDate: "2026-08-17",
@@ -307,7 +307,7 @@ func TestService_Propose_InvalidInput(t *testing.T) {
 // TestService_ListPending_HappyPath — ordering and filtering.
 func TestService_ListPending_HappyPath(t *testing.T) {
 	ctx := context.Background()
-	fx, _, courseID, agentID := setupStudySvc(t)
+	fx, courseID, agentID := setupStudySvc(t)
 
 	for _, title := range []string{"A", "B", "C"} {
 		_, err := fx.svc.Propose(ctx, agentID, ProposeInput{
@@ -338,7 +338,7 @@ func TestService_ListPending_HappyPath(t *testing.T) {
 // ErrNotFound (404 on the API).
 func TestService_Accept_UnknownProposal(t *testing.T) {
 	ctx := context.Background()
-	fx, _, _, _ := setupStudySvc(t)
+	fx, _, _ := setupStudySvc(t)
 	_, err := fx.svc.Accept(ctx, "no-such-proposal")
 	require.ErrorIs(t, err, study.ErrNotFound)
 }

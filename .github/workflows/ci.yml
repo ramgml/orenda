@@ -72,17 +72,22 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+        # Build from source with the local Go toolchain — the published
+        # v1.64.x binaries were built with go1.24 and refuse to load
+        # .golangci.yml against go.mod's `go 1.26.4` directive. Slower
+        # than the action's prebuilt cache, but always matches the
+        # project's Go version. When v2 stabilises and we migrate the
+        # config, switch back to golangci/golangci-lint-action@v6 with
+        # `version: v2.x.y`.
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.6
 
       - name: golangci-lint run
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch --depth=200 origin "${{ github.base_ref }}" || true
-            golangci-lint run --new-from-merge-base=origin/${{ github.base_ref }} ./...
+            "$(go env GOPATH)/bin/golangci-lint" run --new-from-merge-base=origin/${{ github.base_ref }} ./...
           else
-            golangci-lint run ./...
+            "$(go env GOPATH)/bin/golangci-lint" run ./...
           fi
 
       - name: npm ci
@@ -119,6 +124,10 @@ jobs:
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
 
+      - name: npm ci
+        working-directory: web
+        run: npm ci
+
       - name: Go test (race)
         run: go test ./... -race -count=1
 
@@ -150,6 +159,10 @@ jobs:
           node-version: '24'
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
+
+      - name: npm ci
+        working-directory: web
+        run: npm ci
 
       - name: make build
         run: make build
@@ -195,6 +208,10 @@ jobs:
         with:
           name: orenda-bin
           path: bin
+
+      - name: npm ci
+        working-directory: web
+        run: npm ci
 
       - name: Install Playwright Chromium
         working-directory: web
