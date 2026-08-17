@@ -109,6 +109,12 @@ Tasks awaiting human action — the union of `awaiting='human'` and `status='rev
 | PUT | `/api/v1/courses/{id}/curriculum` | Phase 27.6 owner-side atomic swap: `{modules: [{title, description?, position, lessons: [{title, position, content_md?, quizzes?: [{position, question_md, expected_md?, kind}]}]}]}`. Same service path as the tutor agent — when called from the owner namespace, the service retires the generator task so a sleeping tutor can't overwrite manual work. |
 | POST | `/api/v1/lessons/{id}/quizzes` | Phase 27.6 owner-side quiz append (closes Phase 18.6 debt). Body: `{position?: 0=append, question_md, expected_md?, kind: 'exact'|'open'}`. Returns the persisted quiz (with id + assigned position). |
 | PUT | `/api/v1/lessons/{id}/content` | Phase 27.6 owner-side content edit (active courses only by design). Body: `{content_md, task_id?}`. Doesn't flip lesson status — used for typos / rewordings once the course is live. |
+| POST | `/api/v1/courses/{id}/modules` | Phase 30.13 granular structure edits (stable IDs → student progress survives). Body `{title, description?}` → 201; appended at end. Allowed on draft/review/active; done/archived → 422 `invalid_transition`. Same error mapping for all rows below: 400 `invalid_input`, 404 `not_found`. |
+| PUT | `/api/v1/courses/{id}/structure` | Phase 30.13 drag&drop reorder. Body `{modules: [{module_id, lesson_ids: []}]}` — IDs only, must name every module and lesson of the course exactly once (else 400, nothing written); lessons may move across modules; positions rewritten 1..n. Returns the refreshed course tree (same shape as `GET /courses/{id}`). |
+| PATCH/DELETE | `/api/v1/modules/{id}` | Phase 30.13: rename/description in place; DELETE cascades lessons+quizzes (that progress is dropped by the owner's explicit choice). |
+| POST | `/api/v1/modules/{id}/lessons` | Phase 30.13: append a lesson; it is born `locked` even in an active course (materialize before students see it). |
+| PATCH/DELETE | `/api/v1/lessons/{id}` | Phase 30.13: rename in place (status/content/task link preserved); DELETE cascades quizzes. |
+| PATCH/DELETE | `/api/v1/quizzes/{qid}` | Phase 30.13: edit `{question_md, expected_md?, kind?}` in place (empty kind = `exact`); DELETE removes the quiz. |
 
 Inline accept / return goes through the standard review endpoint (`POST /api/v1/tasks/{id}/review` with `decision: approve|reject`). Approval moves the task to `done`; return moves it back to `in_progress` + `awaiting='agent'` and (optionally) records a comment the agent sees on resume.
 
@@ -136,6 +142,11 @@ Inline accept / return goes through the standard review endpoint (`POST /api/v1/
 | POST | `/api/v1/agent/lessons/{id}/materialize` | Phase 27.4: tutor writes content + unlocks the lesson |
 | PUT | `/api/v1/agent/lessons/{id}/content` | Phase 27.4: in-place content update |
 | POST | `/api/v1/agent/lessons/{id}/quizzes` | Phase 27.6: append a single quiz (closes Phase 18.6 debt). Same body as the user-side endpoint. |
+| POST | `/api/v1/agent/courses/{id}/modules` | Phase 30.13: agent mirrors of the granular structure ops — same handlers, same progress-preserving semantics and error mapping (400 `invalid_input`, 404 `not_found`, 422 `invalid_transition`). |
+| PUT | `/api/v1/agent/courses/{id}/structure` | Phase 30.13: IDs-only reorder, exact coverage; returns the refreshed tree. |
+| PATCH/DELETE | `/api/v1/agent/modules/{id}` · POST `/api/v1/agent/modules/{id}/lessons` | Phase 30.13 agent-side. |
+| PATCH/DELETE | `/api/v1/agent/lessons/{id}` | Phase 30.13: rename / delete (cascade). |
+| PATCH/DELETE | `/api/v1/agent/quizzes/{qid}` | Phase 30.13: edit / delete quiz. |
 
 The `orenda agent` CLI (Phase 25) is a thin cobra wrapper over the
 agent namespace. Source: `cmd/orenda/agent.go`. See
