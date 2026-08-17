@@ -120,6 +120,20 @@ func (r *fakeCourseRepo) SubmitCurriculum(_ context.Context, _ string, modules [
 	return nil
 }
 
+// ---- Phase 30.13 granular CRUD surface (stubs) ----
+
+func (r *fakeCourseRepo) GetModule(context.Context, string) (*course.Module, error) {
+	return nil, course.ErrNotFound
+}
+func (r *fakeCourseRepo) UpdateModule(context.Context, *course.Module) error { return nil }
+func (r *fakeCourseRepo) DeleteModule(context.Context, string) error         { return nil }
+func (r *fakeCourseRepo) DeleteLesson(context.Context, string) error         { return nil }
+func (r *fakeCourseRepo) UpdateQuiz(context.Context, *course.Quiz) error     { return nil }
+func (r *fakeCourseRepo) DeleteQuiz(context.Context, string) error           { return nil }
+func (r *fakeCourseRepo) ApplyStructure(context.Context, string, []course.ModuleOrder) error {
+	return nil
+}
+
 // newFakeCourseService exposes SubmitCurriculum through the same Service
 // type the router actually wires.
 func newFakeCourseService(t *testing.T) (*coursesvc.Service, *fakeCourseRepo) {

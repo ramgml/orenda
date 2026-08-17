@@ -1,4 +1,4 @@
-# Session Snapshot — 2026-08-16 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.21 + Phase 10 subphase (Test send UI) + Phase 15 (close-out); «Полировка» + 28.19 + 28.20 + Phase 10 Test send + Phase 15 close-out + 28.21 ops-hardening + 28.22 backend sweep + 28.23 frontend foundations закрыты)
+# Session Snapshot — 2026-08-17 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.21 + Phase 10 subphase (Test send UI) + Phase 15 (close-out); «Полировка» + 28.19 + 28.20 + Phase 10 Test send + Phase 15 close-out + 28.21 ops-hardening + 28.22 backend sweep + 28.23 frontend foundations + Phase 29 + Phase 30 реестр целиком (последняя — 30.13) закрыты)
 
 > Файл для восстановления контекста сессии. Читай первым делом при возобновлении работы.
 > Подхватывается автоматически через AGENTS.md и через `instructions` в opencode.json.
@@ -313,7 +313,7 @@
 
 ## Метаданные
 
-- **Дата снапшота:** 2026-08-16
+- **Дата снапшота:** 2026-08-17
 - **Ветка:** `dev`
 - **Статус:** смержено: фазы 0–26 (частичные 🟡 расписаны в PLAN.md), Wave 4, 27.1–27.11, 27.8.4, 28.1–28.21 (полировка полностью закрыта + agent-type-labels + dev/dogfood separation + ops-hardening), Phase 10 subphase (Test send UI), Phase 15 close-out, Phase doc-audit. Multi-user / multi-device sync — следующая эра после полировки.
 - **Теги:** `v0.1.0-phase0` … `v0.1.0-wave4-minor` (после тега — серия phase- и docs-коммитов, +27.6/27.7/27.8/27.8.4/27.9/27.10/27.11/28.1/.../28.20/phase-10-test-send/phase-15-agent-context/phase-doc-audit)
@@ -416,11 +416,11 @@ ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 
 ## Тесты
 
-**Последние зафиксированные прогоны** (Phase 28.23 frontend foundations, 2026-08-16):
-- `make test` — Go (30/30 packages ok) + vitest (263/263).
-- `make test-e2e` — 18/18 pass.
-- `npx tsc --noEmit` — clean; `go build ./...` — clean.
-- Mutation check: инверсия deps в `useWebSocketTopic` флипает `ws.test.tsx` red; revert — зелёный.
+**Последние зафиксированные прогоны** (30.13 granular curriculum CRUD, 2026-08-17):
+- `make test` — Go (30/30 packages ok) + vitest (307/307).
+- `make test-e2e` — 20/20 pass (+1 `course-structure.spec.ts`).
+- `npx tsc --noEmit` — clean; `go build ./...` — clean; `golangci-lint --new-from-merge-base=origin/dev` — exit 0.
+- Mutation check: инверсия order-detection в `diffCurriculum` флипает 4 granular vitest red; revert — зелёный.
 - Coverage: domain 100%, services 70–100%, api 61%, storage 72%; фронт — компонентный/юнит (vitest + jsdom), e2e (Playwright + реальный бинарь).
 
 ### Запуск E2E локально
@@ -454,14 +454,15 @@ ORENDA_SERVER__PORT=21372 make test-e2e   # скрипт читает env, playw
 - **Phase 15 close-out (agent UX контракт)** — **закрыта 2026-08-14** в `phase-15-agent-context`. (1) `409 lock_taken` теперь несёт `holder_agent_id`/`holder_agent_name`/`claimed_at` (раньше `taskLockRepo.Holder` был написан, но не подключён); (2) `/tasks/:id/context` и `/agent/tasks/{id}/context` несут `blocked_by` (open dependency ids) + `lock_holder` (agent_id/agent_name/acquired_at); (3) `?ready=true` исключает задачи, занятые самим агентом (раньше шумели в очереди). 6 handler-тестов, OpenAPI оба файла синхронны.
 - **Phase 28.21 (ops-hardening)** — **закрыта 2026-08-16** в `phase-28-21-ops-hardening`. Login rate-limit восстановлен, `configs/config.example.yaml` tracked (install.sh больше не падает на fresh clone), JWT-секрет генерируется в `$DATA_DIR/env` (mode 600), LWW-семантика Phase 8 зафиксирована документально.
 - **Phase 29 (agent surfaces: wiki + course creation)** — **закрыта 2026-08-16** (29.1 в `phase-29-1-agent-wiki-rest`, 29.2–29.7 в `phase-29-2-7-agent-surfaces`). Wiki целиком в agent-неймспейс (REST+CLI+MCP+skill), `POST /agent/courses` (owner=FirstNonSystem, SkipGenerator), `POST /agent/courses/{id}/activate`. Сценарий «агент создаёт курс целиком, человек только учится» воспроизводится smoke-скриптом.
-- **Phase 30 (реестр открытых задач)** — **создан 2026-08-16**. Правило: «долгов» как свободных записей больше нет; каждый открытый пункт — нумерованная задача 30.x с приоритетом (P1 процесс/данные, P2 продуктовые пробелы, P3 полировка/ops). Туда перенесены: Phase 10 подфазы (VK Long Poll / Email HTML / weekly digest → 30.3–30.5), `[[` autocomplete (→ 30.6), comment при reject (→ 30.7), due_at в календаре (→ 30.8), backup UX (→ 30.9), due в QuickCapture (→ 30.10), WIP-фидбек (→ 30.11), бейджи времени (→ 30.12), правка active-курса (→ 30.13), UI статусов + bulk-edit (→ 30.14), CI (→ 30.1), sync_ops молчание (→ 30.2), ops-скрипты (→ 30.15), lint-остаток 95 (→ 30.16). Проверено и НЕ заведено (закрыто в коде): color editor widget, events UI подписок, optimistic move, hot-reload backup, config template.
+- **Phase 30 (реестр открытых задач)** — **создан 2026-08-16; реестр полностью закрыт 2026-08-17** (последняя — 30.13, `phase-30-13-course-curriculum-crud`). Правило: «долгов» как свободных записей больше нет; каждый открытый пункт — нумерованная задача 30.x с приоритетом (P1 процесс/данные, P2 продуктовые пробелы, P3 полировка/ops). Туда перенесены: Phase 10 подфазы (VK Long Poll / Email HTML / weekly digest → 30.3–30.5), `[[` autocomplete (→ 30.6), comment при reject (→ 30.7), due_at в календаре (→ 30.8), backup UX (→ 30.9), due в QuickCapture (→ 30.10), WIP-фидбек (→ 30.11), бейджи времени (→ 30.12), правка active-курса (→ 30.13), UI статусов + bulk-edit (→ 30.14), CI (→ 30.1), sync_ops молчание (→ 30.2), ops-скрипты (→ 30.15), lint-остаток 95 (→ 30.16). Проверено и НЕ заведено (закрыто в коде): color editor widget, events UI подписок, optimistic move, hot-reload backup, config template.
+- **30.13 (правка active-курса, granular CRUD)** — **закрыта 2026-08-17**. Granular endpoints со стабильными ID (user + agent mirrors): `POST /courses/{id}/modules`, `PUT /courses/{id}/structure` (IDs-only reorder, exact coverage в tx), `PATCH/DELETE /modules/{id}`, `POST /modules/{id}/lessons`, `PATCH/DELETE /lessons/{id}`, `PATCH/DELETE /quizzes/{qid}`; done/archived курсы заморожены (422). Прогресс студента выживает по построению (строки не пересоздаются). Editor в active-режиме — granular diff-save + dnd reorder + импорт программы из markdown (client-side парсер `curriculumMarkdown.ts`). E2E `course-structure.spec.ts` доказывает: rename/add на active-курсе не сбрасывает `done`/`open` уроки.
 - **Phase 31 (учебные напоминания в Today)** — **постановка 2026-08-17** (PLAN.md Phase 31, задачи 31.1–31.11). Сценарий: день начинается с Dashboard, учёба — среди задач дня; ставит напоминалки внешний агент (opencode → MCP) по команде пользователя; подтверждение opt-in. Ключевые решения: напоминалка = inbox-задача с `tasks.study_course_id` (свободная связь с курсом); proposals — отдельная таблица `study_proposals` (не статус задачи), accept материализует задачу идемпотентно; тихий перенос — read-семантика `/today` (study-reminders не краснеют в overdue, `due_at <= today` ⇒ due_today), без единой записи; платформа сама не планирует (ни cron, ни baseline); контракт темпа — новое поле `courses.pace_notes_md` + мёртвый сегодня `Pace` enum получает первого потребителя (агент-планировщик); WS — топик `tasks`. За скобкой: чат-окно в Dashboard, generic `POST /agent/tasks`, nightly-триггер (сознательно отвергнут).
 - **Multi-user / multi-device sync (Phase 11+)** — следующая эра.
 
 ## Файлы
 
 - `docs/PRD.md` — видение продукта
-- `docs/PLAN.md` — фазы и задачи (открыто: **Phase 30 — реестр всех открытых задач с приоритетами** (свободна одна: 30.13), **Phase 31 — постановка 2026-08-17** (учебные напоминания в Today), multi-user эра; Phase 29 закрыта 2026-08-16; «Полировка» полностью закрыта Phase 28.7–28.18 + Phase 28.19 + Phase 15 close-out)
+- `docs/PLAN.md` — фазы и задачи (открыто: **Phase 31 — постановка 2026-08-17** (учебные напоминания в Today), multi-user эра; **Phase 30 реестр полностью закрыт 2026-08-17** — все 17 задач; Phase 29 закрыта 2026-08-16; «Полировка» полностью закрыта Phase 28.7–28.18 + Phase 28.19 + Phase 15 close-out)
 - `docs/CONTEXT.md` — концепции продукта (семантика домена; хартия в шапке файла)
 - `docs/API.md` — REST reference
 - `docs/DB.md` — схема БД по миграциям

@@ -232,3 +232,182 @@ func TestCourseRepo_CreateQuiz_AutoPosition(t *testing.T) {
 	require.NoError(t, repo.CreateQuiz(ctx, q3))
 	assert.Equal(t, 7, q3.Position, "explicit position is preserved")
 }
+
+// ---- Phase 30.13: granular CRUD + structure reorder -----------------
+
+// seedCourseTree builds a 2-module / 3-lesson / 1-quiz course and
+// returns the course ID. Shared by the granular-CRUD tests below.
+func seedCourseTree(t *testing.T, repo course.Repository, owner string) string {
+	t.Helper()
+	ctx := context.Background()
+	c := &course.Course{Title: "T", Status: course.StatusDraft, OwnerID: owner}
+	require.NoError(t, repo.CreateCourse(ctx, c))
+	require.NoError(t, repo.SubmitCurriculum(ctx, c.ID,
+		[]*course.Module{
+			{ID: "m1", CourseID: c.ID, Title: "Basics", Position: 1},
+			{ID: "m2", CourseID: c.ID, Title: "Advanced", Position: 2},
+		},
+		[]*course.Lesson{
+			{ID: "l1", ModuleID: "m1", Title: "Hello", Position: 1, Status: course.LessonDone},
+			{ID: "l2", ModuleID: "m1", Title: "Types", Position: 2, Status: course.LessonOpen},
+			{ID: "l3", ModuleID: "m2", Title: "Traits", Position: 1, Status: course.LessonLocked},
+		},
+		[]*course.Quiz{
+			{ID: "q1", LessonID: "l1", Position: 1, QuestionMD: "Q1", ExpectedMD: "A", Kind: course.QuizExact},
+		},
+	))
+	return c.ID
+}
+
+func TestCourseRepo_ModuleGranularCRUD(t *testing.T) {
+	db := setupUserDB(t)
+	owner := setupCourseOwner(t, db)
+	repo := NewCourseRepository(db)
+	ctx := context.Background()
+	courseID := seedCourseTree(t, repo, owner)
+
+	// GetModule round-trip.
+	m, err := repo.GetModule(ctx, "m1")
+	require.NoError(t, err)
+	assert.Equal(t, courseID, m.CourseID)
+	assert.Equal(t, "Basics", m.Title)
+
+	// UpdateModule writes title/description, keeps position.
+	m.Title = "Fundamentals"
+	m.Description = "start here"
+	m.Position = 99 // must be ignored — ordering belongs to ApplyStructure
+	require.NoError(t, repo.UpdateModule(ctx, m))
+	got, err := repo.GetModule(ctx, "m1")
+	require.NoError(t, err)
+	assert.Equal(t, "Fundamentals", got.Title)
+	assert.Equal(t, "start here", got.Description)
+	assert.Equal(t, 1, got.Position, "UpdateModule must not touch position")
+
+	// Unknown id → ErrNotFound.
+	_, err = repo.GetModule(ctx, "nope")
+	assert.ErrorIs(t, err, course.ErrNotFound)
+	assert.ErrorIs(t, repo.UpdateModule(ctx, &course.Module{ID: "nope", Title: "x"}), course.ErrNotFound)
+	assert.ErrorIs(t, repo.DeleteModule(ctx, "nope"), course.ErrNotFound)
+
+	// DeleteModule cascades lessons + quizzes.
+	require.NoError(t, repo.DeleteModule(ctx, "m1"))
+	lessons, err := repo.ListLessonsInCourse(ctx, courseID)
+	require.NoError(t, err)
+	assert.Len(t, lessons, 1, "l1 and l2 must cascade with m1")
+	quizzes, err := repo.ListQuizzesInCourse(ctx, courseID)
+	require.NoError(t, err)
+	assert.Empty(t, quizzes, "q1 must cascade with l1")
+}
+
+func TestCourseRepo_LessonAndQuizGranularCRUD(t *testing.T) {
+	db := setupUserDB(t)
+	owner := setupCourseOwner(t, db)
+	repo := NewCourseRepository(db)
+	ctx := context.Background()
+	courseID := seedCourseTree(t, repo, owner)
+
+	// UpdateQuiz writes the three content fields, keeps position.
+	q, err := repo.GetQuiz(ctx, "q1")
+	require.NoError(t, err)
+	q.QuestionMD = "Q1'"
+	q.ExpectedMD = "B"
+	q.Kind = course.QuizOpen
+	require.NoError(t, repo.UpdateQuiz(ctx, q))
+	got, err := repo.GetQuiz(ctx, "q1")
+	require.NoError(t, err)
+	assert.Equal(t, "Q1'", got.QuestionMD)
+	assert.Equal(t, "B", got.ExpectedMD)
+	assert.Equal(t, course.QuizOpen, got.Kind)
+	assert.Equal(t, 1, got.Position)
+
+	// DeleteQuiz + DeleteLesson, unknown ids → ErrNotFound.
+	require.NoError(t, repo.DeleteQuiz(ctx, "q1"))
+	_, err = repo.GetQuiz(ctx, "q1")
+	assert.ErrorIs(t, err, course.ErrNotFound)
+	assert.ErrorIs(t, repo.DeleteQuiz(ctx, "q1"), course.ErrNotFound)
+
+	require.NoError(t, repo.DeleteLesson(ctx, "l3"))
+	_, err = repo.GetLesson(ctx, "l3")
+	assert.ErrorIs(t, err, course.ErrNotFound)
+	assert.ErrorIs(t, repo.DeleteLesson(ctx, "l3"), course.ErrNotFound)
+
+	lessons, err := repo.ListLessonsInCourse(ctx, courseID)
+	require.NoError(t, err)
+	assert.Len(t, lessons, 2)
+}
+
+// TestCourseRepo_ApplyStructure — the Phase 30.13 reorder primitive:
+// full-coverage payload reorders modules and moves lessons across
+// modules; partial/foreign/duplicate payloads are rejected without
+// writing anything.
+func TestCourseRepo_ApplyStructure(t *testing.T) {
+	db := setupUserDB(t)
+	owner := setupCourseOwner(t, db)
+	repo := NewCourseRepository(db)
+	ctx := context.Background()
+	courseID := seedCourseTree(t, repo, owner)
+
+	// Happy path: swap module order, move l2 into m2, flip l1/l3.
+	require.NoError(t, repo.ApplyStructure(ctx, courseID, []course.ModuleOrder{
+		{ModuleID: "m2", LessonIDs: []string{"l3", "l2"}},
+		{ModuleID: "m1", LessonIDs: []string{"l1"}},
+	}))
+
+	modules, err := repo.ListModules(ctx, courseID)
+	require.NoError(t, err)
+	require.Len(t, modules, 2)
+	assert.Equal(t, "m2", modules[0].ID)
+	assert.Equal(t, 1, modules[0].Position)
+	assert.Equal(t, "m1", modules[1].ID)
+	assert.Equal(t, 2, modules[1].Position)
+
+	l2, err := repo.GetLesson(ctx, "l2")
+	require.NoError(t, err)
+	assert.Equal(t, "m2", l2.ModuleID, "lesson moved across modules")
+	assert.Equal(t, 2, l2.Position)
+	assert.Equal(t, course.LessonOpen, l2.Status, "reorder must preserve lesson status (student progress)")
+
+	l3, err := repo.GetLesson(ctx, "l3")
+	require.NoError(t, err)
+	assert.Equal(t, 1, l3.Position)
+
+	// Rejections: nothing is written on a bad payload.
+	bad := []struct {
+		name    string
+		payload []course.ModuleOrder
+	}{
+		{"missing module", []course.ModuleOrder{
+			{ModuleID: "m1", LessonIDs: []string{"l1", "l2"}},
+		}},
+		{"unknown module", []course.ModuleOrder{
+			{ModuleID: "m1", LessonIDs: []string{"l1", "l2"}},
+			{ModuleID: "ghost", LessonIDs: []string{"l3"}},
+		}},
+		{"duplicate module", []course.ModuleOrder{
+			{ModuleID: "m1", LessonIDs: []string{"l1", "l2"}},
+			{ModuleID: "m1", LessonIDs: []string{"l3"}},
+		}},
+		{"missing lesson", []course.ModuleOrder{
+			{ModuleID: "m1", LessonIDs: []string{"l1"}},
+			{ModuleID: "m2", LessonIDs: []string{"l3"}},
+		}},
+		{"unknown lesson", []course.ModuleOrder{
+			{ModuleID: "m1", LessonIDs: []string{"l1", "ghost"}},
+			{ModuleID: "m2", LessonIDs: []string{"l3"}},
+		}},
+		{"duplicate lesson across modules", []course.ModuleOrder{
+			{ModuleID: "m1", LessonIDs: []string{"l1", "l2"}},
+			{ModuleID: "m2", LessonIDs: []string{"l3", "l1"}},
+		}},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			err := repo.ApplyStructure(ctx, courseID, tc.payload)
+			assert.ErrorIs(t, err, course.ErrInvalidInput)
+			// State untouched: m2 still first from the happy path.
+			modules, merr := repo.ListModules(ctx, courseID)
+			require.NoError(t, merr)
+			assert.Equal(t, "m2", modules[0].ID)
+		})
+	}
+}

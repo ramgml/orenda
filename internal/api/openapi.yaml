@@ -1020,6 +1020,170 @@ paths:
         '200': { description: ok }
         '422': { description: invalid_transition }
 
+  # Phase 30.13: granular structure edits with stable IDs. Unlike the
+  # curriculum swap these never delete+reinsert rows, so lesson status
+  # (student progress) and task links survive. Allowed on
+  # draft/review/active; done/archived courses are frozen (422).
+  /api/v1/courses/{id}/modules:
+    post:
+      tags: [courses]
+      summary: Append a module to the course (owner-side, Phase 30.13).
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                description: { type: string }
+      responses:
+        '201': { description: created }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+
+  /api/v1/courses/{id}/structure:
+    put:
+      tags: [courses]
+      summary: Drag-and-drop reorder — module order + lesson order per module (Phase 30.13).
+      description: |
+        IDs-only payload; must name every module and every lesson of
+        the course exactly once (400 otherwise, nothing written).
+        Lessons may move across modules. Positions are rewritten
+        1..n in payload order. Returns the refreshed course tree.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [modules]
+              properties:
+                modules:
+                  type: array
+                  items:
+                    type: object
+                    required: [module_id, lesson_ids]
+                    properties:
+                      module_id: { type: string }
+                      lesson_ids: { type: array, items: { type: string } }
+      responses:
+        '200': { description: ok (course tree) }
+        '400': { description: invalid_input (unknown/duplicate/missing ids) }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+
+  /api/v1/modules/{id}:
+    patch:
+      tags: [courses]
+      summary: Rename a module / edit its description in place (Phase 30.13).
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                description: { type: string }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+    delete:
+      tags: [courses]
+      summary: Delete a module; lessons and quizzes cascade (progress of those lessons is dropped).
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '204': { description: deleted }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+
+  /api/v1/modules/{id}/lessons:
+    post:
+      tags: [courses]
+      summary: Append a lesson to the module; the lesson is born locked (Phase 30.13).
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+      responses:
+        '201': { description: created }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+
+  /api/v1/lessons/{id}:
+    patch:
+      tags: [courses]
+      summary: Rename a lesson in place; status/content/task link preserved (Phase 30.13).
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+    delete:
+      tags: [courses]
+      summary: Delete a lesson; its quizzes cascade.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '204': { description: deleted }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+
+  /api/v1/quizzes/{qid}:
+    patch:
+      tags: [courses]
+      summary: Edit a quiz's question/expected answer/kind in place (Phase 30.13). Empty kind = exact.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question_md]
+              properties:
+                question_md: { type: string }
+                expected_md: { type: string }
+                kind: { type: string, enum: [open, exact] }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+    delete:
+      tags: [courses]
+      summary: Delete a quiz.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '204': { description: deleted }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+
   # Phase 27.6: owner-side content edit for active courses. The
   # agent-only PUT /agent/lessons/{id}/content still owns the
   # locked → open transition.
@@ -1694,6 +1858,115 @@ paths:
         '200': { description: ok }
         '400': { description: invalid_input }
         '404': { description: lesson not found }
+
+  # Phase 30.13: agent-side mirrors of the granular structure ops —
+  # same handlers, same progress-preserving semantics as the user
+  # side; tutors can maintain a live course without the curriculum
+  # swap (which resets lesson progress).
+  /api/v1/agent/courses/{id}/modules:
+    post:
+      tags: [agent, courses]
+      summary: Append a module to the course (agent-side, Phase 30.13).
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string }
+                description: { type: string }
+      responses:
+        '201': { description: created }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+
+  /api/v1/agent/courses/{id}/structure:
+    put:
+      tags: [agent, courses]
+      summary: Reorder modules/lessons, IDs-only, exact coverage (Phase 30.13).
+      description: |
+        Same contract as PUT /api/v1/courses/{id}/structure: every
+        module and lesson of the course exactly once, positions
+        rewritten 1..n, lessons may move across modules. Returns the
+        refreshed course tree.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok (course tree) }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition (course done/archived) }
+
+  /api/v1/agent/modules/{id}:
+    patch:
+      tags: [agent, courses]
+      summary: Rename a module / edit description (agent-side, Phase 30.13).
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
+    delete:
+      tags: [agent, courses]
+      summary: Delete a module; lessons and quizzes cascade.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '204': { description: deleted }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
+
+  /api/v1/agent/modules/{id}/lessons:
+    post:
+      tags: [agent, courses]
+      summary: Append a lesson to the module; born locked (agent-side, Phase 30.13).
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '201': { description: created }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
+
+  /api/v1/agent/lessons/{id}:
+    patch:
+      tags: [agent, courses]
+      summary: Rename a lesson in place; status/content preserved (agent-side, Phase 30.13).
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
+    delete:
+      tags: [agent, courses]
+      summary: Delete a lesson; quizzes cascade.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '204': { description: deleted }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
+
+  /api/v1/agent/quizzes/{qid}:
+    patch:
+      tags: [agent, courses]
+      summary: Edit a quiz in place (agent-side, Phase 30.13). Empty kind = exact.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_input }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
+    delete:
+      tags: [agent, courses]
+      summary: Delete a quiz.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '204': { description: deleted }
+        '404': { description: not_found }
+        '422': { description: invalid_transition }
 
   # Phase 29.1: agent wiki + search. Same handlers as the user side —
   # wiki_pages has no owner column, so the bearer token is the only

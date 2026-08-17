@@ -468,8 +468,23 @@ func NewRouter(deps *Dependencies) http.Handler {
 					// retires the generator task when present so
 					// a sleeping tutor cannot overwrite manual work.
 					r.Put("/curriculum", submitCurriculumHandlerUser(deps))
+					// Phase 30.13: granular structure edits with
+					// stable IDs — safe on active courses (student
+					// progress survives; see handlers_course_structure.go).
+					r.Post("/modules", createModuleHandler(deps))
+					r.Put("/structure", applyStructureHandler(deps))
 				})
 			})
+			// Phase 30.13: module/lesson/quiz granular CRUD (flat by id).
+			r.Route("/modules/{id}", func(r chi.Router) {
+				r.Patch("/", updateModuleHandler(deps))
+				r.Delete("/", deleteModuleHandler(deps))
+				r.Post("/lessons", createLessonHandler(deps))
+			})
+			r.Patch("/lessons/{id}", renameLessonHandler(deps))
+			r.Delete("/lessons/{id}", deleteLessonHandler(deps))
+			r.Patch("/quizzes/{qid}", updateQuizHandler(deps))
+			r.Delete("/quizzes/{qid}", deleteQuizHandler(deps))
 			r.Post("/lessons/{id}/complete", completeLessonHandler(deps))
 			// Phase 27.6: user-side quiz CRUD + lesson content edits.
 			r.Post("/lessons/{id}/quizzes", addQuizHandler(deps))
@@ -589,6 +604,20 @@ func NewRouter(deps *Dependencies) http.Handler {
 					r.Post("/", createCourseHandlerAgent(deps))
 					r.Put("/{id}/curriculum", submitCurriculumHandlerAgent(deps))
 					r.Post("/{id}/activate", activateCourseHandlerAgent(deps))
+					// Phase 30.13: granular structure edits — the same
+					// progress-preserving ops the owner has, for tutor
+					// agents maintaining a live course.
+					r.Post("/{id}/modules", createModuleHandler(deps))
+					r.Put("/{id}/structure", applyStructureHandler(deps))
+				})
+				r.Route("/agent/modules", func(r chi.Router) {
+					r.Patch("/{id}", updateModuleHandler(deps))
+					r.Delete("/{id}", deleteModuleHandler(deps))
+					r.Post("/{id}/lessons", createLessonHandler(deps))
+				})
+				r.Route("/agent/quizzes", func(r chi.Router) {
+					r.Patch("/{qid}", updateQuizHandler(deps))
+					r.Delete("/{qid}", deleteQuizHandler(deps))
 				})
 				// Phase 27.4: lesson materialization. The tutor writes
 				// the lesson body and links an exercise task; the
@@ -600,6 +629,9 @@ func NewRouter(deps *Dependencies) http.Handler {
 					// tutors can add a single quiz to an existing
 					// lesson without re-submitting the whole tree.
 					r.Post("/{id}/quizzes", addQuizHandlerAgent(deps))
+					// Phase 30.13: rename / delete a lesson in place.
+					r.Patch("/{id}", renameLessonHandler(deps))
+					r.Delete("/{id}", deleteLessonHandler(deps))
 				})
 				// Phase 29.1: agent wiki + search. The wiki handlers
 				// never read the user session (grep-verified: no

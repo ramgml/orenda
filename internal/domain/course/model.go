@@ -199,3 +199,13 @@ type Progress struct {
 	LessonsTotal int `json:"lessons_total"`
 	LessonsDone  int `json:"lessons_done"`
 }
+
+// ModuleOrder describes the target position of one module and its
+// lessons in Repository.ApplyStructure (Phase 30.13). The payload is
+// IDs only — titles, content, and lesson status are untouched, which
+// is what makes drag-and-drop reorder safe for an active course:
+// student progress (Lesson.Status) survives the move.
+type ModuleOrder struct {
+	ModuleID  string   `json:"module_id"`
+	LessonIDs []string `json:"lesson_ids"`
+}
