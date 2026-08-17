@@ -107,36 +107,14 @@ func getCourseHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "course repo not wired", http.StatusServiceUnavailable)
 			return
 		}
-		id := chi.URLParam(r, "id")
-		c, err := deps.Courses.GetCourse(r.Context(), id)
+		// Phase 30.13: the loader is shared with the structure
+		// reorder endpoint (handlers_course_structure.go).
+		tree, err := loadCourseTree(r, deps, chi.URLParam(r, "id"))
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		modules, err := deps.Courses.ListModules(r.Context(), id)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		lessons, err := deps.Courses.ListLessonsInCourse(r.Context(), id)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		quizzes, err := deps.Courses.ListQuizzesInCourse(r.Context(), id)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		prog, err := deps.Courses.Progress(r.Context(), id)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, courseTreeResponse{
-			Course: c, Modules: modules, Lessons: lessons,
-			Quizzes: quizzes, Progress: prog,
-		})
+		writeJSON(w, http.StatusOK, tree)
 	}
 }
 
