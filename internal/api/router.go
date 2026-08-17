@@ -50,6 +50,7 @@ import (
 	eventservice "github.com/ramgml/orenda/internal/service/event"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
+	studysvc "github.com/ramgml/orenda/internal/service/study"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
@@ -167,6 +168,10 @@ type Dependencies struct {
 	// Phase 18: course repository + service.
 	Courses       course.Repository
 	CourseService *coursesvc.Service
+	// Phase 31: study service. Propose / Accept / Dismiss lives here.
+	// nil-safe — handlers return 503 when the service hasn't been
+	// wired (e.g. tests).
+	StudyService *studysvc.Service
 }
 
 // SyncOpsStore is the small surface the sync endpoint needs for
@@ -652,6 +657,16 @@ func NewRouter(deps *Dependencies) http.Handler {
 					})
 				})
 				r.Get("/agent/search", searchHandler(deps))
+
+				// Phase 31.5: agent-side study surface. POST
+				// /agent/study-proposals is the planner's only
+				// surface; PATCH /agent/courses/{id} is the narrow
+				// pace_notes_md edit (a separate verb so the
+				// planner can't touch title/status/etc). Both are
+				// mounted under RequireAgent so a bearer token
+				// resolves through to the agent id.
+				r.Post("/agent/study-proposals", proposeStudyHandlerAgent(deps))
+				r.Patch("/agent/courses/{id}", patchCoursePaceNotesHandlerAgent(deps))
 			})
 		}
 	})
