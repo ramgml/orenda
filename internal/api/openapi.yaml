@@ -1860,6 +1860,46 @@ paths:
         '404': { description: course not found }
         '400': { description: invalid_input }
 
+  # Phase 31.6: user-side study proposal surface. The Dashboard
+  # tray renders the pending list; accept/dismiss land here.
+  /api/v1/study-proposals:
+    get:
+      tags: [study]
+      summary: List pending study proposals (the Dashboard tray).
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200': { description: ok }
+        '503': { description: study service not wired }
+  /api/v1/study-proposals/{id}/accept:
+    post:
+      tags: [study]
+      summary: Accept a study proposal (materialise an inbox task).
+      description: |
+        201 on a fresh materialisation; 200 on an idempotent
+        re-accept of an already-accepted proposal (returns the
+        original task id). 409 on accept of a dismissed proposal;
+        404 on unknown id.
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200': { description: ok (idempotent re-accept) }
+        '201': { description: created }
+        '404': { description: proposal not found }
+        '409': { description: proposal_resolved }
+        '503': { description: study service not wired }
+  /api/v1/study-proposals/{id}/dismiss:
+    post:
+      tags: [study]
+      summary: Dismiss a study proposal.
+      description: |
+        200 on a fresh dismiss. 409 on dismiss of an already-
+        accepted proposal; 404 on unknown id.
+      security: [{ cookieAuth: [] }]
+      responses:
+        '200': { description: ok }
+        '404': { description: proposal not found }
+        '409': { description: proposal_resolved }
+        '503': { description: study service not wired }
+
   /api/v1/agent/lessons/{id}/materialize:
     post:
       tags: [agent, courses]

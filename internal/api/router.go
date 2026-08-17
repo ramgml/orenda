@@ -457,6 +457,19 @@ func NewRouter(deps *Dependencies) http.Handler {
 			// due-today, scheduled-today, awaiting count, active timer.
 			r.Get("/today", getTodayHandler(deps))
 
+			// Phase 31.6: study proposals (the Dashboard tray).
+			// The proposals table is single-owner (no per-user
+			// scoping) so the user's cookie is enough — we don't
+			// filter by Identity.UserID. List is "pending only";
+			// resolved proposals live in the audit feed.
+			r.Route("/study-proposals", func(r chi.Router) {
+				r.Get("/", listStudyProposalsHandler(deps))
+				r.Route("/{id}", func(r chi.Router) {
+					r.Post("/accept", acceptStudyProposalHandler(deps))
+					r.Post("/dismiss", dismissStudyProposalHandler(deps))
+				})
+			})
+
 			// Phase 18: courses (LMS). User side — full CRUD, approve,
 			// request-changes, complete lesson. The agent side is
 			// mounted under RequireAgent further below.
