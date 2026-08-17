@@ -269,6 +269,68 @@ Use the wiki tools to park reference material the course links to:
 `orenda_pages_save` a page per topic, then `[[slug]]`-link it from
 lesson content.
 
+### 4.5 "Plan my day" — propose study reminders (Phase 31)
+
+The user asks "what should I study today?" You pull the active
+courses (with progress), read the planner notes, propose N
+reminders, and let the user accept/dismiss them on the Dashboard
+tray. The whole loop is opt-in: the platform never schedules
+anything on its own.
+
+```bash
+# 1. Read the active courses. With ?status=active the rows carry
+#    progress + pace_notes_md so we don't round-trip per-course.
+curl -s "$ORENDA_URL/api/v1/agent/courses?status=active" \
+  -H "Authorization: Bearer $ORENDA_AGENT_TOKEN" | jq '.courses[] | {id, title, pace, pace_notes_md, progress}'
+# → e.g. {"id":"c-rust","pace":"regular","pace_notes_md":"3 times a week, mornings",
+#         "progress":{"lessons_total":12,"lessons_done":7,"open_lessons":[...]}}
+
+# 2. Read pace_notes_md + progress. Pick a subset of open_lessons
+#    that fits the user's stated cadence (e.g. "study 1 lesson/day").
+#    Compose one proposal per lesson, with the lesson title as the
+#    proposal title and the body_md containing a 1-line why-now.
+
+# 3. File each proposal — one POST per reminder.
+for lesson in "${LESSONS[@]}"; do
+  curl -s -X POST "$ORENDA_URL/api/v1/agent/study-proposals" \
+    -H "Authorization: Bearer $ORENDA_AGENT_TOKEN" -H 'Content-Type: application/json' \
+    -d "{\"course_id\":\"c-rust\",\"title\":\"$lesson\",\"body_md\":\"$lesson notes\",\"target_date\":\"$(date +%Y-%m-%d)\"}"
+done
+# → 201 per call; the user's Dashboard tray now shows them.
+
+# 4. The user reviews the tray and accepts/dismisses each one.
+#    (This happens in the UI; you do NOT call accept/dismiss — that's
+#    a user-only endpoint.) The accepted reminder becomes an inbox
+#    task with study_course_id set and due_at = max(target_date, today).
+```
+
+The plan loop is read-only from the agent's side until the
+proposal POSTs land; after that, the user takes over the
+accept/dismiss decisions. Don't try to bypass the tray — the
+opt-in pattern is the whole point.
+
+#### Idempotency
+
+`POST /api/v1/agent/study-proposals` always creates a new pending
+proposal (the planner may want to revise a target date by filing a
+new one). Accept is idempotent on the user side: re-accepting the
+same proposal returns the existing task id (200, not 201).
+
+#### Don't escalate reminders to "overdue"
+
+A study reminder has `study_course_id` set; the Today screen reads
+this and never surfaces reminders under `overdue`. A missed day
+doesn't turn red — the user can still ack it on the tray today.
+
+#### When to skip proposing
+
+- The user said "no reminders today" earlier — read their
+  intent from comments/notes, not from this skill.
+- The course is `done` or `archived` — `GET ...?status=active`
+  already filters those.
+- All open lessons are completed (`progress.lessons_done ==
+  progress.lessons_total`) — there's nothing to suggest.
+
 ---
 
 ## 5. Common errors
@@ -312,6 +374,11 @@ lesson content.
 | PATCH | `/api/v1/agent/pages/{slug}/move` | Reparent (`{parent_id}`, empty = root). |
 | GET | `/api/v1/agent/pages/{slug}/backlinks` | Pages linking here. |
 | GET | `/api/v1/agent/search?q=&type=&limit=` | FTS5 across pages/tasks/comments. |
+| GET | `/api/v1/agent/courses?status=active` | Phase 31.5: list courses. With `?status=active` the row carries a `progress` sub-object (lessons_total / lessons_done / open_lessons[]) and `pace_notes_md` so the planner has everything in one round-trip. |
+| POST | `/api/v1/agent/courses/{id}/curriculum` | (Also Phase 18 — see above.) |
+| POST | `/api/v1/agent/courses/{id}/activate` | (Also Phase 29.5 — see above.) |
+| PATCH | `/api/v1/agent/courses/{id}` | Phase 31.5: narrow update of `pace_notes_md` only. The body's `pace_notes_md` is trimmed + capped at 64 KiB by `course.Course.Validate`. |
+| POST | `/api/v1/agent/study-proposals` | Phase 31.5: file a pending study proposal. Body: `{course_id?, title, body_md?, target_date (YYYY-MM-DD)}`. The Dashboard tray picks it up. Created by the planner; the user accepts or dismisses. |
 
 ### 6.2 Common task fields
 
