@@ -279,17 +279,48 @@ func (r *stubRepo) DeleteQuiz(ctx context.Context, id string) error {
 	return nil
 }
 func (r *stubRepo) ApplyStructure(ctx context.Context, courseID string, modules []course.ModuleOrder) error {
-	for i, mo := range modules {
-		m, ok := r.modules[mo.ModuleID]
-		if !ok || m.CourseID != courseID {
+	// Mirror the real repo's exact-coverage contract: every module
+	// and every lesson of the course must be named exactly once.
+	wantModules := map[string]struct{}{}
+	wantLessons := map[string]struct{}{}
+	for _, m := range r.modules {
+		if m.CourseID == courseID {
+			wantModules[m.ID] = struct{}{}
+		}
+	}
+	for _, l := range r.lessons {
+		if m, ok := r.modules[l.ModuleID]; ok && m.CourseID == courseID {
+			wantLessons[l.ID] = struct{}{}
+		}
+	}
+	seenM := map[string]struct{}{}
+	seenL := map[string]struct{}{}
+	for _, mo := range modules {
+		if _, ok := wantModules[mo.ModuleID]; !ok {
 			return course.ErrInvalidInput
 		}
-		m.Position = i + 1
-		for j, lid := range mo.LessonIDs {
-			l, ok := r.lessons[lid]
-			if !ok {
+		if _, dup := seenM[mo.ModuleID]; dup {
+			return course.ErrInvalidInput
+		}
+		seenM[mo.ModuleID] = struct{}{}
+		for _, lid := range mo.LessonIDs {
+			if _, ok := wantLessons[lid]; !ok {
 				return course.ErrInvalidInput
 			}
+			if _, dup := seenL[lid]; dup {
+				return course.ErrInvalidInput
+			}
+			seenL[lid] = struct{}{}
+		}
+	}
+	if len(seenM) != len(wantModules) || len(seenL) != len(wantLessons) {
+		return course.ErrInvalidInput
+	}
+	for i, mo := range modules {
+		m := r.modules[mo.ModuleID]
+		m.Position = i + 1
+		for j, lid := range mo.LessonIDs {
+			l := r.lessons[lid]
 			l.ModuleID = mo.ModuleID
 			l.Position = j + 1
 		}
