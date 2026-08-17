@@ -73,6 +73,53 @@ export interface Course {
   updated_at: string;
 }
 
+/**
+ * Phase 30.13: named row types for the course tree. These mirror the
+ * server's course.Module / course.Lesson / course.Quiz entities and
+ * are shared by getCourse, the granular structure endpoints, and the
+ * structure-reorder response (all emit the same tree shape).
+ */
+export interface CourseModule {
+  id: string;
+  course_id: string;
+  title: string;
+  description?: string;
+  position: number;
+}
+
+export interface CourseLesson {
+  id: string;
+  module_id: string;
+  title: string;
+  position: number;
+  status: string;
+  // Phase 27.4: lesson body and exercise link. The backend emits
+  // these on every tree response (listLessonsInCourse scans
+  // `content_md` and `task_id`), so the frontend can resolve a
+  // single lesson without an extra round-trip.
+  content_md?: string;
+  task_id?: string;
+}
+
+export interface CourseQuiz {
+  id: string;
+  lesson_id: string;
+  position: number;
+  question_md: string;
+  expected_md?: string;
+  kind: 'open' | 'exact';
+}
+
+/** Full course tree — the shape of GET /api/v1/courses/{id} and of
+ *  PUT /api/v1/courses/{id}/structure (Phase 30.13). */
+export interface CourseTree {
+  course: Course;
+  modules: CourseModule[];
+  lessons: CourseLesson[];
+  quizzes?: CourseQuiz[];
+  progress: { lessons_total: number; lessons_done: number };
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -867,68 +914,8 @@ class ApiClient {
     return this.http.post<Course>('/api/v1/courses', input).then((r) => r.data);
   }
 
-  getCourse(id: string): Promise<{
-    course: Course;
-    modules: {
-      id: string;
-      course_id: string;
-      title: string;
-      description?: string;
-      position: number;
-    }[];
-    lessons: {
-      id: string;
-      module_id: string;
-      title: string;
-      position: number;
-      status: string;
-      // Phase 27.4: lesson body and exercise link. The backend
-      // emits these on every tree response (listLessonsInCourse
-      // scans `content_md` and `task_id`), so the frontend can
-      // resolve a single lesson without an extra round-trip.
-      content_md?: string;
-      task_id?: string;
-    }[];
-    quizzes?: {
-      id: string;
-      lesson_id: string;
-      position: number;
-      question_md: string;
-      expected_md?: string;
-      kind: 'open' | 'exact';
-    }[];
-    progress: { lessons_total: number; lessons_done: number };
-  }> {
-    return this.http
-      .get<{
-        course: Course;
-        modules: {
-          id: string;
-          course_id: string;
-          title: string;
-          description?: string;
-          position: number;
-        }[];
-        lessons: {
-          id: string;
-          module_id: string;
-          title: string;
-          position: number;
-          status: string;
-          content_md?: string;
-          task_id?: string;
-        }[];
-        quizzes?: {
-          id: string;
-          lesson_id: string;
-          position: number;
-          question_md: string;
-          expected_md?: string;
-          kind: 'open' | 'exact';
-        }[];
-        progress: { lessons_total: number; lessons_done: number };
-      }>(`/api/v1/courses/${id}`)
-      .then((r) => r.data);
+  getCourse(id: string): Promise<CourseTree> {
+    return this.http.get<CourseTree>(`/api/v1/courses/${id}`).then((r) => r.data);
   }
 
   approveCourse(id: string): Promise<Course> {
@@ -1008,15 +995,10 @@ class ApiClient {
       expected_md?: string;
       kind: 'exact' | 'open';
     },
-  ): Promise<{
-    id: string;
-    lesson_id: string;
-    position: number;
-    question_md: string;
-    expected_md?: string;
-    kind: 'exact' | 'open';
-  }> {
-    return this.http.post(`/api/v1/lessons/${lessonId}/quizzes`, input).then((r) => r.data);
+  ): Promise<CourseQuiz> {
+    return this.http
+      .post<CourseQuiz>(`/api/v1/lessons/${lessonId}/quizzes`, input)
+      .then((r) => r.data);
   }
 
   updateLessonContent(
@@ -1024,6 +1006,63 @@ class ApiClient {
     input: { content_md: string; task_id?: string },
   ): Promise<unknown> {
     return this.http.put(`/api/v1/lessons/${lessonId}/content`, input).then((r) => r.data);
+  }
+
+  // ---- Phase 30.13: granular structure edits (stable IDs) ----
+  //
+  // The atomic swap above is destructive (rows are reinserted, so
+  // lesson status/progress is lost). For active courses the UI edits
+  // via these surgical endpoints so student progress survives.
+
+  createCourseModule(
+    courseId: string,
+    input: { title: string; description?: string },
+  ): Promise<CourseModule> {
+    return this.http
+      .post<CourseModule>(`/api/v1/courses/${courseId}/modules`, input)
+      .then((r) => r.data);
+  }
+
+  updateModule(id: string, input: { title: string; description?: string }): Promise<CourseModule> {
+    return this.http.patch<CourseModule>(`/api/v1/modules/${id}`, input).then((r) => r.data);
+  }
+
+  deleteModule(id: string): Promise<void> {
+    return this.http.delete(`/api/v1/modules/${id}`).then(() => undefined);
+  }
+
+  createModuleLesson(moduleId: string, input: { title: string }): Promise<CourseLesson> {
+    return this.http
+      .post<CourseLesson>(`/api/v1/modules/${moduleId}/lessons`, input)
+      .then((r) => r.data);
+  }
+
+  renameLesson(id: string, title: string): Promise<CourseLesson> {
+    return this.http.patch<CourseLesson>(`/api/v1/lessons/${id}`, { title }).then((r) => r.data);
+  }
+
+  deleteLesson(id: string): Promise<void> {
+    return this.http.delete(`/api/v1/lessons/${id}`).then(() => undefined);
+  }
+
+  updateQuiz(
+    qid: string,
+    input: { question_md: string; expected_md?: string; kind?: 'exact' | 'open' },
+  ): Promise<CourseQuiz> {
+    return this.http.patch<CourseQuiz>(`/api/v1/quizzes/${qid}`, input).then((r) => r.data);
+  }
+
+  deleteQuiz(qid: string): Promise<void> {
+    return this.http.delete(`/api/v1/quizzes/${qid}`).then(() => undefined);
+  }
+
+  applyCourseStructure(
+    courseId: string,
+    modules: { module_id: string; lesson_ids: string[] }[],
+  ): Promise<CourseTree> {
+    return this.http
+      .put<CourseTree>(`/api/v1/courses/${courseId}/structure`, { modules })
+      .then((r) => r.data);
   }
 
   // ---- Wiki (Phase 5) ----
