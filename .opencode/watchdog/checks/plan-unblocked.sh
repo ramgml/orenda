@@ -3,8 +3,8 @@
 #
 # Computes the set of claimable tasks and fires (exit 0, prints NEW ids to
 # stdout) when that set grows — either because a claimed `[~]` predecessor
-# was merged (its "close X.Y" commit reached origin/dev) or because new
-# free `[ ]` tasks were added to the plan.
+# was merged (its "close X.Y" / "Merge phase-X-Y-*" commit reached the
+# watched ref) or because new free `[ ]` tasks were added to the plan.
 #
 # Claimable definition (matches the claim protocol in PLAN.md):
 #   - the task line is `- [ ] **X.Y** ...`
@@ -16,29 +16,34 @@
 # claim/close commits are merged locally and intentionally not pushed, so the
 # remote ref lags behind and would report false blocks).
 #
-# Scope: only phases listed in PLAN_WATCH_PHASES (space-separated, e.g.
-# "30 31") are considered executable backlog — per PLAN.md the `[ ]` markers
-# in phases ≤ 28.x are historical records, not open tasks.
+# Watched phases (executable backlog) are detected automatically:
+#   - any phase with `docs(plan): claim N.` / `docs(plan): close N.` commits
+#     in the watched ref's history — the registry claim protocol (introduced
+#     with the Phase 30 dispatch contract) is the only reliable marker of an
+#     executable phase; plain `Merge phase-N-*` commits and `[x]` markers exist
+#     for every shipped phase ever, so they do NOT qualify, or
+#   - the highest-numbered phase in the plan (a brand-new, all-`[ ]` phase —
+#     phases are numbered monotonically, so the newest registry is always max).
+# Everything else (historical `[ ]` markers in shipped phases) is excluded:
+# per PLAN.md those are historical records, not open tasks.
+# PLAN_WATCH_PHASES (space-separated, e.g. "30 31") overrides auto-detection.
 #
 # The plan is read from the watched ref (`git show $PLAN_WATCH_REF:docs/PLAN.md`),
 # not from the worktree on disk — the plugin may run from any checkout, and the
 # ref is the same source of truth the close-trail grep uses. PLAN_FILE overrides
 # this for tests.
 #
+# State: .opencode/watchdog/state/plan-claimable.txt (gitignored).
+#
 # Exit codes: 0 = new claimable tasks appeared (ids on stdout);
 #             1 = nothing new; 2 = operational error.
 
 set -euo pipefail
 
-WATCH_PHASES="${PLAN_WATCH_PHASES:-}"
-[ -n "$WATCH_PHASES" ] || {
-  echo "plan-unblocked: PLAN_WATCH_PHASES is not set (space-separated phase numbers, e.g. '30 31')" >&2
-  exit 2
-}
-
 REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel)}"
 WATCH_REF="${PLAN_WATCH_REF:-dev}"
-PLAN_FILE="${PLAN_FILE:-}"   # test override; empty = read from $WATCH_REF
+WATCH_PHASES="${PLAN_WATCH_PHASES:-}"   # optional override; empty = auto-detect
+PLAN_FILE="${PLAN_FILE:-}"              # test override; empty = read from $WATCH_REF
 STATE_DIR="${WATCHDOG_STATE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../state}"
 STATE_FILE="$STATE_DIR/plan-claimable.txt"
 mkdir -p "$STATE_DIR"
@@ -59,30 +64,45 @@ current=$(WATCH_PHASES="$WATCH_PHASES" WATCH_REF="$WATCH_REF" perl - "$PLAN_FILE
 use strict;
 use warnings;
 
-my %watched = map { $_ => 1 } split /\s+/, $ENV{WATCH_PHASES};
-my ($plan, $repo) = @ARGV;
+my ( $plan, $repo ) = @ARGV;
 open my $fh, '<', $plan or exit 2;
-my @entries;    # [id, mark]
+my @entries;    # [id, mark, major, minor]
+my $max_phase = -1;
 while (<$fh>) {
-    push @entries, [ $2, $1 ] if /^- \[([ x~])\] \*\*(\d+\.\d+)\*\*/;
+    next unless /^- \[([ x~])\] \*\*(\d+)\.(\d+)\*\*/;
+    my ( $mark, $maj, $min ) = ( $1, $2, $3 );
+    push @entries, [ "$maj.$min", $mark, $maj, $min ];
+    $max_phase = $maj if $maj > $max_phase;
 }
 close $fh;
-
-@entries = grep { $watched{ ( split /\./, $_->[0] )[0] } } @entries;
 
 my $ref = $ENV{WATCH_REF};
 my $log = `git -C "$repo" log --oneline "$ref" 2>/dev/null`;
 
+my %watched;
+if ( $ENV{WATCH_PHASES} =~ /\S/ ) {
+    %watched = map { $_ => 1 } split /\s+/, $ENV{WATCH_PHASES};
+}
+else {
+    # Phases with registry claim-protocol commits ("docs(plan): claim N." /
+    # "docs(plan): close N.") — the claim protocol is the marker of an
+    # executable registry phase. Plain merges/[x] markers exist for every
+    # shipped phase ever and must not qualify.
+    $watched{$1} = 1 while $log =~ /docs\(plan\): (?:claim|close) (\d+)\./g;
+    # The newest phase (brand-new registries start all-`[ ]` with no trail).
+    $watched{$max_phase} = 1 if $max_phase >= 0;
+}
+
+@entries = grep { $watched{ $_->[2] } } @entries;
+
 for my $e (@entries) {
-    my ( $id, $mark ) = @$e;
+    my ( $id, $mark, $maj, $min ) = @$e;
     next unless $mark eq ' ';
-    my ( $maj, $min ) = split /\./, $id;
 
     my $blocked = 0;
     for my $o (@entries) {
-        my ( $oid, $omark ) = @$o;
+        my ( $oid, $omark, $omaj, $omin ) = @$o;
         next unless $omark eq '~';
-        my ( $omaj, $omin ) = split /\./, $oid;
         next unless $omaj == $maj && $omin < $min;
         # A `[~]` predecessor counts as closed when the watched ref shows
         # either an explicit "close X.Y" docs commit or the merge of its
