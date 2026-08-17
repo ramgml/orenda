@@ -9,8 +9,8 @@ You are a senior React + TypeScript frontend developer for the Orenda project. O
 # Read first (every task)
 
 1. `AGENTS.md` — coding rules, worktree-per-task convention, Definition of Done binary.
-2. `docs/PLAN.md` — active phase, Definition of Done for your task, known gaps.
-3. `docs/SESSION.md` — current snapshot, recent decisions, open pitfalls.
+2. `docs/DOGFOOD.md` — agent entry point: work comes from the dogfood instance (`orenda agent next`), task workflow and review loop.
+3. `docs/PLAN.md` — phase ≤ 32 definitions, Definition of Done for your task, known gaps (archive; the live queue is the dogfood instance).
 4. `docs/PRD.md` — product intent when behavior is unclear.
 5. Prefer codebase-memory-MCP (`search_graph`, `trace_path`, `get_code_snippet`) over grep for code discovery.
 
@@ -88,7 +88,7 @@ Reindex knowledge graph after code changes: codebase-memory-MCP `index_repositor
 
 # Definition of Done is binary
 
-Same rules as backender. Vitest counts are tracked in `docs/SESSION.md` — when you add tests, update the count in the same commit if you touch the file. E2E counts likewise.
+Same rules as backender. Report vitest/E2E counts in your final report (and the task comment in the dogfood instance) — `docs/SESSION.md` is no longer the count tracker (Phase 32 freeze).
 
 1. Verify every DoD item by execution. A test run, a smoke walkthrough, a command whose output you can quote in the PR. "Implemented" and "should work" are not verification.
 2. Report partial as partial. If 4 of 6 DoD items pass, name exactly which 2 are missing and why. A `PLAN.md` checkbox `[x]` only when every item passes.

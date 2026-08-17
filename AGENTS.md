@@ -1,6 +1,6 @@
 # AGENTS.md — Orenda Project Guidelines for AI Agents
 
-> Краткий guide для AI-агентов, работающих с кодовой базой Orenda. Полные требования — в [[docs/PRD.md]], план — в [[docs/PLAN.md]].
+> Краткий guide для AI-агентов, работающих с кодовой базой Orenda. Полные требования — в [[docs/PRD.md]], очередь работ и постановки — в dogfood-инстансе по конвенции [[docs/DOGFOOD.md]], архив фаз ≤ 32 — в [[docs/PLAN.md]].
 
 ## What is Orenda?
 
@@ -125,10 +125,10 @@ A task is done or not done — "almost done" is not done. Phases here have been 
 
 ## Key files to read first
 
-- `docs/SESSION.md` — **session snapshot** (current state, decisions, next steps; read first when resuming work)
+- `docs/DOGFOOD.md` — **agent entry point** (where work comes from: the dogfood instance, not files; task workflow + review loop)
 - `docs/CONTEXT.md` — **domain context** (what kanban / courses / delegation ARE — shared mental models that prevent wrong reinvention; concepts, not rules — read second)
 - `docs/PRD.md` — what we're building and why
-- `docs/PLAN.md` — phases, tasks, criteria
+- `docs/PLAN.md` — phases ≤ 32 archive (task definitions, audits, known gaps); the live queue is the dogfood instance per DOGFOOD.md
 - `internal/storage/sqlite/migrations/001_init.sql` — DB schema *(Phase 1)*
 - `internal/config/config.go` — config structure *(Phase 0)*
 - `cmd/orenda/main.go` — entry point and CLI *(Phase 0)*
