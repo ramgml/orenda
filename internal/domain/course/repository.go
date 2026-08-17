@@ -15,6 +15,11 @@ type Repository interface {
 	ListCourses(ctx context.Context, ownerID string) ([]*Course, error)
 	UpdateCourse(ctx context.Context, c *Course) error
 	DeleteCourse(ctx context.Context, id string) error
+	// UpdatePaceNotesMD writes only the free-form pace notes — the
+	// narrow PATCH the agent-planner uses (Phase 31). It does NOT
+	// touch title/status/etc; the human edits those through
+	// UpdateCourse.
+	UpdatePaceNotesMD(ctx context.Context, id, notes string) error
 
 	// ---- Modules ----
 	CreateModule(ctx context.Context, m *Module) error
