@@ -1812,6 +1812,52 @@ paths:
       security: [{ bearerAuth-agent: [] }]
       responses:
         '201': { description: created }
+
+  # Phase 31.5: planner writes a study proposal that the user can
+  # accept or dismiss from the Dashboard tray. created_by_agent is
+  # stamped from the bearer token, never from the body.
+  /api/v1/agent/study-proposals:
+    post:
+      tags: [agent, study]
+      summary: File a pending study proposal.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, target_date]
+              properties:
+                course_id:   { type: string, description: optional course link }
+                title:       { type: string }
+                body_md:     { type: string }
+                target_date: { type: string, description: 'YYYY-MM-DD' }
+      responses:
+        '201': { description: created }
+        '400': { description: missing_title_or_target_date | invalid_json | invalid_input }
+        '401': { description: missing agent identity }
+        '503': { description: study service not wired }
+
+  # Phase 31.5: narrow PATCH for pace_notes_md. Title/status/etc.
+  # are owned by the human; only pace notes are agent-editable.
+  /api/v1/agent/courses/{id}:
+    patch:
+      tags: [agent, courses, study]
+      summary: Update course pace notes (PaceNotesMD).
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pace_notes_md: { type: string, description: 'free-form markdown; ≤ 64 KiB' }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_pace_notes_md }
+        '404': { description: course not found }
         '400': { description: invalid_input }
 
   /api/v1/agent/lessons/{id}/materialize:
