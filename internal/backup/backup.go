@@ -60,6 +60,12 @@ type Config struct {
 	// SnapshotRotationDays: keep daily snapshots for N days. Older ones
 	// are removed at snapshot creation time.
 	SnapshotRotationDays int
+
+	// SnapshotCron is the 5-field cron expression (UTC) the scheduler
+	// uses to time its snapshot fire. Empty falls back to
+	// DefaultSchedule ("0 3 * * *"). Hot-reloadable via
+	// UpdateConfig — Phase 32.7.
+	SnapshotCron string
 }
 
 // Service bundles the dependencies.
@@ -95,11 +101,14 @@ func (s *Service) getCfg() Config {
 
 // UpdateConfig atomically replaces the live configuration.
 // Called by the PUT handler once the new settings have been
-// validated and persisted to the backup_settings DB table.
-// Operators restart-dependent knobs (mirror_dir, snapshot_dir,
-// db_path) keep a deferred comment in PLAN.md — only the
-// remote/url/auth triplet is hot-swapped today because that's
-// what fits this layer's existing call sites.
+// validated and persisted to the backup_settings DB table, and
+// at startup by main.go with the operator's YAML/env defaults
+// merged with any DB overrides. Phase 32.7 extends the hot-
+// reloadable surface from the Phase 28.9 remote/url/auth trio
+// to also include SnapshotCron and SnapshotRotationDays. The
+// filesystem paths (MirrorDir, SnapshotDir, DBPath) remain
+// restart-only because hot-swapping them would require
+// re-mounting git repos and snapshot directories — out of scope.
 func (s *Service) UpdateConfig(cfg Config) {
 	s.cfg.Store(&cfg)
 }
@@ -487,9 +496,17 @@ type SnapshotManifest struct {
 // ----------------------------------------------------------------------------
 
 // LogEntry is one row of backup_log.
+//
+// Type values (set by the scheduler's run* helpers):
+//   - "git_push" — CommitAndPush to mirror remote
+//   - "sqlite_snapshot" — Snapshot() to local file
+//   - "wal_checkpoint" — PRAGMA wal_checkpoint(TRUNCATE);
+//     renamed from "wal_archive" in Phase 32.8 to make the
+//     no-off-host-shipping contract explicit (see
+//     wiki:decision-log "WAL archive vs WAL checkpoint")
 type LogEntry struct {
 	ID           string    `json:"id"`
-	Type         string    `json:"type"`   // git_push | sqlite_snapshot | wal_archive
+	Type         string    `json:"type"`   // git_push | sqlite_snapshot | wal_checkpoint
 	Status       string    `json:"status"` // success | failed
 	Message      string    `json:"message"`
 	SnapshotPath string    `json:"snapshot_path"`
