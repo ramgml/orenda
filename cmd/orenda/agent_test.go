@@ -326,3 +326,38 @@ func TestAgentPropose_Non201IsAnError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "404")
 }
+
+// TestPRNumberFromDescription pins the Phase 32.10 pr-watch
+// regex: the CLI extracts the first PR-like reference from the
+// task description. Supported forms: "PR #N", "closes #N",
+// "refs #N", "fixes #N", or a bare "#N" at the start of a line.
+func TestPRNumberFromDescription(t *testing.T) {
+	cases := []struct {
+		name   string
+		desc   string
+		want   int
+		wantOK bool
+	}{
+		{"pr-prefix", "PR #42 — implement feature", 42, true},
+		{"closes-prefix", "closes #11 (Phase 32.7)", 11, true},
+		{"refs-prefix", "refs #13 (Phase 32.9)", 13, true},
+		{"fixes-prefix", "Fixes #7 — typo in README", 7, true},
+		{"uppercase-PR", "PR #99 done", 99, true},
+		{"first-match wins", "PR #5 wins over refs #6 later", 5, true},
+		{"bare-hash-at-start", "#8 — small fix", 8, true},
+		{"empty", "", 0, false},
+		{"no-pr", "no PR reference here", 0, false},
+		{"only-hash-not-at-start", "see issue #5 for context", 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := prNumberFromDescription(tc.desc)
+			if ok != tc.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
+			}
+			if got != tc.want {
+				t.Fatalf("n = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
