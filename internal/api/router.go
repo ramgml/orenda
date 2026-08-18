@@ -41,6 +41,7 @@ import (
 	"github.com/ramgml/orenda/internal/backup"
 	"github.com/ramgml/orenda/internal/bot"
 	"github.com/ramgml/orenda/internal/domain/agent"
+	"github.com/ramgml/orenda/internal/domain/chat"
 	"github.com/ramgml/orenda/internal/domain/course"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
@@ -175,6 +176,11 @@ type Dependencies struct {
 	// nil-safe — handlers return 503 when the service hasn't been
 	// wired (e.g. tests).
 	StudyService *studysvc.Service
+	// Phase 32.11: chat message repo. The Dashboard chat pane
+	// persists user + agent messages here for history replay.
+	// nil-safe — handlers return 503 when the repo isn't wired
+	// (e.g. the early Phase 0 fixtures).
+	ChatMessages chat.MessageRepository
 }
 
 // CourseActivityRepo is the small read surface needed by the
@@ -478,6 +484,18 @@ func NewRouter(deps *Dependencies) http.Handler {
 					r.Post("/accept", acceptStudyProposalHandler(deps))
 					r.Post("/dismiss", dismissStudyProposalHandler(deps))
 				})
+			})
+
+			// Phase 32.11: Dashboard chat pane. Commands-only MVP:
+			// the user types "/plan day" or "/help" and gets a
+			// markdown reply. We persist both sides to chat_messages
+			// (migration 032) so the Dashboard can replay history on
+			// page load, and fan them out live on the WS topic
+			// "chat". UI rendering is out of scope for this PR
+			// (separate task — see wiki:dashboard-chat).
+			r.Route("/dashboard/chat", func(r chi.Router) {
+				r.Post("/", postDashboardChatHandler(deps))
+				r.Get("/{thread}", getDashboardChatHandler(deps))
 			})
 
 			// Phase 18: courses (LMS). User side — full CRUD, approve,
