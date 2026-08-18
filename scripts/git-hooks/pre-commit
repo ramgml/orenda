@@ -28,6 +28,14 @@ fi
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+# Drop git's hook environment (GIT_DIR & friends) so any child process
+# that shells out to git can never write into the shared .git/ by
+# inheritance — see pre-push for the incident that motivated this.
+# git below re-discovers the repo from the cwd instead.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_NAMESPACE \
+      GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+      GIT_QUARANTINE_PATH GIT_PREFIX GIT_CEILING_DIRECTORIES
+
 # Collect staged paths (Added / Copied / Modified / Renamed — not Deleted).
 # -z keeps paths with spaces/unicode intact; the read loop rehydrates them.
 mapfile -d '' GO_FILES < <(

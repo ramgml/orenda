@@ -1,15 +1,6 @@
 {
   "rules": [
     {
-      "name": "plan-claimable",
-      "description": "PLAN.md registry: fires when a task becomes claimable (its [~] predecessors got merged) or a new free task appears in the plan. Semantics: docs/PLAN.md claim protocol ([ ]/[~]/[x] markers + 'close X.Y' / 'Merge phase-X-Y-*' commits on the local dev branch). Watched phases are auto-detected (phases with 'docs(plan): claim/close N.' commits on dev + the newest phase in the plan); set PLAN_WATCH_PHASES env here to override. Broadcast: every open session gets the prompt; claim races are resolved by the git claim protocol.",
-      "interval_s": 120,
-      "remind_s": 900,
-      "broadcast": true,
-      "check": ".opencode/watchdog/checks/plan-unblocked.sh",
-      "prompt": "Watchdog: в PLAN.md появились задачи, доступные для claim:\n{{output}}\n\nДействуй автономно, не жди пользователя. Возьми первую свободную по протоколу реестра (docs/PLAN.md): claim-коммит в dev → worktree → реализация → make test && make lint → merge в dev → пометить [x]. Если задача требует явного действия пользователя (например, push в remote) — пропусти её и возьми следующую свободную. Если задачу уже заклеймил другой агент ([~] или проигранная git-гонка) — возьми следующую."
-    },
-    {
       "name": "orenda-ready-queue",
       "description": "Usage instance (:2137) agent queue: fires while GET /api/v1/agent/tasks?ready=true returns count > 0. Requires ORENDA_AGENT_TOKEN in the environment (falls back to the token in ~/.config/opencode/opencode.json mcp.orenda args; optionally ORENDA_URL). Broadcast: every open session gets the prompt; double-claim is rejected by the server (409 lock_taken).",
       "interval_s": 300,

@@ -109,12 +109,12 @@ wiki page.
 ## Documentation
 
 - [PRD](docs/PRD.md) — Product Requirements Document (vision)
-- [PLAN](docs/PLAN.md) — Development phases and tasks
+- [PLAN](docs/PLAN.md) — Development phases ≤ 32 (❄️ frozen archive; the live backlog is the dogfood instance — see [DOGFOOD](docs/DOGFOOD.md))
 - [ARCHITECTURE](docs/ARCHITECTURE.md) — what's in the binary, data-flow reference
 - [CONTEXT](docs/CONTEXT.md) — Domain concepts (kanban, courses, delegation)
 - [API](docs/API.md) — REST API reference (+ [openapi.yaml](docs/openapi.yaml))
 - [DB](docs/DB.md) — Database schema (per migration)
-- [SESSION](docs/SESSION.md) — session snapshot (current state, recent decisions)
+- [SESSION](docs/SESSION.md) — session snapshot (❄️ frozen archive; current state lives in the dogfood instance)
 - [AGENTS.md](AGENTS.md) — guidelines for AI agents extending the codebase
 - [SKILL](docs/skills/orenda/SKILL.md) — agent workflow + etiquette
 

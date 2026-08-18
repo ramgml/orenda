@@ -6,12 +6,12 @@
 
 ## Scope
 
-- Фаза/задача: `phase X.Y` — <название> (refs `docs/PLAN.md`)
-- Ветка: `phase-X-Y-<name>` ← `dev`
+- Задача: <название> (ссылка на задачу в dogfood-инстансе, проект «Orenda dev»)
+- Ветка: `phase-X-Y-<name>` или `<task>-<name>` ← `dev`
 
 ## Definition of Done — evidence по каждому пункту
 
-<!-- Скопируй каждый пункт DoD из PLAN.md и приложи выполненную проверку:
+<!-- Скопируй каждый пункт DoD из задачи/постановки в wiki и приложи выполненную проверку:
      команда + результат (тест, smoke, вывод). Пункт без evidence = PR не готов. -->
 
 | Пункт DoD | Evidence (команда → результат) |
@@ -32,7 +32,7 @@
 - [ ] `pre-commit` прошёл (`gofmt -l` + `prettier --check`) — без `--no-verify`
 - [ ] `make test` зелёный (Go + vitest)
 - [ ] `make test-e2e` зелёный (если затронут UI-flow)
-- [ ] Чекбоксы в `docs/PLAN.md` проставлены `[x]` только при полном DoD
-- [ ] Нет заглушек / `TODO: implement` / мёртвых endpoints; отложенные швы записаны в `docs/PLAN.md` как known gap
+- [ ] Чекбоксы/DoD в задаче инстанса отражают только реально проверенное
+- [ ] Нет заглушек / `TODO: implement` / мёртвых endpoints; отложенные швы заведены задачами в инстансе
 - [ ] Knowledge graph переиндексирован (`index_repository`, mode `fast`)
 - [ ] Shipped-миграции не редактировались; новые — только аддитивными файлами
