@@ -173,6 +173,7 @@ func runHTTPProxy(ctx context.Context, baseURL, token string) error {
 	// Bridge SIGINT/SIGTERM.
 	go func() {
 		<-ctx.Done()
+		//nolint:contextcheck // ctx is already cancelled here; Shutdown needs a fresh, independent context.
 		_ = srv.Shutdown(context.Background())
 	}()
 	return srv.ListenAndServe()
