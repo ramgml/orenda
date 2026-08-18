@@ -83,7 +83,7 @@ func (r *fakeUserRepo) List(_ context.Context) ([]*user.User, error) {
 	return out, nil
 }
 
-// fakeTokenRepo satisfies api.APITokenLookup for tests.
+// fakeTokenRepo satisfies api.TokenLookup for tests.
 type fakeTokenRepo struct {
 	hashes map[string]*auth.TokenRow
 }
@@ -120,7 +120,7 @@ var _ = assertAnError
 
 // helper: build a router with auth wired and a tiny handler that echoes
 // the identity.
-func buildAuthRouter(users user.Repository, tokens api.APITokenLookup, signer *auth.Signer) http.Handler {
+func buildAuthRouter(users user.Repository, tokens api.TokenLookup, signer *auth.Signer) http.Handler {
 	mux := http.NewServeMux()
 	cfg := api.AuthConfig{
 		Signer:     signer,

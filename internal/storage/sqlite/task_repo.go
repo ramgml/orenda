@@ -232,10 +232,10 @@ func (r *taskRepo) ListByProjectWithStats(ctx context.Context, f task.Filter) ([
 // aggregateCounters returns counts[comments/attachments/children/
 // checklist_items] for each task id. Tasks with no activity get
 // zero-valued counters (not missing keys).
-func (r *taskRepo) aggregateCounters(ctx context.Context, ids []string) (map[string]task.TaskCounters, error) {
-	out := make(map[string]task.TaskCounters, len(ids))
+func (r *taskRepo) aggregateCounters(ctx context.Context, ids []string) (map[string]task.Counters, error) {
+	out := make(map[string]task.Counters, len(ids))
 	for _, id := range ids {
-		out[id] = task.TaskCounters{}
+		out[id] = task.Counters{}
 	}
 	placeholders := strings.Repeat("?, ", len(ids)-1) + "?"
 	args := make([]any, len(ids))

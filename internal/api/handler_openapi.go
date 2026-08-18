@@ -6,7 +6,6 @@
 // non-secret and matches docs/API.md. We mount it on the top-level
 // router rather than the user/agent namespace because both kinds
 // of consumers want it.
-
 package api
 
 import (
