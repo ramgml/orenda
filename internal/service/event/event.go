@@ -256,7 +256,7 @@ func stepFor(rule string, interval int) func(time.Time) time.Time {
 	var freq string
 	for _, part := range strings.Split(rule, ";") {
 		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
-		if len(kv) == 2 && strings.ToUpper(kv[0]) == "FREQ" {
+		if len(kv) == 2 && strings.EqualFold(kv[0], "FREQ") {
 			freq = strings.ToUpper(kv[1])
 		}
 	}
