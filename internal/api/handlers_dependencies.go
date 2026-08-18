@@ -152,7 +152,11 @@ func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 		// Single pass: list every "claimable" status task, then
 		// hydrate blockers with one batch query and filter. For a
 		// single-owner install the whole list is < few hundred.
-		f := task.Filter{Status: task.StatusTodo, AssigneeType: task.AssigneeAgent}
+		// Phase 33.1: AssigneeTypeIncludeNull — an unassigned todo
+		// task (e.g. an agent-proposed task the owner just triaged
+		// from the review queue onto the board) is claimable by any
+		// agent, so it belongs on this surface.
+		f := task.Filter{Status: task.StatusTodo, AssigneeType: task.AssigneeAgent, AssigneeTypeIncludeNull: true}
 		tasks, err := deps.Tasks.ListByProject(r.Context(), f)
 		if err != nil {
 			writeError(w, err)

@@ -193,6 +193,65 @@ func TestService_Move_PublishesHubEvent(t *testing.T) {
 	assert.Equal(t, "tasks", hub.events[0].topic)
 }
 
+// Phase 33.1: moving an awaiting=human card off the review queue
+// (agent-proposed backlog task accepted onto the board, or a review
+// card dragged elsewhere) clears awaiting — the triage happened.
+func TestService_Move_ClearsAwaitingHuman(t *testing.T) {
+	db := setupMoveDB(t)
+	p, cols := setupMoveProject(t, db)
+	repo := sqlite.NewProjectRepository(db)
+	tasks := sqlite.NewTaskRepository(db)
+	svc := taskservice.New(tasks, nil, &recordingRecorder{}, nil, &recordingHub{})
+	svc.Columns = repo
+
+	// Default column order matches AllStatuses: backlog, todo,
+	// in_progress, review, done.
+	backlog, todo, review := cols[0], cols[1], cols[3]
+
+	// backlog(awaiting=human) → todo: accepted, awaiting cleared.
+	proposed := &task.Task{
+		ProjectID: p.ID, ColumnID: backlog.ID, Title: "proposed",
+		Status: task.StatusBacklog, Awaiting: task.AwaitingHuman,
+	}
+	require.NoError(t, tasks.Create(context.Background(), proposed))
+	moved, err := svc.Move(context.Background(), proposed.ID, taskservice.MoveOptions{
+		TargetColumnID: todo.ID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, task.StatusTodo, moved.Status)
+	assert.Equal(t, task.AwaitingNone, moved.Awaiting)
+	// Persisted, not just in-memory.
+	back, err := tasks.GetByID(context.Background(), proposed.ID)
+	require.NoError(t, err)
+	assert.Equal(t, task.AwaitingNone, back.Awaiting)
+
+	// review(awaiting=human) → review column (a no-op drag): awaiting
+	// survives — the card is still waiting on the human.
+	inReview := &task.Task{
+		ProjectID: p.ID, ColumnID: review.ID, Title: "in review",
+		Status: task.StatusReview, Awaiting: task.AwaitingHuman,
+	}
+	require.NoError(t, tasks.Create(context.Background(), inReview))
+	moved, err = svc.Move(context.Background(), inReview.ID, taskservice.MoveOptions{
+		TargetColumnID: review.ID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, task.AwaitingHuman, moved.Awaiting)
+
+	// awaiting=agent is the agent's problem, not the human's — a move
+	// never clears it.
+	agentsTurn := &task.Task{
+		ProjectID: p.ID, ColumnID: backlog.ID, Title: "agent turn",
+		Status: task.StatusBacklog, Awaiting: task.AwaitingAgent,
+	}
+	require.NoError(t, tasks.Create(context.Background(), agentsTurn))
+	moved, err = svc.Move(context.Background(), agentsTurn.ID, taskservice.MoveOptions{
+		TargetColumnID: todo.ID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, task.AwaitingAgent, moved.Awaiting)
+}
+
 func TestNullHub(t *testing.T) {
 	hub := taskservice.NullHub()
 	hub.Publish(context.Background(), ws.Event{Topic: "x", Body: 1}) // must not panic

@@ -28,8 +28,14 @@ type Filter struct {
 	ColumnID     string
 	Status       Status
 	AssigneeType AssigneeType
-	AssigneeID   string
-	ParentTaskID *string
+	// AssigneeTypeIncludeNull widens AssigneeType to also match rows
+	// with no assignee at all (assignee_type IS NULL). Phase 33.1: the
+	// agent work surface lists "todo tasks an agent could claim" — an
+	// unassigned todo task is claimable by any agent, so the filter
+	// must not hide it.
+	AssigneeTypeIncludeNull bool
+	AssigneeID              string
+	ParentTaskID            *string
 	// IDs restricts the result to the given task ids (Phase 28.22).
 	// Composable with the other clauses; empty = no restriction. Used
 	// by the /today handler to enrich only the visible tasks instead

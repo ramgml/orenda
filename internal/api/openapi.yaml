@@ -1804,6 +1804,37 @@ paths:
           name: limit
           schema: { type: integer, default: 100 }
       responses: { '200': { description: ok } }
+    # Phase 33.1: agent proposes a NEW task. Lands as status=backlog +
+    # awaiting=human, so it appears in the existing review queue
+    # (awaiting='human' OR status='review') for human triage.
+    # Accept = kanban-move to todo (clears awaiting via Service.Move);
+    # dismiss = DELETE /api/v1/tasks/{id}. Activity row task.created is
+    # written with actor_type=agent; a task.created event is published
+    # on the WS topic `tasks`.
+    post:
+      tags: [agent]
+      summary: Propose a new task (status=backlog, awaiting=human — human triages from the review queue).
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id, title, description_md]
+              properties:
+                project_id: { type: string }
+                title: { type: string }
+                description_md: { type: string }
+                priority: { type: string, enum: [low, medium, high, urgent] }
+                blocked_by: { type: array, items: { type: string } }
+                parent_task_id: { type: string }
+      responses:
+        '201': { description: created (backlog, awaiting=human) }
+        '400': { description: invalid_json / invalid_input (missing project_id, title or description_md) }
+        '401': { description: missing or invalid agent token }
+        '404': { description: not_found (unknown project / parent_task_id / blocked_by id) }
+        '422': { description: invalid_dependency (self/cycle/duplicate in blocked_by) }
 
   /api/v1/agent/tasks/{id}/claim:
     post:

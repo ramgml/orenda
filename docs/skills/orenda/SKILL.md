@@ -74,6 +74,8 @@ Then drive the workflow with subcommands:
 ```bash
 orenda agent me           # confirm the token works
 orenda agent next          # await + claim a task in one shot
+orenda agent propose --project <id> --title "..." --description-file task.md
+                           # file NEW work (lands in the human's review queue)
 orenda agent claim <id>    # claim a specific task by id
 orenda agent context <id>  # read the full task snapshot
 orenda agent comment <id> "...markdown..."   # leave a comment as the agent
@@ -223,7 +225,7 @@ subcommands:
 
 ```
 orenda_me / orenda_list_tasks / orenda_claim / orenda_release
-orenda_submit / orenda_context / orenda_await
+orenda_submit / orenda_context / orenda_await / orenda_task_propose
 orenda_pages_list / orenda_pages_get / orenda_pages_save
 orenda_pages_delete / orenda_pages_move / orenda_search   # Phase 29.3
 ```
@@ -331,6 +333,30 @@ doesn't turn red — the user can still ack it on the tray today.
 - All open lessons are completed (`progress.lessons_done ==
   progress.lessons_total`) — there's nothing to suggest.
 
+### 4.6 "File new work" — propose a task (Phase 33.1)
+
+You found work that isn't in the instance yet (a gap discovered while
+closing another task, a follow-up the user asked for). Don't park it
+in a comment or a private note — file it as a task:
+
+```bash
+orenda agent propose --project <project-id> \
+  --title "Verb + object" --description-file spec.md
+# → 201 {"id":"t-x","status":"backlog","awaiting":"human",...}
+```
+
+The task lands as `status=backlog, awaiting=human` — it shows up in
+the owner's review queue (`GET /api/v1/review-queue`) for triage.
+**You do not work on it until the human accepts**: accept = the owner
+moves the card to `todo` (which clears `awaiting`), dismiss = delete.
+After triage the task appears in your `GET /api/v1/agent/tasks?ready=true`
+like any other claimable task.
+
+Required fields: `project_id`, `title`, `description_md` (the task must
+be self-sufficient — see rule 3). Optional: `priority`,
+`blocked_by` (task ids), `parent_task_id`. MCP equivalent:
+`orenda_task_propose`.
+
 ---
 
 ## 5. Common errors
@@ -354,6 +380,7 @@ doesn't turn red — the user can still ack it on the tray today.
 | GET | `/api/v1/agent/me` | Confirm the token, see scan state. |
 | POST | `/api/v1/agent/heartbeat` | Mark online; refresh `last_seen_at`. |
 | GET | `/api/v1/agent/tasks?ready=true&limit=N` | List claimable tasks. |
+| POST | `/api/v1/agent/tasks` | Phase 33.1: propose a NEW task. Body: `{project_id, title, description_md, priority?, blocked_by?, parent_task_id?}`. Lands `backlog` + `awaiting=human` (the owner's review queue triages it). 400 on missing required fields, 404 on unknown project/parent/blocker. |
 | POST | `/api/v1/agent/tasks/{id}/claim` | Atomic claim. 409 / 422 on failure. |
 | POST | `/api/v1/agent/tasks/{id}/release` | Drop a claim. |
 | POST | `/api/v1/agent/tasks/{id}/submit` | Mark ready for human review. |

@@ -196,6 +196,8 @@ func newAgentCmd() *cobra.Command {
 Workflow shape:
   orenda agent me                     # confirm the token works
   orenda agent next                    # await + claim the next task
+  orenda agent propose --project <id> --title ... --description-file task.md
+                                       # propose a NEW task (human triages it)
   orenda agent context <task-id>       # pull the full snapshot
   orenda agent comment <task-id> <md>  # add a comment (not-blocking)
   orenda agent submit <task-id>       # mark ready for human review
@@ -214,6 +216,7 @@ Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
 
 	cmd.AddCommand(newAgentMeCmd())
 	cmd.AddCommand(newAgentNextCmd())
+	cmd.AddCommand(newAgentProposeCmd())
 	cmd.AddCommand(newAgentContextCmd())
 	cmd.AddCommand(newAgentClaimCmd())
 	cmd.AddCommand(newAgentReleaseCmd())
@@ -318,6 +321,99 @@ func newAgentNextCmd() *cobra.Command {
 	}
 	cmd.Flags().IntVar(&limit, "limit", 5, "max tasks to consider before claiming")
 	cmd.Flags().IntVar(&awaitSecs, "await", 0, "if no work, long-poll up to N seconds (0 = no wait)")
+	return cmd
+}
+
+// newAgentProposeCmd wires `orenda agent propose` (Phase 33.1).
+//
+// The DOGFOOD rule "new work = a task in the instance" is now
+// executable by agents: propose creates a real task that lands as
+// status=backlog + awaiting=human — the owner triages it from the
+// review queue (accept = kanban-move to todo, dismiss = delete).
+func newAgentProposeCmd() *cobra.Command {
+	var (
+		projectID   string
+		title       string
+		description string
+		descFile    string
+		priority    string
+		blockedBy   string
+		parentID    string
+	)
+	cmd := &cobra.Command{
+		Use:   "propose",
+		Short: "Propose a new task (lands in backlog, awaiting human triage)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if projectID == "" || title == "" {
+				return fmt.Errorf("agent propose: --project and --title are required")
+			}
+			desc := description
+			if descFile != "" {
+				var (
+					raw []byte
+					err error
+				)
+				if descFile == "-" {
+					raw, err = io.ReadAll(cmd.InOrStdin())
+				} else {
+					raw, err = os.ReadFile(descFile)
+				}
+				if err != nil {
+					return fmt.Errorf("agent propose: read description: %w", err)
+				}
+				desc = string(raw)
+			}
+			if strings.TrimSpace(desc) == "" {
+				return fmt.Errorf("agent propose: --description or --description-file is required")
+			}
+			body := map[string]any{
+				"project_id":     projectID,
+				"title":          title,
+				"description_md": desc,
+			}
+			if priority != "" {
+				body["priority"] = priority
+			}
+			if parentID != "" {
+				body["parent_task_id"] = parentID
+			}
+			if blockedBy != "" {
+				var ids []string
+				for _, part := range strings.Split(blockedBy, ",") {
+					if v := strings.TrimSpace(part); v != "" {
+						ids = append(ids, v)
+					}
+				}
+				if len(ids) > 0 {
+					body["blocked_by"] = ids
+				}
+			}
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			raw, code, err := ctx.agentPost(cmd.Context(), "/api/v1/agent/tasks", body)
+			if err != nil {
+				return err
+			}
+			if code != http.StatusCreated {
+				return fmt.Errorf("agent propose: HTTP %d: %s", code, raw)
+			}
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		},
+	}
+	cmd.Flags().StringVar(&projectID, "project", "", "project id the task belongs to (required)")
+	cmd.Flags().StringVar(&title, "title", "", "task title (required)")
+	cmd.Flags().StringVar(&description, "description", "", "task description (markdown)")
+	cmd.Flags().StringVar(&descFile, "description-file", "", "read markdown description from file ('-' = stdin)")
+	cmd.Flags().StringVar(&priority, "priority", "", "low|medium|high|urgent (default medium)")
+	cmd.Flags().StringVar(&blockedBy, "blocked-by", "", "comma-separated blocker task ids")
+	cmd.Flags().StringVar(&parentID, "parent", "", "parent task id (creates a subtask)")
 	return cmd
 }
 

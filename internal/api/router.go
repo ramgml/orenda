@@ -604,6 +604,10 @@ func NewRouter(deps *Dependencies) http.Handler {
 					// Supports ?ready=true to filter out blocked or
 					// already-claimed tasks — the agent's "inbox".
 					r.Get("/", listAgentTasksHandler(deps))
+					// Phase 33.1: agent proposes a NEW task. Lands as
+					// status=backlog + awaiting=human so the owner
+					// triages it through the existing review queue.
+					r.Post("/", agentCreateTaskHandler(deps))
 					r.Route("/{id}", func(r chi.Router) {
 						r.Post("/claim", agentClaimTaskHandler(deps))
 						r.Post("/release", agentReleaseTaskHandler(deps))

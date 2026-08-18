@@ -91,6 +91,8 @@ func TestOrendaTools_ListIncludesWikiAndSearch(t *testing.T) {
 		"orenda_pages_delete", "orenda_pages_move", "orenda_search",
 		// Phase 31.8 additions.
 		"orenda_courses_list", "orenda_study_propose",
+		// Phase 33.1 addition.
+		"orenda_task_propose",
 	} {
 		assert.True(t, names[want], "tools/list must include %s", want)
 	}
@@ -261,6 +263,75 @@ func TestOrendaTools_StudyProposeRequiresTitleAndDate(t *testing.T) {
 		})
 	}
 	// No HTTP call should have hit the fake server.
+	assert.Empty(t, rec.path, "validation should happen before the network call")
+}
+
+// TestOrendaTools_TaskProposeSendsPOST — Phase 33.1: the body is
+// POSTed to /api/v1/agent/tasks with project_id/title/description_md
+// required and priority/blocked_by/parent_task_id optional.
+func TestOrendaTools_TaskProposeSendsPOST(t *testing.T) {
+	srv, rec := newToolServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"t-1","status":"backlog","awaiting":"human"}`))
+	})
+	callTool(t, srv, "orenda_task_propose", map[string]any{
+		"project_id":     "p-1",
+		"title":          "Write the report",
+		"description_md": "# Why\n\nAgents couldn't create tasks.",
+		"priority":       "high",
+		"blocked_by":     []any{"t-0"},
+		"parent_task_id": "t-parent",
+	})
+	assert.Equal(t, http.MethodPost, rec.method)
+	assert.Equal(t, "/api/v1/agent/tasks", rec.path)
+	assert.Equal(t, "Bearer tok-abc", rec.authHdr)
+	assert.Equal(t, "p-1", rec.body["project_id"])
+	assert.Equal(t, "Write the report", rec.body["title"])
+	assert.Equal(t, "# Why\n\nAgents couldn't create tasks.", rec.body["description_md"])
+	assert.Equal(t, "high", rec.body["priority"])
+	assert.Equal(t, []any{"t-0"}, rec.body["blocked_by"])
+	assert.Equal(t, "t-parent", rec.body["parent_task_id"])
+}
+
+// TestOrendaTools_TaskProposeOmitsOptionalFields — optional keys must
+// not appear in the body when the caller omitted them.
+func TestOrendaTools_TaskProposeOmitsOptionalFields(t *testing.T) {
+	srv, rec := newToolServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"t-1"}`))
+	})
+	callTool(t, srv, "orenda_task_propose", map[string]any{
+		"project_id": "p-1", "title": "T", "description_md": "D",
+	})
+	for _, k := range []string{"priority", "blocked_by", "parent_task_id"} {
+		_, has := rec.body[k]
+		assert.False(t, has, "%s must not appear when caller omitted it", k)
+	}
+}
+
+// TestOrendaTools_TaskProposeRequiresFields — the tool refuses inputs
+// the server would 400 on, before any network call.
+func TestOrendaTools_TaskProposeRequiresFields(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"missing project_id", map[string]any{"title": "T", "description_md": "D"}},
+		{"missing title", map[string]any{"project_id": "p-1", "description_md": "D"}},
+		{"missing description", map[string]any{"project_id": "p-1", "title": "T"}},
+		{"blank description", map[string]any{"project_id": "p-1", "title": "T", "description_md": "  "}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := call(t, srv, fmt.Sprintf(
+				`{"jsonrpc":"2.0","id":98,"method":"tools/call","params":{"name":"orenda_task_propose","arguments":%s}}`,
+				mustMarshal(t, tc.args)))
+			errObj, ok := resp["error"].(map[string]any)
+			require.True(t, ok, "tool should return an error, got %v", resp)
+			data, _ := errObj["data"].(string)
+			assert.Contains(t, data, "project_id, title and description_md are required")
+		})
+	}
 	assert.Empty(t, rec.path, "validation should happen before the network call")
 }
 
