@@ -56,6 +56,45 @@ make lint
 ./bin/orenda mcp-proxy # stdio MCP bridge (Phase 25)
 ```
 
+## Local gates — git hooks (Phase 32.6)
+
+CI is no longer the per-PR gate. Per-PR enforcement lives in **local git
+hooks** (wiki:ci-local-gates-hooks). GitHub Actions runs only the release
+gate (PR/push to `main`, tags `v*`) and a test-only backstop on push to
+`dev`. PR-to-dev is intentionally silent — agents don't wait on CI.
+
+Setup (one-time per clone):
+
+```bash
+make hooks   # sets core.hooksPath = scripts/git-hooks (idempotent)
+```
+
+This writes into the **shared** git config (the main checkout's `.git/`),
+so all current and future worktrees inherit the hook path automatically
+— no per-worktree install.
+
+Hook contract:
+
+| Hook        | Runs on        | Checks                                                            | Cost       |
+|-------------|----------------|-------------------------------------------------------------------|------------|
+| `pre-commit`| `git commit`   | `gofmt -l` on staged `.go` + `prettier --check` on staged web     | <2 s       |
+| `pre-push`  | `git push`     | `make lint-new` + `make test`                                     | ~1 min     |
+
+`make lint-new` is `golangci-lint run --new-from-merge-base=origin/dev ./...`
+— exactly the gate the old PR CI used, minus the pre-existing lint debt
+(see Phase 30.16). ~8.5 s warm.
+
+Process rules (binary, like the rest of this file):
+
+- **Agent does not wait on CI.** Open the PR, run `orenda agent submit`,
+  claim the next task. A red backstop run on `dev` is fixed by a
+  dedicated follow-up task — not in the working cycle.
+- **`--no-verify` is forbidden.** Use `SKIP_ORENDA_HOOKS=1` if you must
+  bypass (rare); the PR review will catch any skipped gate and reject it.
+- **Pre-existing lint debt** (`make lint` shows ≈71 issues on `dev`) is
+  not a personal failure. `lint-new` is the contract; `make lint` is the
+  debt inventory (Phase 30.16 — close opportunistically).
+
 ## Coding rules
 
 ### Go
@@ -121,6 +160,8 @@ A task is done or not done — "almost done" is not done. Phases here have been 
 - ❌ Don't edit the main working tree directly — worktree per task, always. Other agents may hold uncommitted work there; they don't know about you either.
 - ❌ Don't run `git checkout` / `git reset` / `git clean` / `git restore` in a checkout you didn't create.
 - ❌ Don't push to remote without explicit user request.
+- ❌ Don't bypass git hooks with `git commit --no-verify` or `git push --no-verify`. Use `SKIP_ORENDA_HOOKS=1` only for explicit, named exceptions and surface them in the PR.
+- ❌ Don't wait on GitHub Actions for a PR into `dev` — PR-to-dev is intentionally silent (wiki:ci-local-gates-hooks). Open the PR, submit, claim next task.
 - ❌ Don't report unverified or incomplete work as done. Partial delivery is reported as partial, with the missing items named — see «Definition of Done is binary».
 
 ## Key files to read first

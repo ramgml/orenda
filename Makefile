@@ -25,10 +25,10 @@ EMBED_DIST := internal/embed/web/dist
 VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.1.0")
 LDFLAGS    := -ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: all dev build test lint clean migrate-up migrate-down \
+.PHONY: all dev build test lint lint-new clean migrate-up migrate-down \
         backup backup-push backup-snapshot backup-status \
         web-install web-dev web-build web-test test-e2e \
-        embed-dists run version help govulncheck \
+        embed-dists run version help govulncheck hooks \
         web-format web-format-check
 
 all: build
@@ -97,6 +97,45 @@ lint:
 	@command -v golangci-lint >/dev/null 2>&1 || echo "install: https://golangci-lint.run/usage/install/"
 	golangci-lint run ./...
 	cd $(WEB_DIR) && $(NPM) run lint
+
+## lint-new: golangci-lint on NEW code only (--new-from-merge-base=origin/dev).
+## wiki:ci-local-gates-hooks — mirrors the PR CI gate semantics locally so
+## pre-existing debt (Phase 30.16) does not drown out new issues. ~8.5s
+## warm on this repo. Used by the tracked pre-push hook.
+##
+## Override the base ref: `make lint-new BASE_REF=origin/main` (e.g. when
+## preparing a release PR off main).
+lint-new:
+	@command -v golangci-lint >/dev/null 2>&1 || { \
+		echo "install: https://golangci-lint.run/usage/install/" >&2; exit 1; }
+	@base="$${BASE_REF:-origin/dev}"; \
+	if ! git rev-parse --verify --quiet "$$base" >/dev/null; then \
+		echo "lint-new: $$base not local; fetching…" >&2; \
+		git fetch --no-tags origin "$${base#origin/}" || { \
+			echo "lint-new: fetch failed; aborting" >&2; exit 1; }; \
+	fi; \
+	echo "lint-new: golangci-lint run --new-from-merge-base=$$base ./..."; \
+	golangci-lint run --new-from-merge-base="$$base" ./...
+
+## hooks: Install tracked git hooks (scripts/git-hooks/) into core.hooksPath.
+## wiki:ci-local-gates-hooks. Idempotent — safe to re-run. Writes
+## core.hooksPath into the SHARED git config (the main checkout's .git/),
+## so all existing and future worktrees inherit it automatically — no
+## per-worktree install needed.
+##
+## Fresh clones need this once before the first commit/push.
+hooks:
+	@hooks="scripts/git-hooks"; \
+	main_git="$$(git rev-parse --git-common-dir)"; \
+	current="$$(git config --get core.hooksPath 2>/dev/null || true)"; \
+	if [ "$$current" = "$$hooks" ]; then \
+		echo "hooks: core.hooksPath already = $$hooks (no change)"; \
+	else \
+		echo "hooks: setting core.hooksPath = $$hooks in $$main_git/config"; \
+		GIT_DIR="$$main_git" git config core.hooksPath "$$hooks"; \
+	fi
+	@echo "hooks: active — pre-commit (gofmt + prettier --check) and pre-push (make lint-new + make test)"
+	@echo "hooks: bypass with SKIP_ORENDA_HOOKS=1 (avoid --no-verify — see AGENTS.md)"
 
 ## web-format: Format web/ sources with Prettier (writes in-place).
 ## Phase 28.7: prettier setup. We deliberately do NOT auto-format

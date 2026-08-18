@@ -1,33 +1,38 @@
 # CI pipeline for Orenda.
 #
-# Phases:
-#   lint     — golangci-lint (new-issues-only) + eslint + prettier --check
+# Phase 32.6 (ci-local-gates-hooks): per-PR gates moved to local git hooks
+# (`make hooks` → core.hooksPath = scripts/git-hooks/). GitHub Actions now
+# runs only:
+#   - the RELEASE GATE on PR/push to main and on tags v*
+#   - a TEST-only backstop on push to dev (catches `--no-verify` escapes)
+#   - PRs to dev are intentionally silent — agent reviews locally and
+#     submits via `orenda agent submit`, then claims the next task without
+#     waiting on this runner
+#   - `workflow_dispatch` runs the full pipeline on demand
+#
+# Jobs (release gate only — push-to-dev backstop runs only `test`):
+#   lint     — golangci-lint (full on release branches)
 #   test     — go test -race + vitest
 #   build    — make build (binary with embedded SPA)
 #   e2e      — Playwright against the built binary
 #
-# Triggers: pull_request on dev/main, push to dev/main, manual dispatch.
 # Concurrency: cancel previous runs on the same branch/ref to save CI minutes
 # when a PR gets force-pushed or amended.
 #
-# Lint scope:
-#   PR         → golangci-lint --new-from-merge-base (incremental gate;
-#                new code must be clean). 73 pre-existing issues remain —
-#                see Phase 30.16 in docs/PLAN.md.
-#   push main  → golangci-lint run (full regression guard on release branch).
-#   push dev   → lint skipped (dev is allowed to carry the pre-existing
-#                debt; the PR gate enforces cleanliness on what gets merged).
-#
-# Phase 30.1: this is the first CI workflow in the repo. Local gates
-# (`make test`, `make lint`, `make test-e2e`) remain the source of truth;
-# CI enforces them on every PR.
+# Pre-existing lint debt (≈71 issues on dev) is gated locally by `make lint-new`
+# (--new-from-merge-base=origin/dev) — not blocked here. See Phase 30.16.
 name: ci
 
 on:
+  # PR into dev: NO CI — local hooks are the gate (wiki:ci-local-gates-hooks).
   pull_request:
-    branches: [dev, main]
+    branches: [main]
+  # Push into dev: only the test backstop (lint/build/e2e are skipped).
+  # Push into main: full release gate.
+  # Tags v*: full release gate.
   push:
-    branches: [dev, main]
+    branches: [main, dev]
+    tags: ['v*']
   workflow_dispatch:
 
 concurrency:
@@ -45,17 +50,22 @@ defaults:
 jobs:
   lint:
     name: Lint (Go + Web)
-    # PR — gate what gets merged. push dev — skipped (PR gate is the
-    # contract). push main — gate the release branch.
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    # Release gate only: push to main, PR to main, tags v*, manual dispatch.
+    # `push` event with branch == dev is the test-only backstop — lint is
+    # skipped so a regression in the local hooks cannot wedge a no-wait dev
+    # run (agents don't wait on this; lint gate is `make lint-new` locally).
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request' && github.base_ref == 'main')
+      || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # golangci-lint --new-from-merge-base needs the merge-base
-          # commit in the local history.
+          # golangci-lint runs full on the release branch — needs the
+          # merge-base commit in the local history.
           fetch-depth: 0
 
       - name: Setup Go
@@ -81,14 +91,12 @@ jobs:
         # `version: v2.x.y`.
         run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.6
 
-      - name: golangci-lint run
+      - name: golangci-lint run (full)
+        # Release gate — run the FULL lint, not --new-from-merge-base.
+        # Pre-existing debt is allowed on dev per Phase 30.16, but a
+        # release branch must be clean.
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --depth=200 origin "${{ github.base_ref }}" || true
-            "$(go env GOPATH)/bin/golangci-lint" run --new-from-merge-base=origin/${{ github.base_ref }} ./...
-          else
-            "$(go env GOPATH)/bin/golangci-lint" run ./...
-          fi
+          "$(go env GOPATH)/bin/golangci-lint" run ./...
 
       - name: npm ci
         working-directory: web
@@ -104,6 +112,13 @@ jobs:
 
   test:
     name: Test (Go + vitest)
+    # Runs everywhere except PR-to-dev (PR to dev is intentionally silent
+    # per wiki:ci-local-gates-hooks — push-to-dev backstop fires only `test`,
+    # so PR-to-dev is the "nothing happens" case).
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || github.event_name == 'push'
+      || (github.event_name == 'pull_request' && github.base_ref == 'main')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [lint]
@@ -137,6 +152,11 @@ jobs:
 
   build:
     name: Build (binary with embedded SPA)
+    # Release gate only — same conditions as lint.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request' && github.base_ref == 'main')
+      || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [test]
@@ -183,6 +203,11 @@ jobs:
 
   e2e:
     name: E2E (Playwright)
+    # Release gate only — same conditions as lint/build.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request' && github.base_ref == 'main')
+      || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: [build]
