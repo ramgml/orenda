@@ -204,14 +204,12 @@ func putBackupSettingsHandler(deps *Dependencies) http.HandlerFunc {
 			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyRemoteURL); err == nil && ok {
 				s, _ := jsonString(raw)
 				in.RemoteURL = s
-			} else {
+			} else if deps.Backup != nil {
 				// Phase 28.9: fall back to the live cfg the
 				// operator wired at startup (no longer a
 				// separate Dependencies mirror field — the
 				// Service holds the authoritative copy now).
-				if deps.Backup != nil {
-					in.RemoteURL = deps.Backup.Config().RemoteURL
-				}
+				in.RemoteURL = deps.Backup.Config().RemoteURL
 			}
 		}
 		if in.RemoteAuth == "" {
