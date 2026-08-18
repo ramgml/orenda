@@ -115,10 +115,18 @@ jobs:
     # Runs everywhere except PR-to-dev (PR to dev is intentionally silent
     # per wiki:ci-local-gates-hooks — push-to-dev backstop fires only `test`,
     # so PR-to-dev is the "nothing happens" case).
+    # always(): on push-to-dev `lint` is skipped, and a skipped `needs` would
+    # otherwise propagate the skip to this job regardless of its own `if`.
+    # failure/cancelled of lint still blocks the run (release-gate semantics).
     if: >-
-      github.event_name == 'workflow_dispatch'
-      || github.event_name == 'push'
-      || (github.event_name == 'pull_request' && github.base_ref == 'main')
+      always()
+      && needs.lint.result != 'failure'
+      && needs.lint.result != 'cancelled'
+      && (
+        github.event_name == 'workflow_dispatch'
+        || github.event_name == 'push'
+        || (github.event_name == 'pull_request' && github.base_ref == 'main')
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [lint]

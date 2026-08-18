@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Phase 32.6:** Per-PR CI gates moved from GitHub Actions to local git hooks (wiki:ci-local-gates-hooks). `make hooks` sets `core.hooksPath = scripts/git-hooks` in the shared git config (all worktrees inherit it): `pre-commit` runs gofmt + `prettier --check` on staged files, `pre-push` runs `make lint-new` + `make test`. GitHub Actions now runs only the release gate (PR/push to `main`, tags `v*`), a test-only backstop on push to `dev`, and full pipeline on `workflow_dispatch`. PR-to-dev is intentionally silent. Bypass: `SKIP_ORENDA_HOOKS=1` (`--no-verify` forbidden). The superseded Phase 28.12 mechanism (`simple-git-hooks` + `lint-staged`) is removed from `web/package.json` — its `prepare` script resolved the relative `hooksPath` against `web/` and wrote dead hook files into `web/scripts/git-hooks/` on every `npm ci`.
+
+### Fixed
+- **Phase 32.6 follow-up:** the push-to-dev test backstop never fired — `test` has `needs: [lint]`, and GitHub propagates a skipped `needs` to dependent jobs whose `if` lacks a status function (pre-existing structure from Phase 30.1). The `test` job condition now starts with `always() && needs.lint.result != 'failure' && needs.lint.result != 'cancelled'`, so the backstop runs on push-to-dev while a failed/cancelled lint still blocks the release gate.
+
 ## [0.2.0] — 2026-08-17
 
 Second pre-alpha release. Focus: agent surfaces (full wiki + course creation/activation over REST/MCP/CLI), a wide process-and-productivity sweep (CI, ops, kanban bulk edit, course curriculum CRUD), and study planning — a proposal tray integrated into the Today dashboard so a harness agent can fill the day with lessons and the operator accepts them one-tap.
