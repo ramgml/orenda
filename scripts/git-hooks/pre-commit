@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Tracked pre-commit hook — see wiki:ci-local-gates-hooks.
+#
+# Installed by `make hooks` (sets core.hooksPath = scripts/git-hooks).
+# Runs on `git commit` in any worktree of this repo.
+#
+# Scope: cheap, deterministic formatting checks on STAGED content only.
+# Goal: <2s on a typical commit. Heavy gates (lint --new-from-merge-base,
+# go test -race, vitest) live in pre-push.
+#
+# Checks:
+#   staged *.go          → gofmt -l  (non-empty output = blocks commit)
+#   staged *.ts/*.tsx/*.css → prettier --check  (skip with warning if
+#                              web/node_modules is missing — fresh clone
+#                              before `npm install`)
+#
+# Exits non-zero to block the commit. Set SKIP_ORENDA_HOOKS=1 to bypass
+# the whole hook (e.g. mid-edit WIP commit). The repo-wide rule against
+# `--no-verify` is documented in AGENTS.md.
+
+set -euo pipefail
+
+if [[ "${SKIP_ORENDA_HOOKS:-0}" == "1" ]]; then
+  echo "pre-commit: SKIP_ORENDA_HOOKS=1, skipping"
+  exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# Collect staged paths (Added / Copied / Modified / Renamed — not Deleted).
+# -z keeps paths with spaces/unicode intact; the read loop rehydrates them.
+mapfile -d '' GO_FILES < <(
+  git diff --cached --name-only --diff-filter=ACMR -z -- '*.go' || true
+)
+mapfile -d '' WEB_FILES < <(
+  git diff --cached --name-only --diff-filter=ACMR -z \
+    -- '*.ts' '*.tsx' '*.css' || true
+)
+
+if (( ${#GO_FILES[@]} == 0 && ${#WEB_FILES[@]} == 0 )); then
+  exit 0
+fi
+
+block=0
+
+# --- gofmt: any unformatted staged .go blocks the commit -----------------
+if (( ${#GO_FILES[@]} > 0 )); then
+  if ! command -v gofmt >/dev/null 2>&1; then
+    echo "pre-commit: gofmt not found in PATH (need Go ≥1.22)" >&2
+    exit 1
+  fi
+  echo "pre-commit: gofmt check on ${#GO_FILES[@]} Go file(s)…"
+  unformatted="$(gofmt -l "${GO_FILES[@]}")"
+  if [[ -n "$unformatted" ]]; then
+    echo "pre-commit: gofmt would reformat the following files:" >&2
+    printf '  %s\n' $unformatted >&2
+    echo "  fix: gofmt -w <file>, or SKIP_ORENDA_HOOKS=1 to bypass" >&2
+    block=1
+  fi
+fi
+
+# --- prettier --check on staged .ts/.tsx/.css -----------------------------
+if (( ${#WEB_FILES[@]} > 0 )); then
+  prettier="$REPO_ROOT/web/node_modules/.bin/prettier"
+  if [[ ! -x "$prettier" ]]; then
+    # Fresh clone without `npm install` — don't block the commit, but warn
+    # loudly so the user knows formatting was not enforced.
+    echo "pre-commit: prettier not installed ($prettier missing)." >&2
+    echo "  format check skipped. Run \`make web-install\` to enable." >&2
+  else
+    echo "pre-commit: prettier check on ${#WEB_FILES[@]} web file(s)…"
+    if ! "$prettier" --check "${WEB_FILES[@]}" >&2; then
+      echo "  fix: (cd web && npm run format), or SKIP_ORENDA_HOOKS=1 to bypass" >&2
+      block=1
+    fi
+  fi
+fi
+
+if (( block )); then
+  exit 1
+fi
+
+exit 0
