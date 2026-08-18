@@ -55,6 +55,19 @@ type TaskCreator interface {
 	CreateQuizReviewTask(ctx context.Context, ownerID, quizID, lessonID, answer string) (taskID string, err error)
 }
 
+// ActivityRecorder writes course_activity rows (Phase 32.5 pilot
+// task #2). nil-safe — every call site guards `if s.Activity !=
+// nil` before invoking, mirroring the task.Recorder pattern from
+// Phase 3.9. Tests can pass a stub without a real DB.
+//
+// RecordCourseAuto resolves the actor from context (api.Identity).
+// For tests / internal callers without an Identity, the row is
+// silently skipped — that's the same shape as taskActivity's
+// recorder, which also swallows missing-identity.
+type ActivityRecorder interface {
+	RecordCourseAuto(ctx context.Context, courseID string, kind course.ActivityKind, payload string) error
+}
+
 // TaskCompleter is the optional companion seam. nil-safe — if the
 // adapter doesn't expose it, generator tasks are simply not
 // retired on user-side submit (the tutor will still see them and
@@ -85,8 +98,9 @@ func completerFromTasks(tc TaskCreator) TaskCompleter {
 // delegates here so the same business rules apply regardless of
 // caller (UI, agent, CLI).
 type Service struct {
-	Repo  course.Repository
-	Tasks TaskCreator // nil-safe; CreateWithIntent/AnswerQuiz no-op when unset
+	Repo     course.Repository
+	Tasks    TaskCreator      // nil-safe; CreateWithIntent/AnswerQuiz no-op when unset
+	Activity ActivityRecorder // nil-safe; course mutation methods emit activity rows when wired (Phase 32.5)
 }
 
 func New(repo course.Repository) *Service {
@@ -99,6 +113,16 @@ func New(repo course.Repository) *Service {
 func (s *Service) WithTaskCreator(tc TaskCreator) *Service {
 	cp := *s
 	cp.Tasks = tc
+	return &cp
+}
+
+// WithActivity returns a copy of the service wired to the course
+// activity recorder. Same nil-safe pattern as WithTaskCreator —
+// the recorder is optional so partial-router test fixtures don't
+// have to drag in the activity storage layer.
+func (s *Service) WithActivity(rec ActivityRecorder) *Service {
+	cp := *s
+	cp.Activity = rec
 	return &cp
 }
 
@@ -135,6 +159,12 @@ func (s *Service) CreateWithIntent(ctx context.Context, ownerID, title, intentMD
 	}
 	if err := s.Repo.CreateCourse(ctx, c); err != nil {
 		return nil, err
+	}
+	// Phase 32.5: emit a course_activity row for the creation.
+	// Recorder is nil-safe; emitting with no Identity in ctx is a
+	// silent no-op (test fixtures, internal callers).
+	if s.Activity != nil {
+		_ = s.Activity.RecordCourseAuto(ctx, c.ID, course.ActivityCreated, "")
 	}
 	if s.Tasks != nil && !cfg.SkipGenerator {
 		taskID, err := s.Tasks.CreateGeneratorTask(ctx, ownerID, c.ID, title, intentMD)
@@ -225,7 +255,31 @@ func (s *Service) SubmitCurriculum(
 }
 
 // ApproveCurriculum moves the course from review to active.
+// ApproveCurriculum moves the course review → active, unlocks the
+// first lesson, and records a course_activity row with kind=approved.
+//
+// Phase 32.5 pilot task #2: the activity row is what the audit
+// feed reads. Without it, "who approved this course" is invisible
+// to the operator. ActivityRecorder is nil-safe — tests pass a
+// stub or skip wiring.
 func (s *Service) ApproveCurriculum(ctx context.Context, courseID string) (*course.Course, error) {
+	return s.approveCurriculumWith(ctx, courseID, course.ActivityApproved)
+}
+
+// ActivateCourse is the agent-side counterpart. Same transition
+// (review → active, first lesson unlocked) but emits a distinct
+// activity row with kind=activated so the audit feed distinguishes
+// "owner approved" from "agent activated".
+//
+// Phase 32.5 pilot task #2: previously the user-side approve and
+// agent-side activate both called approveCourseCore, which meant
+// no row was written for either. Splitting the activity kind here
+// keeps the audit honest.
+func (s *Service) ActivateCourse(ctx context.Context, courseID string) (*course.Course, error) {
+	return s.approveCurriculumWith(ctx, courseID, course.ActivityActivated)
+}
+
+func (s *Service) approveCurriculumWith(ctx context.Context, courseID string, kind course.ActivityKind) (*course.Course, error) {
 	c, err := s.Repo.GetCourse(ctx, courseID)
 	if err != nil {
 		return nil, ErrNotFound
@@ -250,6 +304,14 @@ func (s *Service) ApproveCurriculum(ctx context.Context, courseID string) (*cour
 			}
 			break
 		}
+	}
+	// Emit activity. Recorder is nil-safe; tests may also pass a
+	// recorder that returns err without failing the user-visible
+	// action (audit gap shouldn't break approval). The recorder
+	// reads actor from ctx via its IdentitySource — caller doesn't
+	// pass actor explicitly.
+	if s.Activity != nil {
+		_ = s.Activity.RecordCourseAuto(ctx, courseID, kind, "")
 	}
 	return c, nil
 }

@@ -148,6 +148,35 @@ components:
           type: string
           description: Lowercase machine key used as task.status for this column.
 
+    CourseActivity:
+      type: object
+      description: One row of the course activity feed (Phase 32.5).
+      properties:
+        id: { type: string }
+        course_id: { type: string }
+        actor_type: { type: string, enum: [user, agent] }
+        actor_id: { type: string }
+        kind:
+          type: string
+          enum:
+            - created
+            - approved
+            - activated
+            - curriculum_swapped
+            - lesson_added
+            - lesson_removed
+            - lesson_edited
+            - quiz_added
+            - quiz_removed
+            - quiz_edited
+            - module_added
+            - module_removed
+            - module_edited
+            - status_changed
+            - archived
+        payload: { type: string }
+        created_at: { type: string, format: date-time }
+
     Course:
       type: object
       properties:
@@ -1132,6 +1161,34 @@ paths:
       responses:
         '200': { description: ok }
         '422': { description: invalid_transition }
+
+  # Phase 32.5: course activity feed. Newest-first; default limit 50,
+  # ?limit=N (max 500). Read-only mirror of course_activity rows.
+  /api/v1/courses/{id}/activity:
+    get:
+      tags: [courses]
+      summary: Course activity feed (audit who did what).
+      security: [{ bearerAuth-cookie: [] }]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 50, maximum: 500 }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  course_id: { type: string }
+                  limit: { type: integer }
+                  count: { type: integer }
+                  entries:
+                    type: array
+                    items: { $ref: '#/components/schemas/CourseActivity' }
+        '503': { description: course activity not wired }
 
   # Phase 30.13: granular structure edits with stable IDs. Unlike the
   # curriculum swap these never delete+reinsert rows, so lesson status
