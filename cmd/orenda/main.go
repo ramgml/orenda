@@ -219,7 +219,7 @@ func taskRecorderFor(r *activityservice.Recorder) taskservice.Recorder {
 // backupFailedAdapter bridges the notifier service to the backup
 // scheduler's FailureNotifier seam. Phase Wave 4 PR 2: every
 // background-job error fans out a `backup.failed` event with the
-// op name (git_push / sqlite_snapshot / wal_archive) as the dedup
+// op name (git_push / sqlite_snapshot / wal_checkpoint) as the dedup
 // key suffix so a single stuck op doesn't spam the inbox.
 type backupFailedAdapter struct{ svc *notifierservice.Service }
 

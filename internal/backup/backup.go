@@ -496,9 +496,17 @@ type SnapshotManifest struct {
 // ----------------------------------------------------------------------------
 
 // LogEntry is one row of backup_log.
+//
+// Type values (set by the scheduler's run* helpers):
+//   - "git_push" — CommitAndPush to mirror remote
+//   - "sqlite_snapshot" — Snapshot() to local file
+//   - "wal_checkpoint" — PRAGMA wal_checkpoint(TRUNCATE);
+//     renamed from "wal_archive" in Phase 32.8 to make the
+//     no-off-host-shipping contract explicit (see
+//     wiki:decision-log "WAL archive vs WAL checkpoint")
 type LogEntry struct {
 	ID           string    `json:"id"`
-	Type         string    `json:"type"`   // git_push | sqlite_snapshot | wal_archive
+	Type         string    `json:"type"`   // git_push | sqlite_snapshot | wal_checkpoint
 	Status       string    `json:"status"` // success | failed
 	Message      string    `json:"message"`
 	SnapshotPath string    `json:"snapshot_path"`

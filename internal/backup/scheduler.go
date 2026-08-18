@@ -105,7 +105,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 		case <-pushT.C:
 			s.runPush(ctx)
 		case <-walT.C:
-			s.runWAL(ctx)
+			s.runCheckpoint(ctx)
 		}
 	}
 }
@@ -179,10 +179,10 @@ func (s *Scheduler) snapshotLoop(ctx context.Context) {
 
 // notifyFailure is a tiny helper that fans out a failure event
 // when the scheduler can't continue with the configured state.
-// It's the same seam runPush / runSnapshot / runWAL use, but
-// factored out so snapshotLoop can call it from the cron fallback
-// path without reaching into the run* helpers (which expect a
-// real Service method).
+// It's the same seam runPush / runSnapshot / runCheckpoint use,
+// but factored out so snapshotLoop can call it from the cron
+// fallback path without reaching into the run* helpers (which
+// expect a real Service method).
 func (s *Scheduler) notifyFailure(ctx context.Context, op string, err error) {
 	if s.Notifier != nil {
 		s.Notifier.NotifyBackupFailed(ctx, op, err)
@@ -217,9 +217,21 @@ func (s *Scheduler) runSnapshot(ctx context.Context) {
 	_ = s.svc.RecordLog(ctx, "sqlite_snapshot", status, msg, path)
 }
 
-func (s *Scheduler) runWAL(ctx context.Context) {
-	// Best-effort WAL checkpoint; a failure doesn't surface to the user
-	// directly but lands in the log for the operator.
+// runCheckpoint truncates the SQLite WAL via
+// `PRAGMA wal_checkpoint(TRUNCATE)` — this bounds the WAL file
+// size and checkpoints committed frames back into the main DB
+// file. It is NOT a true WAL archive: we never copy WAL frames
+// off-host for PITR. The audit (Phase 32.3) flagged the old
+// `runWAL` / `wal_archive` naming as "dead code" because the
+// name implied off-host shipping; the code itself was always
+// wired into the scheduler and useful for WAL size management.
+// Phase 32.8 renamed the function and the log type to make the
+// contract explicit. See wiki:decision-log "WAL archive vs
+// WAL checkpoint" for the decision and the rationale.
+//
+// A failure here doesn't surface to the user directly but lands
+// in backup_log and (when wired) the FailureNotifier seam.
+func (s *Scheduler) runCheckpoint(ctx context.Context) {
 	_, err := s.svc.db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
 	status := "success"
 	msg := ""
@@ -227,8 +239,8 @@ func (s *Scheduler) runWAL(ctx context.Context) {
 		status = "failed"
 		msg = err.Error()
 		if s.Notifier != nil {
-			s.Notifier.NotifyBackupFailed(ctx, "wal_archive", err)
+			s.Notifier.NotifyBackupFailed(ctx, "wal_checkpoint", err)
 		}
 	}
-	_ = s.svc.RecordLog(ctx, "wal_archive", status, msg, "")
+	_ = s.svc.RecordLog(ctx, "wal_checkpoint", status, msg, "")
 }

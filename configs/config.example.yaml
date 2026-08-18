@@ -55,6 +55,11 @@ backup:
   # non-UTC time zones convert by hand (UTC math, DST-neutral
   # by construction — see docs/PLAN.md Phase 32.7).
   sqlite_snapshot_cron: "0 3 * * *"
+  # Phase 32.8: renamed the log type from "wal_archive" to
+  # "wal_checkpoint" — the underlying code is a SQLite WAL
+  # truncation, NOT an off-host WAL archive. The YAML key stays
+  # `wal_archive_interval` for back-compat with existing config
+  # files. See wiki:decision-log "WAL archive vs WAL checkpoint".
   wal_archive_interval: "15m"
 
 # Token-bucket rate limits (Phase 28.8). Anonymous = per IP (covers
