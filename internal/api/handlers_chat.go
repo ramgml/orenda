@@ -155,9 +155,9 @@ func dispatchChatCommand(ctx context.Context, deps *Dependencies, body chatPostB
 			SenderType: chat.SenderAgent,
 			BodyMD:     "Записал план в лоток предложений. Откройте Dashboard tray, чтобы принять.",
 			Command:    "/plan day",
-			ResultRef:  result.ID,
+			ResultRef:  result.Proposal.ID,
 			CreatedAt:  now,
-		}, result.ID, nil
+		}, result.Proposal.ID, nil
 	case "/help":
 		return &chat.Message{
 			ThreadID:   body.ThreadID,

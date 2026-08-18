@@ -172,6 +172,11 @@ type Dependencies struct {
 	// Phase 32.5: course activity repo (read side for /courses/{id}/activity).
 	// nil-safe — handler returns 503 when not wired.
 	CourseActivityRepo CourseActivityRepo
+	// ProjectActivityRecorder is the write side for project_activity
+	// rows (wiki:agent-project-description). The agent-projects PATCH
+	// handler emits a row via this seam. nil-safe — handlers guard
+	// before calling (mirrors ActivityRecorder).
+	ProjectActivityRecorder ProjectActivityRecorder
 	// Phase 31: study service. Propose / Accept / Dismiss lives here.
 	// nil-safe — handlers return 503 when the service hasn't been
 	// wired (e.g. tests).
@@ -617,6 +622,15 @@ func NewRouter(deps *Dependencies) http.Handler {
 				r.Use(RequireAgent(cfg))
 				r.Get("/agent/me", agentMeHandler(deps))
 				r.Post("/agent/heartbeat", agentHeartbeatHandler(deps))
+				// wiki:agent-project-description — agent read/write of the
+				// project description. v1 exposes only description; the
+				// project-wiki-link task adds wiki_slug on top.
+				r.Route("/agent/projects", func(r chi.Router) {
+					r.Route("/{id}", func(r chi.Router) {
+						r.Get("/", agentGetProjectHandler(deps))
+						r.Patch("/", agentPatchProjectHandler(deps))
+					})
+				})
 				r.Route("/agent/tasks", func(r chi.Router) {
 					// Phase 15: list tasks the agent could act on.
 					// Supports ?ready=true to filter out blocked or
