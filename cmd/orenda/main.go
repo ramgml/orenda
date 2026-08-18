@@ -922,6 +922,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		// before calling) but the production binary must wire it
 		// here or every study endpoint returns 503.
 		StudyService: studySvc,
+		// Phase 32.11: dashboard chat thread persistence.
+		ChatMessages: sqlite.NewChatMessageRepository(db),
 		Notifier:     notifierSvc,
 		Backup:       backupSvc,
 		// Phase 28.1 polish.1: UI-editable override repo. PUT
