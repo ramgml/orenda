@@ -40,6 +40,7 @@ import (
 	"github.com/ramgml/orenda/internal/backup"
 	"github.com/ramgml/orenda/internal/bot"
 	"github.com/ramgml/orenda/internal/config"
+	coursedomain "github.com/ramgml/orenda/internal/domain/course"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
@@ -492,6 +493,29 @@ func attachmentServiceFor(s *attachmentsvc.Service) apiAttachment {
 	return attachmentAdapter{inner: s}
 }
 
+// identitySourceFromAPI is the IdentitySource the course activity
+// recorder uses (Phase 32.5 pilot task #2). It reads from the same
+// context key the api.Identity middleware sets, so user-side
+// approvals and agent-side activates produce rows with the right
+// actor_type without the handler passing actor info explicitly.
+//
+// Returning ("", "", false) for missing Identity (test fixtures,
+// internal callers) is intentional — the recorder silently skips
+// in that case rather than fail the user-visible action.
+func identitySourceFromAPI(ctx context.Context) (coursedomain.ActorType, string, bool) {
+	id, present := api.IdentityFrom(ctx)
+	if !present {
+		return "", "", false
+	}
+	if id.UserID != "" {
+		return coursedomain.ActorUser, id.UserID, true
+	}
+	if id.AgentID != "" {
+		return coursedomain.ActorAgent, id.AgentID, true
+	}
+	return "", "", false
+}
+
 // version is set by -ldflags at build time.
 var version = "0.1.0-dev"
 
@@ -687,6 +711,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	// Phase 18: courses (LMS).
 	courseRepo := sqlite.NewCourseRepository(db)
+	courseActivityRepo := sqlite.NewCourseActivityRepository(db)
 	courseSvc := courseservice.New(courseRepo)
 	// Phase 27.4: wire the TaskCreator so CreateWithIntent actually
 	// spawns a "build the curriculum" task and AnswerQuiz (open)
@@ -701,6 +726,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		hub:       hub,
 		recorder:  activityRecorder,
 	})
+	// Phase 32.5 pilot task #2: course activity feed. Wire the
+	// recorder so create / approve / activate / granular CRUD write
+	// course_activity rows. IdentitySource reads from api.Identity
+	// (the same key the auth middleware uses) so the row carries
+	// the right actor_type.
+	courseActivityRecorder := courseservice.NewCourseActivityRecorder(courseActivityRepo)
+	courseActivityRecorder.IdentitySource = identitySourceFromAPI
+	courseSvc = courseSvc.WithActivity(courseActivityRecorder)
 
 	// Notifier (Phase 6): registry + console bot (always available) + WS
 	// hub publish. External transports land in Phase 10.
@@ -876,13 +909,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		// rows through this recorder. *activityservice.Recorder
 		// satisfies api.ActivityRecorder structurally (same method
 		// signature) — no explicit adapter needed.
-		ActivityRecorder: activityRecorder,
-		EventService:     eventSvc,
-		TimeService:      timeSvc,
-		WikiService:      wikiSvc,
-		SearchService:    searchSvc,
-		Courses:          courseRepo,
-		CourseService:    courseSvc,
+		ActivityRecorder:   activityRecorder,
+		EventService:       eventSvc,
+		TimeService:        timeSvc,
+		WikiService:        wikiSvc,
+		SearchService:      searchSvc,
+		Courses:            courseRepo,
+		CourseService:      courseSvc,
+		CourseActivityRepo: courseActivityRepo,
 		// Phase 31: study service wires the user-side accept/dismiss
 		// + the agent-side propose. nil-safe in handlers (they check
 		// before calling) but the production binary must wire it

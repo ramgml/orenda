@@ -78,6 +78,54 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 	})
 
 	s.Register(Tool{
+		Name:        "orenda_task_propose",
+		Description: "Propose a new task. Lands as status=backlog, awaiting=human — the owner triages it from the review queue (accept = move to todo, dismiss = delete).",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"project_id", "title", "description_md"},
+			"properties": map[string]any{
+				"project_id":     map[string]any{"type": "string"},
+				"title":          map[string]any{"type": "string"},
+				"description_md": map[string]any{"type": "string", "description": "Markdown body — the task must be self-sufficient (CONTEXT.md)"},
+				"priority":       map[string]any{"type": "string", "description": "low|medium|high|urgent (default medium)"},
+				"blocked_by":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Blocker task ids"},
+				"parent_task_id": map[string]any{"type": "string", "description": "Parent task id (creates a subtask)"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			projectID, _ := params["project_id"].(string)
+			title, _ := params["title"].(string)
+			desc, _ := params["description_md"].(string)
+			if projectID == "" || title == "" || strings.TrimSpace(desc) == "" {
+				return nil, fmt.Errorf("orenda_task_propose: project_id, title and description_md are required")
+			}
+			body := map[string]any{
+				"project_id":     projectID,
+				"title":          title,
+				"description_md": desc,
+			}
+			if p := stringParam(params, "priority"); p != "" {
+				body["priority"] = p
+			}
+			if p := stringParam(params, "parent_task_id"); p != "" {
+				body["parent_task_id"] = p
+			}
+			if raw, ok := params["blocked_by"].([]any); ok && len(raw) > 0 {
+				ids := make([]string, 0, len(raw))
+				for _, v := range raw {
+					if s, ok := v.(string); ok && s != "" {
+						ids = append(ids, s)
+					}
+				}
+				if len(ids) > 0 {
+					body["blocked_by"] = ids
+				}
+			}
+			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks", body)
+		},
+	})
+
+	s.Register(Tool{
 		Name:        "orenda_claim",
 		Description: "Claim a task for the agent. 409 lock_taken if held by another agent; 422 task_blocked with unfinished_blockers list if Phase 15 deps are open.",
 		InputSchema: map[string]any{

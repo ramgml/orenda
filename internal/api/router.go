@@ -168,10 +168,20 @@ type Dependencies struct {
 	// Phase 18: course repository + service.
 	Courses       course.Repository
 	CourseService *coursesvc.Service
+	// Phase 32.5: course activity repo (read side for /courses/{id}/activity).
+	// nil-safe — handler returns 503 when not wired.
+	CourseActivityRepo CourseActivityRepo
 	// Phase 31: study service. Propose / Accept / Dismiss lives here.
 	// nil-safe — handlers return 503 when the service hasn't been
 	// wired (e.g. tests).
 	StudyService *studysvc.Service
+}
+
+// CourseActivityRepo is the small read surface needed by the
+// /courses/{id}/activity endpoint (Phase 32.5). *sqlite.CourseActivityRepository
+// satisfies it.
+type CourseActivityRepo interface {
+	ListByCourse(ctx context.Context, courseID string, limit int) ([]*course.Activity, error)
 }
 
 // SyncOpsStore is the small surface the sync endpoint needs for
@@ -481,6 +491,9 @@ func NewRouter(deps *Dependencies) http.Handler {
 					r.Delete("/", deleteCourseHandler(deps))
 					r.Post("/approve", approveCourseHandler(deps))
 					r.Post("/request-changes", requestChangesCourseHandler(deps))
+					// Phase 32.5: course activity feed. Newest-first;
+					// default limit 50, ?limit= overrides.
+					r.Get("/activity", listCourseActivityHandler(deps))
 					// Phase 27.6: owner-side curriculum swap.
 					// Same atomic swap the tutor uses; the service
 					// retires the generator task when present so
@@ -591,6 +604,10 @@ func NewRouter(deps *Dependencies) http.Handler {
 					// Supports ?ready=true to filter out blocked or
 					// already-claimed tasks — the agent's "inbox".
 					r.Get("/", listAgentTasksHandler(deps))
+					// Phase 33.1: agent proposes a NEW task. Lands as
+					// status=backlog + awaiting=human so the owner
+					// triages it through the existing review queue.
+					r.Post("/", agentCreateTaskHandler(deps))
 					r.Route("/{id}", func(r chi.Router) {
 						r.Post("/claim", agentClaimTaskHandler(deps))
 						r.Post("/release", agentReleaseTaskHandler(deps))

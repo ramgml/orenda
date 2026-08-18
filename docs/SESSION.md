@@ -144,7 +144,7 @@
 **За скобкой (явно отложено):**
 
 - **Автодетект dev vs usage по `db_path`.** Если dev-бинарь стартует с `--config ~/.local/share/orenda/config.yaml`, можно было бы warn'ить и запрашивать `--force` — но это легитимный override (оператор знает, что делает). Механическая защита от operator error — отдельная фаза при реальной потребности.
-- **Prettier** — Phase 28.7 уже настроен; `pre-commit` hook через simple-git-hooks (28.12). Перед коммитом: `cd web && npx prettier --check <files>` для проверки.
+- **Prettier** — Phase 28.7 уже настроен; `pre-commit` hook — tracked `scripts/git-hooks/pre-commit` (Phase 32.6, заменил simple-git-hooks из 28.12). Перед коммитом: `cd web && npx prettier --check <files>` для проверки.
 - **Чистка data/ в worktree перед коммитом** — `data/orenda.db` и `data/uploads/` создаются smoke-тестом; gitignore их уже игнорирует, `git status` чист.
 - **Первая операция после merge** — оператор делает `git pull` в `~/opt/orenda`, чтобы обновлённый install.sh в его checkout'е тоже имел guard. До этого `git pull` тривиально пройдёт (старый install.sh не имеет guard, но md5-хеш не валидирует). Pre-existing problem — отдельная фаза «post-merge operator onboarding».
 

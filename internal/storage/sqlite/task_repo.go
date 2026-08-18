@@ -120,7 +120,12 @@ func (r *taskRepo) ListByProject(ctx context.Context, f task.Filter) ([]*task.Ta
 		args = append(args, string(f.Status))
 	}
 	if f.AssigneeType != "" {
-		clauses = append(clauses, "assignee_type = ?")
+		if f.AssigneeTypeIncludeNull {
+			// Phase 33.1: unassigned rows are claimable too.
+			clauses = append(clauses, "(assignee_type = ? OR assignee_type IS NULL)")
+		} else {
+			clauses = append(clauses, "assignee_type = ?")
+		}
 		args = append(args, string(f.AssigneeType))
 	}
 	if f.AssigneeID != "" {

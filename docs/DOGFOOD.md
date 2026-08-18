@@ -36,6 +36,14 @@
 инстансе (постановка в wiki, если решение нетривиально). PLAN.md и SESSION.md
 замораживаются архивом в Phase 32.6 — туда больше не пишем.
 
+**Исполнимо агентом (Phase 33.1).** Агент заводит задачу сам —
+`orenda agent propose --project <id> --title ... --description-file ...`
+(REST `POST /api/v1/agent/tasks`, MCP `orenda_task_propose`). Задача падает в
+`status=backlog, awaiting=human` и видна владельцу в review queue; принятие =
+kanban-move в `todo` (сбрасывает `awaiting`, задача появляется в
+`GET /api/v1/agent/tasks?ready=true`), отклонение = delete. Агент НЕ начинает
+работу над предложенной задачей до триажа человеком.
+
 ## Входная точка агента
 
 Начало сессии:

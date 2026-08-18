@@ -262,3 +262,67 @@ func TestAgentSearch_EncodesQuery(t *testing.T) {
 	assert.Contains(t, gotQuery, "type=page")
 	assert.Contains(t, gotQuery, "limit=5")
 }
+
+// ---------------------------------------------------------------------------
+// Phase 33.1: `agent propose` — the CLI twin of POST /api/v1/agent/tasks.
+// ---------------------------------------------------------------------------
+
+func TestAgentPropose_PostsToAgentTasks(t *testing.T) {
+	md := "# Spec\n\nAgents need to file work themselves.\n"
+	mdFile := filepath.Join(t.TempDir(), "task.md")
+	require.NoError(t, os.WriteFile(mdFile, []byte(md), 0o600))
+
+	var gotMethod, gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"t-9","status":"backlog","awaiting":"human"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	out, err := runAgentCLI(t, srv, "propose",
+		"--project", "p-1", "--title", "File work",
+		"--description-file", mdFile,
+		"--priority", "high", "--blocked-by", "t-1, t-2", "--parent", "t-parent")
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodPost, gotMethod)
+	assert.Equal(t, "/api/v1/agent/tasks", gotPath)
+	assert.Equal(t, "p-1", gotBody["project_id"])
+	assert.Equal(t, "File work", gotBody["title"])
+	assert.Equal(t, md, gotBody["description_md"])
+	assert.Equal(t, "high", gotBody["priority"])
+	assert.Equal(t, []any{"t-1", "t-2"}, gotBody["blocked_by"])
+	assert.Equal(t, "t-parent", gotBody["parent_task_id"])
+	assert.Contains(t, out, "t-9")
+}
+
+func TestAgentPropose_RequiresFlags(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("server must not be hit on client-side validation failure")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(srv.Close)
+
+	// Missing --project.
+	_, err := runAgentCLI(t, srv, "propose", "--title", "T", "--description", "D")
+	require.Error(t, err)
+	// Missing description entirely.
+	_, err = runAgentCLI(t, srv, "propose", "--project", "p-1", "--title", "T")
+	require.Error(t, err)
+}
+
+func TestAgentPropose_Non201IsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"not_found"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := runAgentCLI(t, srv, "propose",
+		"--project", "no-such", "--title", "T", "--description", "D")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "404")
+}

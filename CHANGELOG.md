@@ -19,6 +19,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-08-18
+
+Third pre-alpha release. Focus: dogfood migration (the project is now managed inside its own running instance), agent self-service task creation, course activity audit, and local-first CI gates.
+
+### Added
+- **Phase 32.2:** `/api/v1/info` now advertises real capabilities. The response gained a `capabilities` object describing which optional features are actually wired in the running binary (previously the struct was zero-valued — every feature reported as off regardless of config). Lets operators and agents verify a dogfood/deployment update picked up the intended feature set.
+- **Phase 32.5 (pilot #1):** `orenda backup push --with-snapshots` carries sqlite snapshots to the git remote. Previously the backup pipeline pushed only the markdown mirror — snapshots from `orenda backup snapshot` stayed local at `~/.local/share/orenda/snapshots/`, so a dead disk would lose every change not captured in a wiki markdown file (agent heartbeats, bot counters, time-tracking, FTS, sync_ops, raw notifications).
+- **Phase 32.5 (course activity):** Course activity feed — audit who did what on a course. Migration `023_course_activity` adds the `course_activity` table + repository; the course service records actor-attributed events (user vs agent), and `GET /api/v1/courses/{id}/activity` serves the newest-first feed. Closes the Phase 29.5 deferral ("course-side activity-feed is not implemented").
+- **Phase 33.1:** Agents can file new work themselves — `POST /api/v1/agent/tasks` (RequireAgent) creates a real task landing as `status=backlog, awaiting=human`, triaged through the existing review queue. Required fields `project_id`/`title`/`description_md` (400 without), 404 on unknown/foreign project, 401 without an agent token, user cookie rejected (namespaces split). Activity audit `task.created` with `actor_type=agent` + WS `task.created` on topic `tasks`. Surface parity: CLI `orenda agent propose` (`--project/--title/--description/--description-file/--priority/--blocked-by/--parent`) and MCP tool `orenda_task_propose` — one handler, three wrappers. Makes the DOGFOOD rule «новая работа = задача в инстансе» executable by agents.
+
+### Changed
+- **Phase 32.6:** Per-PR CI gates moved from GitHub Actions to local git hooks (wiki:ci-local-gates-hooks). `make hooks` sets `core.hooksPath = scripts/git-hooks` in the shared git config (all worktrees inherit it): `pre-commit` runs `gofmt -l` + `prettier --check` on staged files (<2 s), `pre-push` runs `make lint-new` + `make test` (~1 min). GitHub Actions now runs only the release gate (PR/push to `main`, tags `v*`), a test-only backstop on push to `dev`, and full pipeline on `workflow_dispatch`. PR-to-dev is intentionally silent. Bypass: `SKIP_ORENDA_HOOKS=1` (`--no-verify` forbidden). The superseded Phase 28.12 mechanism (`simple-git-hooks` + `lint-staged`) is removed from `web/package.json` — its `prepare` script resolved the relative `hooksPath` against `web/` and wrote dead hook files into `web/scripts/git-hooks/` on every `npm ci`.
+- **Phase 33.1:** Kanban move backlog→todo now clears `awaiting=human` (narrow reset in `Service.Move`) so an agent-filed task becomes claimable on triage; the agent ready-list (`GET /agent/tasks?ready=true`) now includes unassigned todo tasks (`assignee_type IS NULL`) — previously the filter hid them and a triaged task could never appear.
+
+### Fixed
+- **Phase 32.6 follow-up:** the push-to-dev test backstop never fired — `test` has `needs: [lint]`, and GitHub propagates a skipped `needs` to dependent jobs whose `if` lacks a status function (pre-existing structure from Phase 30.1). The `test` job condition now starts with `always() && needs.lint.result != 'failure' && needs.lint.result != 'cancelled'`, so the backstop runs on push-to-dev while a failed/cancelled lint still blocks the release gate.
+
+### Docs
+- **Phase 32.4:** `docs/DOGFOOD.md` — the dogfood convention: project management (queue, постановки, review loop) lives in the running instance, not in PLAN.md; agent entry-point rules. `AGENTS.md` gained the local-gates (32.6) and worktree-per-task sections.
+- **Phase 32.3:** Backup remote moved to SourceCraft + restore drill verified (ops runbook, no code change).
+
 ## [0.2.0] — 2026-08-17
 
 Second pre-alpha release. Focus: agent surfaces (full wiki + course creation/activation over REST/MCP/CLI), a wide process-and-productivity sweep (CI, ops, kanban bulk edit, course curriculum CRUD), and study planning — a proposal tray integrated into the Today dashboard so a harness agent can fill the day with lessons and the operator accepts them one-tap.

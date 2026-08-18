@@ -41,6 +41,7 @@ comments           id · target_type · target_id · author_type · author_id ·
 mentions           comment_id →comments · target_type · target_id · PK(...)
 attachments        id · target_type · target_id · filename · mime · size · path · sha256 · uploaded_by_* · created_at
 task_activity      id · task_id →tasks · actor_type · actor_id · action · payload · created_at
+course_activity    id · course_id →courses · actor_type · actor_id · kind · payload · created_at
 time_entries       id · task_id →tasks · agent_id · started_at · ended_at · duration_s · source
 ```
 

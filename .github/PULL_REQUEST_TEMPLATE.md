@@ -27,8 +27,10 @@
 
 ## Проверки
 
+- [ ] `make lint-new` чист (0 новых issues; pre-existing долг — не считается, см. Phase 30.16)
+- [ ] `pre-push` прошёл (`make lint-new` + `make test`) — без `--no-verify`
+- [ ] `pre-commit` прошёл (`gofmt -l` + `prettier --check`) — без `--no-verify`
 - [ ] `make test` зелёный (Go + vitest)
-- [ ] `make lint` зелёный
 - [ ] `make test-e2e` зелёный (если затронут UI-flow)
 - [ ] Чекбоксы в `docs/PLAN.md` проставлены `[x]` только при полном DoD
 - [ ] Нет заглушек / `TODO: implement` / мёртвых endpoints; отложенные швы записаны в `docs/PLAN.md` как known gap

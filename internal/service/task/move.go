@@ -266,6 +266,17 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 		}
 	}
 
+	// Phase 33.1: dragging an awaiting=human card to a non-review
+	// column means the human just acted on it (accepting an
+	// agent-proposed backlog task onto the board, or pulling a review
+	// card somewhere else). Clear the wait flag so the task leaves
+	// GET /review-queue and becomes claimable via
+	// /agent/tasks?ready=true. Cards moved INTO the review column
+	// keep/set their awaiting via the review flow, not here.
+	if tr.Awaiting == task.AwaitingHuman && tr.Status != task.StatusReview {
+		tr.Awaiting = task.AwaitingNone
+	}
+
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return nil, fmt.Errorf("task service: update: %w", err)
 	}

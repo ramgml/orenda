@@ -66,16 +66,27 @@ Validate the codebase before opening a PR:
 
 ```bash
 make test              # Go + vitest (246 tests, ~5s)
-make lint              # golangci-lint + eslint
-make web-format-check  # prettier check (not part of make lint)
+make lint-new          # golangci-lint on NEW code only (what pre-push gates)
+make lint              # full lint (golangci-lint + eslint) — surfaces pre-existing debt
 make test-e2e          # Playwright against a fresh embedded build on :21371 (18 tests / 13 specs)
 make govulncheck       # Go vulnerability DB scan
 ```
 
-A `pre-commit` hook is installed via `simple-git-hooks` on
-`npm install` in `web/` — it auto-formats staged `.ts/.tsx/.css` files
-with Prettier before each commit. Skip with
-`SKIP_SIMPLE_GIT_HOOKS=1 git commit ...` when you're mid-edit.
+**Local gates are git hooks (Phase 32.6).** Install once per clone
+(idempotent — safe to re-run):
+
+```bash
+make hooks   # sets core.hooksPath = scripts/git-hooks (shared git config;
+             # all current and future worktrees inherit it)
+```
+
+After that, every `git commit` runs `pre-commit` (`gofmt -l` +
+`prettier --check` on staged files, <2 s) and every `git push` runs
+`pre-push` (`make lint-new` + `make test`, ~1 min). `--no-verify` is
+forbidden; use `SKIP_ORENDA_HOOKS=1` only for explicit, named
+exceptions. See [AGENTS.md](AGENTS.md#local-gates--git-hooks-phase-326)
+and the [ci-local-gates-hooks](http://localhost:2137/wiki/ci-local-gates-hooks)
+wiki page.
 
 ## Features
 
@@ -124,7 +135,8 @@ with Prettier before each commit. Skip with
 | 10 — Bot platform | ✅ | VK, Telegram, Email, Webhook |
 | 11–27 | ✅ | Projects UI, kanban columns, tags, dependencies, inbox, rich cards, LMS courses, review queue, today, quick capture, restore, OpenAPI, agent CLI + MCP, E2E suite — see [PLAN](docs/PLAN.md) |
 | 28 (Polish backlog close-out) | ✅ | Settings hub, TaskModal scroll, security defaults (JWT 24h, Secure from config), activity emission, Bot.Stop on shutdown, opt-in pprof, govulncheck target, Prettier, hot-reload backup, CSP tightening, ARCHITECTURE.md |
-| 30.1 (CI) | ✅ | GitHub Actions: `lint` → `test` → `build` → `e2e`. PR gate is incremental (`--new-from-merge-base`); release branch (`main`) gets full lint; 73 pre-existing lint issues remain (see [PLAN](docs/PLAN.md) §30.16) |
+| 30.1 (CI) | ✅ | GitHub Actions: `lint` → `test` → `build` → `e2e`. PR gate was incremental (`--new-from-merge-base`); release branch (`main`) got full lint; 73 pre-existing lint issues remained (see [PLAN](docs/PLAN.md) §30.16). Superseded by Phase 32.6 — PR-to-dev is silent, full release gate on main/tags `v*`, test-only backstop on push to dev |
+| 32.6 (local CI hooks) | ✅ | Per-PR enforcement moved from GitHub Actions to local git hooks (`scripts/git-hooks/{pre-commit,pre-push}`, installed via `make hooks` → `core.hooksPath`). `pre-commit`: gofmt -l + prettier --check on staged files (<2 s). `pre-push`: `make lint-new` (golangci-lint --new-from-merge-base=origin/dev) + `make test` (~1 min). GitHub Actions now only runs the release gate; PR-to-dev is intentionally silent. `--no-verify` forbidden. See [wiki:ci-local-gates-hooks](http://localhost:2137/wiki/ci-local-gates-hooks) and [AGENTS.md](AGENTS.md#local-gates--git-hooks-phase-326) |
 | 30.2 (sync_ops observability) | ✅ | `sync_ops.Record()` failures now bump `sync_ops_record_failures` in `/api/v1/stats` and emit a `zap.Warn` with client/server ids — no more silent PWA outbox replay loop |
 | 30.3 (VK Long Poll) | ✅ | VK bot now long-polls `groups.getLongPollServer` + `a_check` for inbound messages (alternative to Callback API; works behind NAT). `bots[].type: vk` with `token` + `group_id` registers the loop. `message_new` events flow into the same inbox-capture helper as Telegram (Phase 21) |
 | 30.4 (Email HTML) | ✅ | Email bot sends `multipart/alternative` (text + HTML). HTML part has inline-styled Orenda brand, review action buttons (when `PublicBaseURL` is set), and is HTML-escaped against script injection. Plain part is preserved for accessibility / plain-only clients |

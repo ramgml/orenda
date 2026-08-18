@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Tracked pre-push hook — see wiki:ci-local-gates-hooks.
+#
+# Installed by `make hooks` (sets core.hooksPath = scripts/git-hooks).
+# Runs on `git push` in any worktree of this repo.
+#
+# Scope: heavy gates that mirror the CI PR-gate semantics, locally.
+# Goal: ~1 min on a typical push. One push per task, so cost is fine.
+#
+# Checks:
+#   make lint-new   — golangci-lint run --new-from-merge-base=origin/dev
+#                     (same flag the PR CI uses; pre-existing debt is
+#                     silent by design — see Phase 30.16)
+#   make test       — go test ./... -race -count=1 + vitest
+#
+# Exits non-zero to block the push. Set SKIP_ORENDA_HOOKS=1 to bypass.
+# `--no-verify` is forbidden by AGENTS.md.
+
+set -euo pipefail
+
+if [[ "${SKIP_ORENDA_HOOKS:-0}" == "1" ]]; then
+  echo "pre-push: SKIP_ORENDA_HOOKS=1, skipping"
+  exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# A push from a brand-new worktree may not have origin/dev fetched yet.
+# `make lint-new` resolves origin/dev at run-time; if it's missing, fetch
+# it now so the first push on a new worktree still gates cleanly.
+if ! git rev-parse --verify --quiet origin/dev >/dev/null; then
+  echo "pre-push: origin/dev not local yet — fetching…"
+  git fetch --no-tags origin dev || {
+    echo "pre-push: failed to fetch origin/dev; aborting" >&2
+    exit 1
+  }
+fi
+
+echo "pre-push: running \`make lint-new\` (golangci-lint --new-from-merge-base=origin/dev)…"
+if ! make lint-new; then
+  echo "pre-push: lint-new failed — push blocked." >&2
+  echo "  inspect new issues locally; \`make lint\` shows everything (incl. pre-existing)." >&2
+  exit 1
+fi
+
+echo "pre-push: running \`make test\` (go test -race + vitest)…"
+if ! make test; then
+  echo "pre-push: make test failed — push blocked." >&2
+  exit 1
+fi
+
+echo "pre-push: OK"
+exit 0
