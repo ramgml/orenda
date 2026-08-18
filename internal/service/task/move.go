@@ -634,7 +634,7 @@ func (s *Service) checkDependencyCycles(ctx context.Context, taskID string, prop
 
 // Submit marks a task as ready for human review (status=review,
 // awaiting=human).
-func (s *Service) Submit(ctx context.Context, taskID, agentID string, note string) (*task.Task, error) {
+func (s *Service) Submit(ctx context.Context, taskID, agentID, note string) (*task.Task, error) {
 	// Verify the agent still holds the lock before flipping the status.
 	if s.Locks != nil {
 		// We don't fail hard on missing lock — Phase 3 schema enforces

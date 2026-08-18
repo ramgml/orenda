@@ -1217,7 +1217,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 // absCfg is currently unused; the parameter is kept so future versions can
 // resolve paths relative to the config file when needed (e.g. if the
 // operator installs Orenda in /opt but runs from /home/me).
-func cwdOr(_ string, fallback string) string {
+func cwdOr(_, fallback string) string {
 	wd, err := os.Getwd()
 	if err != nil || wd == "" {
 		return fallback
