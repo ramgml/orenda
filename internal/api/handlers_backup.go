@@ -18,11 +18,23 @@ import (
 // remote URL / auth / enabled flag from the UI without restarting
 // the process — config.yaml is still the cold-start fallback the
 // running `*backup.Service` was wired from (cmd/orenda/main.go).
-// Settings take effect on the next process restart.
+// Phase 28.9 added hot-reload of those three. Phase 32.7 adds
+// SnapshotCron and SnapshotRotationDays to the same hot-reload
+// set: the PUT handler validates the cron expression and merges
+// the new value into the live Service via UpdateConfig.
 type backupSettingsInput struct {
 	RemoteURL  string `json:"remote_url"`
 	RemoteAuth string `json:"remote_auth"`
 	Enabled    *bool  `json:"enabled"` // pointer so missing field ≠ explicit false
+	// Phase 32.7: schedule + rotation. SnapshotCron is the 5-field
+	// cron expression the scheduler reads each iteration; the PUT
+	// handler validates it with backup.Parse before persisting so
+	// the DB never holds an unparseable value. Rotation days must
+	// be >= 0 (0 = "keep forever"). Both are optional in the body —
+	// omitting one keeps the current persisted value, matching the
+	// enabled/remote_url semantics.
+	SnapshotCron         string `json:"snapshot_cron"`
+	SnapshotRotationDays *int   `json:"snapshot_rotation_days"`
 }
 
 // backupSettingsResponse is the GET / PUT response shape.
@@ -30,20 +42,26 @@ type backupSettingsInput struct {
 // We surface `enabled`/`remote_url`/`has_auth` the same way the
 // pre-28.1 GET did (back-compat for the existing UI), plus
 // `updated_at` so the UI can show "saved 30 seconds ago".
+// Phase 32.7 adds snapshot_cron and snapshot_rotation_days so the
+// UI can pre-fill the form from the server-side merge.
 type backupSettingsResponse struct {
-	Enabled    bool   `json:"enabled"`
-	RemoteURL  string `json:"remote_url"`
-	HasAuth    bool   `json:"has_auth"`
-	UpdatedAt  string `json:"updated_at,omitempty"`
-	SourceHint string `json:"source_hint,omitempty"`
+	Enabled              bool   `json:"enabled"`
+	RemoteURL            string `json:"remote_url"`
+	HasAuth              bool   `json:"has_auth"`
+	SnapshotCron         string `json:"snapshot_cron"`
+	SnapshotRotationDays int    `json:"snapshot_rotation_days"`
+	UpdatedAt            string `json:"updated_at,omitempty"`
+	SourceHint           string `json:"source_hint,omitempty"`
 }
 
 // Setting keys persisted in backup_settings. We use short, stable
 // names; if you change them, write a one-shot migration.
 const (
-	bsKeyEnabled    = "enabled"
-	bsKeyRemoteURL  = "remote_url"
-	bsKeyRemoteAuth = "remote_auth"
+	bsKeyEnabled              = "enabled"
+	bsKeyRemoteURL            = "remote_url"
+	bsKeyRemoteAuth           = "remote_auth"
+	bsKeySnapshotCron         = "snapshot_cron"
+	bsKeySnapshotRotationDays = "snapshot_rotation_days"
 )
 
 // listBackupSettingsHandler returns the persisted overrides (when
@@ -63,9 +81,11 @@ func listBackupSettingsHandler(deps *Dependencies) http.HandlerFunc {
 			current = deps.Backup.Config()
 		}
 		settings := backupSettingsResponse{
-			Enabled:   current.RemoteURL != "",
-			RemoteURL: current.RemoteURL,
-			HasAuth:   current.RemoteURL != "" && current.RemoteAuth != "",
+			Enabled:              current.RemoteURL != "",
+			RemoteURL:            current.RemoteURL,
+			HasAuth:              current.RemoteURL != "" && current.RemoteAuth != "",
+			SnapshotCron:         current.SnapshotCron,
+			SnapshotRotationDays: current.SnapshotRotationDays,
 		}
 		// DB overrides on top: a row in backup_settings authored by
 		// the UI wins over the in-memory config (it's the more
@@ -95,14 +115,28 @@ func listBackupSettingsHandler(deps *Dependencies) http.HandlerFunc {
 				}
 				settings.HasAuth = hasAuthInDB
 			}
+			// Phase 32.7: same merge pattern for the schedule
+			// and rotation knobs. A DB row beats the in-memory
+			// default (YAML/env) — that's the contract the operator
+			// expects: "what I saved in the UI is what runs".
+			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeySnapshotCron); err == nil && ok {
+				s, _ := jsonString(raw)
+				if s != "" {
+					settings.SnapshotCron = s
+				}
+			}
+			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeySnapshotRotationDays); err == nil && ok {
+				var n int
+				if jerr := json.Unmarshal(raw, &n); jerr == nil {
+					settings.SnapshotRotationDays = n
+				}
+			}
 		}
 		// Phase 28.9: after PUT the live service already mirrors the
 		// DB rows, so the SourceHint banner is no longer needed for
 		// the in-process mismatch case. We keep the field in the
 		// response shape for client back-compat (the UI only renders
-		// it when non-empty) and emit an empty string here. If a
-		// future cron-only field gains hot-reload, this is the place
-		// to flag it.
+		// it when non-empty) and emit an empty string here.
 		settings.SourceHint = ""
 		writeJSON(w, http.StatusOK, settings)
 	}
@@ -119,8 +153,12 @@ func jsonString(raw json.RawMessage) (string, error) {
 
 // putBackupSettingsHandler persists UI-editable override settings.
 // The running `*backup.Service` reads URL/auth/schedule from the
-// in-memory Config it was wired with at startup — these overrides
-// take effect on the next restart. See SESSION.md "Фаза «Полировка»".
+// in-memory Config it was wired with at startup. Phase 28.9 added
+// hot-reload for the remote/url/auth trio; Phase 32.7 extends
+// the hot-reloadable set to also include SnapshotCron and
+// SnapshotRotationDays. The PUT validates both before persisting
+// so the DB never holds an unparseable cron expression or a
+// negative rotation day count.
 func putBackupSettingsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.BackupSettings == nil {
@@ -138,8 +176,7 @@ func putBackupSettingsHandler(deps *Dependencies) http.HandlerFunc {
 		// this is the freshly-merged DB-only state, no in-memory
 		// distortion). We use it as the default for omitted fields
 		// and as the donor for restart-dependent knobs (mirror_dir,
-		// snapshot_dir, db_path, rotation days) that the PUT
-		// handler doesn't own — those stay in-memory only.
+		// snapshot_dir, db_path) that the PUT handler doesn't own.
 		var current backup.Config
 		if deps.Backup != nil {
 			current = deps.Backup.Config()
@@ -184,6 +221,42 @@ func putBackupSettingsHandler(deps *Dependencies) http.HandlerFunc {
 			}
 		}
 
+		// Phase 32.7: default the new schedule / rotation knobs
+		// from the DB first (mirrors the URL/auth path above),
+		// falling back to the live cfg (which on cold start was
+		// already merged with DB by main.go). When deps.Backup
+		// is nil (the test fixture's partial-wiring case), the
+		// DB read alone backs the "preserve persisted value"
+		// guarantee — the fixture doesn't need to wire a real
+		// Service to verify "save one field at a time".
+		if in.SnapshotCron == "" {
+			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeySnapshotCron); err == nil && ok {
+				s, _ := jsonString(raw)
+				in.SnapshotCron = s
+			} else if deps.Backup != nil {
+				in.SnapshotCron = deps.Backup.Config().SnapshotCron
+			}
+			if in.SnapshotCron == "" {
+				in.SnapshotCron = backup.DefaultSchedule
+			}
+		}
+		if in.SnapshotRotationDays == nil {
+			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeySnapshotRotationDays); err == nil && ok {
+				var n int
+				if jerr := json.Unmarshal(raw, &n); jerr == nil {
+					in.SnapshotRotationDays = &n
+				}
+			}
+			if in.SnapshotRotationDays == nil && deps.Backup != nil {
+				days := deps.Backup.Config().SnapshotRotationDays
+				in.SnapshotRotationDays = &days
+			}
+			if in.SnapshotRotationDays == nil {
+				zero := 0
+				in.SnapshotRotationDays = &zero
+			}
+		}
+
 		if err := validateBackupSettingsInput(in); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
@@ -205,13 +278,27 @@ func putBackupSettingsHandler(deps *Dependencies) http.HandlerFunc {
 			writeBackupJSONError(w, err, "persist remote_auth")
 			return
 		}
+		// Phase 32.7: persist the schedule + rotation. cron is a
+		// non-empty string here (validation rejected empty input
+		// above), rotation days is >= 0. Both land in the same
+		// backup_settings table the UI reads from.
+		if err := deps.BackupSettings.SetKey(ctx, bsKeySnapshotCron, jsonRaw(in.SnapshotCron)); err != nil {
+			writeBackupJSONError(w, err, "persist snapshot_cron")
+			return
+		}
+		if err := deps.BackupSettings.SetKey(ctx, bsKeySnapshotRotationDays, jsonRawInt(*in.SnapshotRotationDays)); err != nil {
+			writeBackupJSONError(w, err, "persist snapshot_rotation_days")
+			return
+		}
 
-		// Phase 28.9: hot-reload the live service. Push ticks and
-		// the manual "Test push" button now see the new remote on
-		// their next call; in-flight pushes from before the PUT
-		// finish on the old URL (they snapshotted cfg into a local
-		// var by value). The settings knob is fully owned by the
-		// handler from here — the operator sees no restart hint.
+		// Phase 28.9 + 32.7: hot-reload the live service. Push
+		// ticks and the manual "Test push" button see the new
+		// remote on their next call; in-flight pushes from before
+		// the PUT finish on the old URL (they snapshotted cfg
+		// into a local var by value). The scheduler's snapshot
+		// loop reads cfg.SnapshotCron fresh each iteration, so
+		// the cron expression is in effect by the next fire —
+		// usually within 60s, worst case within `interval`.
 		if deps.Backup != nil {
 			deps.Backup.UpdateConfig(backup.Config{
 				// Keep the restart-dependent knobs from the
@@ -220,22 +307,29 @@ func putBackupSettingsHandler(deps *Dependencies) http.HandlerFunc {
 				// reload for filesystem paths; doing so would
 				// require re-mounting git repos and snapshot
 				// dirs, a bigger change than this polish item).
-				MirrorDir:            current.MirrorDir,
-				SnapshotDir:          current.SnapshotDir,
-				DBPath:               current.DBPath,
-				SnapshotRotationDays: current.SnapshotRotationDays,
-				// UI-editable trio, merged into the live state.
-				RemoteURL:  in.RemoteURL,
-				RemoteAuth: in.RemoteAuth,
+				MirrorDir:   current.MirrorDir,
+				SnapshotDir: current.SnapshotDir,
+				DBPath:      current.DBPath,
+				// UI-editable quintet (Phase 32.7), merged into
+				// the live state. SnapshotRotationDays moved
+				// here from the "restart-only" set in 28.9 —
+				// the rotation just runs the next time the
+				// snapshot loop fires, no restart needed.
+				RemoteURL:            in.RemoteURL,
+				RemoteAuth:           in.RemoteAuth,
+				SnapshotCron:         in.SnapshotCron,
+				SnapshotRotationDays: *in.SnapshotRotationDays,
 			})
 		}
 
 		// Echo the persisted state back to the caller. The body
 		// shape mirrors GET so the UI reload isn't needed.
 		resp := backupSettingsResponse{
-			Enabled:   *in.Enabled,
-			RemoteURL: in.RemoteURL,
-			HasAuth:   in.RemoteAuth != "",
+			Enabled:              *in.Enabled,
+			RemoteURL:            in.RemoteURL,
+			HasAuth:              in.RemoteAuth != "",
+			SnapshotCron:         in.SnapshotCron,
+			SnapshotRotationDays: *in.SnapshotRotationDays,
 		}
 		// Phase 28.9: no SourceHint restart banner — settings are
 		// hot-applied. Kept in the response shape for backwards
@@ -253,21 +347,33 @@ func validateBackupSettingsInput(in backupSettingsInput) error {
 	if *in.Enabled && in.RemoteURL == "" {
 		return errors.New("remote_url is required when backup is enabled")
 	}
-	if in.RemoteURL == "" {
-		return nil
+	if in.RemoteURL != "" {
+		u, err := url.Parse(in.RemoteURL)
+		if err != nil {
+			return fmt.Errorf("invalid remote_url: %w", err)
+		}
+		switch u.Scheme {
+		case "http", "https", "ssh", "git":
+			// ok
+		default:
+			return fmt.Errorf("remote_url: unsupported scheme %q (expected http, https, ssh, git)", u.Scheme)
+		}
+		if u.Host == "" && strings.TrimPrefix(u.Scheme+"://", "") == in.RemoteURL {
+			return errors.New("remote_url is missing host")
+		}
 	}
-	u, err := url.Parse(in.RemoteURL)
-	if err != nil {
-		return fmt.Errorf("invalid remote_url: %w", err)
+	// Phase 32.7: validate the cron expression at the API edge so
+	// the DB never holds an unparseable value (the scheduler
+	// reads it on every iteration). backup.Parse's error wraps
+	// the field name ("minute", "hour", …) — we strip the
+	// "cron:" prefix to keep the API surface compact.
+	if in.SnapshotCron != "" {
+		if _, err := backup.Parse(in.SnapshotCron); err != nil {
+			return fmt.Errorf("snapshot_cron: %w", err)
+		}
 	}
-	switch u.Scheme {
-	case "http", "https", "ssh", "git":
-		// ok
-	default:
-		return fmt.Errorf("remote_url: unsupported scheme %q (expected http, https, ssh, git)", u.Scheme)
-	}
-	if u.Host == "" && strings.TrimPrefix(u.Scheme+"://", "") == in.RemoteURL {
-		return errors.New("remote_url is missing host")
+	if in.SnapshotRotationDays != nil && *in.SnapshotRotationDays < 0 {
+		return fmt.Errorf("snapshot_rotation_days must be >= 0, got %d", *in.SnapshotRotationDays)
 	}
 	return nil
 }
@@ -283,6 +389,15 @@ func boolJSON(b bool) []byte {
 
 func jsonRaw(s string) []byte {
 	out, _ := json.Marshal(s)
+	return out
+}
+
+// jsonRawInt wraps an int as JSON bytes for the repo. Mirrors
+// jsonRaw for strings; Phase 32.7 needs it for the rotation days
+// column. Storing a raw "30" string in a JSON-typed column is the
+// same footgun boolJSON / jsonRaw are designed to avoid.
+func jsonRawInt(n int) []byte {
+	out, _ := json.Marshal(n)
 	return out
 }
 

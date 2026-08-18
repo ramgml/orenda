@@ -1409,6 +1409,15 @@ export interface BackupSettings {
   enabled: boolean;
   remote_url: string;
   has_auth: boolean;
+  /**
+   * Phase 32.7: cron-driven snapshot fire. Operators can edit
+   * from /settings/backups; the server persists and hot-reloads
+   * without a restart. The default ("0 3 * * *" = daily 03:00
+   * UTC) is shown by the form when the persisted value is empty.
+   */
+  snapshot_cron: string;
+  /** Phase 32.7: 0 = keep forever; otherwise days to retain. */
+  snapshot_rotation_days: number;
   updated_at?: string;
   /**
    * Phase 28.1 polish.1: when the UI has overridden the in-memory
@@ -1420,15 +1429,18 @@ export interface BackupSettings {
 }
 
 /**
- * Body shape for `setBackupSettings`. All three are optional so
- * the operator can change one field at a time without us having
- * to round-trip the current state; missing `enabled` keeps the
- * persisted value.
+ * Body shape for `setBackupSettings`. All fields are optional so
+ * the operator can change one at a time without round-tripping the
+ * current state; missing fields keep the persisted value. The
+ * server validates snapshot_cron (5-field cron expression) and
+ * rejects negative snapshot_rotation_days.
  */
 export interface BackupSettingsInput {
   enabled?: boolean;
   remote_url?: string;
   remote_auth?: string;
+  snapshot_cron?: string;
+  snapshot_rotation_days?: number;
 }
 
 export interface BackupSnapshot {

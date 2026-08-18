@@ -68,6 +68,11 @@ function stubDefaults(
           enabled: true,
           remote_url: 'git@github.com:foo/bar.git',
           has_auth: true,
+          // Phase 32.7: schedule + rotation round-trip in the
+          // settings payload. The form pre-fills from these —
+          // keep the test stub in sync with the new contract.
+          snapshot_cron: '0 3 * * *',
+          snapshot_rotation_days: 30,
         },
       });
     }
@@ -106,6 +111,8 @@ describe('BackupsSettingsPage', () => {
         enabled: true,
         remote_url: 'git@github.com:foo/bar.git',
         has_auth: true,
+        snapshot_cron: '0 3 * * *',
+        snapshot_rotation_days: 30,
       },
     });
 
@@ -118,10 +125,76 @@ describe('BackupsSettingsPage', () => {
     await waitFor(() => {
       expect(stubHttp.put).toHaveBeenCalledWith(
         '/api/v1/backups/settings',
-        expect.objectContaining({ enabled: true }),
+        expect.objectContaining({
+          enabled: true,
+          snapshot_cron: '0 3 * * *',
+          snapshot_rotation_days: 30,
+        }),
       );
     });
     expect(await screen.findByText(/Settings saved/)).toBeTruthy();
+  });
+
+  // Phase 32.7: the snapshot cron + rotation days fields ship
+  // as part of the same Save form. The default settings payload
+  // (see stubDefaults above) seeds the form with "0 3 * * *" /
+  // 30 days; we verify the form reflects those values and that
+  // PUT carries them through.
+  it('renders the schedule + rotation fields with server defaults', async () => {
+    stubDefaults();
+
+    render(<BackupsSettingsPage />);
+
+    const cron = (await screen.findByTestId('settings-snapshot-cron')) as HTMLInputElement;
+    expect(cron.value).toBe('0 3 * * *');
+    const rotation = screen.getByTestId('settings-rotation-days') as HTMLInputElement;
+    expect(rotation.value).toBe('30');
+  });
+
+  it('Save settings carries the cron + rotation through PUT', async () => {
+    stubDefaults();
+    stubHttp.put.mockResolvedValueOnce({
+      data: {
+        enabled: true,
+        remote_url: 'git@github.com:foo/bar.git',
+        has_auth: true,
+        snapshot_cron: '*/15 * * * *',
+        snapshot_rotation_days: 7,
+      },
+    });
+
+    render(<BackupsSettingsPage />);
+    const cron = (await screen.findByTestId('settings-snapshot-cron')) as HTMLInputElement;
+    fireEvent.input(cron, { target: { value: '*/15 * * * *' } });
+    const rotation = screen.getByTestId('settings-rotation-days') as HTMLInputElement;
+    fireEvent.input(rotation, { target: { value: '7' } });
+    fireEvent.click(screen.getByTestId('settings-save'));
+
+    await waitFor(() => {
+      expect(stubHttp.put).toHaveBeenCalledWith(
+        '/api/v1/backups/settings',
+        expect.objectContaining({
+          snapshot_cron: '*/15 * * * *',
+          snapshot_rotation_days: 7,
+        }),
+      );
+    });
+  });
+
+  // Phase 32.7: the server rejects an unparseable cron expr
+  // with 400; the UI surfaces that verbatim in the error banner
+  // — there's no client-side cron parser by design (the server
+  // is the source of truth for what's accepted).
+  it('Save settings surfaces a cron validation error from the server', async () => {
+    stubDefaults();
+    stubHttp.put.mockRejectedValueOnce(new Error('snapshot_cron: minute: value out of range'));
+
+    render(<BackupsSettingsPage />);
+    const cron = (await screen.findByTestId('settings-snapshot-cron')) as HTMLInputElement;
+    fireEvent.input(cron, { target: { value: '60 * * * *' } });
+    fireEvent.click(screen.getByTestId('settings-save'));
+
+    expect(await screen.findByText(/Save failed: snapshot_cron: minute/)).toBeTruthy();
   });
 
   it('Save settings surfaces the server-side validation error', async () => {

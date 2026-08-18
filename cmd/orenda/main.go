@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -559,6 +560,70 @@ func newRootCmd() *cobra.Command {
 // serve
 // ----------------------------------------------------------------------------
 
+// applyStartupBackupSettings merges any persisted operator
+// overrides from the backup_settings table into the live
+// `*backup.Service`. Phase 32.7 closes the "cold start resets
+// schedule to YAML default" surprise that the Phase 28.9 design
+// shipped for URL/auth — the cron expression and rotation days
+// now survive process restarts. We read the three relevant keys
+// directly off the DB and call UpdateConfig with the merged
+// result; failures are logged but non-fatal so a corrupt
+// settings row can't keep the server from booting.
+//
+// URL/auth are deliberately not touched here: Phase 28.9 chose
+// "YAML wins on cold start" for those two (a deliberate scope
+// decision that's out of scope for this task). The merge below
+// covers exactly the two knobs Phase 32.7 added to the UI form.
+func applyStartupBackupSettings(ctx context.Context, svc *backup.Service, db *sql.DB, logger *zap.Logger) {
+	if svc == nil || db == nil {
+		return
+	}
+	repo := sqlite.NewBackupSettingsRepository(db)
+	cfg := svc.Config()
+	updated := cfg
+
+	if raw, ok, err := repo.GetByKey(ctx, "snapshot_cron"); err == nil && ok {
+		s, _ := jsonStringFromRepo(raw)
+		if s != "" {
+			if _, perr := backup.Parse(s); perr == nil {
+				updated.SnapshotCron = s
+			} else {
+				logger.Warn("ignoring unparseable persisted snapshot_cron; falling back to start-time config",
+					zap.String("expr", s), zap.Error(perr))
+			}
+		}
+	} else if err != nil {
+		logger.Warn("failed to read persisted snapshot_cron", zap.Error(err))
+	}
+	if raw, ok, err := repo.GetByKey(ctx, "snapshot_rotation_days"); err == nil && ok {
+		var n int
+		if uerr := json.Unmarshal(raw, &n); uerr == nil && n >= 0 {
+			updated.SnapshotRotationDays = n
+		}
+	} else if err != nil {
+		logger.Warn("failed to read persisted snapshot_rotation_days", zap.Error(err))
+	}
+
+	if updated.SnapshotCron != cfg.SnapshotCron || updated.SnapshotRotationDays != cfg.SnapshotRotationDays {
+		svc.UpdateConfig(updated)
+		logger.Info("applied persisted backup settings",
+			zap.String("snapshot_cron", updated.SnapshotCron),
+			zap.Int("snapshot_rotation_days", updated.SnapshotRotationDays))
+	}
+}
+
+// jsonStringFromRepo is the local helper for pulling a JSON
+// string back out of the BackupSettingsRepository's blob. The
+// repository guarantees the input is valid JSON (the Set path
+// validates) so the only failure is "the value isn't a string",
+// which we return as "". Mirrors api.jsonString — duplicated
+// here so cmd/orenda doesn't reach into internal/api.
+func jsonStringFromRepo(raw json.RawMessage) (string, error) {
+	var s string
+	err := json.Unmarshal(raw, &s)
+	return s, err
+}
+
 func newServeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve",
@@ -633,6 +698,19 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		if err := os.MkdirAll(cfg.Backup.SnapshotDir, 0o755); err != nil {
 			return fmt.Errorf("backup snapshot dir: %w", err)
 		}
+		// Phase 32.7: validate the cron expression at startup. A
+		// bad expression in config.yaml used to silently fall
+		// back to the scheduler's hard-coded default (Phase 7.5
+		// never even read the YAML value); now it's wired into
+		// the live cfg and the scheduler reads it on every
+		// iteration. We refuse to start rather than schedule on
+		// a default the operator didn't ask for — the typo is
+		// cheaper to fix than the surprise.
+		if cfg.Backup.SQLiteSnapshotCron != "" {
+			if _, err := backup.Parse(cfg.Backup.SQLiteSnapshotCron); err != nil {
+				return fmt.Errorf("backup.sqlite_snapshot_cron: %w", err)
+			}
+		}
 		mirrorSvc = mirror.New(cfg.Backup.MirrorDir)
 		backupSvc = backup.New(backup.Config{
 			MirrorDir:            cfg.Backup.MirrorDir,
@@ -641,7 +719,22 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			RemoteURL:            cfg.Backup.RemoteURL,
 			RemoteAuth:           cfg.Backup.RemoteAuth,
 			SnapshotRotationDays: cfg.Backup.SnapshotRotationDays,
+			SnapshotCron:         cfg.Backup.SQLiteSnapshotCron,
 		}, db)
+		// Phase 32.7: merge persisted DB overrides into the
+		// live config BEFORE the scheduler goroutine starts so
+		// the snapshot loop's first iteration already sees the
+		// operator-saved schedule (the previous Phase 28.9
+		// design only merged on PUT — restart reset URL/auth to
+		// the YAML default, a known surprise that's now closed
+		// for the cron/rotation pair). The repo is constructed
+		// below alongside the rest of the dependencies, so we
+		// can't reuse Dependencies here; instead we read the
+		// rows directly off the DB and call UpdateConfig with
+		// the merged result. Failures are logged but not fatal
+		// — a corrupted settings row shouldn't keep the server
+		// from booting.
+		applyStartupBackupSettings(cmd.Context(), backupSvc, db, logger)
 		scheduler := backup.NewScheduler(backupSvc)
 		go scheduler.Run(cmd.Context())
 		logger.Info("backup scheduler started",
