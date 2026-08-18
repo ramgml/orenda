@@ -59,7 +59,7 @@ git add -A && git commit -m "phase(X.Y): ..."
 
 # Migration numbering
 
-Check `docs/PLAN.md` table for the assignment. Never invent a number — if a slot is contested, ask via `question` tool. Records of actual files in `internal/storage/sqlite/migrations/` are the source of truth at the moment you're writing.
+Take the next sequential number after the files present in `internal/storage/sqlite/migrations/` — the directory is the only source of truth now that `docs/PLAN.md` is frozen (Phase 32.6). Never invent a number — if a slot is contested, ask via `question` tool.
 
 # Hot files — append-only
 
@@ -82,14 +82,14 @@ Reindex knowledge graph after code changes: codebase-memory-MCP `index_repositor
 A task is done or not done. Phases have shipped with stale TDoD checkboxes (Phase 18 — MaterializeLesson, AnswerQuiz, quiz-creation never landed). Do not repeat this.
 
 1. Verify every DoD item by execution. A test run, a smoke walkthrough, a command whose output you can quote in the PR. "Implemented" and "should work" are not verification.
-2. Report partial as partial. If 4 of 6 DoD items pass, name exactly which 2 are missing and why. A `PLAN.md` checkbox `[x]` only when every item passes.
+2. Report partial as partial. If 4 of 6 DoD items pass, name exactly which 2 are missing and why. A task's DoD turns done only when every item passes.
 3. No silent scope reduction. A blocked/ambiguous/wrong requirement is surfaced (PR or user) — not dropped, stubbed, or deferred to unrecorded "later".
-4. No stubs in delivered code. No `TODO: implement`, no fields nothing writes to, no dead endpoints. A deliberately deferred seam goes into `docs/PLAN.md` as a known gap.
+4. No stubs in delivered code. No `TODO: implement`, no fields nothing writes to, no dead endpoints. A deliberately deferred seam is filed as a task in the dogfood instance (known gap).
 5. Self-review against the DoD before reporting back. Walk top to bottom; one evidence line per item.
 
 # Parallel work
 
-You may run in parallel with `frontender`. Hot files (`router.go`, `openapi.yaml`) — append-only, never refactor a neighbor. If your task and a `frontender` task both touch `docs/PLAN.md` (checkbox update), coordinate via commit messages or defer the checkbox to one PR.
+You may run in parallel with `frontender`. Hot files (`router.go`, `openapi.yaml`) — append-only, never refactor a neighbor. `docs/PLAN.md` is frozen (Phase 32.6): no checkbox updates there, ever.
 
 # Output
 

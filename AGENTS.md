@@ -125,9 +125,9 @@ Process rules (binary, like the rest of this file):
 
 ## Conventions for AI agents
 
-### When you start a phase
-1. Read `docs/PLAN.md` for the phase definition.
-2. Check Definition of Done.
+### When you start a task
+1. Work comes from the dogfood instance (`orenda agent next` / MCP `orenda_list_tasks`) — see `docs/DOGFOOD.md`. `docs/PLAN.md` is a frozen archive of phases ≤ 32, not a queue.
+2. Check Definition of Done (in the task description / linked wiki постановка).
 3. Create worktree + branch `phase-X-Y-short-name` (см. «Worktree per task» — обязательно, без исключений).
 4. Implement tasks in order.
 5. Run `make test && make lint`.
@@ -139,9 +139,9 @@ Process rules (binary, like the rest of this file):
 A task is done or not done — "almost done" is not done. Phases here have been signed off as complete while core flows were missing (Phase 18 shipped without lesson materialization, quiz answering, or any quiz-creation endpoint; the generator task stayed a placeholder nothing wrote to). These rules exist so that never happens silently again.
 
 1. **Verify every DoD item by execution.** A test run, a smoke walkthrough, a command whose output you can quote in the PR. "Implemented" and "should work" are not verification.
-2. **Report partial as partial.** If 4 of 6 DoD items pass, say exactly which 2 are missing and why. A PLAN.md checkbox turns `[x]` only when every item passes — never in good faith.
+2. **Report partial as partial.** If 4 of 6 DoD items pass, say exactly which 2 are missing and why. A task's DoD checkbox turns done only when every item passes — never in good faith.
 3. **No silent scope reduction.** A requirement that is blocked, ambiguous, or wrong is surfaced (in the PR, or to the user) — not dropped, stubbed, or deferred to an unrecorded "later".
-4. **No stubs in delivered code.** No `TODO: implement`, no fields nothing writes to, no dead endpoints. An intentionally deferred seam is written down in `docs/PLAN.md` as a known gap, so the next agent sees it.
+4. **No stubs in delivered code.** No `TODO: implement`, no fields nothing writes to, no dead endpoints. An intentionally deferred seam is filed as a task in the dogfood instance (постановка в wiki, если решение нетривиально), so the next agent sees it.
 5. **Self-review against the DoD before opening the PR.** Walk it top to bottom; attach one evidence line per item. An item without evidence means the PR is not ready.
 
 ### When you're stuck
