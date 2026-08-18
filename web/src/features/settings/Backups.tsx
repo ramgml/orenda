@@ -6,6 +6,14 @@ import {
   type BackupSettings,
   type BackupSnapshot,
 } from '@/shared/api/client';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/shared/ui/dialog';
 
 /**
  * /settings/backups — backup configuration + manual actions + history.
@@ -468,15 +476,17 @@ export function BackupsSettingsPage(): JSX.Element {
       </div>
 
       {restoreTarget && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-lg w-full p-5 space-y-3">
-            <h3 className="font-semibold text-lg">Restore from snapshot</h3>
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              Snapshot:{' '}
-              <code className="px-1 bg-slate-100 dark:bg-slate-800 rounded text-xs break-all">
-                {restoreTarget.path}
-              </code>
-            </p>
+        <Dialog open onOpenChange={(open) => !open && closeRestore()}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Restore from snapshot</DialogTitle>
+              <DialogDescription>
+                Snapshot:{' '}
+                <code className="px-1 bg-slate-100 dark:bg-slate-800 rounded text-xs break-all">
+                  {restoreTarget.path}
+                </code>
+              </DialogDescription>
+            </DialogHeader>
             <p className="text-sm">Orenda holds the live database open. Two ways to restore:</p>
             <ul className="text-sm space-y-1 list-disc pl-5">
               <li>
@@ -503,7 +513,7 @@ export function BackupsSettingsPage(): JSX.Element {
                 {copied ? 'Copied' : 'Copy'}
               </button>
             </div>
-            <div className="flex justify-end gap-2 pt-1">
+            <DialogFooter>
               <button
                 type="button"
                 onClick={closeRestore}
@@ -521,9 +531,9 @@ export function BackupsSettingsPage(): JSX.Element {
               >
                 {busy === 'restore' ? 'Restoring…' : 'Restore in this window'}
               </button>
-            </div>
-          </div>
-        </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </section>
   );
