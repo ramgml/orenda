@@ -1,13 +1,3 @@
 {
-  "rules": [
-    {
-      "name": "orenda-ready-queue",
-      "description": "Usage instance (:2137) agent queue: fires while GET /api/v1/agent/tasks?ready=true returns count > 0. Requires ORENDA_AGENT_TOKEN in the environment (falls back to the token in ~/.config/opencode/opencode.json mcp.orenda args; optionally ORENDA_URL). Broadcast: every open session gets the prompt; double-claim is rejected by the server (409 lock_taken).",
-      "interval_s": 300,
-      "remind_s": 1800,
-      "broadcast": true,
-      "check": ".opencode/watchdog/checks/orenda-ready.sh",
-      "prompt": "Watchdog: в очереди usage-инстанса Orenda есть свободные задачи (ready=true):\n{{output}}\n\nДействуй автономно, не жди пользователя: claim через `orenda agent claim` или MCP-тулы, выполни задачу, submit на ревью. Если claim вернул 409 lock_taken — задачу уже взял другой агент, переходи к следующей в списке."
-    }
-  ]
+  "rules": []
 }
