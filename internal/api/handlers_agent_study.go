@@ -69,7 +69,7 @@ func proposeStudyHandlerAgent(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "missing agent identity", http.StatusUnauthorized)
 			return
 		}
-		p, err := deps.StudyService.Propose(r.Context(), agentID, studysvc.ProposeInput{
+		res, err := deps.StudyService.Propose(r.Context(), agentID, studysvc.ProposeInput{
 			CourseID:   in.CourseID,
 			Title:      in.Title,
 			BodyMD:     in.BodyMD,
@@ -79,7 +79,16 @@ func proposeStudyHandlerAgent(deps *Dependencies) http.HandlerFunc {
 			mapStudyError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, p)
+		// Phase 32.9 dedup: if the call collapsed onto an existing
+		// pending proposal, Refreshed=true. The agent API
+		// distinguishes 200 OK (refreshed, no new row) from
+		// 201 Created (new row) so the planner can decide whether
+		// to log/skip the "new suggestion" event.
+		status := http.StatusCreated
+		if res.Refreshed {
+			status = http.StatusOK
+		}
+		writeJSON(w, status, res.Proposal)
 	}
 }
 

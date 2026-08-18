@@ -115,8 +115,9 @@ func TestService_Propose_PersistsAndEmits(t *testing.T) {
 		BodyMD:     "rust-book chapter 5",
 		TargetDate: "2026-08-17",
 	}
-	p, err := fx.svc.Propose(ctx, agentID, in)
+	res, err := fx.svc.Propose(ctx, agentID, in)
 	require.NoError(t, err)
+	p := res.Proposal
 	assert.Equal(t, study.StatusPending, p.Status)
 	assert.Equal(t, agentID, p.CreatedByAgent, "service stamps agent_id")
 	assert.NotEmpty(t, p.ID, "repo mints id")
@@ -141,28 +142,31 @@ func TestService_Accept_HappyPath(t *testing.T) {
 	ctx := context.Background()
 	fx, courseID, agentID := setupStudySvc(t)
 
-	p, err := fx.svc.Propose(ctx, agentID, ProposeInput{
+	res, err := fx.svc.Propose(ctx, agentID, ProposeInput{
 		CourseID: courseID, Title: "Read chapter 5", TargetDate: "2099-08-17",
 	})
 	require.NoError(t, err)
+	p := res.Proposal
 
-	res, err := fx.svc.Accept(ctx, p.ID)
+	acceptRes, err := fx.svc.Accept(ctx, p.ID)
 	require.NoError(t, err)
-	assert.False(t, res.AlreadyAccepted)
-	assert.Equal(t, study.StatusAccepted, res.Proposal.Status)
-	assert.NotNil(t, res.Task)
-	assert.Equal(t, courseID, res.Task.StudyCourseID)
-	assert.Equal(t, "Read chapter 5", res.Task.Title)
-	require.NotNil(t, res.Task.DueAt, "due_at populated from target_date")
+	_ = acceptRes
+	require.NoError(t, err)
+	assert.False(t, acceptRes.AlreadyAccepted)
+	assert.Equal(t, study.StatusAccepted, acceptRes.Proposal.Status)
+	assert.NotNil(t, acceptRes.Task)
+	assert.Equal(t, courseID, acceptRes.Task.StudyCourseID)
+	assert.Equal(t, "Read chapter 5", acceptRes.Task.Title)
+	require.NotNil(t, acceptRes.Task.DueAt, "due_at populated from target_date")
 	// Target is 2099 — far future — so due_at lands on the
 	// target's end-of-day, not today.
-	assert.Equal(t, 2099, res.Task.DueAt.Year())
-	assert.Equal(t, time.August, res.Task.DueAt.Month())
+	assert.Equal(t, 2099, acceptRes.Task.DueAt.Year())
+	assert.Equal(t, time.August, acceptRes.Task.DueAt.Month())
 
 	// Activity row written.
 	require.Len(t, fx.recorder.records, 1)
 	r := fx.recorder.records[0]
-	assert.Equal(t, res.Task.ID, r.TaskID)
+	assert.Equal(t, acceptRes.Task.ID, r.TaskID)
 	assert.Equal(t, activity.ActionCreated, r.Action)
 	assert.Equal(t, activity.ActorAgent, r.ActorType)
 	assert.Equal(t, agentID, r.ActorID)
@@ -170,7 +174,7 @@ func TestService_Accept_HappyPath(t *testing.T) {
 	// Hub saw study.accepted.
 	require.Len(t, fx.hub.events, 2)
 	ev := fx.hub.events[1]
-	assert.Equal(t, res.Task.ID, bodyField(t, ev, "task_id"))
+	assert.Equal(t, acceptRes.Task.ID, bodyField(t, ev, "task_id"))
 }
 
 // TestService_Accept_Idempotent: re-running Accept on an
@@ -180,10 +184,11 @@ func TestService_Accept_Idempotent(t *testing.T) {
 	ctx := context.Background()
 	fx, courseID, agentID := setupStudySvc(t)
 
-	p, err := fx.svc.Propose(ctx, agentID, ProposeInput{
+	res, err := fx.svc.Propose(ctx, agentID, ProposeInput{
 		CourseID: courseID, Title: "Idempotent", TargetDate: "2099-08-17",
 	})
 	require.NoError(t, err)
+	p := res.Proposal
 
 	first, err := fx.svc.Accept(ctx, p.ID)
 	require.NoError(t, err)
@@ -211,17 +216,20 @@ func TestService_Accept_TargetDateBeforeToday_UsesToday(t *testing.T) {
 	ctx := context.Background()
 	fx, courseID, agentID := setupStudySvc(t)
 
-	p, err := fx.svc.Propose(ctx, agentID, ProposeInput{
+	res, err := fx.svc.Propose(ctx, agentID, ProposeInput{
 		CourseID: courseID, Title: "Old proposal", TargetDate: "2024-01-01",
 	})
 	require.NoError(t, err)
+	p := res.Proposal
 
-	res, err := fx.svc.Accept(ctx, p.ID)
+	acceptRes, err := fx.svc.Accept(ctx, p.ID)
 	require.NoError(t, err)
-	require.NotNil(t, res.Task.DueAt)
+	_ = acceptRes
+	require.NoError(t, err)
+	require.NotNil(t, acceptRes.Task.DueAt)
 
 	now := time.Now().UTC()
-	due := *res.Task.DueAt
+	due := *acceptRes.Task.DueAt
 	assert.True(t, due.Year() >= now.Year(),
 		"proposal for 2024 accepted in 2026 lands with due_at >= today (got %v)", due)
 }
@@ -232,10 +240,11 @@ func TestService_Dismiss_HappyPath(t *testing.T) {
 	ctx := context.Background()
 	fx, courseID, agentID := setupStudySvc(t)
 
-	p, err := fx.svc.Propose(ctx, agentID, ProposeInput{
+	res, err := fx.svc.Propose(ctx, agentID, ProposeInput{
 		CourseID: courseID, Title: "Skip this", TargetDate: "2099-08-17",
 	})
 	require.NoError(t, err)
+	p := res.Proposal
 
 	got, err := fx.svc.Dismiss(ctx, p.ID)
 	require.NoError(t, err)
@@ -262,10 +271,11 @@ func TestService_Accept_OnDismissed_ReturnsTransition(t *testing.T) {
 	ctx := context.Background()
 	fx, courseID, agentID := setupStudySvc(t)
 
-	p, err := fx.svc.Propose(ctx, agentID, ProposeInput{
+	res, err := fx.svc.Propose(ctx, agentID, ProposeInput{
 		CourseID: courseID, Title: "Don't double-dip", TargetDate: "2099-08-17",
 	})
 	require.NoError(t, err)
+	p := res.Proposal
 	_, err = fx.svc.Dismiss(ctx, p.ID)
 	require.NoError(t, err)
 
@@ -280,16 +290,19 @@ func TestService_Accept_OnAlreadyAccepted_IsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	fx, courseID, agentID := setupStudySvc(t)
 
-	p, err := fx.svc.Propose(ctx, agentID, ProposeInput{
+	res, err := fx.svc.Propose(ctx, agentID, ProposeInput{
 		CourseID: courseID, Title: "Repeat", TargetDate: "2099-08-17",
 	})
 	require.NoError(t, err)
+	p := res.Proposal
 	_, err = fx.svc.Accept(ctx, p.ID)
 	require.NoError(t, err)
 
-	res, err := fx.svc.Accept(ctx, p.ID)
+	acceptRes, err := fx.svc.Accept(ctx, p.ID)
 	require.NoError(t, err)
-	assert.True(t, res.AlreadyAccepted)
+	_ = acceptRes
+	require.NoError(t, err)
+	assert.True(t, acceptRes.AlreadyAccepted)
 }
 
 // TestService_Propose_InvalidInput — the service forwards Validate

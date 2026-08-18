@@ -102,8 +102,55 @@ type Proposal struct {
 //     reminder (no course to link).
 //   - Status: must be one of the three known values; defaults to
 //     pending when unset.
+//
+// NormalizeTitle is a pure helper that canonicalizes a proposal
+// title for the dedup comparison in Service.Propose. The rules:
+//   - trim leading/trailing whitespace
+//   - collapse runs of internal whitespace into a single space
+//   - lowercase (ASCII)
+//
+// Examples:
+//
+//	"Read Chapter 3"        → "read chapter 3"
+//	"  Read   Chapter 3  "  → "read chapter 3"
+//	"Read\tChapter\n3"      → "read chapter 3"
+//
+// Unicode normalization (NFKC/NFD) is deliberately out of scope —
+// the planner agent writes in plain ASCII for MVP; if a non-ASCII
+// collision becomes a real problem we can layer a stronger
+// normalizer on top without breaking the existing contract.
+//
+// Normalization is applied ONLY for dedup comparison; the
+// original title is what gets stored in the DB and returned to
+// the UI.
+func NormalizeTitle(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	inSpace := false
+	for _, r := range s {
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+			if !inSpace {
+				b.WriteByte(' ')
+				inSpace = true
+			}
+			continue
+		}
+		b.WriteRune(r)
+		inSpace = false
+	}
+	return strings.ToLower(b.String())
+}
+
+//   - Status: must be one of the three known values; defaults to
+//     pending when unset.
 //   - CreatedByAgent: required, non-empty.
 func (p *Proposal) Validate() error {
+
+	// Validate checks the proposal's basic fields.
 	p.Title = strings.TrimSpace(p.Title)
 	p.BodyMD = strings.TrimSpace(p.BodyMD)
 	if p.Title == "" {
