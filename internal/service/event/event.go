@@ -371,13 +371,10 @@ func (s *Service) publish(ctx context.Context, eventType string, tr *task.Task) 
 func (s *Service) createTask(ctx context.Context, t *task.Task) (*task.Task, error) {
 	// We don't have a direct Repo helper to "first column of project";
 	// instead we keep t.ColumnID empty and let the storage layer (or
-	// post-create patch) figure it out. For now we patch via Tasks.Update.
-	if t.ColumnID == "" {
-		// We can't look up a column without a project.Repo dependency;
-		// the FK on column_id is SET NULL so leaving it empty is safe —
-		// the task will show up in the kanban at column_id=null which
-		// the UI treats as "unscheduled".
-	}
+	// post-create patch) figure it out. We can't look up a column
+	// without a project.Repo dependency; the FK on column_id is SET
+	// NULL so leaving it empty is safe — the task will show up in the
+	// kanban at column_id=null which the UI treats as "unscheduled".
 	if err := s.Tasks.Create(ctx, t); err != nil {
 		return nil, fmt.Errorf("event.Create: %w", err)
 	}

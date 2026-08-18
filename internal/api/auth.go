@@ -65,15 +65,15 @@ func withIdentity(ctx context.Context, id *Identity) context.Context {
 type AuthConfig struct {
 	Signer     *auth.Signer
 	Users      user.Repository
-	Tokens     APITokenLookup
+	Tokens     TokenLookup
 	Agents     agent.Repository
 	CookieName string
 }
 
-// APITokenLookup is the small surface the auth middleware needs from the
+// TokenLookup is the small surface the auth middleware needs from the
 // api_tokens storage. Defining it as an interface here avoids an import cycle
 // with internal/storage/sqlite.
-type APITokenLookup interface {
+type TokenLookup interface {
 	ListAllHashes(ctx context.Context) (map[string]auth.TokenRow, error)
 	TouchLastUsed(ctx context.Context, id string) error
 }
@@ -189,6 +189,7 @@ func RequireAgent(cfg AuthConfig) func(http.Handler) http.Handler {
 			}
 			// Fire-and-forget last_used_at update; failure here doesn't
 			// break the request.
+			//nolint:contextcheck // the goroutine outlives the request; the request context would be cancelled immediately.
 			go func(tid string) {
 				_ = cfg.Tokens.TouchLastUsed(context.Background(), tid)
 			}(tok.ID)
@@ -199,7 +200,7 @@ func RequireAgent(cfg AuthConfig) func(http.Handler) http.Handler {
 
 // verifyAPIToken is a small wrapper around the repo lookup that retries on
 // transient errors.
-func verifyAPIToken(ctx context.Context, repo APITokenLookup, plain string) (*auth.TokenRow, error) {
+func verifyAPIToken(ctx context.Context, repo TokenLookup, plain string) (*auth.TokenRow, error) {
 	hashes, err := repo.ListAllHashes(ctx)
 	if err != nil {
 		return nil, err
