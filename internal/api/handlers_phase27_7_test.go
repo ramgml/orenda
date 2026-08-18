@@ -78,7 +78,7 @@ func p27_7Deps(t *testing.T) p27_7Fixtures {
 	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
 
 	users := sqlite.NewUserRepository(db)
-	u := &user.User{Email: "p277@x.com", PasswordHash: mustHashFast(t, "hunter2!"), DisplayName: "P"}
+	u := &user.User{Email: "p277@x.com", PasswordHash: mustHashFast(t), DisplayName: "P"}
 	require.NoError(t, users.Create(context.Background(), u))
 
 	hub := ws.NewHub()

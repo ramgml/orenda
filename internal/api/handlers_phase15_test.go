@@ -73,7 +73,7 @@ func newPhase15Fixture(t *testing.T) *phase15Fixture {
 	ownerEmail := "p15-" + randLite()[:8] + "@x.com"
 	require.NoError(t, users.Create(context.Background(), &user.User{
 		Email:        ownerEmail,
-		PasswordHash: mustHashFast(t, "hunter2!"),
+		PasswordHash: mustHashFast(t),
 		DisplayName:  "Owner",
 	}))
 
@@ -176,8 +176,8 @@ func (f *phase15Fixture) loginOwner(t *testing.T) string {
 }
 
 // seedTask creates a fresh task in a fresh project so tests don't
-// fight over IDs. Returns the task id and project id.
-func (f *phase15Fixture) seedTask(t *testing.T) (projectID, taskID string) {
+// fight over IDs. Returns the task id.
+func (f *phase15Fixture) seedTask(t *testing.T) (taskID string) {
 	t.Helper()
 	row := f.db.QueryRow("SELECT id FROM users LIMIT 1")
 	var ownerID string
@@ -188,7 +188,7 @@ func (f *phase15Fixture) seedTask(t *testing.T) (projectID, taskID string) {
 	require.NoError(t, err)
 	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "p15-task"}
 	require.NoError(t, f.tasks.Create(context.Background(), tr))
-	return p.ID, tr.ID
+	return tr.ID
 }
 
 // seedDependency wires a blocker relationship between two tasks
@@ -228,7 +228,7 @@ func (f *phase15Fixture) do(t *testing.T, method, path, token string, body any) 
 
 func TestPhase15_LockTaken_IncludesHolderAgentIDAndName(t *testing.T) {
 	f := newPhase15Fixture(t)
-	_, taskID := f.seedTask(t)
+	taskID := f.seedTask(t)
 
 	// Holder claims first.
 	rr := f.do(t, http.MethodPost, "/api/v1/agent/tasks/"+taskID+"/claim", f.holderToken, map[string]string{})
@@ -279,7 +279,7 @@ func TestPhase15_LockTaken_FallsBackToBareErrorWhenHolderRepoUnwired(t *testing.
 	}
 	router := api.NewRouter(&deps)
 
-	_, taskID := f.seedTask(t)
+	taskID := f.seedTask(t)
 
 	rr := doWithRouter(t, router, http.MethodPost, "/api/v1/agent/tasks/"+taskID+"/claim", f.holderToken, nil)
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -317,8 +317,8 @@ func doWithRouter(t *testing.T, router http.Handler, method, path, token string,
 
 func TestPhase15_AgentContext_BlockedByAndLockHolder(t *testing.T) {
 	f := newPhase15Fixture(t)
-	_, targetID := f.seedTask(t)
-	_, blockerID := f.seedTask(t)
+	targetID := f.seedTask(t)
+	blockerID := f.seedTask(t)
 
 	// Holder claims the target BEFORE we wire the dependency. That
 	// way the claim isn't blocked at claim time (no unresolved
@@ -360,8 +360,8 @@ func TestPhase15_AgentContext_BlockedByAndLockHolder(t *testing.T) {
 // helpers, not two implementations.
 func TestPhase15_UserContext_SameHelpers(t *testing.T) {
 	f := newPhase15Fixture(t)
-	_, targetID := f.seedTask(t)
-	_, blockerID := f.seedTask(t)
+	targetID := f.seedTask(t)
+	blockerID := f.seedTask(t)
 
 	rr := f.do(t, http.MethodPost, "/api/v1/agent/tasks/"+targetID+"/claim", f.holderToken, map[string]string{})
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -396,7 +396,7 @@ func TestPhase15_AgentContext_LockHolderAbsentWhenNoLock(t *testing.T) {
 	// doesn't have that gate and exercises the same helper
 	// functions.
 	f := newPhase15Fixture(t)
-	_, taskID := f.seedTask(t)
+	taskID := f.seedTask(t)
 
 	cookie := f.loginOwner(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks/"+taskID+"/context", nil)
@@ -428,8 +428,8 @@ type lockHolderT struct {
 
 func TestPhase15_ListAgentTasks_ReadyExcludesSelfAssigned(t *testing.T) {
 	f := newPhase15Fixture(t)
-	_, taskA := f.seedTask(t)
-	_, taskB := f.seedTask(t)
+	taskA := f.seedTask(t)
+	taskB := f.seedTask(t)
 
 	// Holder claims taskA. Rival claims taskB.
 	rr := f.do(t, http.MethodPost, "/api/v1/agent/tasks/"+taskA+"/claim", f.holderToken, map[string]string{})

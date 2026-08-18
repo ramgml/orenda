@@ -22,7 +22,7 @@ import (
 
 // longPollDeps builds Dependencies with a real Hub + auth so we can drive
 // both the publisher (in this test) and the await handler.
-func longPollDeps(t *testing.T) (api.Dependencies, string, func(context.Context, ws.Event), *ws.HubImpl) {
+func longPollDeps(t *testing.T) (api.Dependencies, string) {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := sqlite.Open(context.Background(), dir+"/lp.db", sqlite.OpenConfig{
@@ -35,7 +35,7 @@ func longPollDeps(t *testing.T) (api.Dependencies, string, func(context.Context,
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
 		Email:        "lp@x.com",
-		PasswordHash: mustHashFast(t, "hunter2!"),
+		PasswordHash: mustHashFast(t),
 		DisplayName:  "LP",
 	}))
 
@@ -57,11 +57,11 @@ func longPollDeps(t *testing.T) (api.Dependencies, string, func(context.Context,
 		CookieName: "orenda_session",
 	}
 
-	return deps, "hunter2!", hub.Publish, hub.(*ws.HubImpl)
+	return deps, "hunter2!"
 }
 
 func TestLongPoll_ReturnsEventWithinTimeout(t *testing.T) {
-	deps, plain, _, _ := longPollDeps(t)
+	deps, plain := longPollDeps(t)
 	router := api.NewRouter(&deps)
 
 	// Login.
@@ -104,7 +104,7 @@ func TestLongPoll_ReturnsEventWithinTimeout(t *testing.T) {
 }
 
 func TestLongPoll_InvalidJSON(t *testing.T) {
-	deps, plain, _, _ := longPollDeps(t)
+	deps, plain := longPollDeps(t)
 	router := api.NewRouter(&deps)
 
 	// Login.

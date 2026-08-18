@@ -41,7 +41,7 @@ func notifRouter(t *testing.T) (http.Handler, string, *sqlLite) {
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
-		Email: "nf@x.com", PasswordHash: mustHashFast(t, "hunter2!"), DisplayName: "NF",
+		Email: "nf@x.com", PasswordHash: mustHashFast(t), DisplayName: "NF",
 	}))
 
 	hub := ws.NewHub()

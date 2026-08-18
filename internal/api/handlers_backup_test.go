@@ -44,7 +44,7 @@ func newBackupFixture(t *testing.T) *backupFixture {
 	users := sqlite.NewUserRepository(db)
 	u := &user.User{
 		Email:        "bup@x.com",
-		PasswordHash: mustHashFast(t, "hunter2!"),
+		PasswordHash: mustHashFast(t),
 		DisplayName:  "B",
 	}
 	require.NoError(t, users.Create(context.Background(), u))
@@ -64,13 +64,14 @@ func newBackupFixture(t *testing.T) *backupFixture {
 	return &backupFixture{t: t, router: router, cookie: cookie}
 }
 
-func (f *backupFixture) do(t *testing.T, method, path string, body any) *httptest.ResponseRecorder {
+// do issues a request against the only route these tests exercise.
+func (f *backupFixture) do(t *testing.T, method string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
 		require.NoError(t, json.NewEncoder(&buf).Encode(body))
 	}
-	req := httptest.NewRequest(method, path, &buf)
+	req := httptest.NewRequest(method, "/api/v1/backups/settings", &buf)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -82,7 +83,7 @@ func (f *backupFixture) do(t *testing.T, method, path string, body any) *httptes
 
 func TestBackupSettings_Get_EmptyReturnsInMemoryDefaults(t *testing.T) {
 	f := newBackupFixture(t)
-	w := f.do(t, http.MethodGet, "/api/v1/backups/settings", nil)
+	w := f.do(t, http.MethodGet, nil)
 	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
 
 	var got map[string]any
@@ -99,12 +100,12 @@ func TestBackupSettings_Put_AndGetRoundTrip(t *testing.T) {
 		"remote_url":  "https://github.com/me/orenda.git",
 		"remote_auth": "ghp_xxx",
 	}
-	w := f.do(t, http.MethodPut, "/api/v1/backups/settings", body)
+	w := f.do(t, http.MethodPut, body)
 	require.Equal(t, http.StatusOK, w.Code,
 		"Phase 28.1: PUT must be 200, was 501 pre-28.1; body: %s", w.Body.String())
 
 	// GET reflects the persisted state.
-	wGet := f.do(t, http.MethodGet, "/api/v1/backups/settings", nil)
+	wGet := f.do(t, http.MethodGet, nil)
 	require.Equal(t, http.StatusOK, wGet.Code)
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(wGet.Body.Bytes(), &got))
@@ -133,7 +134,7 @@ func TestBackupSettings_Put_RejectsInvalidURL(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			body := map[string]any{"enabled": true, "remote_url": tc.url}
-			w := f.do(t, http.MethodPut, "/api/v1/backups/settings", body)
+			w := f.do(t, http.MethodPut, body)
 			assert.Equal(t, http.StatusBadRequest, w.Code,
 				"%s body: %s", tc.name, w.Body.String())
 			assert.True(t,
@@ -145,7 +146,7 @@ func TestBackupSettings_Put_RejectsInvalidURL(t *testing.T) {
 
 func TestBackupSettings_Put_EnabledRequiresURL(t *testing.T) {
 	f := newBackupFixture(t)
-	w := f.do(t, http.MethodPut, "/api/v1/backups/settings",
+	w := f.do(t, http.MethodPut,
 		map[string]any{"enabled": true, "remote_url": ""})
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "required")
@@ -153,7 +154,7 @@ func TestBackupSettings_Put_EnabledRequiresURL(t *testing.T) {
 
 func TestBackupSettings_Put_DisabledWithoutURLOK(t *testing.T) {
 	f := newBackupFixture(t)
-	w := f.do(t, http.MethodPut, "/api/v1/backups/settings",
+	w := f.do(t, http.MethodPut,
 		map[string]any{"enabled": false, "remote_url": ""})
 	assert.Equal(t, http.StatusOK, w.Code)
 }
@@ -163,16 +164,16 @@ func TestBackupSettings_Put_RemoteAuthPersists(t *testing.T) {
 
 	// First save without auth — has_auth is false.
 	require.Equal(t, http.StatusOK,
-		f.do(t, http.MethodPut, "/api/v1/backups/settings",
+		f.do(t, http.MethodPut,
 			map[string]any{"enabled": true, "remote_url": "https://x/y.git"}).Code)
 
 	// Second save adds remote_auth.
 	require.Equal(t, http.StatusOK,
-		f.do(t, http.MethodPut, "/api/v1/backups/settings",
+		f.do(t, http.MethodPut,
 			map[string]any{"enabled": true, "remote_url": "https://x/y.git", "remote_auth": "tok"}).Code)
 
 	// GET never returns the secret itself, but has_auth flips true.
-	w := f.do(t, http.MethodGet, "/api/v1/backups/settings", nil)
+	w := f.do(t, http.MethodGet, nil)
 	require.Equal(t, http.StatusOK, w.Code)
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
@@ -211,7 +212,7 @@ func TestBackupSettings_Put_ScheduleAndRotation(t *testing.T) {
 		"snapshot_cron":          "*/15 * * * *",
 		"snapshot_rotation_days": 7,
 	}
-	w := f.do(t, http.MethodPut, "/api/v1/backups/settings", body)
+	w := f.do(t, http.MethodPut, body)
 	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
 
 	var got map[string]any
@@ -221,7 +222,7 @@ func TestBackupSettings_Put_ScheduleAndRotation(t *testing.T) {
 		"rotation days round-trips as a JSON number")
 
 	// GET reflects the persisted state.
-	wGet := f.do(t, http.MethodGet, "/api/v1/backups/settings", nil)
+	wGet := f.do(t, http.MethodGet, nil)
 	require.Equal(t, http.StatusOK, wGet.Code)
 	require.NoError(t, json.Unmarshal(wGet.Body.Bytes(), &got))
 	assert.Equal(t, "*/15 * * * *", got["snapshot_cron"])
@@ -251,7 +252,7 @@ func TestBackupSettings_Put_InvalidCronReturns400(t *testing.T) {
 				"remote_url":    "https://x/y.git",
 				"snapshot_cron": tc.expr,
 			}
-			w := f.do(t, http.MethodPut, "/api/v1/backups/settings", body)
+			w := f.do(t, http.MethodPut, body)
 			assert.Equal(t, http.StatusBadRequest, w.Code,
 				"%s body: %s", tc.name, w.Body.String())
 			assert.Contains(t, w.Body.String(), "snapshot_cron",
@@ -271,7 +272,7 @@ func TestBackupSettings_Put_NegativeRotationDaysReturns400(t *testing.T) {
 		"remote_url":             "https://x/y.git",
 		"snapshot_rotation_days": -1,
 	}
-	w := f.do(t, http.MethodPut, "/api/v1/backups/settings", body)
+	w := f.do(t, http.MethodPut, body)
 	assert.Equal(t, http.StatusBadRequest, w.Code, "body: %s", w.Body.String())
 	assert.Contains(t, w.Body.String(), "snapshot_rotation_days")
 }
@@ -288,7 +289,7 @@ func TestBackupSettings_Put_ZeroRotationDaysOK(t *testing.T) {
 		"remote_url":             "https://x/y.git",
 		"snapshot_rotation_days": 0,
 	}
-	w := f.do(t, http.MethodPut, "/api/v1/backups/settings", body)
+	w := f.do(t, http.MethodPut, body)
 	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
 
 	var got map[string]any
@@ -306,7 +307,7 @@ func TestBackupSettings_Put_OmittedScheduleKeepsCurrent(t *testing.T) {
 
 	// 1. Set both to known values.
 	require.Equal(t, http.StatusOK,
-		f.do(t, http.MethodPut, "/api/v1/backups/settings", map[string]any{
+		f.do(t, http.MethodPut, map[string]any{
 			"enabled":                true,
 			"remote_url":             "https://x/y.git",
 			"snapshot_cron":          "0 4 * * *",
@@ -315,14 +316,14 @@ func TestBackupSettings_Put_OmittedScheduleKeepsCurrent(t *testing.T) {
 
 	// 2. Save only the cron. Omit rotation_days.
 	require.Equal(t, http.StatusOK,
-		f.do(t, http.MethodPut, "/api/v1/backups/settings", map[string]any{
+		f.do(t, http.MethodPut, map[string]any{
 			"enabled":       true,
 			"remote_url":    "https://x/y.git",
 			"snapshot_cron": "*/30 * * * *",
 		}).Code)
 
 	// 3. GET reflects: cron changed, rotation days preserved.
-	w := f.do(t, http.MethodGet, "/api/v1/backups/settings", nil)
+	w := f.do(t, http.MethodGet, nil)
 	require.Equal(t, http.StatusOK, w.Code)
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
@@ -337,7 +338,7 @@ func TestBackupSettings_Put_OmittedCronKeepsCurrent(t *testing.T) {
 	f := newBackupFixture(t)
 
 	require.Equal(t, http.StatusOK,
-		f.do(t, http.MethodPut, "/api/v1/backups/settings", map[string]any{
+		f.do(t, http.MethodPut, map[string]any{
 			"enabled":                true,
 			"remote_url":             "https://x/y.git",
 			"snapshot_cron":          "0 4 * * *",
@@ -345,13 +346,13 @@ func TestBackupSettings_Put_OmittedCronKeepsCurrent(t *testing.T) {
 		}).Code)
 
 	require.Equal(t, http.StatusOK,
-		f.do(t, http.MethodPut, "/api/v1/backups/settings", map[string]any{
+		f.do(t, http.MethodPut, map[string]any{
 			"enabled":                true,
 			"remote_url":             "https://x/y.git",
 			"snapshot_rotation_days": 21,
 		}).Code)
 
-	w := f.do(t, http.MethodGet, "/api/v1/backups/settings", nil)
+	w := f.do(t, http.MethodGet, nil)
 	require.Equal(t, http.StatusOK, w.Code)
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
@@ -368,7 +369,7 @@ func TestBackupSettings_Put_OmittedCronKeepsCurrent(t *testing.T) {
 // initial pre-fill.
 func TestBackupSettings_Get_DefaultCronWhenEmpty(t *testing.T) {
 	f := newBackupFixture(t)
-	w := f.do(t, http.MethodGet, "/api/v1/backups/settings", nil)
+	w := f.do(t, http.MethodGet, nil)
 	require.Equal(t, http.StatusOK, w.Code)
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))

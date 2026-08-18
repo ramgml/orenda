@@ -3,7 +3,6 @@ package api_test
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -25,9 +24,9 @@ import (
 )
 
 // integrationDeps wires the full Dependencies struct against a fresh in-memory
-// SQLite database, applies migrations, and returns a router + a *sql.DB handle
-// for cleanup.
-func integrationDeps(t *testing.T) (api.Dependencies, *sql.DB) {
+// SQLite database and applies migrations. The DB handle is closed via
+// t.Cleanup, so callers only receive the Dependencies.
+func integrationDeps(t *testing.T) api.Dependencies {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "orenda.db"), sqlite.OpenConfig{
@@ -53,7 +52,7 @@ func integrationDeps(t *testing.T) (api.Dependencies, *sql.DB) {
 		Tasks:      sqlite.NewTaskRepository(db),
 		Tokens:     sqlite.NewAPITokenRepository(db),
 		CookieName: "orenda_session",
-	}, db
+	}
 }
 
 func mustHash(t *testing.T, plain string) string {
@@ -100,7 +99,7 @@ func authedJSON(t *testing.T, router http.Handler, method, path, cookie string, 
 }
 
 func TestIntegration_Login_Me_Project_Task(t *testing.T) {
-	deps, _ := integrationDeps(t)
+	deps := integrationDeps(t)
 	router := api.NewRouter(&deps)
 
 	// Login.
@@ -178,7 +177,7 @@ func TestIntegration_Login_Me_Project_Task(t *testing.T) {
 }
 
 func TestIntegration_BadLogin(t *testing.T) {
-	deps, _ := integrationDeps(t)
+	deps := integrationDeps(t)
 	router := api.NewRouter(&deps)
 
 	body, _ := json.Marshal(map[string]string{"email": "owner@x.com", "password": "wrong"})
@@ -189,7 +188,7 @@ func TestIntegration_BadLogin(t *testing.T) {
 }
 
 func TestIntegration_RequiresAuth(t *testing.T) {
-	deps, _ := integrationDeps(t)
+	deps := integrationDeps(t)
 	router := api.NewRouter(&deps)
 
 	// No cookie.
@@ -207,7 +206,7 @@ func TestIntegration_RequiresAuth(t *testing.T) {
 }
 
 func TestIntegration_Logout(t *testing.T) {
-	deps, _ := integrationDeps(t)
+	deps := integrationDeps(t)
 	router := api.NewRouter(&deps)
 	cookie := loginAndCookie(t, router, "owner@x.com", "hunter2")
 
