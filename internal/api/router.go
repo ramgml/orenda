@@ -92,7 +92,7 @@ type Dependencies struct {
 	Users       user.Repository
 	Projects    project.Repository
 	Tasks       task.Repository
-	Tokens      APITokenLookup
+	Tokens      TokenLookup
 	TaskService *taskservice.Service
 	// TaskLockHolder is the narrow seam for looking up who's
 	// holding a task_locks row. Phase 15: previously the repo
@@ -221,7 +221,6 @@ func NewRouter(deps *Dependencies) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(requestIDHeader())
-	r.Use(realIP())
 	r.Use(requestLogger(logger))
 	r.Use(recoverer())
 	// Phase 22.3: maintenance mode is checked on every request; it
@@ -778,16 +777,19 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_, _ = w.Write(buf)
 }
 
-// requestIDHeader, realIP, recoverer are thin local wrappers around chi
+// requestIDHeader, recoverer are thin local wrappers around chi
 // middleware so the package doesn't need a direct import of chi/middleware
 // in router.go (and the import is in one place only: middleware.go).
+//
+// chi's RealIP used to sit between requestID and the logger but was
+// dropped: it is deprecated upstream (GHSA-3fxj-6jh8-hvhx,
+// GHSA-rjr7-jggh-pgcp) because it trusts X-Forwarded-For /
+// X-Real-IP unconditionally. Orenda is local-first with no trusted
+// proxy in front, so the raw TCP peer (r.RemoteAddr) is the correct
+// identity for logging and the login rate limiter.
 
 func requestIDHeader() func(http.Handler) http.Handler {
 	return requestIDMiddleware
-}
-
-func realIP() func(http.Handler) http.Handler {
-	return realIPMiddleware
 }
 
 func recoverer() func(http.Handler) http.Handler {

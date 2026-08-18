@@ -265,6 +265,7 @@ func (a taskOwnerResolverAdapter) OwnerForTask(ctx context.Context, taskID strin
 	}
 	tr, err := a.tasks.GetByID(ctx, taskID)
 	if err != nil || tr == nil {
+		//nolint:nilerr // deliberate: a failed owner lookup must not fail the write path — notifications are skipped instead.
 		return "", "", nil
 	}
 	// Inbox tasks (project_id empty) have no recipient — Phase 16.
@@ -276,6 +277,7 @@ func (a taskOwnerResolverAdapter) OwnerForTask(ctx context.Context, taskID strin
 	}
 	p, err := a.projects.GetProject(ctx, tr.ProjectID)
 	if err != nil || p == nil {
+		//nolint:nilerr // deliberate: a failed owner lookup must not fail the write path — notifications are skipped instead.
 		return "", "", nil
 	}
 	return p.OwnerID, tr.Title, nil

@@ -4,7 +4,6 @@
 // endpoints so the MCP server is a thin facade — the CLI and the
 // UI use the same HTTP surface, the MCP server adds tool discovery
 // and JSON-RPC framing on top.
-
 package mcp
 
 import (
@@ -529,7 +528,7 @@ func readBody(resp *http.Response) (any, error) {
 	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		// Not JSON — return raw.
+		//nolint:nilerr // deliberate: a non-JSON payload is a valid result (raw text), not a failure.
 		return string(raw), nil
 	}
 	return v, nil
