@@ -99,6 +99,9 @@ func (s *Service) AddModule(ctx context.Context, courseID, title, description st
 	if err := s.Repo.CreateModule(ctx, m); err != nil {
 		return nil, err
 	}
+	if s.Activity != nil {
+		_ = s.Activity.RecordCourseAuto(ctx, courseID, course.ActivityModuleAdded, m.ID)
+	}
 	return m, nil
 }
 
@@ -117,6 +120,9 @@ func (s *Service) UpdateModule(ctx context.Context, moduleID, title, description
 	if err := s.Repo.UpdateModule(ctx, m); err != nil {
 		return nil, err
 	}
+	if s.Activity != nil {
+		_ = s.Activity.RecordCourseAuto(ctx, m.CourseID, course.ActivityModuleEdited, moduleID)
+	}
 	return m, nil
 }
 
@@ -124,10 +130,17 @@ func (s *Service) UpdateModule(ctx context.Context, moduleID, title, description
 // quizzes. Deleting content intentionally drops the progress those
 // lessons carried — that is the owner's explicit choice.
 func (s *Service) DeleteModule(ctx context.Context, moduleID string) error {
-	if _, err := s.courseOfModule(ctx, moduleID); err != nil {
+	m, err := s.courseOfModule(ctx, moduleID)
+	if err != nil {
 		return err
 	}
-	return s.Repo.DeleteModule(ctx, moduleID)
+	if err := s.Repo.DeleteModule(ctx, moduleID); err != nil {
+		return err
+	}
+	if s.Activity != nil {
+		_ = s.Activity.RecordCourseAuto(ctx, m.CourseID, course.ActivityModuleRemoved, moduleID)
+	}
+	return nil
 }
 
 // AddLesson appends a locked lesson at the end of the module. A new
@@ -139,7 +152,8 @@ func (s *Service) AddLesson(ctx context.Context, moduleID, title string) (*cours
 	if title == "" {
 		return nil, ErrInvalidInput
 	}
-	if _, err := s.courseOfModule(ctx, moduleID); err != nil {
+	mod, err := s.courseOfModule(ctx, moduleID)
+	if err != nil {
 		return nil, err
 	}
 	existing, err := s.Repo.ListLessons(ctx, moduleID)
@@ -155,6 +169,9 @@ func (s *Service) AddLesson(ctx context.Context, moduleID, title string) (*cours
 	if err := s.Repo.CreateLesson(ctx, l); err != nil {
 		return nil, err
 	}
+	if s.Activity != nil {
+		_ = s.Activity.RecordCourseAuto(ctx, mod.CourseID, course.ActivityLessonAdded, l.ID)
+	}
 	return l, nil
 }
 
@@ -165,23 +182,47 @@ func (s *Service) RenameLesson(ctx context.Context, lessonID, title string) (*co
 	if title == "" {
 		return nil, ErrInvalidInput
 	}
-	l, err := s.courseOfLesson(ctx, lessonID)
+	// courseOfLesson returns Lesson; we want the courseID. The
+	// lesson row carries ModuleID; resolve the course via the
+	// module lookup helper. One extra query is acceptable here
+	// because RenameLesson is rare and idempotent — and the
+	// alternative (carrying courseID on Lesson) requires a schema
+	// change.
+	mod, err := s.courseOfLesson(ctx, lessonID)
 	if err != nil {
 		return nil, err
 	}
-	l.Title = title
-	if err := s.Repo.UpdateLesson(ctx, l); err != nil {
+	courseOfMod, err := s.courseOfModule(ctx, mod.ModuleID)
+	if err != nil {
 		return nil, err
 	}
-	return l, nil
+	mod.Title = title
+	if err := s.Repo.UpdateLesson(ctx, mod); err != nil {
+		return nil, err
+	}
+	if s.Activity != nil {
+		_ = s.Activity.RecordCourseAuto(ctx, courseOfMod.CourseID, course.ActivityLessonEdited, lessonID)
+	}
+	return mod, nil
 }
 
 // DeleteLesson removes the lesson and its quizzes (cascade).
 func (s *Service) DeleteLesson(ctx context.Context, lessonID string) error {
-	if _, err := s.courseOfLesson(ctx, lessonID); err != nil {
+	mod, err := s.courseOfLesson(ctx, lessonID)
+	if err != nil {
 		return err
 	}
-	return s.Repo.DeleteLesson(ctx, lessonID)
+	courseOfMod, err := s.courseOfModule(ctx, mod.ModuleID)
+	if err != nil {
+		return err
+	}
+	if err := s.Repo.DeleteLesson(ctx, lessonID); err != nil {
+		return err
+	}
+	if s.Activity != nil {
+		_ = s.Activity.RecordCourseAuto(ctx, courseOfMod.CourseID, course.ActivityLessonRemoved, lessonID)
+	}
+	return nil
 }
 
 // UpdateQuiz edits a quiz's question/expected answer/kind in place.
@@ -204,15 +245,38 @@ func (s *Service) UpdateQuiz(ctx context.Context, quizID, questionMD, expectedMD
 	if err := s.Repo.UpdateQuiz(ctx, q); err != nil {
 		return nil, err
 	}
+	if s.Activity != nil {
+		// Walk up to course: quiz → lesson → module → course.
+		lesson, lerr := s.courseOfLesson(ctx, q.LessonID)
+		if lerr == nil {
+			mod, merr := s.courseOfModule(ctx, lesson.ModuleID)
+			if merr == nil {
+				_ = s.Activity.RecordCourseAuto(ctx, mod.CourseID, course.ActivityQuizEdited, quizID)
+			}
+		}
+	}
 	return q, nil
 }
 
 // DeleteQuiz removes a single quiz from its lesson.
 func (s *Service) DeleteQuiz(ctx context.Context, quizID string) error {
-	if _, err := s.courseOfQuiz(ctx, quizID); err != nil {
+	q, err := s.courseOfQuiz(ctx, quizID)
+	if err != nil {
 		return err
 	}
-	return s.Repo.DeleteQuiz(ctx, quizID)
+	if err := s.Repo.DeleteQuiz(ctx, quizID); err != nil {
+		return err
+	}
+	if s.Activity != nil {
+		lesson, lerr := s.courseOfLesson(ctx, q.LessonID)
+		if lerr == nil {
+			mod, merr := s.courseOfModule(ctx, lesson.ModuleID)
+			if merr == nil {
+				_ = s.Activity.RecordCourseAuto(ctx, mod.CourseID, course.ActivityQuizRemoved, quizID)
+			}
+		}
+	}
+	return nil
 }
 
 // ApplyStructure applies a drag-and-drop reorder: module order plus

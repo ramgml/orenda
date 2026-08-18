@@ -69,11 +69,13 @@ func createCourseHandlerAgent(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
-// approveCourseCore is the shared body of the user-side approve
-// endpoint and the agent-side activate endpoint (Phase 29.5). One
-// service path, two auth surfaces — the human-approve gate stays
-// available in the UI while agents can drive a course to active
-// without a click.
+// approveCourseCore is the user-side approve body. It runs the
+// review → active transition through the service, which writes a
+// course_activity row with kind=approved (Phase 32.5).
+//
+// The agent-side activate endpoint is structurally similar but
+// records a different activity kind (activated), so it calls
+// ActivateCourse directly rather than reusing this helper.
 func approveCourseCore(w http.ResponseWriter, r *http.Request, deps *Dependencies) {
 	if deps.CourseService == nil {
 		http.Error(w, "course service not wired", http.StatusServiceUnavailable)
@@ -97,9 +99,28 @@ func approveCourseCore(w http.ResponseWriter, r *http.Request, deps *Dependencie
 
 // activateCourseHandlerAgent — POST /agent/courses/{id}/activate.
 // Same transition as the owner clicking "Approve" (review → active,
-// first lesson unlocked).
+// first lesson unlocked), but writes course_activity with
+// kind=activated so the audit feed shows the operator which path
+// was taken. Phase 32.5 pilot task #2.
 func activateCourseHandlerAgent(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		approveCourseCore(w, r, deps)
+		if deps.CourseService == nil {
+			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		c, err := deps.CourseService.ActivateCourse(r.Context(), chi.URLParam(r, "id"))
+		if err != nil {
+			if errors.Is(err, coursesvc.ErrTransition) {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_transition"})
+				return
+			}
+			if errors.Is(err, coursesvc.ErrNotFound) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+				return
+			}
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, c)
 	}
 }
