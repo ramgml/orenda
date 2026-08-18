@@ -164,12 +164,12 @@ func (s *Service) lookupColumnForStatus(ctx context.Context, projectID, status s
 // and Move when the user dragged a card to a column with a different
 // status.
 //
-// Returns the new status. The column id is updated in-place on tr
-// (via the repo Update call at the call site), so callers don't
-// need a separate return value to emit a single activity row.
-func (s *Service) syncColumnToStatus(ctx context.Context, tr *task.Task) (newStatus string) {
+// The column id is updated in-place on tr (via the repo Update call
+// at the call site), so callers don't need a separate return value
+// to emit a single activity row.
+func (s *Service) syncColumnToStatus(ctx context.Context, tr *task.Task) {
 	if s.Columns == nil || tr.ProjectID == "" {
-		return string(tr.Status)
+		return
 	}
 	colID := s.lookupColumnForStatus(ctx, tr.ProjectID, string(tr.Status))
 	if colID == "" {
@@ -178,10 +178,9 @@ func (s *Service) syncColumnToStatus(ctx context.Context, tr *task.Task) (newSta
 		// already picked — the status label changes but the visual
 		// position doesn't, which is the right UX for a custom
 		// status without a column.
-		return string(tr.Status)
+		return
 	}
 	tr.ColumnID = colID
-	return string(tr.Status)
 }
 
 // SyncStatusAndColumn is the public surface of the same logic —
