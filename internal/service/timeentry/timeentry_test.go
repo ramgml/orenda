@@ -38,7 +38,7 @@ func (r *memRecorder) Record(_ context.Context, _ string, _ string) error {
 	return nil
 }
 
-func setupTimeSvc(t *testing.T) (*timeentrysvc.Service, *memHub, string, string) {
+func setupTimeSvc(t *testing.T) (*timeentrysvc.Service, string, string) {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/ts.db"), sqlite.OpenConfig{
@@ -75,7 +75,7 @@ func setupTimeSvc(t *testing.T) (*timeentrysvc.Service, *memHub, string, string)
 
 	hub := &memHub{}
 	svc := timeentrysvc.New(sqlite.NewTimeEntryRepository(db), hub, &memRecorder{})
-	return svc, hub, tr.ID, a.ID
+	return svc, tr.ID, a.ID
 }
 
 func newIDLite() string {
@@ -92,7 +92,7 @@ func newIDLite() string {
 }
 
 func TestTimeEntryService_StartStop(t *testing.T) {
-	svc, _, taskID, agentID := setupTimeSvc(t)
+	svc, taskID, agentID := setupTimeSvc(t)
 
 	got, err := svc.Start(context.Background(), taskID, agentID)
 	require.NoError(t, err)
@@ -111,7 +111,7 @@ func TestTimeEntryService_StartStop(t *testing.T) {
 }
 
 func TestTimeEntryService_StartWhenAlreadyOpen(t *testing.T) {
-	svc, _, taskID, agentID := setupTimeSvc(t)
+	svc, taskID, agentID := setupTimeSvc(t)
 	_, err := svc.Start(context.Background(), taskID, agentID)
 	require.NoError(t, err)
 	_, err = svc.Start(context.Background(), taskID, agentID)
@@ -119,13 +119,13 @@ func TestTimeEntryService_StartWhenAlreadyOpen(t *testing.T) {
 }
 
 func TestTimeEntryService_StopWithoutOpen(t *testing.T) {
-	svc, _, _, agentID := setupTimeSvc(t)
+	svc, _, agentID := setupTimeSvc(t)
 	_, err := svc.Stop(context.Background(), agentID)
 	assert.ErrorIs(t, err, timeentrysvc.ErrNotFound)
 }
 
 func TestTimeEntryService_ManualAdd(t *testing.T) {
-	svc, _, taskID, agentID := setupTimeSvc(t)
+	svc, taskID, agentID := setupTimeSvc(t)
 	start := time.Now().Add(-time.Hour).Truncate(time.Second)
 	end := start.Add(30 * time.Minute)
 	got, err := svc.ManualAdd(context.Background(), taskID, agentID, start, end)
@@ -136,14 +136,14 @@ func TestTimeEntryService_ManualAdd(t *testing.T) {
 }
 
 func TestTimeEntryService_ManualAdd_RejectsBadRange(t *testing.T) {
-	svc, _, taskID, agentID := setupTimeSvc(t)
+	svc, taskID, agentID := setupTimeSvc(t)
 	now := time.Now()
 	_, err := svc.ManualAdd(context.Background(), taskID, agentID, now, now.Add(-time.Hour))
 	assert.ErrorIs(t, err, timeentrysvc.ErrInvalid)
 }
 
 func TestTimeEntryService_ReportAggregatesPerTask(t *testing.T) {
-	svc, _, taskID, agentID := setupTimeSvc(t)
+	svc, taskID, agentID := setupTimeSvc(t)
 	now := time.Now().Truncate(time.Second)
 
 	// Add 3 entries on the same task, 30 minutes each.
@@ -164,7 +164,7 @@ func TestTimeEntryService_ReportAggregatesPerTask(t *testing.T) {
 }
 
 func TestTimeEntryService_ListByDay(t *testing.T) {
-	svc, _, taskID, agentID := setupTimeSvc(t)
+	svc, taskID, agentID := setupTimeSvc(t)
 	now := time.Now().Truncate(time.Second)
 	end := now.Add(30 * time.Minute)
 	_, err := svc.ManualAdd(context.Background(), taskID, agentID, now, end)
@@ -197,7 +197,7 @@ func (f *fakeTitleLookup) TitlesByIDs(_ context.Context, ids []string) (map[stri
 // title using a single call to TitlesByIDs (no N+1), and missing
 // titles fall back to an empty title (caller renders the id slice).
 func TestTimeEntryService_Report_PopulatesTitles(t *testing.T) {
-	svc, _, taskID, agentID := setupTimeSvc(t)
+	svc, taskID, agentID := setupTimeSvc(t)
 	now := time.Now().Truncate(time.Second)
 	end := now.Add(30 * time.Minute)
 	_, err := svc.ManualAdd(context.Background(), taskID, agentID, now, end)

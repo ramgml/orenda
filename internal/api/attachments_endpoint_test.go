@@ -22,7 +22,7 @@ import (
 )
 
 func TestListTaskAttachments_Regression405(t *testing.T) {
-	deps, _ := integrationDeps(t)
+	deps := integrationDeps(t)
 	router := apiNewRouter(deps)
 	cookie := loginAndCookie(t, router, "owner@x.com", "hunter2")
 

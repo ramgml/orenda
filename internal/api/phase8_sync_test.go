@@ -140,7 +140,7 @@ func syncWithEWRouter(t *testing.T) (http.Handler, string) {
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
-		Email: "ew@x.com", PasswordHash: mustHashFast(t, "hunter2!"), DisplayName: "EW",
+		Email: "ew@x.com", PasswordHash: mustHashFast(t), DisplayName: "EW",
 	}))
 
 	hub := ws.NewHub()

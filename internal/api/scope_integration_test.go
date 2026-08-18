@@ -34,7 +34,7 @@ func fullDeps(t *testing.T) (api.Dependencies, string) {
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
 		Email:        "scope@x.com",
-		PasswordHash: mustHashFast(t, "hunter2!"),
+		PasswordHash: mustHashFast(t),
 		DisplayName:  "Scope Tester",
 	}))
 
@@ -50,9 +50,10 @@ func fullDeps(t *testing.T) (api.Dependencies, string) {
 	}, "hunter2!"
 }
 
-func mustHashFast(t *testing.T, plain string) string {
+// mustHashFast hashes the shared test password at cost 4 to keep tests fast.
+func mustHashFast(t *testing.T) string {
 	t.Helper()
-	h, err := auth.HashPassword(plain, 4)
+	h, err := auth.HashPassword("hunter2!", 4)
 	require.NoError(t, err)
 	return h
 }

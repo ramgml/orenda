@@ -38,7 +38,7 @@ func moveDeps(t *testing.T) (api.Dependencies, string) {
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
 		Email:        "move@x.com",
-		PasswordHash: mustHashFast(t, "hunter2!"),
+		PasswordHash: mustHashFast(t),
 		DisplayName:  "Mover",
 	}))
 
@@ -212,8 +212,9 @@ func TestIntegration_MoveBroadcastsOnWebSocket(t *testing.T) {
 	defer wsSrv.Close()
 	wsURL := wsScheme(wsSrv.URL) + "/api/v1/ws?token=" + url.QueryEscape(token)
 	dialer := websocket.DefaultDialer
-	conn, _, err := dialer.Dial(wsURL, nil)
+	conn, resp, err := dialer.Dial(wsURL, nil)
 	require.NoError(t, err)
+	defer resp.Body.Close()
 	defer conn.Close()
 
 	// Drain initial frames (none expected on idle).

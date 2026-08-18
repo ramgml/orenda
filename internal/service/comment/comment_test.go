@@ -30,7 +30,7 @@ func (m *memHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 	return ch, func() { close(ch) }
 }
 
-func setupCommentSvc(t *testing.T) (*commentsvc.Service, *memHub, string) {
+func setupCommentSvc(t *testing.T) (*commentsvc.Service, *memHub) {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/c.db"), sqlite.OpenConfig{
@@ -42,11 +42,11 @@ func setupCommentSvc(t *testing.T) (*commentsvc.Service, *memHub, string) {
 
 	hub := &memHub{}
 	svc := commentsvc.New(sqlite.NewCommentRepository(db), hub, nil)
-	return svc, hub, dir
+	return svc, hub
 }
 
 func TestCommentService_Add(t *testing.T) {
-	svc, hub, _ := setupCommentSvc(t)
+	svc, hub := setupCommentSvc(t)
 
 	c := &comment.Comment{
 		TargetID: "t-1", AuthorID: "u-1", BodyMD: "hello @user:alice",
@@ -63,21 +63,21 @@ func TestCommentService_Add(t *testing.T) {
 }
 
 func TestCommentService_Add_InvalidInput(t *testing.T) {
-	svc, _, _ := setupCommentSvc(t)
+	svc, _ := setupCommentSvc(t)
 
 	_, err := svc.Add(context.Background(), &comment.Comment{TargetID: "", AuthorID: "u", BodyMD: "x"})
 	require.Error(t, err)
 }
 
 func TestCommentService_Add_NilComment(t *testing.T) {
-	svc, _, _ := setupCommentSvc(t)
+	svc, _ := setupCommentSvc(t)
 
 	_, err := svc.Add(context.Background(), nil)
 	require.Error(t, err)
 }
 
 func TestCommentService_ListByTarget(t *testing.T) {
-	svc, _, _ := setupCommentSvc(t)
+	svc, _ := setupCommentSvc(t)
 
 	for i := 0; i < 3; i++ {
 		_, err := svc.Add(context.Background(), &comment.Comment{
@@ -96,14 +96,14 @@ func TestCommentService_ListByTarget(t *testing.T) {
 }
 
 func TestCommentService_ListByTarget_MissingID(t *testing.T) {
-	svc, _, _ := setupCommentSvc(t)
+	svc, _ := setupCommentSvc(t)
 
 	_, err := svc.ListByTarget(context.Background(), comment.TargetTask, "")
 	require.Error(t, err)
 }
 
 func TestCommentService_MentionsForComment(t *testing.T) {
-	svc, _, _ := setupCommentSvc(t)
+	svc, _ := setupCommentSvc(t)
 
 	got, err := svc.Add(context.Background(), &comment.Comment{
 		TargetID: "t", AuthorID: "u", BodyMD: "@user:alice and @agent:qwen",
@@ -116,7 +116,7 @@ func TestCommentService_MentionsForComment(t *testing.T) {
 }
 
 func TestCommentService_MentionsForComment_EmptyID(t *testing.T) {
-	svc, _, _ := setupCommentSvc(t)
+	svc, _ := setupCommentSvc(t)
 
 	_, err := svc.MentionsForComment(context.Background(), "")
 	require.Error(t, err)
