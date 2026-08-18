@@ -334,7 +334,7 @@ func applySyncOp(r *http.Request, deps *Dependencies, id *Identity, op syncOp) s
 
 // syncOpsSeen reports whether this client_id was already applied; returns
 // the server id created by the earlier application.
-func syncOpsSeen(ctx context.Context, deps *Dependencies, clientID string) (bool, string, error) {
+func syncOpsSeen(ctx context.Context, deps *Dependencies, clientID string) (seen bool, serverID string, err error) {
 	if deps.SyncOps == nil {
 		return false, "", nil
 	}

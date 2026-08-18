@@ -82,7 +82,7 @@ type sqliteTokenMinterAdapter struct {
 	repo *sqlite.APITokenRepo
 }
 
-func (a sqliteTokenMinterAdapter) MintToken(ctx context.Context, userID, name, hash, scopesJSON string, expiresAt *time.Time) (string, string, error) {
+func (a sqliteTokenMinterAdapter) MintToken(ctx context.Context, userID, name, hash, scopesJSON string, expiresAt *time.Time) (tokenID, tokenName string, err error) {
 	row, err := a.repo.Create(ctx, userID, name, hash, scopesJSON, expiresAt)
 	if err != nil {
 		return "", "", err
@@ -259,7 +259,7 @@ type taskOwnerResolverAdapter struct {
 	users    user.Repository
 }
 
-func (a taskOwnerResolverAdapter) OwnerForTask(ctx context.Context, taskID string) (string, string, error) {
+func (a taskOwnerResolverAdapter) OwnerForTask(ctx context.Context, taskID string) (ownerID, taskTitle string, err error) {
 	if a.tasks == nil || taskID == "" {
 		return "", "", nil
 	}
