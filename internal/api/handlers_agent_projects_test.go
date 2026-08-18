@@ -84,7 +84,7 @@ func newAgentProjectFixture(t *testing.T) *agentProjectFixture {
 
 	projects := sqlite.NewProjectRepository(db)
 	projActRepo := sqlite.NewProjectActivityRepository(db)
-	projActRecorder := projectservice.NewProjectActivityRecorder(projActRepo)
+	projActRecorder := projectservice.NewActivityRecorder(projActRepo)
 	projActRecorder.IdentitySource = func(ctx context.Context) (project.ActorType, string, bool) {
 		id, ok := api.IdentityFrom(ctx)
 		if !ok || id == nil {

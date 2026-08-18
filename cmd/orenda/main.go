@@ -803,7 +803,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// diff). IdentitySource reads from api.Identity (the same key the
 	// auth middleware uses) so the row carries actor_type=agent.
 	projectActivityRepo := sqlite.NewProjectActivityRepository(db)
-	projectActivityRecorder := projectservice.NewProjectActivityRecorder(projectActivityRepo)
+	projectActivityRecorder := projectservice.NewActivityRecorder(projectActivityRepo)
 	projectActivityRecorder.IdentitySource = projectIdentitySourceFromAPI
 
 	// Agent service — Register, Heartbeat, SweepOffline. Exposed

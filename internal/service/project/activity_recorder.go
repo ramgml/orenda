@@ -1,4 +1,4 @@
-// Package project provides the ProjectActivityRecorder implementation
+// Package project provides the ActivityRecorder implementation
 // that the agent-projects handler uses to write audit rows.
 //
 // Wiki: agent-project-description. Mirrors service/course/course_activity_recorder.go
@@ -20,7 +20,7 @@ import (
 )
 
 // IdentitySource is the minimal slice of api.IdentityFrom that
-// ProjectActivityRecorder needs. Keeping the dependency one-method
+// ActivityRecorder needs. Keeping the dependency one-method
 // makes test stubs trivial.
 //
 // Returning ("", "", false) for missing Identity (test fixtures,
@@ -36,28 +36,27 @@ var defaultIdentitySource IdentitySource = func(ctx context.Context) (project.Ac
 	return "", "", false
 }
 
-// ProjectActivityRepo is the persistence surface.
+// ActivityRepo is the persistence surface.
 // *sqlite.ProjectActivityRepository satisfies this; declared here
 // to keep the recorder test-friendly.
-type ProjectActivityRepo interface {
+type ActivityRepo interface {
 	Create(ctx context.Context, a *project.Activity) error
 }
 
-// ProjectActivityRecorder writes project_activity rows. Threaded
-// through the API handler explicitly (the project service is
-// stateless; we don't keep a service.WithActivity seam like the
-// course service does).
-type ProjectActivityRecorder struct {
-	Repo           ProjectActivityRepo
+// ActivityRecorder writes project_activity rows. The api layer holds
+// it behind the api.ProjectActivityRecorder interface (the concrete
+// type satisfies it structurally via RecordProjectAuto).
+type ActivityRecorder struct {
+	Repo           ActivityRepo
 	IdentitySource IdentitySource
 }
 
-// NewProjectActivityRecorder returns a wired recorder. IdentitySource
+// NewActivityRecorder returns a wired recorder. IdentitySource
 // defaults to defaultIdentitySource (no-op) — callers (main.go)
 // set it to api.IdentityFrom so production requests produce real
 // rows.
-func NewProjectActivityRecorder(repo ProjectActivityRepo) *ProjectActivityRecorder {
-	return &ProjectActivityRecorder{Repo: repo, IdentitySource: defaultIdentitySource}
+func NewActivityRecorder(repo ActivityRepo) *ActivityRecorder {
+	return &ActivityRecorder{Repo: repo, IdentitySource: defaultIdentitySource}
 }
 
 // RecordProjectAuto writes one row, resolving actor (user vs agent)
@@ -66,7 +65,7 @@ func NewProjectActivityRecorder(repo ProjectActivityRepo) *ProjectActivityRecord
 // only when the row was attempted but persistence failed — the
 // handler decides whether to fail the request or log-and-continue
 // (we log-and-continue so audit gaps don't fail user actions).
-func (r *ProjectActivityRecorder) RecordProjectAuto(ctx context.Context, projectID string, kind project.ActivityKind, payload string) error {
+func (r *ActivityRecorder) RecordProjectAuto(ctx context.Context, projectID string, kind project.ActivityKind, payload string) error {
 	if r == nil || r.Repo == nil {
 		return nil
 	}

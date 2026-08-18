@@ -17,19 +17,19 @@ import (
 	"github.com/ramgml/orenda/internal/domain/user"
 )
 
-// seedProjectForActivity inserts an owner + a project row through the
-// real repositories so the activity rows have a live FK target.
+// seedProjectForActivity inserts a user + project row so the
+// project_activity FK has something to reference.
 func seedProjectForActivity(t *testing.T, db interface {
 	CreateProject(ctx context.Context, p *project.Project) (*project.Project, []*project.Board, []*project.Column, error)
-}, ownerID string) *project.Project {
+}, ownerID string) string {
 	t.Helper()
-	p, _, _, err := db.CreateProject(context.Background(), &project.Project{
-		Name:    "Proj",
+	created, _, _, err := db.CreateProject(context.Background(), &project.Project{
+		Name:    "Act Proj",
 		Color:   project.DefaultColor,
 		OwnerID: ownerID,
 	})
 	require.NoError(t, err)
-	return p
+	return created.ID
 }
 
 func TestProjectActivity_CreateAndList(t *testing.T) {
@@ -39,15 +39,15 @@ func TestProjectActivity_CreateAndList(t *testing.T) {
 	users := NewUserRepository(db)
 	owner := &user.User{Email: uniqueEmail(t), PasswordHash: "x", DisplayName: "Owner"}
 	require.NoError(t, users.Create(context.Background(), owner))
-	projects := NewProjectRepository(db)
-	p := seedProjectForActivity(t, projects, owner.ID)
 
+	projects := NewProjectRepository(db)
+	projectID := seedProjectForActivity(t, projects, owner.ID)
 	repo := NewProjectActivityRepository(db)
 	now := time.Now().UTC()
 
 	older := &project.Activity{
 		ID:        "pa-1",
-		ProjectID: p.ID,
+		ProjectID: projectID,
 		ActorType: project.ActorAgent,
 		ActorID:   "a-1",
 		Kind:      project.ActivityDescriptionChanged,
@@ -56,7 +56,7 @@ func TestProjectActivity_CreateAndList(t *testing.T) {
 	}
 	newer := &project.Activity{
 		ID:        "pa-2",
-		ProjectID: p.ID,
+		ProjectID: projectID,
 		ActorType: project.ActorAgent,
 		ActorID:   "a-1",
 		Kind:      project.ActivityDescriptionChanged,
@@ -66,9 +66,9 @@ func TestProjectActivity_CreateAndList(t *testing.T) {
 	require.NoError(t, repo.Create(context.Background(), older))
 	require.NoError(t, repo.Create(context.Background(), newer))
 
-	rows, err := repo.ListByProject(context.Background(), p.ID, 50)
+	rows, err := repo.ListByProject(context.Background(), projectID, 50)
 	require.NoError(t, err)
-	require.Len(t, rows, 2, "both rows returned")
+	require.Len(t, rows, 2, "both rows come back")
 	assert.Equal(t, "pa-2", rows[0].ID, "newest first")
 	assert.Equal(t, "pa-1", rows[1].ID)
 	assert.Equal(t, project.ActivityDescriptionChanged, rows[0].Kind)
@@ -84,24 +84,24 @@ func TestProjectActivity_ListByProject_RespectsLimit(t *testing.T) {
 	owner := &user.User{Email: uniqueEmail(t), PasswordHash: "x", DisplayName: "Owner"}
 	require.NoError(t, users.Create(context.Background(), owner))
 	projects := NewProjectRepository(db)
-	p := seedProjectForActivity(t, projects, owner.ID)
-
+	projectID := seedProjectForActivity(t, projects, owner.ID)
 	repo := NewProjectActivityRepository(db)
 	base := time.Now().UTC()
+
 	for i := 0; i < 5; i++ {
 		require.NoError(t, repo.Create(context.Background(), &project.Activity{
 			ID:        "pa-" + string(rune('a'+i)),
-			ProjectID: p.ID,
+			ProjectID: projectID,
 			ActorType: project.ActorAgent,
 			ActorID:   "a-1",
 			Kind:      project.ActivityDescriptionChanged,
-			Payload:   "x",
+			Payload:   "test",
 			CreatedAt: base.Add(time.Duration(i) * time.Second),
 		}))
 	}
-	rows, err := repo.ListByProject(context.Background(), p.ID, 2)
+	rows, err := repo.ListByProject(context.Background(), projectID, 2)
 	require.NoError(t, err)
-	assert.Len(t, rows, 2, "limit bounds the result")
+	assert.Len(t, rows, 2)
 	assert.Equal(t, "pa-e", rows[0].ID)
 	assert.Equal(t, "pa-d", rows[1].ID)
 }
@@ -156,21 +156,22 @@ func TestProjectActivity_NilPayload(t *testing.T) {
 	owner := &user.User{Email: uniqueEmail(t), PasswordHash: "x", DisplayName: "Owner"}
 	require.NoError(t, users.Create(context.Background(), owner))
 	projects := NewProjectRepository(db)
-	p := seedProjectForActivity(t, projects, owner.ID)
-
+	projectID := seedProjectForActivity(t, projects, owner.ID)
 	repo := NewProjectActivityRepository(db)
-	require.NoError(t, repo.Create(context.Background(), &project.Activity{
+
+	a := &project.Activity{
 		ID:        "pa-nil",
-		ProjectID: p.ID,
+		ProjectID: projectID,
 		ActorType: project.ActorAgent,
 		ActorID:   "a-1",
 		Kind:      project.ActivityDescriptionChanged,
 		CreatedAt: time.Now().UTC(),
-	}))
-	rows, err := repo.ListByProject(context.Background(), p.ID, 10)
+	}
+	require.NoError(t, repo.Create(context.Background(), a))
+	rows, err := repo.ListByProject(context.Background(), projectID, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
-	assert.Equal(t, "", rows[0].Payload, "empty payload reads back as empty string")
+	assert.Equal(t, "", rows[0].Payload, "empty payload persists as null, reads back as \"\"")
 }
 
 func TestProjectActivity_CascadeDelete(t *testing.T) {
@@ -181,24 +182,24 @@ func TestProjectActivity_CascadeDelete(t *testing.T) {
 	owner := &user.User{Email: uniqueEmail(t), PasswordHash: "x", DisplayName: "Owner"}
 	require.NoError(t, users.Create(context.Background(), owner))
 	projects := NewProjectRepository(db)
-	p := seedProjectForActivity(t, projects, owner.ID)
+	projectID := seedProjectForActivity(t, projects, owner.ID)
 
 	repo := NewProjectActivityRepository(db)
 	require.NoError(t, repo.Create(context.Background(), &project.Activity{
 		ID:        "pa-cascade",
-		ProjectID: p.ID,
+		ProjectID: projectID,
 		ActorType: project.ActorAgent,
-		ActorID:   "a-1",
+		ActorID:   "a-cascade",
 		Kind:      project.ActivityDescriptionChanged,
 		CreatedAt: time.Now().UTC(),
 	}))
-	rows, err := repo.ListByProject(context.Background(), p.ID, 10)
+	rows, err := repo.ListByProject(context.Background(), projectID, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 
 	// Deleting the project cascades to its activity rows.
-	require.NoError(t, projects.DeleteProject(context.Background(), p.ID))
-	rows, err = repo.ListByProject(context.Background(), p.ID, 10)
+	require.NoError(t, projects.DeleteProject(context.Background(), projectID))
+	rows, err = repo.ListByProject(context.Background(), projectID, 10)
 	require.NoError(t, err)
-	assert.Empty(t, rows, "activity rows should cascade-delete with project")
+	assert.Empty(t, rows, "activity rows should cascade-delete with the project")
 }
