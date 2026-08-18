@@ -54,6 +54,7 @@ import (
 	eventservice "github.com/ramgml/orenda/internal/service/event"
 	"github.com/ramgml/orenda/internal/service/notifier"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
+	projectservice "github.com/ramgml/orenda/internal/service/project"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
 	studyservice "github.com/ramgml/orenda/internal/service/study"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
@@ -517,6 +518,26 @@ func identitySourceFromAPI(ctx context.Context) (coursedomain.ActorType, string,
 	return "", "", false
 }
 
+// projectIdentitySourceFromAPI is the IdentitySource the project
+// activity recorder uses (wiki:agent-project-description). Same
+// shape as identitySourceFromAPI but returns the project domain's
+// ActorType. v1 only the agent-namespace PATCH writes rows, but the
+// recorder resolves the actor generically so a future user-side
+// write path produces correct rows without handler changes.
+func projectIdentitySourceFromAPI(ctx context.Context) (project.ActorType, string, bool) {
+	id, present := api.IdentityFrom(ctx)
+	if !present {
+		return "", "", false
+	}
+	if id.UserID != "" {
+		return project.ActorUser, id.UserID, true
+	}
+	if id.AgentID != "" {
+		return project.ActorAgent, id.AgentID, true
+	}
+	return "", "", false
+}
+
 // version is set by -ldflags at build time.
 var version = "0.1.0-dev"
 
@@ -776,6 +797,15 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// same seam.
 	taskSvc.CommentLister = commentSvc
 
+	// wiki:agent-project-description — project activity feed. Wire the
+	// recorder so the agent-namespace PATCH /agent/projects/{id} writes
+	// project_activity rows (kind=description_changed + before/after
+	// diff). IdentitySource reads from api.Identity (the same key the
+	// auth middleware uses) so the row carries actor_type=agent.
+	projectActivityRepo := sqlite.NewProjectActivityRepository(db)
+	projectActivityRecorder := projectservice.NewProjectActivityRecorder(projectActivityRepo)
+	projectActivityRecorder.IdentitySource = projectIdentitySourceFromAPI
+
 	// Agent service — Register, Heartbeat, SweepOffline. Exposed
 	// through /api/v1/agents (REST) and /api/v1/agent/* (namespace)
 	// since Phase 3; the AgentService dep is wired into the router
@@ -1010,6 +1040,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		Courses:            courseRepo,
 		CourseService:      courseSvc,
 		CourseActivityRepo: courseActivityRepo,
+		// wiki:agent-project-description — write side for project_activity
+		// rows. The agent-namespace PATCH /agent/projects/{id} emits a
+		// description_changed row through this seam.
+		ProjectActivityRecorder: projectActivityRecorder,
 		// Phase 31: study service wires the user-side accept/dismiss
 		// + the agent-side propose. nil-safe in handlers (they check
 		// before calling) but the production binary must wire it
