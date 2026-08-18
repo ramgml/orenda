@@ -30,4 +30,12 @@ type Repository interface {
 	// MarkDismissed flips status to 'dismissed' and stamps
 	// resolved_at atomically. Idempotent on already-dismissed.
 	MarkDismissed(ctx context.Context, id string) error
+	// FindPendingEquivalent returns the pending proposal (if any)
+	// matching the dedup key (agent_id, course_id, normalized_title).
+	// Phase 32.9: called by Service.Propose before Create so the
+	// planner's evening+morning runs don't multiply rows.
+	// Returns (nil, nil) when no equivalent pending proposal exists.
+	// course_id="" matches the NULL/empty-course proposals (so two
+	// course-less proposals with the same normalized title collide).
+	FindPendingEquivalent(ctx context.Context, agentID, courseID, normalizedTitle string) (*Proposal, error)
 }

@@ -7,6 +7,10 @@
 // accepts collapse on the first commit; the second is a no-op
 // (rowsAffected=0) and the service layer reads the existing row to
 // resolve the API.
+//
+// Phase 32.9 adds FindPendingEquivalent — the dedup lookup the
+// service.Propose performs before creating a new row, so the
+// planner's evening+morning runs don't pile up identical proposals.
 package sqlite
 
 import (
@@ -100,6 +104,47 @@ func (r *studyProposalRepo) Get(ctx context.Context, id string) (*study.Proposal
 			return nil, study.ErrNotFound
 		}
 		return nil, fmt.Errorf("study.Get: %w", err)
+	}
+	return p, nil
+}
+
+// FindPendingEquivalent returns the most recent pending proposal
+// matching the dedup key (agentID, courseID, normalizedTitle), or
+// (nil, nil) when no match exists.
+//
+// Phase 32.9: lets Service.Propose collapse repeated runs of the
+// planner onto the same row. The caller is responsible for
+// producing normalizedTitle via NormalizeTitle; the repo does a
+// defensive `lower(trim(...))` in SQL so a direct repo call from
+// an admin script can't bypass the contract.
+//
+// `course_id IS NULL` and `course_id = ?` are mutually exclusive in
+// the WHERE clause — we OR them because course_id is nullable and
+// the empty-string sentinel from the service must match both
+// pending-with-NULL and pending-with-empty-string rows (the
+// service writes the empty string but a hand-typed NULL might
+// exist from older rows).
+func (r *studyProposalRepo) FindPendingEquivalent(ctx context.Context, agentID, courseID, normalizedTitle string) (*study.Proposal, error) {
+	const q = `
+		SELECT id, COALESCE(course_id, ''), title, COALESCE(body_md, ''),
+		       target_date, status, created_by_agent,
+		       COALESCE(accepted_task_id, ''),
+		       created_at, resolved_at
+		FROM study_proposals
+		WHERE status = 'pending'
+		  AND created_by_agent = ?
+		  AND (course_id IS NULL OR course_id = ?)
+		  AND lower(trim(title)) = ?
+		ORDER BY created_at DESC, id DESC
+		LIMIT 1
+	`
+	row := r.db.QueryRowContext(ctx, q, agentID, courseID, normalizedTitle)
+	p, err := scanProposal(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("study.FindPendingEquivalent: %w", err)
 	}
 	return p, nil
 }
