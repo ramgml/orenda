@@ -21,9 +21,8 @@ func NewSyncOpsRepository(db *sql.DB) *syncOpsRepo {
 	return &syncOpsRepo{db: db}
 }
 
-func (r *syncOpsRepo) Seen(ctx context.Context, clientID string) (bool, string, error) {
-	var serverID string
-	err := r.db.QueryRowContext(ctx,
+func (r *syncOpsRepo) Seen(ctx context.Context, clientID string) (seen bool, serverID string, err error) {
+	err = r.db.QueryRowContext(ctx,
 		`SELECT server_id FROM sync_ops WHERE client_id = ?`, clientID).Scan(&serverID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, "", nil

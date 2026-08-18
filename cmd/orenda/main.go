@@ -52,7 +52,6 @@ import (
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
 	courseservice "github.com/ramgml/orenda/internal/service/course"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
-	"github.com/ramgml/orenda/internal/service/notifier"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 	projectservice "github.com/ramgml/orenda/internal/service/project"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
@@ -65,7 +64,6 @@ import (
 	activitydomain "github.com/ramgml/orenda/internal/domain/activity"
 	attachmentdomain "github.com/ramgml/orenda/internal/domain/attachment"
 	commentdomain "github.com/ramgml/orenda/internal/domain/comment"
-	taskdomain "github.com/ramgml/orenda/internal/domain/task"
 )
 
 // apiAttachmentResult aliases api.AttachmentResult so the adapter below
@@ -84,7 +82,7 @@ type sqliteTokenMinterAdapter struct {
 	repo *sqlite.APITokenRepo
 }
 
-func (a sqliteTokenMinterAdapter) MintToken(ctx context.Context, userID, name, hash, scopesJSON string, expiresAt *time.Time) (string, string, error) {
+func (a sqliteTokenMinterAdapter) MintToken(ctx context.Context, userID, name, hash, scopesJSON string, expiresAt *time.Time) (tokenID, tokenName string, err error) {
 	row, err := a.repo.Create(ctx, userID, name, hash, scopesJSON, expiresAt)
 	if err != nil {
 		return "", "", err
@@ -186,7 +184,7 @@ func int64ToString(v int64) string {
 // we need, and the projection is cheaper than a second type.
 func findTelegramSubscriber(
 	ctx context.Context,
-	repo notifier.SubscriptionRepository,
+	repo notifierservice.SubscriptionRepository,
 	chatID int64,
 ) string {
 	addr := int64ToString(chatID)
@@ -261,7 +259,7 @@ type taskOwnerResolverAdapter struct {
 	users    user.Repository
 }
 
-func (a taskOwnerResolverAdapter) OwnerForTask(ctx context.Context, taskID string) (string, string, error) {
+func (a taskOwnerResolverAdapter) OwnerForTask(ctx context.Context, taskID string) (ownerID, taskTitle string, err error) {
 	if a.tasks == nil || taskID == "" {
 		return "", "", nil
 	}
@@ -312,7 +310,7 @@ var pendingNotifier *backup.Scheduler
 // Hub / Recorder already wired in main.go so live subscribers see
 // the task immediately.
 type courseTaskCreatorAdapter struct {
-	tasksRepo taskdomain.Repository
+	tasksRepo task.Repository
 	db        *sql.DB
 	hub       ws.Hub
 	recorder  courseTaskActivityRecorder
@@ -329,15 +327,15 @@ type courseTaskActivityRecorder interface {
 }
 
 func (a courseTaskCreatorAdapter) CreateGeneratorTask(ctx context.Context, ownerID, courseID, title, intentMD string) (string, error) {
-	t := &taskdomain.Task{
+	t := &task.Task{
 		Title:     fmt.Sprintf("Build curriculum for: %s", title),
 		ContextMD: fmt.Sprintf("course_id=%s\nintent=%s\n", courseID, intentMD),
-		Status:    taskdomain.StatusTodo,
-		Priority:  taskdomain.PriorityMedium,
-		Awaiting:  taskdomain.AwaitingAgent,
+		Status:    task.StatusTodo,
+		Priority:  task.PriorityMedium,
+		Awaiting:  task.AwaitingAgent,
 		// ProjectID left empty — Phase 16 inbox cards float until
 		// the agent (or the user) files them under a project.
-		AssigneeType: taskdomain.AssigneeType("user"),
+		AssigneeType: task.AssigneeType("user"),
 		AssigneeID:   ownerID,
 	}
 	if err := a.tasksRepo.Create(ctx, t); err != nil {
@@ -355,13 +353,13 @@ func (a courseTaskCreatorAdapter) CreateQuizReviewTask(ctx context.Context, owne
 	if err != nil {
 		return "", err
 	}
-	t := &taskdomain.Task{
+	t := &task.Task{
 		Title:        fmt.Sprintf("Review quiz answer: %s / %s", lessonTitle, quizTitle),
 		ContextMD:    fmt.Sprintf("quiz_id=%s\nlesson_id=%s\nanswer=%s\n", quizID, lessonID, answer),
-		Status:       taskdomain.StatusTodo,
-		Priority:     taskdomain.PriorityMedium,
-		Awaiting:     taskdomain.AwaitingAgent,
-		AssigneeType: taskdomain.AssigneeType("user"),
+		Status:       task.StatusTodo,
+		Priority:     task.PriorityMedium,
+		Awaiting:     task.AwaitingAgent,
+		AssigneeType: task.AssigneeType("user"),
 		AssigneeID:   ownerID,
 	}
 	if err := a.tasksRepo.Create(ctx, t); err != nil {
@@ -376,7 +374,7 @@ func (a courseTaskCreatorAdapter) CreateQuizReviewTask(ctx context.Context, owne
 // (Phase 27.9). Errors are swallowed on purpose — best-effort
 // observability for a row that already lives in the DB; surfacing
 // would risk failing a successful course operation.
-func (a courseTaskCreatorAdapter) notifyCreated(ctx context.Context, t *taskdomain.Task, ownerID, source string) {
+func (a courseTaskCreatorAdapter) notifyCreated(ctx context.Context, t *task.Task, ownerID, source string) {
 	if a.hub != nil {
 		a.hub.Publish(ctx, ws.Event{
 			Topic: "tasks",
@@ -428,14 +426,14 @@ func (a courseTaskCreatorAdapter) CompleteTask(ctx context.Context, taskID, note
 	if err != nil {
 		// Already gone or never existed — treat as best-effort
 		// success so the course swap can commit.
-		if errors.Is(err, taskdomain.ErrNotFound) {
+		if errors.Is(err, task.ErrNotFound) {
 			return nil
 		}
 		return fmt.Errorf("course.CompleteTask: load: %w", err)
 	}
 	now := time.Now().UTC()
-	t.Status = taskdomain.StatusDone
-	t.Awaiting = taskdomain.AwaitingNone
+	t.Status = task.StatusDone
+	t.Awaiting = task.AwaitingNone
 	t.CompletedAt = &now
 	if note != "" {
 		if t.ContextMD != "" {
@@ -1219,7 +1217,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 // absCfg is currently unused; the parameter is kept so future versions can
 // resolve paths relative to the config file when needed (e.g. if the
 // operator installs Orenda in /opt but runs from /home/me).
-func cwdOr(_ string, fallback string) string {
+func cwdOr(_, fallback string) string {
 	wd, err := os.Getwd()
 	if err != nil || wd == "" {
 		return fallback

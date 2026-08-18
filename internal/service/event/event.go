@@ -217,7 +217,7 @@ func (s *Service) ExpandRecurrence(e *event.Event, from, to time.Time) ([]event.
 
 // parseRRule returns (interval, count, until, err). Empty rule → all
 // zero values, no error.
-func parseRRule(rule string) (interval int, count int, until time.Time, err error) {
+func parseRRule(rule string) (interval, count int, until time.Time, err error) {
 	rule = strings.TrimSpace(rule)
 	if rule == "" {
 		return 0, 0, time.Time{}, nil
@@ -256,7 +256,7 @@ func stepFor(rule string, interval int) func(time.Time) time.Time {
 	var freq string
 	for _, part := range strings.Split(rule, ";") {
 		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
-		if len(kv) == 2 && strings.ToUpper(kv[0]) == "FREQ" {
+		if len(kv) == 2 && strings.EqualFold(kv[0], "FREQ") {
 			freq = strings.ToUpper(kv[1])
 		}
 	}

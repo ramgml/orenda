@@ -444,7 +444,7 @@ func stringParam(params map[string]any, key string) string {
 
 // agentGet issues a GET against the agent namespace.
 func agentGet(ctx context.Context, c *http.Client, cfg ServerConfig, path string) (any, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.OrendaBaseURL+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.OrendaBaseURL+path, http.NoBody)
 	if err != nil {
 		return nil, err
 	}

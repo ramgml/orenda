@@ -85,7 +85,8 @@ func listEventsHandler(deps *Dependencies) http.HandlerFunc {
 				out = append(out, m)
 				continue
 			}
-			for i, occ := range occs {
+			for i := range occs {
+				occ := &occs[i]
 				// Synthetic id so the UI can render each
 				// occurrence distinctly but the master remains
 				// addressable via the prefix. The double-colon is

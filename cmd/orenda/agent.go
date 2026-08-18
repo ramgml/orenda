@@ -115,11 +115,11 @@ func loadAgentConfig(path string) (*agentConfig, error) {
 
 // agentGet issues a GET against the agent namespace and returns the
 // raw JSON body. Caller decodes.
-func (a *agentCtx) agentGet(ctx context.Context, path string) ([]byte, int, error) {
+func (a *agentCtx) agentGet(ctx context.Context, path string) (body []byte, status int, err error) {
 	return a.do(ctx, http.MethodGet, path, nil)
 }
 
-func (a *agentCtx) agentPost(ctx context.Context, path string, body any) ([]byte, int, error) {
+func (a *agentCtx) agentPost(ctx context.Context, path string, body any) (respBody []byte, status int, err error) {
 	var rdr io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -131,11 +131,11 @@ func (a *agentCtx) agentPost(ctx context.Context, path string, body any) ([]byte
 	return a.doRaw(ctx, http.MethodPost, path, rdr, "application/json")
 }
 
-func (a *agentCtx) do(ctx context.Context, method, path string, body io.Reader) ([]byte, int, error) {
+func (a *agentCtx) do(ctx context.Context, method, path string, body io.Reader) (respBody []byte, status int, err error) {
 	return a.doRaw(ctx, method, path, body, "")
 }
 
-func (a *agentCtx) doRaw(ctx context.Context, method, path string, body io.Reader, contentType string) ([]byte, int, error) {
+func (a *agentCtx) doRaw(ctx context.Context, method, path string, body io.Reader, contentType string) (respBody []byte, status int, err error) {
 	u, err := url.Parse(a.BaseURL)
 	if err != nil {
 		return nil, 0, fmt.Errorf("bad base url: %w", err)

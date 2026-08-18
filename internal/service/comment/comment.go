@@ -132,15 +132,15 @@ func (s *Service) Add(ctx context.Context, c *comment.Comment) (*comment.Comment
 // it clips. Used for the notifier body so we don't ship a 10KB
 // comment in every channel's preview. Rune-aware so multi-byte
 // characters (café) don't get cut mid-codepoint.
-func truncate(s string, max int) string {
-	if max <= 0 {
+func truncate(s string, maxRunes int) string {
+	if maxRunes <= 0 {
 		return s
 	}
 	runes := []rune(s)
-	if len(runes) <= max {
+	if len(runes) <= maxRunes {
 		return s
 	}
-	return string(runes[:max]) + "…"
+	return string(runes[:maxRunes]) + "…"
 }
 
 // ListByTarget returns every comment for a (target_type, target_id) pair
