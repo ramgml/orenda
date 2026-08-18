@@ -249,7 +249,7 @@ func collectMigrationFiles(fsys fs.FS, dir string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: read migrations dir %q: %w", dir, err)
 	}
-	var files []string
+	files := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if e.IsDir() {
 			continue

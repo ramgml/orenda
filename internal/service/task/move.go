@@ -624,9 +624,7 @@ func (s *Service) checkDependencyCycles(ctx context.Context, taskID string, prop
 				continue
 			}
 			seen[cur] = true
-			for _, next := range edges[cur] {
-				stack = append(stack, next)
-			}
+			stack = append(stack, edges[cur]...)
 		}
 	}
 	return nil
@@ -781,13 +779,7 @@ func (s *Service) MirrorSave(ctx context.Context, tr *task.Task) {
 		its, _ := s.Tasks.ListChecklistItems(ctx, r.ID)
 		conv := make([]task.ChecklistItem, 0, len(its))
 		for _, it := range its {
-			conv = append(conv, task.ChecklistItem{
-				ID:          it.ID,
-				ChecklistID: it.ChecklistID,
-				Title:       it.Title,
-				Done:        it.Done,
-				Position:    it.Position,
-			})
+			conv = append(conv, task.ChecklistItem(it))
 		}
 		itemsByList[r.ID] = conv
 	}
