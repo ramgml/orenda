@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/ramgml/orenda/internal/api"
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
@@ -20,7 +22,6 @@ import (
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
-	"go.uber.org/zap"
 )
 
 // benchRouter builds a router with a pre-authenticated user.
