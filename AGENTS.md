@@ -159,7 +159,7 @@ A task is done or not done — "almost done" is not done. Phases here have been 
 - ❌ Don't commit `data/` contents (gitignored).
 - ❌ Don't edit the main working tree directly — worktree per task, always. Other agents may hold uncommitted work there; they don't know about you either.
 - ❌ Don't run `git checkout` / `git reset` / `git clean` / `git restore` in a checkout you didn't create.
-- ❌ Don't push to remote without explicit user request.
+- ❌ Don't push `dev`, `main` or any other shared/long-lived branch to remote without explicit user request. Pushing your own `task-*` branch to open or update a PR is the normal flow — it needs no separate permission.
 - ❌ Don't bypass git hooks with `git commit --no-verify` or `git push --no-verify`. Use `SKIP_ORENDA_HOOKS=1` only for explicit, named exceptions and surface them in the PR.
 - ❌ Don't wait on GitHub Actions for a PR into `dev` — PR-to-dev is intentionally silent (wiki:ci-local-gates-hooks). Open the PR, submit, claim next task.
 - ❌ Don't report unverified or incomplete work as done. Partial delivery is reported as partial, with the missing items named — see «Definition of Done is binary».
@@ -186,7 +186,7 @@ A task is done or not done — "almost done" is not done. Phases here have been 
 
 - `main` — stable releases only. Tagged `vX.Y.Z`. No direct commits.
 - `dev` — active development. Default branch for feature work.
-- `task-123-short-slug` — feature branches off `dev`. One branch per task; `123` is the task's human number (`tasks.number`), the slug is 2–4 words.
+- `task-123-short-slug` — feature branches off `origin/dev` (fetch first; never off local `dev`). One branch per task; `123` is the task's human number (`tasks.number`), the slug is 2–4 words.
 - Merge to `dev` after review. Tag phase milestone: `git tag v0.1.0-phaseX`.
 - Promote to `main` via PR from `dev` when ready. Tag release: `git tag vX.Y.Z`.
 - See `CHANGELOG.md` for versioning policy and release notes.
@@ -196,9 +196,11 @@ A task is done or not done — "almost done" is not done. Phases here have been 
 Agents run in parallel and **cannot see each other**. You cannot know whether another agent is working right now — assume there is always one. Therefore every task, even a one-file docs change, gets its own worktree. The main checkout is someone else's live workspace.
 
 ```bash
-# Start of task: branch + worktree off dev, nested under .worktrees/
-# (123 = task number, slug = 2–4 words)
-git worktree add .worktrees/task-123-short-slug -b task-123-short-slug dev
+# Start of task: fetch, then branch + worktree off origin/dev, nested under
+# .worktrees/ (123 = task number, slug = 2–4 words). Base is origin/dev,
+# NEVER local dev — remote moves ahead with every merged PR.
+git fetch origin
+git worktree add .worktrees/task-123-short-slug -b task-123-short-slug origin/dev
 
 # ...work in .worktrees/task-123-short-slug...
 
@@ -214,6 +216,8 @@ Rules:
 
 - **The main checkout is read-only for you.** No edits there; no `git checkout` / `git reset` / `git clean` / `git restore` in any checkout you didn't create. Inspecting files read-only is fine.
 - One branch = one worktree. A branch cannot be checked out in two places; create the task branch with `git worktree add -b`.
+- **Base is `origin/dev`, never local `dev`.** Fetch before branching: remote `dev` moves ahead with every merged PR, and a stale base re-fights already-merged work (lint batches, features) in review.
+- **Local `dev` is a fast-forward-only mirror of `origin/dev`.** No direct commits to it — from anyone, docs included; direct commits strand work invisibly (2026-08-19 incident: remote `dev` was 33 ahead while local silently held 4 stranded commits, and `dev` had no upstream so `git status` showed no drift). Sync is an explicit maintenance act in the main checkout: `git fetch origin && git switch dev && git pull --ff-only`. If the pull is not a fast-forward, local `dev` holds stranded commits — land them via PR first, then sync. One-time fix: `git branch --set-upstream-to=origin/dev dev` so ahead/behind shows in `git status`.
 - Placement: **always nested `.worktrees/<task>`** — never a sibling `../` directory next to the repo. This is safe **only because** `.worktrees/` is in `.gitignore`: the leading dot keeps Go tooling out (`go test ./...` skips dot-dirs) and gitignore keeps `git add -A`, search and watchers clean. Any other location is forbidden: sibling checkouts pollute the shared parent directory seen by every project and agent, and an unignored nested checkout breaks the main tree (embedded-repo index garbage, duplicate module builds, watcher storms).
 - Gitignored content is not copied. In a fresh worktree run `npm install` in `web/` and `./bin/orenda migrate up` (each worktree gets its own `data/orenda.db`).
 - **Ports:** `:2137` is reserved for the usage/dogfood systemd instance (from `~/opt/orenda`). `:2138` is the dev default (`make dev`); `:21371` is E2E. Don't run two instances on the same port; pick one or set `ORENDA_SERVER__PORT` to something free. Phase 28.20 split these so dev and usage can co-exist.
