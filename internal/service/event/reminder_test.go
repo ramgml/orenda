@@ -32,6 +32,14 @@ func (f *fakeRepo) GetByID(_ context.Context, id string) (*task.Task, error) {
 	}
 	return nil, task.ErrNotFound
 }
+func (f *fakeRepo) GetByNumber(_ context.Context, number int) (*task.Task, error) {
+	for _, t := range f.tasks {
+		if t.Number == number {
+			return t, nil
+		}
+	}
+	return nil, task.ErrNotFound
+}
 func (f *fakeRepo) ListByProject(context.Context, task.Filter) ([]*task.Task, error) {
 	return nil, nil
 }

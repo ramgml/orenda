@@ -173,6 +173,13 @@ export interface ProjectBoard {
 export interface Task {
   id: string;
   /**
+   * Human-readable sequential task number (`#123`). Assigned by the
+   * server on creation and stable for the task's lifetime — agents and
+   * humans reference tasks by it in conversation. `0` means the row
+   * predates numbering; the UI hides the chip in that case.
+   */
+  number: number;
+  /**
    * Phase 16: empty string is a valid value — represents a task in
    * the Inbox (project_id IS NULL). Use the dedicated /inbox/tasks
    * endpoint to list those, or filter by project_id="" client-side.

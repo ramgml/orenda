@@ -81,10 +81,10 @@ Example MCP client config (Claude Code mcpServers):
 				token = os.Getenv("ORENDA_AGENT_TOKEN")
 			}
 			if url == "" {
-				return fmt.Errorf("mcp-proxy: --url (or ORENDA_URL) is required")
+				return fmt.Errorf("mcp-proxy: --url (or the ORENDA_URL env var) is required; mcp-proxy does not read the agent config file")
 			}
 			if token == "" {
-				return fmt.Errorf("mcp-proxy: --token (or ORENDA_AGENT_TOKEN) is required")
+				return fmt.Errorf("mcp-proxy: --token (or the ORENDA_AGENT_TOKEN env var) is required; mcp-proxy does not read the agent config file")
 			}
 			if inHTTP {
 				return runHTTPProxy(cmd.Context(), url, token)

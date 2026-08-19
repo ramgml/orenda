@@ -39,7 +39,11 @@ func claimTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		taskID := chi.URLParam(r, "id")
+		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if rerr != nil {
+			writeResolveError(w, rerr)
+			return
+		}
 		tr, err := deps.TaskService.Claim(r.Context(), taskID, req.AgentID)
 		if err != nil {
 			if errors.Is(err, taskservice.ErrLockTaken) {
@@ -156,7 +160,12 @@ func releaseTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		tr, err := deps.TaskService.Release(r.Context(), chi.URLParam(r, "id"), req.AgentID)
+		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if rerr != nil {
+			writeResolveError(w, rerr)
+			return
+		}
+		tr, err := deps.TaskService.Release(r.Context(), taskID, req.AgentID)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -185,7 +194,12 @@ func submitTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		tr, err := deps.TaskService.Submit(r.Context(), chi.URLParam(r, "id"), req.AgentID, req.Note)
+		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if rerr != nil {
+			writeResolveError(w, rerr)
+			return
+		}
+		tr, err := deps.TaskService.Submit(r.Context(), taskID, req.AgentID, req.Note)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -228,7 +242,12 @@ func reviewTaskHandler(deps *Dependencies) http.HandlerFunc {
 		if id, ok := IdentityFrom(r.Context()); ok {
 			userID = id.UserID
 		}
-		tr, err := deps.TaskService.Review(r.Context(), chi.URLParam(r, "id"), userID,
+		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if rerr != nil {
+			writeResolveError(w, rerr)
+			return
+		}
+		tr, err := deps.TaskService.Review(r.Context(), taskID, userID,
 			taskservice.ReviewDecision(req.Decision), req.Comment)
 		if err != nil {
 			writeError(w, err)
@@ -516,7 +535,13 @@ func listTaskActivityHandler(deps *Dependencies) http.HandlerFunc {
 func getTaskContextHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		taskID := chi.URLParam(r, "id")
+		// Accepts the UUID or the human reference ("#42"/"42"); the
+		// snapshot below keys comments/activity/children off the UUID.
+		taskID, rerr := resolveTaskRef(ctx, deps, chi.URLParam(r, "id"))
+		if rerr != nil {
+			writeResolveError(w, rerr)
+			return
+		}
 		tr, err := deps.Tasks.GetByID(ctx, taskID)
 		if err != nil {
 			writeError(w, err)

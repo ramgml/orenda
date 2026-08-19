@@ -57,6 +57,11 @@ type Repository interface {
 	// GetByID returns the task with the given id or ErrNotFound.
 	GetByID(ctx context.Context, id string) (*Task, error)
 
+	// GetByNumber returns the task with the given human-readable
+	// number (the "#42" reference) or ErrNotFound. Numbers are
+	// assigned sequentially at Create and never reused.
+	GetByNumber(ctx context.Context, number int) (*Task, error)
+
 	// ListByProject returns tasks matching f, ordered by column position.
 	ListByProject(ctx context.Context, f Filter) ([]*Task, error)
 
