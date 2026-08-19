@@ -1804,16 +1804,18 @@ paths:
           name: limit
           schema: { type: integer, default: 100 }
       responses: { '200': { description: ok } }
-    # Phase 33.1: agent proposes a NEW task. Lands as status=backlog +
-    # awaiting=human, so it appears in the existing review queue
-    # (awaiting='human' OR status='review') for human triage.
-    # Accept = kanban-move to todo (clears awaiting via Service.Move);
-    # dismiss = DELETE /api/v1/tasks/{id}. Activity row task.created is
-    # written with actor_type=agent; a task.created event is published
-    # on the WS topic `tasks`.
+    # Phase 33.1 + 33.3: agent proposes a NEW task. Lands as
+    # status=backlog + awaiting=none on the backlog column so the
+    # owner can triage it on the kanban (drag to todo / in_progress
+    # / done). The task is NOT added to the review queue — the
+    # queue is reserved for agent-submitted work (status=review).
+    # Accept = kanban move to a real-work column; dismiss = DELETE
+    # /api/v1/tasks/{id}. Activity row task.created is written with
+    # actor_type=agent; a task.created event is published on the WS
+    # topic `tasks`.
     post:
       tags: [agent]
-      summary: Propose a new task (status=backlog, awaiting=human — human triages from the review queue).
+      summary: Propose a new task (lands in backlog, awaiting=none; owner triages on the board by moving to todo).
       security: [{ bearerAuth-agent: [] }]
       requestBody:
         required: true
@@ -1830,7 +1832,7 @@ paths:
                 blocked_by: { type: array, items: { type: string } }
                 parent_task_id: { type: string }
       responses:
-        '201': { description: created (backlog, awaiting=human) }
+        '201': { description: created (backlog, awaiting=none) }
         '400': { description: invalid_json / invalid_input (missing project_id, title or description_md) }
         '401': { description: missing or invalid agent token }
         '404': { description: not_found (unknown project / parent_task_id / blocked_by id) }

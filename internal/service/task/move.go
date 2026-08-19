@@ -265,13 +265,14 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 		}
 	}
 
-	// Phase 33.1: dragging an awaiting=human card to a non-review
-	// column means the human just acted on it (accepting an
-	// agent-proposed backlog task onto the board, or pulling a review
-	// card somewhere else). Clear the wait flag so the task leaves
-	// GET /review-queue and becomes claimable via
-	// /agent/tasks?ready=true. Cards moved INTO the review column
-	// keep/set their awaiting via the review flow, not here.
+	// Phase 33.1 + 33.3: defensive clearing of awaiting=human on a
+	// move to a non-review column. The propose handler no longer
+	// stamps awaiting=human (Phase 33.3: backlog tasks are triaged on
+	// the board, not in the review queue), so this branch is
+	// effectively only hit by legacy rows and by user-created
+	// awaiting=human cards. Keeping the logic intact is the right
+	// call — it's the safety net for any existing awaiting=human row
+	// that gets dragged onto the board.
 	if tr.Awaiting == task.AwaitingHuman && tr.Status != task.StatusReview {
 		tr.Awaiting = task.AwaitingNone
 	}
