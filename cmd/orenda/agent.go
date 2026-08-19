@@ -28,7 +28,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -64,7 +63,8 @@ func resolveAgentCtx(cmd *cobra.Command) (*agentCtx, error) {
 		token = os.Getenv("ORENDA_AGENT_TOKEN")
 	}
 	if baseURL == "" || token == "" {
-		// Fall back to the config file (only if both are missing).
+		// Fall back to the config file whenever either value is
+		// still missing — flags and env win per-field over the file.
 		path, err := agentConfigPath()
 		if err == nil {
 			cfg, err := loadAgentConfig(path)
@@ -78,11 +78,18 @@ func resolveAgentCtx(cmd *cobra.Command) (*agentCtx, error) {
 			}
 		}
 	}
-	if baseURL == "" {
-		return nil, errors.New("orenda agent: --url (or ORENDA_URL) is required")
-	}
-	if token == "" {
-		return nil, errors.New("orenda agent: --token (or ORENDA_AGENT_TOKEN) is required")
+	if baseURL == "" || token == "" {
+		// Mention the config file path in the error so a fresh
+		// machine knows where to put the credentials instead of
+		// hunting for the token across the filesystem.
+		cfgHint, err := agentConfigPath()
+		if err != nil {
+			cfgHint = "~/.config/orenda/agent.yaml"
+		}
+		if baseURL == "" {
+			return nil, fmt.Errorf("orenda agent: --url (or ORENDA_URL, or url: in %s) is required", cfgHint)
+		}
+		return nil, fmt.Errorf("orenda agent: --token (or ORENDA_AGENT_TOKEN, or token: in %s) is required", cfgHint)
 	}
 	return &agentCtx{BaseURL: baseURL, Token: token}, nil
 }
