@@ -457,11 +457,29 @@ paths:
         '404': { description: not found }
     patch:
       tags: [projects]
-      summary: Update project fields (name/color/description/archived).
+      summary: Update project fields (name/color/description/wiki_slug/archived).
+      description: |
+        Pointer fields: nil leaves the column alone; non-nil replaces.
+        wiki_slug must reference an existing wiki page (422 on miss);
+        empty string unlinks the project. Whitespace around the slug
+        is trimmed server-side.
       security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                color: { type: string }
+                description: { type: string }
+                wiki_slug: { type: string, description: "Slug of an existing wiki page; empty → unlink." }
+                archived: { type: boolean }
       responses:
         '200': { description: ok }
         '404': { description: not found }
+        '422': { description: wiki_slug_not_found }
     delete:
       tags: [projects]
       summary: Delete project (cascades to boards/columns/tasks).
@@ -1830,18 +1848,24 @@ paths:
   /api/v1/agent/projects/{id}:
     get:
       tags: [agent]
-      summary: Read a project (full row) with an agent token.
+      summary: Read a project (full row incl. wiki_slug) with an agent token.
       security: [{ bearerAuth-agent: [] }]
       responses:
         '200': { description: ok }
         '404': { description: not found }
     patch:
       tags: [agent]
-      summary: Update the project description (v1 description-only).
+      summary: Update description and / or wiki_slug on behalf of the agent.
       description: |
-        Writes a project_activity row (kind=description_changed,
-        before/after diff payload, actor_type=agent) and publishes a
-        'projects' WebSocket event. Empty-string description clears it.
+        Pointer fields: nil leaves the column alone; non-nil replaces.
+        wiki_slug must reference an existing wiki page (422 on miss);
+        empty string unlinks the project. Description accepts any
+        string including "" (clears it). Each changed field produces
+        a project_activity row (description_changed / wiki_slug_changed)
+        with a before/after diff payload, plus a single 'projects'
+        WebSocket event so the UI refreshes without a reload.
+        name / color / archived are user-only and intentionally NOT
+        accepted here even if sent.
       security: [{ bearerAuth-agent: [] }]
       requestBody:
         required: true
@@ -1851,10 +1875,12 @@ paths:
               type: object
               properties:
                 description: { type: string }
+                wiki_slug: { type: string, description: "Slug of an existing wiki page; empty → unlink." }
       responses:
         '200': { description: ok }
         '400': { description: invalid_json }
-        '404': { description: not found }
+        '404': { description: not_found }
+        '422': { description: wiki_slug_not_found }
 
   /api/v1/agent/tasks:
     get:

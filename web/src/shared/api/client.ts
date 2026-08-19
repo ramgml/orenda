@@ -132,6 +132,14 @@ export interface Project {
   name: string;
   color: string;
   description?: string;
+  /**
+   * wiki:project-wiki-link. Slug of the wiki page that holds the
+   * project's documentation (постановка, decision log, roadmap
+   * slice). Empty / undefined means no link — the project header
+   * hides the "Open wiki" button in that case. Setting an unknown
+   * slug returns 422 from the user/agent PATCH.
+   */
+  wiki_slug?: string;
   owner_id: string;
   archived: boolean;
   created_at: string;
@@ -411,7 +419,13 @@ class ApiClient {
 
   updateProject(
     projectId: string,
-    input: Partial<{ name: string; color: string; description: string; archived: boolean }>,
+    input: Partial<{
+      name: string;
+      color: string;
+      description: string;
+      wiki_slug: string;
+      archived: boolean;
+    }>,
   ): Promise<Project> {
     return this.http.patch<Project>(`/api/v1/projects/${projectId}`, input).then((r) => r.data);
   }

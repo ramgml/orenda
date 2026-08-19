@@ -25,11 +25,16 @@ const (
 	// PATCH is unchanged and writes no project_activity row in v1
 	// per the wiki scope note).
 	ActivityDescriptionChanged ActivityKind = "description_changed"
+	// ActivityWikiSlugChanged is recorded when an agent PATCHes the
+	// project's wiki_slug (wiki:project-wiki-link). The user-cookie
+	// PATCH writes the same row too — both surfaces are read by the
+	// same audit feed and the diff is symmetric.
+	ActivityWikiSlugChanged ActivityKind = "wiki_slug_changed"
 )
 
 // IsValid reports whether k belongs to the closed set above.
 func (k ActivityKind) IsValid() bool {
-	return k == ActivityDescriptionChanged
+	return k == ActivityDescriptionChanged || k == ActivityWikiSlugChanged
 }
 
 // ActorType enumerates who caused an activity row. Same shape as
