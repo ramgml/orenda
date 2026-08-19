@@ -88,13 +88,13 @@ func withRouteParam2(r *http.Request, value string) *http.Request {
 // to repeat the boilerplate.
 func seedPropose(t *testing.T, deps *Dependencies, agentID, courseID, title string) *study.Proposal {
 	t.Helper()
-	p, err := deps.StudyService.Propose(context.Background(), agentID, studysvc.ProposeInput{
+	res, err := deps.StudyService.Propose(context.Background(), agentID, studysvc.ProposeInput{
 		CourseID:   courseID,
 		Title:      title,
 		TargetDate: "2099-08-17",
 	})
 	require.NoError(t, err)
-	return p
+	return res.Proposal
 }
 
 // TestListStudyProposals_HappyPath — the Dashboard tray reads the

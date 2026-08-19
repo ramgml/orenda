@@ -1,7 +1,11 @@
 # Session Snapshot — 2026-08-17 (смержено: фазы 0–26 + Wave 4 + 27.1–27.11 + 27.8.4 + 28.1–28.21 + Phase 10 subphase (Test send UI) + Phase 15 (close-out); «Полировка» + 28.19 + 28.20 + Phase 10 Test send + Phase 15 close-out + 28.21 ops-hardening + 28.22 backend sweep + 28.23 frontend foundations + Phase 29 + Phase 30 реестр целиком (последняя — 30.13) + Phase 31 целиком (31.1–31.11) закрыты; открытых задач нет)
 
+> **❄️ Заморожено 2026-08-18 (Phase 32.6).** Актуальный бэклог — dogfood-инстанс
+> http://127.0.0.1:2137, проект «Orenda dev» (конвенция `docs/DOGFOOD.md`).
+> **Сюда не пишем.** Файл — исторический снапшот сессий.
+
 > Файл для восстановления контекста сессии — исторический снапшот.
-> **С 2026-08-17 (Phase 32.4) это больше НЕ входная точка агента:** из «Key files to read first» в AGENTS.md и из `instructions` в opencode.json файл убран; очередь работ и контекст — в dogfood-инстансе по `docs/DOGFOOD.md`. До заморозки (Phase 32.6) сюда ещё пишутся закрытия фаз.
+> **С 2026-08-17 (Phase 32.4) это больше НЕ входная точка агента:** из «Key files to read first» в AGENTS.md и из `instructions` в opencode.json файл убран; очередь работ и контекст — в dogfood-инстансе по `docs/DOGFOOD.md`. С 2026-08-18 (Phase 32.6) файл заморожен — закрытия фаз сюда больше не пишутся.
 
 ## Аудит PLAN.md (2026-08-12) — Phase 26 завершён
 

@@ -26,6 +26,17 @@ fi
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+# Git exports GIT_DIR & friends into the hook environment. Anything we
+# spawn that shells out to git (go test ./... — e.g. internal/backup tests
+# running `git init --bare` in a tmpdir — inherits them and silently writes
+# into THIS repo's shared .git/config: core.bare=true, origin=<tmpdir>,
+# user=test@…). That corruption has already bricked the main checkout once.
+# Drop the whole GIT_* surface before make; the checks below only need a
+# clean worktree repo, which git re-discovers from the cwd.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_NAMESPACE \
+      GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+      GIT_QUARANTINE_PATH GIT_PREFIX GIT_CEILING_DIRECTORIES
+
 # A push from a brand-new worktree may not have origin/dev fetched yet.
 # `make lint-new` resolves origin/dev at run-time; if it's missing, fetch
 # it now so the first push on a new worktree still gates cleanly.

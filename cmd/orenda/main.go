@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -51,8 +52,8 @@ import (
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
 	courseservice "github.com/ramgml/orenda/internal/service/course"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
-	"github.com/ramgml/orenda/internal/service/notifier"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
+	projectservice "github.com/ramgml/orenda/internal/service/project"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
 	studyservice "github.com/ramgml/orenda/internal/service/study"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
@@ -63,7 +64,6 @@ import (
 	activitydomain "github.com/ramgml/orenda/internal/domain/activity"
 	attachmentdomain "github.com/ramgml/orenda/internal/domain/attachment"
 	commentdomain "github.com/ramgml/orenda/internal/domain/comment"
-	taskdomain "github.com/ramgml/orenda/internal/domain/task"
 )
 
 // apiAttachmentResult aliases api.AttachmentResult so the adapter below
@@ -82,7 +82,7 @@ type sqliteTokenMinterAdapter struct {
 	repo *sqlite.APITokenRepo
 }
 
-func (a sqliteTokenMinterAdapter) MintToken(ctx context.Context, userID, name, hash, scopesJSON string, expiresAt *time.Time) (string, string, error) {
+func (a sqliteTokenMinterAdapter) MintToken(ctx context.Context, userID, name, hash, scopesJSON string, expiresAt *time.Time) (tokenID, tokenName string, err error) {
 	row, err := a.repo.Create(ctx, userID, name, hash, scopesJSON, expiresAt)
 	if err != nil {
 		return "", "", err
@@ -184,7 +184,7 @@ func int64ToString(v int64) string {
 // we need, and the projection is cheaper than a second type.
 func findTelegramSubscriber(
 	ctx context.Context,
-	repo notifier.SubscriptionRepository,
+	repo notifierservice.SubscriptionRepository,
 	chatID int64,
 ) string {
 	addr := int64ToString(chatID)
@@ -218,7 +218,7 @@ func taskRecorderFor(r *activityservice.Recorder) taskservice.Recorder {
 // backupFailedAdapter bridges the notifier service to the backup
 // scheduler's FailureNotifier seam. Phase Wave 4 PR 2: every
 // background-job error fans out a `backup.failed` event with the
-// op name (git_push / sqlite_snapshot / wal_archive) as the dedup
+// op name (git_push / sqlite_snapshot / wal_checkpoint) as the dedup
 // key suffix so a single stuck op doesn't spam the inbox.
 type backupFailedAdapter struct{ svc *notifierservice.Service }
 
@@ -259,12 +259,13 @@ type taskOwnerResolverAdapter struct {
 	users    user.Repository
 }
 
-func (a taskOwnerResolverAdapter) OwnerForTask(ctx context.Context, taskID string) (string, string, error) {
+func (a taskOwnerResolverAdapter) OwnerForTask(ctx context.Context, taskID string) (ownerID, taskTitle string, err error) {
 	if a.tasks == nil || taskID == "" {
 		return "", "", nil
 	}
 	tr, err := a.tasks.GetByID(ctx, taskID)
 	if err != nil || tr == nil {
+		//nolint:nilerr // deliberate: a failed owner lookup must not fail the write path — notifications are skipped instead.
 		return "", "", nil
 	}
 	// Inbox tasks (project_id empty) have no recipient — Phase 16.
@@ -276,6 +277,7 @@ func (a taskOwnerResolverAdapter) OwnerForTask(ctx context.Context, taskID strin
 	}
 	p, err := a.projects.GetProject(ctx, tr.ProjectID)
 	if err != nil || p == nil {
+		//nolint:nilerr // deliberate: a failed owner lookup must not fail the write path — notifications are skipped instead.
 		return "", "", nil
 	}
 	return p.OwnerID, tr.Title, nil
@@ -310,7 +312,7 @@ var pendingNotifier *backup.Scheduler
 // Hub / Recorder already wired in main.go so live subscribers see
 // the task immediately.
 type courseTaskCreatorAdapter struct {
-	tasksRepo taskdomain.Repository
+	tasksRepo task.Repository
 	db        *sql.DB
 	hub       ws.Hub
 	recorder  courseTaskActivityRecorder
@@ -327,15 +329,15 @@ type courseTaskActivityRecorder interface {
 }
 
 func (a courseTaskCreatorAdapter) CreateGeneratorTask(ctx context.Context, ownerID, courseID, title, intentMD string) (string, error) {
-	t := &taskdomain.Task{
+	t := &task.Task{
 		Title:     fmt.Sprintf("Build curriculum for: %s", title),
 		ContextMD: fmt.Sprintf("course_id=%s\nintent=%s\n", courseID, intentMD),
-		Status:    taskdomain.StatusTodo,
-		Priority:  taskdomain.PriorityMedium,
-		Awaiting:  taskdomain.AwaitingAgent,
+		Status:    task.StatusTodo,
+		Priority:  task.PriorityMedium,
+		Awaiting:  task.AwaitingAgent,
 		// ProjectID left empty — Phase 16 inbox cards float until
 		// the agent (or the user) files them under a project.
-		AssigneeType: taskdomain.AssigneeType("user"),
+		AssigneeType: task.AssigneeType("user"),
 		AssigneeID:   ownerID,
 	}
 	if err := a.tasksRepo.Create(ctx, t); err != nil {
@@ -353,13 +355,13 @@ func (a courseTaskCreatorAdapter) CreateQuizReviewTask(ctx context.Context, owne
 	if err != nil {
 		return "", err
 	}
-	t := &taskdomain.Task{
+	t := &task.Task{
 		Title:        fmt.Sprintf("Review quiz answer: %s / %s", lessonTitle, quizTitle),
 		ContextMD:    fmt.Sprintf("quiz_id=%s\nlesson_id=%s\nanswer=%s\n", quizID, lessonID, answer),
-		Status:       taskdomain.StatusTodo,
-		Priority:     taskdomain.PriorityMedium,
-		Awaiting:     taskdomain.AwaitingAgent,
-		AssigneeType: taskdomain.AssigneeType("user"),
+		Status:       task.StatusTodo,
+		Priority:     task.PriorityMedium,
+		Awaiting:     task.AwaitingAgent,
+		AssigneeType: task.AssigneeType("user"),
 		AssigneeID:   ownerID,
 	}
 	if err := a.tasksRepo.Create(ctx, t); err != nil {
@@ -374,7 +376,7 @@ func (a courseTaskCreatorAdapter) CreateQuizReviewTask(ctx context.Context, owne
 // (Phase 27.9). Errors are swallowed on purpose — best-effort
 // observability for a row that already lives in the DB; surfacing
 // would risk failing a successful course operation.
-func (a courseTaskCreatorAdapter) notifyCreated(ctx context.Context, t *taskdomain.Task, ownerID, source string) {
+func (a courseTaskCreatorAdapter) notifyCreated(ctx context.Context, t *task.Task, ownerID, source string) {
 	if a.hub != nil {
 		a.hub.Publish(ctx, ws.Event{
 			Topic: "tasks",
@@ -426,14 +428,14 @@ func (a courseTaskCreatorAdapter) CompleteTask(ctx context.Context, taskID, note
 	if err != nil {
 		// Already gone or never existed — treat as best-effort
 		// success so the course swap can commit.
-		if errors.Is(err, taskdomain.ErrNotFound) {
+		if errors.Is(err, task.ErrNotFound) {
 			return nil
 		}
 		return fmt.Errorf("course.CompleteTask: load: %w", err)
 	}
 	now := time.Now().UTC()
-	t.Status = taskdomain.StatusDone
-	t.Awaiting = taskdomain.AwaitingNone
+	t.Status = task.StatusDone
+	t.Awaiting = task.AwaitingNone
 	t.CompletedAt = &now
 	if note != "" {
 		if t.ContextMD != "" {
@@ -516,6 +518,26 @@ func identitySourceFromAPI(ctx context.Context) (coursedomain.ActorType, string,
 	return "", "", false
 }
 
+// projectIdentitySourceFromAPI is the IdentitySource the project
+// activity recorder uses (wiki:agent-project-description). Same
+// shape as identitySourceFromAPI but returns the project domain's
+// ActorType. v1 only the agent-namespace PATCH writes rows, but the
+// recorder resolves the actor generically so a future user-side
+// write path produces correct rows without handler changes.
+func projectIdentitySourceFromAPI(ctx context.Context) (project.ActorType, string, bool) {
+	id, present := api.IdentityFrom(ctx)
+	if !present {
+		return "", "", false
+	}
+	if id.UserID != "" {
+		return project.ActorUser, id.UserID, true
+	}
+	if id.AgentID != "" {
+		return project.ActorAgent, id.AgentID, true
+	}
+	return "", "", false
+}
+
 // version is set by -ldflags at build time.
 var version = "0.1.0-dev"
 
@@ -558,6 +580,70 @@ func newRootCmd() *cobra.Command {
 // ----------------------------------------------------------------------------
 // serve
 // ----------------------------------------------------------------------------
+
+// applyStartupBackupSettings merges any persisted operator
+// overrides from the backup_settings table into the live
+// `*backup.Service`. Phase 32.7 closes the "cold start resets
+// schedule to YAML default" surprise that the Phase 28.9 design
+// shipped for URL/auth — the cron expression and rotation days
+// now survive process restarts. We read the three relevant keys
+// directly off the DB and call UpdateConfig with the merged
+// result; failures are logged but non-fatal so a corrupt
+// settings row can't keep the server from booting.
+//
+// URL/auth are deliberately not touched here: Phase 28.9 chose
+// "YAML wins on cold start" for those two (a deliberate scope
+// decision that's out of scope for this task). The merge below
+// covers exactly the two knobs Phase 32.7 added to the UI form.
+func applyStartupBackupSettings(ctx context.Context, svc *backup.Service, db *sql.DB, logger *zap.Logger) {
+	if svc == nil || db == nil {
+		return
+	}
+	repo := sqlite.NewBackupSettingsRepository(db)
+	cfg := svc.Config()
+	updated := cfg
+
+	if raw, ok, err := repo.GetByKey(ctx, "snapshot_cron"); err == nil && ok {
+		s, _ := jsonStringFromRepo(raw)
+		if s != "" {
+			if _, perr := backup.Parse(s); perr == nil {
+				updated.SnapshotCron = s
+			} else {
+				logger.Warn("ignoring unparseable persisted snapshot_cron; falling back to start-time config",
+					zap.String("expr", s), zap.Error(perr))
+			}
+		}
+	} else if err != nil {
+		logger.Warn("failed to read persisted snapshot_cron", zap.Error(err))
+	}
+	if raw, ok, err := repo.GetByKey(ctx, "snapshot_rotation_days"); err == nil && ok {
+		var n int
+		if uerr := json.Unmarshal(raw, &n); uerr == nil && n >= 0 {
+			updated.SnapshotRotationDays = n
+		}
+	} else if err != nil {
+		logger.Warn("failed to read persisted snapshot_rotation_days", zap.Error(err))
+	}
+
+	if updated.SnapshotCron != cfg.SnapshotCron || updated.SnapshotRotationDays != cfg.SnapshotRotationDays {
+		svc.UpdateConfig(updated)
+		logger.Info("applied persisted backup settings",
+			zap.String("snapshot_cron", updated.SnapshotCron),
+			zap.Int("snapshot_rotation_days", updated.SnapshotRotationDays))
+	}
+}
+
+// jsonStringFromRepo is the local helper for pulling a JSON
+// string back out of the BackupSettingsRepository's blob. The
+// repository guarantees the input is valid JSON (the Set path
+// validates) so the only failure is "the value isn't a string",
+// which we return as "". Mirrors api.jsonString — duplicated
+// here so cmd/orenda doesn't reach into internal/api.
+func jsonStringFromRepo(raw json.RawMessage) (string, error) {
+	var s string
+	err := json.Unmarshal(raw, &s)
+	return s, err
+}
 
 func newServeCmd() *cobra.Command {
 	return &cobra.Command{
@@ -633,6 +719,19 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		if err := os.MkdirAll(cfg.Backup.SnapshotDir, 0o755); err != nil {
 			return fmt.Errorf("backup snapshot dir: %w", err)
 		}
+		// Phase 32.7: validate the cron expression at startup. A
+		// bad expression in config.yaml used to silently fall
+		// back to the scheduler's hard-coded default (Phase 7.5
+		// never even read the YAML value); now it's wired into
+		// the live cfg and the scheduler reads it on every
+		// iteration. We refuse to start rather than schedule on
+		// a default the operator didn't ask for — the typo is
+		// cheaper to fix than the surprise.
+		if cfg.Backup.SQLiteSnapshotCron != "" {
+			if _, err := backup.Parse(cfg.Backup.SQLiteSnapshotCron); err != nil {
+				return fmt.Errorf("backup.sqlite_snapshot_cron: %w", err)
+			}
+		}
 		mirrorSvc = mirror.New(cfg.Backup.MirrorDir)
 		backupSvc = backup.New(backup.Config{
 			MirrorDir:            cfg.Backup.MirrorDir,
@@ -641,7 +740,22 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			RemoteURL:            cfg.Backup.RemoteURL,
 			RemoteAuth:           cfg.Backup.RemoteAuth,
 			SnapshotRotationDays: cfg.Backup.SnapshotRotationDays,
+			SnapshotCron:         cfg.Backup.SQLiteSnapshotCron,
 		}, db)
+		// Phase 32.7: merge persisted DB overrides into the
+		// live config BEFORE the scheduler goroutine starts so
+		// the snapshot loop's first iteration already sees the
+		// operator-saved schedule (the previous Phase 28.9
+		// design only merged on PUT — restart reset URL/auth to
+		// the YAML default, a known surprise that's now closed
+		// for the cron/rotation pair). The repo is constructed
+		// below alongside the rest of the dependencies, so we
+		// can't reuse Dependencies here; instead we read the
+		// rows directly off the DB and call UpdateConfig with
+		// the merged result. Failures are logged but not fatal
+		// — a corrupted settings row shouldn't keep the server
+		// from booting.
+		applyStartupBackupSettings(cmd.Context(), backupSvc, db, logger)
 		scheduler := backup.NewScheduler(backupSvc)
 		go scheduler.Run(cmd.Context())
 		logger.Info("backup scheduler started",
@@ -682,6 +796,15 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// ListByTarget already exists; we just expose it through the
 	// same seam.
 	taskSvc.CommentLister = commentSvc
+
+	// wiki:agent-project-description — project activity feed. Wire the
+	// recorder so the agent-namespace PATCH /agent/projects/{id} writes
+	// project_activity rows (kind=description_changed + before/after
+	// diff). IdentitySource reads from api.Identity (the same key the
+	// auth middleware uses) so the row carries actor_type=agent.
+	projectActivityRepo := sqlite.NewProjectActivityRepository(db)
+	projectActivityRecorder := projectservice.NewActivityRecorder(projectActivityRepo)
+	projectActivityRecorder.IdentitySource = projectIdentitySourceFromAPI
 
 	// Agent service — Register, Heartbeat, SweepOffline. Exposed
 	// through /api/v1/agents (REST) and /api/v1/agent/* (namespace)
@@ -917,11 +1040,17 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		Courses:            courseRepo,
 		CourseService:      courseSvc,
 		CourseActivityRepo: courseActivityRepo,
+		// wiki:agent-project-description — write side for project_activity
+		// rows. The agent-namespace PATCH /agent/projects/{id} emits a
+		// description_changed row through this seam.
+		ProjectActivityRecorder: projectActivityRecorder,
 		// Phase 31: study service wires the user-side accept/dismiss
 		// + the agent-side propose. nil-safe in handlers (they check
 		// before calling) but the production binary must wire it
 		// here or every study endpoint returns 503.
 		StudyService: studySvc,
+		// Phase 32.11: dashboard chat thread persistence.
+		ChatMessages: sqlite.NewChatMessageRepository(db),
 		Notifier:     notifierSvc,
 		Backup:       backupSvc,
 		// Phase 28.1 polish.1: UI-editable override repo. PUT
@@ -1090,7 +1219,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 // absCfg is currently unused; the parameter is kept so future versions can
 // resolve paths relative to the config file when needed (e.g. if the
 // operator installs Orenda in /opt but runs from /home/me).
-func cwdOr(_ string, fallback string) string {
+func cwdOr(_, fallback string) string {
 	wd, err := os.Getwd()
 	if err != nil || wd == "" {
 		return fallback

@@ -127,7 +127,13 @@ var (
 // unified the legacy events table into tasks). A task can be on the
 // calendar, on the kanban, or both.
 type Task struct {
-	ID            string       `json:"id"`
+	ID string `json:"id"`
+	// Number is the human-readable sequential id ("#42"). Assigned by
+	// the storage layer on Create from the task_number_seq high-
+	// watermark; never reused after a delete. The agent surface (REST
+	// /agent/tasks/{id}/*, CLI, MCP) resolves "#42"/"42" through this
+	// column — see ParseRefNumber and Repository.GetByNumber.
+	Number        int          `json:"number"`
 	ProjectID     string       `json:"project_id"`
 	ParentTaskID  string       `json:"parent_task_id,omitempty"`
 	ColumnID      string       `json:"column_id,omitempty"`
@@ -169,7 +175,7 @@ type Task struct {
 	// progress" without a per-card fetch. Always optional — GET
 	// /tasks/{id} doesn't set them; the handlers that wrap
 	// ListByProject do. The card UI treats absent values as "0".
-	Counters *TaskCounters `json:"counters,omitempty"`
+	Counters *Counters `json:"counters,omitempty"`
 
 	// Phase 15: number of unfinished blockers. Same optional
 	// lifecycle — only set by list endpoints that join with
@@ -200,10 +206,10 @@ type Task struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// TaskCounters is the bundle of per-task counts the kanban card
+// Counters is the bundle of per-task counts the kanban card
 // renders. Phase 17 aggregates them in a single SQL query so the
 // card render doesn't fan out into per-row fetches.
-type TaskCounters struct {
+type Counters struct {
 	Comments       int `json:"comments"`
 	Attachments    int `json:"attachments"`
 	ChildrenTotal  int `json:"children_total"`

@@ -1,4 +1,4 @@
-// Package api — Phase 33.1: agent-side task creation.
+// Package api — Phase 33.1 + 33.3: agent-side task creation.
 //
 //	POST /api/v1/agent/tasks — the agent proposes a NEW task.
 //
@@ -6,10 +6,18 @@
 // not executable by agents: the user-side create endpoint sits under
 // RequireUser (cookie), so a bearer token got 401. This handler is
 // the agent-namespace twin: it creates a REAL task (no new table,
-// no new status) that lands as status=backlog + awaiting=human, so
-// it shows up in the existing review queue (awaiting='human' OR
-// status='review') for human triage. Accept = a plain kanban move
-// to todo (clears awaiting, see Service.Move); dismiss = delete.
+// no new status) that lands as status=backlog + awaiting=none, on
+// the backlog column so it is visible on the kanban. The owner
+// triages it on the board: a drag to a real-work column (todo /
+// in_progress / done) clears awaiting via Service.Move and the task
+// becomes claimable by agents; dismiss = DELETE /api/v1/tasks/{id}.
+//
+// Phase 33.3 dropped awaiting=human on propose: the review queue is
+// now reserved for agent-submitted work (status=review), not for
+// backlog triage. Backlog tasks are still NOT claimable from
+// /api/v1/agent/tasks (the listing filters to Status=todo) — the
+// agent can only pick them up after the owner drags them out of
+// backlog.
 package api
 
 import (
@@ -97,6 +105,11 @@ func agentCreateTaskHandler(deps *Dependencies) http.HandlerFunc {
 			}
 		}
 
+		// Phase 33.3: await=none by default — the owner's triage surface
+		// for a proposed task is the kanban backlog, not the review
+		// queue (which is now reserved for agent-submitted work). task.Validate
+		// fills Awaiting=none when the field is left empty, so we just
+		// don't set it here.
 		tr := &task.Task{
 			ProjectID:    in.ProjectID,
 			ParentTaskID: in.ParentTaskID,
@@ -104,12 +117,11 @@ func agentCreateTaskHandler(deps *Dependencies) http.HandlerFunc {
 			Description:  in.DescriptionMD,
 			Status:       task.StatusBacklog,
 			Priority:     prio,
-			Awaiting:     task.AwaitingHuman,
 		}
 		// Land on the board's backlog column so the card is visible in
-		// the kanban, not just in the review queue. A project without a
-		// backlog-status column leaves the card off-board (same
-		// best-effort contract as syncColumnToStatus).
+		// the kanban for triage. A project without a backlog-status
+		// column leaves the card off-board (same best-effort contract
+		// as syncColumnToStatus).
 		if col, err := deps.Projects.FindColumnByStatus(r.Context(), in.ProjectID, string(task.StatusBacklog)); err == nil && col != nil {
 			tr.ColumnID = col.ID
 		}

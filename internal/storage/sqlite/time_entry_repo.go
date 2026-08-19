@@ -113,6 +113,7 @@ func (r *timeEntryRepo) FindOpen(ctx context.Context, agentID string) (*timeentr
 	row := r.db.QueryRowContext(ctx, q, agentID)
 	te, err := scanTimeEntry(row)
 	if errors.Is(err, timeentry.ErrNotFound) {
+		//nolint:nilnil // Find-semantics: no open entry is a normal outcome; callers branch on nil.
 		return nil, nil
 	}
 	if err != nil {

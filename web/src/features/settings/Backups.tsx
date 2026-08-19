@@ -6,6 +6,14 @@ import {
   type BackupSettings,
   type BackupSnapshot,
 } from '@/shared/api/client';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/shared/ui/dialog';
 
 /**
  * /settings/backups — backup configuration + manual actions + history.
@@ -14,7 +22,9 @@ import {
  * truth); Phase 9 adds a real "edit remote" form; Phase 22 closes
  * the restore loop with an in-process button (maintenance mode +
  * force=true) so the operator doesn't have to ssh to the host and
- * run the CLI command by hand.
+ * run the CLI command by hand. Phase 32.7 adds the cron schedule +
+ * rotation days fields to the same Save form, hot-reloaded by the
+ * server without a restart.
  */
 export function BackupsSettingsPage(): JSX.Element {
   const [settings, setSettings] = useState<BackupSettings | null>(null);
@@ -45,6 +55,11 @@ export function BackupsSettingsPage(): JSX.Element {
   const [formEnabled, setFormEnabled] = useState(false);
   const [formRemoteUrl, setFormRemoteUrl] = useState('');
   const [formRemoteAuth, setFormRemoteAuth] = useState('');
+  // Phase 32.7: schedule + rotation form fields. The server
+  // validates the cron expr at PUT time; the UI doesn't try to
+  // parse client-side — surfacing the server's 400 is enough.
+  const [formSnapshotCron, setFormSnapshotCron] = useState('');
+  const [formRotationDays, setFormRotationDays] = useState(30);
   const [savingSettings, setSavingSettings] = useState(false);
 
   // We only want the form to mirror the server state on the *initial*
@@ -72,6 +87,12 @@ export function BackupsSettingsPage(): JSX.Element {
         // Don't pre-fill the auth field — it's a secret, the
         // backend never returns it.
         setFormRemoteAuth('');
+        // Phase 32.7: pre-fill schedule + rotation from the
+        // server's merge (DB > in-memory default). Empty cron
+        // means "operator never set one" — pre-fill with the
+        // hard-coded default so the form has something visible.
+        setFormSnapshotCron(s.snapshot_cron || '0 3 * * *');
+        setFormRotationDays(s.snapshot_rotation_days);
         setFormInitialized(true);
       }
     } catch (e) {
@@ -203,12 +224,12 @@ export function BackupsSettingsPage(): JSX.Element {
     }
   }
 
-  // Editable settings form (Phase 28.1 polish.1). Pre-28.1 the
-  // settings panel was a `<dl>` — operators had to ssh to the host
-  // and edit config.yaml to add a remote. Now the same panel
-  // doubles as a Save form; the running `*backup.Service` doesn't
-  // pick up the change (it was wired at startup), but the next
-  // process reload does. The source_hint banner makes that visible.
+  // Editable settings form (Phase 28.1 polish.1 + Phase 32.7).
+  // Pre-28.1 the settings panel was a `<dl>` — operators had to
+  // ssh to the host and edit config.yaml to add a remote. Now the
+  // same panel doubles as a Save form. Phase 28.9 made the
+  // remote/url/auth trio hot-reload; Phase 32.7 extends the same
+  // hot-reload contract to the cron schedule and rotation days.
   function onSaveSettings(): void {
     if (!settings) return;
     setSavingSettings(true);
@@ -219,15 +240,21 @@ export function BackupsSettingsPage(): JSX.Element {
         enabled: formEnabled,
         remote_url: formRemoteUrl,
         remote_auth: formRemoteAuth,
+        // Phase 32.7: pass the new fields through. The server
+        // validates the cron expr (5-field UTC, no @macros) and
+        // rejects negative rotation days with 400 — the catch
+        // below surfaces those messages verbatim.
+        snapshot_cron: formSnapshotCron.trim(),
+        snapshot_rotation_days: formRotationDays,
       })
       .then((fresh) => {
         setSettings(fresh);
-        // Phase 28.9: the live service mirrors the new settings
-        // via atomic.Pointer[Config]; the next push tick (or the
-        // manual "Test push now" button below) hits the new URL
-        // without restarting the process. Update the banner to
-        // reflect that.
-        setInfo('Settings saved. The next push will use the new remote.');
+        // Phase 32.7: the snapshot loop reads cfg.SnapshotCron
+        // each iteration, so the new schedule is in effect within
+        // at most one fire interval. We don't promise "instant"
+        // — a schedule change from "every minute" to "daily
+        // 03:00" can land the next fire at tomorrow's 03:00.
+        setInfo('Settings saved. The next snapshot will use the new schedule.');
         // Clear the auth field — we don't want to keep the secret
         // in component state after a save.
         setFormRemoteAuth('');
@@ -294,6 +321,45 @@ export function BackupsSettingsPage(): JSX.Element {
                   settings.has_auth ? '•••• (configured — leave blank to keep)' : 'optional'
                 }
                 autoComplete="off"
+                className="w-full mt-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono"
+              />
+            </label>
+            {/* Phase 32.7: snapshot schedule + rotation. The cron
+                expression is the same 5-field format the rest of
+                the Unix world uses (minute, hour, day-of-month,
+                month, day-of-week); the server validates it at
+                PUT time and rejects bad input with 400. UTC by
+                convention — the form's help text spells this out
+                so an operator in a non-UTC TZ doesn't get
+                surprised when their "daily 03:00" lands on the
+                wrong wall-clock hour. */}
+            <label className="block">
+              <span className="text-xs text-slate-500">
+                Snapshot schedule (cron, UTC) — e.g. <code className="font-mono">0 3 * * *</code>{' '}
+                for daily at 03:00, <code className="font-mono">*/15 * * * *</code> for every 15
+                minutes
+              </span>
+              <input
+                type="text"
+                data-testid="settings-snapshot-cron"
+                value={formSnapshotCron}
+                onChange={(e) => setFormSnapshotCron(e.target.value)}
+                placeholder="0 3 * * *"
+                spellCheck={false}
+                className="w-full mt-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs text-slate-500">
+                Snapshot rotation (days) — 0 = keep forever
+              </span>
+              <input
+                type="number"
+                min={0}
+                step={1}
+                data-testid="settings-rotation-days"
+                value={formRotationDays}
+                onChange={(e) => setFormRotationDays(parseInt(e.target.value, 10) || 0)}
                 className="w-full mt-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono"
               />
             </label>
@@ -410,15 +476,17 @@ export function BackupsSettingsPage(): JSX.Element {
       </div>
 
       {restoreTarget && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-lg w-full p-5 space-y-3">
-            <h3 className="font-semibold text-lg">Restore from snapshot</h3>
-            <p className="text-sm text-slate-600 dark:text-slate-300">
-              Snapshot:{' '}
-              <code className="px-1 bg-slate-100 dark:bg-slate-800 rounded text-xs break-all">
-                {restoreTarget.path}
-              </code>
-            </p>
+        <Dialog open onOpenChange={(open) => !open && closeRestore()}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Restore from snapshot</DialogTitle>
+              <DialogDescription>
+                Snapshot:{' '}
+                <code className="px-1 bg-slate-100 dark:bg-slate-800 rounded text-xs break-all">
+                  {restoreTarget.path}
+                </code>
+              </DialogDescription>
+            </DialogHeader>
             <p className="text-sm">Orenda holds the live database open. Two ways to restore:</p>
             <ul className="text-sm space-y-1 list-disc pl-5">
               <li>
@@ -445,7 +513,7 @@ export function BackupsSettingsPage(): JSX.Element {
                 {copied ? 'Copied' : 'Copy'}
               </button>
             </div>
-            <div className="flex justify-end gap-2 pt-1">
+            <DialogFooter>
               <button
                 type="button"
                 onClick={closeRestore}
@@ -463,9 +531,9 @@ export function BackupsSettingsPage(): JSX.Element {
               >
                 {busy === 'restore' ? 'Restoring…' : 'Restore in this window'}
               </button>
-            </div>
-          </div>
-        </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
     </section>
   );

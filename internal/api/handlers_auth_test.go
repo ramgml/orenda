@@ -107,7 +107,7 @@ func loginRouter(users user.Repository, signer *auth.Signer, cookieName string, 
 	return mux
 }
 
-func seedOwner(t *testing.T, repo *pwUserRepo, password string) *user.User {
+func seedOwner(t *testing.T, repo *pwUserRepo, password string) {
 	t.Helper()
 	hash, err := auth.HashPassword(password, 4) // cost 4 keeps the test fast
 	require.NoError(t, err)
@@ -119,7 +119,6 @@ func seedOwner(t *testing.T, repo *pwUserRepo, password string) *user.User {
 		PasswordHash: hash,
 	}
 	require.NoError(t, repo.Create(t.Context(), u))
-	return u
 }
 
 func TestLogin_CookieAttributes(t *testing.T) {

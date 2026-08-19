@@ -119,8 +119,8 @@ func maintenanceToggleHandler(action string) http.HandlerFunc {
 // integrity_check + foreign_key_check. Mirrors the CLI's
 // runBackupRestoreWithVerify pipeline. Best-effort: we don't
 // surface a typed error — just a summary string.
-func runMaintenanceVerify(dbPath string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func runMaintenanceVerify(ctx context.Context, dbPath string) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	db, err := sqlite.Open(ctx, dbPath, sqlite.OpenConfig{
 		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,

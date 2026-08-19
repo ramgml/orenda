@@ -90,7 +90,7 @@ func newTestBotFixture(t *testing.T) *testBotFixture {
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
 		Email:        "testbot@x.com",
-		PasswordHash: mustHashFast(t, "hunter2!"),
+		PasswordHash: mustHashFast(t),
 		DisplayName:  "TB",
 	}))
 
@@ -224,7 +224,7 @@ func TestBotsTestHandler_BotNotRegistered(t *testing.T) {
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
 		Email:        "nobots@x.com",
-		PasswordHash: mustHashFast(t, "hunter2!"),
+		PasswordHash: mustHashFast(t),
 		DisplayName:  "NB",
 	}))
 	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
@@ -345,7 +345,7 @@ func TestBotsTestHandler_RegistryNotWired(t *testing.T) {
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
 		Email:        "noreg@x.com",
-		PasswordHash: mustHashFast(t, "hunter2!"),
+		PasswordHash: mustHashFast(t),
 		DisplayName:  "NR",
 	}))
 	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")

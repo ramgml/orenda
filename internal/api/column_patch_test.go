@@ -54,7 +54,7 @@ func columnDeps(t *testing.T) colFixtures {
 	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
 
 	users := sqlite.NewUserRepository(db)
-	u := &user.User{Email: "col@x.com", PasswordHash: mustHashFast(t, "hunter2!"), DisplayName: "C"}
+	u := &user.User{Email: "col@x.com", PasswordHash: mustHashFast(t), DisplayName: "C"}
 	require.NoError(t, users.Create(context.Background(), u))
 
 	hub := ws.NewHub()
@@ -212,7 +212,7 @@ func TestPatchColumn_BroadcastsColumnUpdated(t *testing.T) {
 	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
 
 	users := sqlite.NewUserRepository(db)
-	u := &user.User{Email: "col2@x.com", PasswordHash: mustHashFast(t, "hunter2!"), DisplayName: "C2"}
+	u := &user.User{Email: "col2@x.com", PasswordHash: mustHashFast(t), DisplayName: "C2"}
 	require.NoError(t, users.Create(context.Background(), u))
 
 	hub := ws.NewHub()

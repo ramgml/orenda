@@ -105,13 +105,14 @@ func TestToday_Proposals_SurfacesPending(t *testing.T) {
 		"c-today", "Rust", "u-today")
 	require.NoError(t, err)
 
-	p, err := deps.StudyService.Propose(ctx, "a-planner", studysvc.ProposeInput{
+	res, err := deps.StudyService.Propose(ctx, "a-planner", studysvc.ProposeInput{
 		CourseID:   "c-today",
 		Title:      "Read chapter 5",
 		BodyMD:     "rust-book chapter 5",
 		TargetDate: "2099-08-17",
 	})
 	require.NoError(t, err)
+	p := res.Proposal
 
 	resp := loadToday(t, deps)
 	require.Len(t, resp.Proposals, 1)

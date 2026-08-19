@@ -67,6 +67,10 @@ linters-settings:
     locale: ru,en
 
 issues:
+  # node_modules ships third-party Go files (e.g. flatted's wasm helper)
+  # that `./...` would otherwise scan; they are npm deps, not our code.
+  exclude-dirs:
+    - web/node_modules
   exclude-rules:
     # Tests can use package-level helpers liberally.
     - path: _test\.go

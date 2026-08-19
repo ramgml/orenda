@@ -599,7 +599,9 @@ When you're new to the codebase:
 
 For AI agents and contributed PRs:
 
-1. Read `docs/PLAN.md` for the phase definition you're working on.
+1. Read the task in the dogfood instance (see `docs/DOGFOOD.md`);
+   `docs/PLAN.md` is a frozen archive of phases ≤ 32 — useful as
+   historical context for a phase you touch, not a work queue.
 2. Read this file (`docs/ARCHITECTURE.md`) for the surrounding
    constraints.
 3. Skim `docs/CONTEXT.md` for the product vocabulary (kanban,

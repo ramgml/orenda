@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -11,10 +12,36 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ramgml/orenda/internal/api"
+	"github.com/ramgml/orenda/internal/domain/user"
 )
 
+// noSuchUserRepo is a user.Repository that returns ErrNotFound for
+// every lookup. The rate-limit tests use it so the login handler
+// has something dereferable on deps.Users — otherwise it panics
+// on the first request and the test fails for the wrong reason
+// (panic instead of rate-limit assertion). The handler still
+// responds 401 (invalid_credentials), which is all the rate-limit
+// tests need to observe the burst window.
+//
+// We embed the user.Repository interface so future methods added
+// to the interface compile here without immediate changes — the
+// panic-on-Nil path is still gated behind the test's own setup.
+type noSuchUserRepo struct{ user.Repository }
+
+func (noSuchUserRepo) GetByEmail(context.Context, string) (*user.User, error) {
+	return nil, user.ErrNotFound
+}
+
+// withRateLimitDeps returns a Dependencies wired with the bare
+// minimum for the rate-limit tests: a nil-safe users repo. Other
+// fields stay nil — the rate-limit tests only hit /api/v1/auth/login
+// (and /api/v1/info / /healthz, which don't touch deps).
+func withRateLimitDeps() *api.Dependencies {
+	return &api.Dependencies{Users: noSuchUserRepo{}}
+}
+
 func TestSecurityHeaders_AreSet(t *testing.T) {
-	router := api.NewRouter(&api.Dependencies{})
+	router := api.NewRouter(withRateLimitDeps())
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -31,7 +58,7 @@ func TestSecurityHeaders_AreSet(t *testing.T) {
 // Policy directive: "font-src 'self'"` in DevTools. We extend with
 // data: and blob: which is safe — fonts can't inject script.
 func TestSecurityHeaders_FontSrcAllowsBlobAndData(t *testing.T) {
-	router := api.NewRouter(&api.Dependencies{})
+	router := api.NewRouter(withRateLimitDeps())
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -53,7 +80,7 @@ func TestSecurityHeaders_FontSrcAllowsBlobAndData(t *testing.T) {
 // because some legacy browsers still need `style="..."` inline on
 // individual DOM elements. Tightening further is a separate change.
 func TestSecurityHeaders_StyleSrcNoUnsafeInline(t *testing.T) {
-	router := api.NewRouter(&api.Dependencies{})
+	router := api.NewRouter(withRateLimitDeps())
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -73,7 +100,7 @@ func TestSecurityHeaders_StyleSrcNoUnsafeInline(t *testing.T) {
 // either inlining them with explicit hashes or wrapping via a
 // nonce-aware render pass.
 func TestSecurityHeaders_ScriptSrcSelfOnly(t *testing.T) {
-	router := api.NewRouter(&api.Dependencies{})
+	router := api.NewRouter(withRateLimitDeps())
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -89,7 +116,7 @@ func TestSecurityHeaders_ScriptSrcSelfOnly(t *testing.T) {
 }
 
 func TestRateLimit_Anonymous429(t *testing.T) {
-	router := api.NewRouter(&api.Dependencies{})
+	router := api.NewRouter(withRateLimitDeps())
 
 	// Flood /api/v1/info (no auth, low anon burst).
 	// The default burst is 60 with 20/sec refill; send 100 quickly.
@@ -109,7 +136,7 @@ func TestRateLimit_Anonymous429(t *testing.T) {
 }
 
 func TestRateLimit_HealthzSkipped(t *testing.T) {
-	router := api.NewRouter(&api.Dependencies{})
+	router := api.NewRouter(withRateLimitDeps())
 	for i := 0; i < 200; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 		rr := httptest.NewRecorder()
@@ -124,8 +151,12 @@ func TestRateLimit_HealthzSkipped(t *testing.T) {
 // unlimited password attempts. Previously login sat in SkipPaths "for
 // E2E convenience" — E2E overrides the limits via ORENDA_RATELIMIT_*,
 // so the skip was unnecessary. Pin the new behaviour.
+//
+// Uses a noSuchUserRepo so the login handler returns 401 (invalid
+// credentials) instead of NPE'ing on users.GetByEmail — the test
+// asserts the rate-limit contract, not the login correctness contract.
 func TestRateLimit_LoginNotSkipped(t *testing.T) {
-	router := api.NewRouter(&api.Dependencies{})
+	router := api.NewRouter(withRateLimitDeps())
 
 	var last *httptest.ResponseRecorder
 	for i := 0; i < 100; i++ {

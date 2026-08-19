@@ -200,11 +200,11 @@ type Quiz struct {
 	Kind       QuizKind `json:"kind"`
 }
 
-// CourseTree is the full snapshot returned by GET /courses/{id}.
+// Tree is the full snapshot returned by GET /courses/{id}.
 // Modules in order, each with its lessons in order, each with its
 // quizzes in order. The server pre-bakes this so the UI doesn't
 // fan out per child.
-type CourseTree struct {
+type Tree struct {
 	Course  *Course   `json:"course"`
 	Modules []*Module `json:"modules"`
 	Lessons []*Lesson `json:"lessons"` // flat list, indexed by module_id

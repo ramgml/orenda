@@ -28,13 +28,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -62,7 +63,8 @@ func resolveAgentCtx(cmd *cobra.Command) (*agentCtx, error) {
 		token = os.Getenv("ORENDA_AGENT_TOKEN")
 	}
 	if baseURL == "" || token == "" {
-		// Fall back to the config file (only if both are missing).
+		// Fall back to the config file whenever either value is
+		// still missing — flags and env win per-field over the file.
 		path, err := agentConfigPath()
 		if err == nil {
 			cfg, err := loadAgentConfig(path)
@@ -76,11 +78,18 @@ func resolveAgentCtx(cmd *cobra.Command) (*agentCtx, error) {
 			}
 		}
 	}
-	if baseURL == "" {
-		return nil, errors.New("orenda agent: --url (or ORENDA_URL) is required")
-	}
-	if token == "" {
-		return nil, errors.New("orenda agent: --token (or ORENDA_AGENT_TOKEN) is required")
+	if baseURL == "" || token == "" {
+		// Mention the config file path in the error so a fresh
+		// machine knows where to put the credentials instead of
+		// hunting for the token across the filesystem.
+		cfgHint, err := agentConfigPath()
+		if err != nil {
+			cfgHint = "~/.config/orenda/agent.yaml"
+		}
+		if baseURL == "" {
+			return nil, fmt.Errorf("orenda agent: --url (or ORENDA_URL, or url: in %s) is required", cfgHint)
+		}
+		return nil, fmt.Errorf("orenda agent: --token (or ORENDA_AGENT_TOKEN, or token: in %s) is required", cfgHint)
 	}
 	return &agentCtx{BaseURL: baseURL, Token: token}, nil
 }
@@ -113,11 +122,11 @@ func loadAgentConfig(path string) (*agentConfig, error) {
 
 // agentGet issues a GET against the agent namespace and returns the
 // raw JSON body. Caller decodes.
-func (a *agentCtx) agentGet(ctx context.Context, path string) ([]byte, int, error) {
+func (a *agentCtx) agentGet(ctx context.Context, path string) (body []byte, status int, err error) {
 	return a.do(ctx, http.MethodGet, path, nil)
 }
 
-func (a *agentCtx) agentPost(ctx context.Context, path string, body any) ([]byte, int, error) {
+func (a *agentCtx) agentPost(ctx context.Context, path string, body any) (respBody []byte, status int, err error) {
 	var rdr io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -129,11 +138,11 @@ func (a *agentCtx) agentPost(ctx context.Context, path string, body any) ([]byte
 	return a.doRaw(ctx, http.MethodPost, path, rdr, "application/json")
 }
 
-func (a *agentCtx) do(ctx context.Context, method, path string, body io.Reader) ([]byte, int, error) {
+func (a *agentCtx) do(ctx context.Context, method, path string, body io.Reader) (respBody []byte, status int, err error) {
 	return a.doRaw(ctx, method, path, body, "")
 }
 
-func (a *agentCtx) doRaw(ctx context.Context, method, path string, body io.Reader, contentType string) ([]byte, int, error) {
+func (a *agentCtx) doRaw(ctx context.Context, method, path string, body io.Reader, contentType string) (respBody []byte, status int, err error) {
 	u, err := url.Parse(a.BaseURL)
 	if err != nil {
 		return nil, 0, fmt.Errorf("bad base url: %w", err)
@@ -186,6 +195,18 @@ func printJSON(cmd *cobra.Command, v any) error {
 	return nil
 }
 
+// printTaskRefHeader prints a human "#N  title  (uuid)" line so the
+// operator sees the task's human number next to its id. Suppressed
+// under -json (scripts read the same fields from the payload) and
+// when the server predates task numbers (number <= 0).
+func printTaskRefHeader(cmd *cobra.Command, number int, title, id string) {
+	jsonFlag, _ := cmd.Flags().GetBool("json")
+	if jsonFlag || number <= 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "#%d  %s  (%s)\n", number, title, id)
+}
+
 // newAgentCmd wires the `orenda agent` subcommand tree.
 func newAgentCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -203,6 +224,10 @@ Workflow shape:
   orenda agent submit <task-id>       # mark ready for human review
   orenda agent release <task-id>      # drop a claim
   orenda agent await                   # long-poll for the next event
+
+<task-id> accepts the UUID or the human number: "42" or "#42"
+(tasks carry a sequential number alongside the UUID — it is what
+branch names, commit messages and PR titles reference).
 
 Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
 ~/.config/orenda/agent.yaml.`,
@@ -227,6 +252,7 @@ Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
 	cmd.AddCommand(newAgentSearchCmd())
 	cmd.AddCommand(newAgentCoursesCmd())
 	cmd.AddCommand(newAgentStudyProposeCmd())
+	cmd.AddCommand(newAgentPRWatchCmd())
 	return cmd
 }
 
@@ -280,8 +306,9 @@ func newAgentNextCmd() *cobra.Command {
 			var resp struct {
 				Tasks []struct {
 					Task struct {
-						ID    string `json:"id"`
-						Title string `json:"title"`
+						ID     string `json:"id"`
+						Number int    `json:"number"`
+						Title  string `json:"title"`
 					} `json:"task"`
 					Ready bool `json:"ready"`
 				} `json:"tasks"`
@@ -302,6 +329,7 @@ func newAgentNextCmd() *cobra.Command {
 				os.Exit(2)
 			}
 			// Print the candidate, then claim it.
+			printTaskRefHeader(cmd, first.Task.Number, first.Task.Title, first.Task.ID)
 			if err := printJSON(cmd, first); err != nil {
 				return err
 			}
@@ -419,7 +447,7 @@ func newAgentProposeCmd() *cobra.Command {
 
 func newAgentContextCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "context <task-id>",
+		Use:   "context <task-id|#N>",
 		Short: "Fetch the full task context (task + comments + activity + children + checklists)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -435,6 +463,18 @@ func newAgentContextCmd() *cobra.Command {
 			if code != http.StatusOK {
 				return fmt.Errorf("agent context: HTTP %d: %s", code, raw)
 			}
+			// Header line carries the human number next to the UUID;
+			// the full snapshot follows as JSON.
+			var env struct {
+				Task struct {
+					ID     string `json:"id"`
+					Number int    `json:"number"`
+					Title  string `json:"title"`
+				} `json:"task"`
+			}
+			if err := json.Unmarshal(raw, &env); err == nil {
+				printTaskRefHeader(cmd, env.Task.Number, env.Task.Title, env.Task.ID)
+			}
 			var v any
 			if err := json.Unmarshal(raw, &v); err != nil {
 				return err
@@ -446,7 +486,7 @@ func newAgentContextCmd() *cobra.Command {
 
 func newAgentClaimCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "claim <task-id>",
+		Use:   "claim <task-id|#N>",
 		Short: "Claim a task for the agent (409 if held, 422 if blocked)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -473,7 +513,7 @@ func newAgentClaimCmd() *cobra.Command {
 
 func newAgentReleaseCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "release <task-id>",
+		Use:   "release <task-id|#N>",
 		Short: "Release a claim held by the agent",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -501,7 +541,7 @@ func newAgentReleaseCmd() *cobra.Command {
 func newAgentSubmitCmd() *cobra.Command {
 	var note string
 	cmd := &cobra.Command{
-		Use:   "submit <task-id>",
+		Use:   "submit <task-id|#N>",
 		Short: "Mark a claimed task ready for human review",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -534,7 +574,7 @@ func newAgentSubmitCmd() *cobra.Command {
 
 func newAgentCommentCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "comment <task-id> <body>",
+		Use:   "comment <task-id|#N> <body>",
 		Short: "Add a comment to a task (markdown is supported)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -565,6 +605,30 @@ func newAgentCommentCmd() *cobra.Command {
 	}
 }
 
+// newAgentPRWatchCmd — Phase 32.10 pr-watch helper. The harness
+// agent polls GitHub (via the `gh` CLI) for PR events and uses
+// this subcommand to leave a trace on the linked Orenda task. The
+// flow is intentionally one-shot per call — the harness is
+// responsible for the polling loop (every N minutes, per task).
+//
+// Why polling via `gh` instead of a GitHub webhook:
+//   - Local-first install behind NAT — can't accept inbound webhooks.
+//   - `gh` is already in the harness's toolchain (it manages the
+//     dogfood's repo today).
+//   - One-shot CLI is composable; the harness can run it from any
+//     scheduler, sidecar, or cron.
+//
+// Wire shape:
+//
+//	orenda agent pr-watch <task-id> [--repo owner/name] [--dry]
+//
+// Behaviour:
+//  1. Fetch the task via /api/v1/agent/tasks/{id}/context.
+//  2. Parse a PR number from the description (formats: "closes #N",
+//     "refs #N", "PR: <owner/name>#N", or a bare "<owner/name>#N").
+//     First match wins; explicit --repo + --number override.
+//  3. Run `gh pr view <number> --repo <repo> --json state,title,headRefName,mergeCommit`.
+//  4. Build a markdown status line and POST it via
 func newAgentAwaitCmd() *cobra.Command {
 	var timeoutSecs int
 	cmd := &cobra.Command{
@@ -922,4 +986,135 @@ func newAgentStudyProposeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&bodyMD, "body-md", "", "optional markdown body")
 	cmd.Flags().StringVar(&targetDate, "target-date", "", "YYYY-MM-DD (required)")
 	return cmd
+}
+
+// newAgentPRWatchCmd — Phase 32.10 "Синхронизация задача ↔ PR".
+//
+// The task description often carries a PR reference ("PR #N", "closes #N",
+// "refs #N", or a bare "#N"). This subcommand reads the task, extracts
+// the PR number, calls `gh pr view` to fetch the current state, and
+// prints a JSON blob the harness can consume to decide whether to
+// post a comment to the task. The harness is responsible for the
+// polling loop and the dedup logic (compare against the last-known
+// PR state it stored locally); orenda doesn't run a daemon.
+//
+// Why a one-shot CLI instead of a server endpoint:
+//   - local-first install behind NAT, no inbound webhooks
+//   - the harness already has `gh` credentials and polls anyway
+//   - a one-shot command is cheap to test and easy to call from cron
+//
+// See wiki:pr-sync for the full decision and the harness-side
+// polling pattern.
+func newAgentPRWatchCmd() *cobra.Command {
+	var (
+		repoFlag string // optional "owner/name"; defaults to gh's auto-detection
+		number   int    // PR number to fetch
+	)
+	cmd := &cobra.Command{
+		Use:   "pr-watch <task-id>",
+		Short: "Fetch the current state of a PR linked to a task (harness-side sync)",
+		Long: `Reads the task, extracts the PR number from its description
+(PR #N / closes #N / refs #N), runs gh pr view, and prints the
+state as JSON. The harness posts a comment to the task when the
+state changes; orenda itself doesn't run a daemon.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			taskID := args[0]
+
+			// Step 1: fetch the task so we can read the description.
+			raw, code, err := ctx.agentGet(cmd.Context(),
+				"/api/v1/agent/tasks/"+taskID+"/context")
+			if err != nil {
+				return fmt.Errorf("pr-watch: get task: %w", err)
+			}
+			if code != http.StatusOK {
+				return fmt.Errorf("pr-watch: HTTP %d: %s", code, raw)
+			}
+			// The context endpoint returns {task, comments, activity,
+			// children, checklists}; we only need the task description.
+			var env struct {
+				Task struct {
+					Description string `json:"description"`
+				} `json:"task"`
+			}
+			if err := json.Unmarshal(raw, &env); err != nil {
+				return fmt.Errorf("pr-watch: decode task: %w", err)
+			}
+
+			// Step 2: extract the PR number from the description if the
+			// caller didn't pass --number. The harness typically
+			// passes --number explicitly (it already parsed the
+			// description to decide this task needs a sync).
+			if number == 0 {
+				n, ok := prNumberFromDescription(env.Task.Description)
+				if !ok {
+					return fmt.Errorf("pr-watch: no PR reference in task description; pass --number to override")
+				}
+				number = n
+			}
+
+			// Step 3: gh pr view --json state,title,number,headRefName,url,mergedAt
+			stateJSON, err := runGHPrView(cmd.Context(), repoFlag, number)
+			if err != nil {
+				return fmt.Errorf("pr-watch: gh pr view: %w", err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(stateJSON, &payload); err != nil {
+				return fmt.Errorf("pr-watch: decode gh output: %w", err)
+			}
+			payload["task_id"] = taskID
+			return printJSON(cmd, payload)
+		},
+	}
+	cmd.Flags().StringVar(&repoFlag, "repo", "", "optional owner/name override (defaults to gh's auto-detection)")
+	cmd.Flags().IntVar(&number, "number", 0, "PR number (extracted from task description when omitted)")
+	return cmd
+}
+
+// prNumberFromDescription pulls the first PR-like reference out of
+// a task description. Supports "PR #N", "closes #N", "refs #N", and
+// a bare "#N". Returns (0, false) when nothing matches.
+//
+// Phase 32.10 deliberately keeps this naive (regex over the whole
+// description, first match wins). The convention enforced by the
+// PR template is "PR #N in the description", so the first #N we
+// see is the right one in practice.
+func prNumberFromDescription(desc string) (int, bool) {
+	re := regexp.MustCompile(`(?i)(?:PR|closes|refs|fixes)\s*#(\d+)|^#(\d+)\b`)
+	m := re.FindStringSubmatch(desc)
+	if m == nil {
+		return 0, false
+	}
+	for _, g := range m[1:] {
+		if g != "" {
+			n, err := strconv.Atoi(g)
+			if err != nil {
+				return 0, false
+			}
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+// runGHPrView shells out to the gh CLI to fetch the PR's current
+// state. Returns the raw JSON. The harness is responsible for
+// configuring gh's auth (this binary doesn't ship creds).
+func runGHPrView(ctx context.Context, repo string, number int) ([]byte, error) {
+	args := []string{"pr", "view", strconv.Itoa(number), "--json",
+		"state,title,number,headRefName,url,mergedAt,additions,deletions,number"}
+	if repo != "" {
+		args = append([]string{"pr", "view", strconv.Itoa(number), "--repo", repo, "--json",
+			"state,title,number,headRefName,url,mergedAt"}, args[6:]...)
+	}
+	cmd := exec.CommandContext(ctx, "gh", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("gh: %w (output: %s)", err, string(out))
+	}
+	return out, nil
 }

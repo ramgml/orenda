@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { api, type Project } from '@/shared/api/client';
+import { api, type Project, type WikiTreeNode } from '@/shared/api/client';
 
 /**
  * /projects/:id/settings — color, description, archive, delete.
@@ -14,6 +14,12 @@ import { api, type Project } from '@/shared/api/client';
  * Phase 16: every project here is a real user project. The old system
  * Inbox project is gone (unfiled tasks live at /inbox), so archive
  * and delete are uniform — no special-casing for a "system" project.
+ *
+ * wiki:project-wiki-link — the Wiki-page field. Autocomplete pulls
+ * from GET /api/v1/pages (the wiki tree) and lets the user pick a
+ * slug; an explicit empty input clears the link. The save round-trips
+ * the slug through PATCH /api/v1/projects/{id}; an unknown slug
+ * surfaces as 422 wiki_slug_not_found and we render it inline.
  */
 export function ProjectSettingsTab(): JSX.Element {
   const { id } = useParams<{ id: string }>();
@@ -23,18 +29,21 @@ export function ProjectSettingsTab(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [color, setColor] = useState('#3b82f6');
   const [description, setDescription] = useState('');
+  const [wikiSlug, setWikiSlug] = useState('');
+  const [wikiSuggestions, setWikiSuggestions] = useState<WikiTreeNode[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
-    api
-      .getProject(id)
-      .then((p) => {
+    Promise.all([api.getProject(id), api.listPages()])
+      .then(([p, pages]) => {
         if (cancelled) return;
         setProject(p);
         setColor(p.color || '#3b82f6');
         setDescription(p.description || '');
+        setWikiSlug(p.wiki_slug || '');
+        setWikiSuggestions(pages.tree);
       })
       .catch((e: unknown) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
@@ -44,6 +53,11 @@ export function ProjectSettingsTab(): JSX.Element {
     };
   }, [id]);
 
+  // Flatten the wiki tree into a slug → title list for the datalist.
+  // Recursive because /api/v1/pages returns a TreeNode[] with
+  // nested children — top-level only would miss deep pages.
+  const wikiOptions = useMemo(() => flattenWikiTree(wikiSuggestions), [wikiSuggestions]);
+
   async function saveBasics(): Promise<void> {
     if (!project) return;
     setBusy(true);
@@ -52,6 +66,7 @@ export function ProjectSettingsTab(): JSX.Element {
       const updated = await api.updateProject(project.id, {
         color,
         description,
+        wiki_slug: wikiSlug,
       });
       setProject(updated);
     } catch (e) {
@@ -143,6 +158,54 @@ export function ProjectSettingsTab(): JSX.Element {
       </section>
 
       <section className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 space-y-3">
+        <h2 className="text-base font-semibold">Wiki page</h2>
+        <p className="text-sm text-slate-500">
+          Link this project to its wiki page (постановка, decision log, roadmap slice). Leave empty
+          to unlink.
+        </p>
+        <input
+          type="text"
+          list="wiki-slug-options"
+          value={wikiSlug}
+          onChange={(e) => setWikiSlug(e.target.value)}
+          placeholder="page-slug"
+          className="w-full px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm font-mono"
+          aria-label="Wiki page slug"
+        />
+        <datalist id="wiki-slug-options">
+          {wikiOptions.map((o) => (
+            <option key={o.slug} value={o.slug}>
+              {o.title}
+            </option>
+          ))}
+        </datalist>
+        {wikiSlug && (
+          <p className="text-xs text-slate-500">
+            Save the page as{' '}
+            <a
+              href={`/pages/${encodeURIComponent(wikiSlug)}`}
+              className="underline text-orenda-600 dark:text-orenda-300"
+              target="_blank"
+              rel="noreferrer"
+            >
+              /pages/{wikiSlug}
+            </a>
+            .
+          </p>
+        )}
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={saveBasics}
+            disabled={busy}
+            className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-sm disabled:opacity-50"
+          >
+            {busy ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      </section>
+
+      <section className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 space-y-3">
         <h2 className="text-base font-semibold">Archive</h2>
         <p className="text-sm text-slate-500">
           Archived projects stay in the list but are hidden from the Kanban view. You can restore
@@ -195,4 +258,19 @@ export function ProjectSettingsTab(): JSX.Element {
       </section>
     </div>
   );
+}
+
+/** flattenWikiTree walks the WikiTreeNode list depth-first, returning a
+ * flat {slug, title} array for the slug autocomplete datalist. */
+function flattenWikiTree(tree: WikiTreeNode[]): { slug: string; title: string }[] {
+  const out: { slug: string; title: string }[] = [];
+  const walk = (nodes: WikiTreeNode[] | undefined): void => {
+    if (!nodes) return;
+    for (const n of nodes) {
+      out.push({ slug: n.page.slug, title: n.page.title });
+      walk(n.children);
+    }
+  };
+  walk(tree);
+  return out;
 }

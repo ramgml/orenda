@@ -101,7 +101,7 @@ func restoreBackupHandler(deps *Dependencies) http.HandlerFunc {
 		// Verify + migrate: open the restored DB and check integrity.
 		// The CLI version already does this end-to-end; the API
 		// version delegates to the same Verify + Migrate flow.
-		if err := runMaintenanceVerify(dbPath); err != nil {
+		if err := runMaintenanceVerify(r.Context(), dbPath); err != nil {
 			MaintenanceOff()
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
 				"error":  "verify_failed",

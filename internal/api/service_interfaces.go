@@ -13,6 +13,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/attachment"
 	"github.com/ramgml/orenda/internal/domain/comment"
+	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 )
 
@@ -89,6 +90,23 @@ type ActivityRecorder interface {
 		actorType activity.ActorType,
 		actorID string,
 		action activity.Action,
+		payload string,
+	) error
+}
+
+// ProjectActivityRecorder is the write surface for project_activity
+// rows that the agent-projects handler fires as a side-effect of a
+// project mutation (wiki:agent-project-description). Mirrors the
+// ActivityRecorder contract: nil-safe in handlers — a missing
+// recorder must NOT fail the user-facing request, just silently skip
+// the side-effect. The concrete implementation is
+// *internal/service/project.ProjectActivityRecorder; defined here so
+// the api package doesn't import the service package.
+type ProjectActivityRecorder interface {
+	RecordProjectAuto(
+		ctx context.Context,
+		projectID string,
+		kind project.ActivityKind,
 		payload string,
 	) error
 }

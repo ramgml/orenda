@@ -4,7 +4,6 @@
 // endpoints so the MCP server is a thin facade — the CLI and the
 // UI use the same HTTP surface, the MCP server adds tool discovery
 // and JSON-RPC framing on top.
-
 package mcp
 
 import (
@@ -57,7 +56,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_list_tasks",
-		Description: "List claimable tasks. ?ready=true filters to unblocked, unclaimed, open tasks (the agent's ready-list).",
+		Description: "List claimable tasks. ?ready=true filters to unblocked, unclaimed, open tasks (the agent's ready-list). Each task carries a human `number` ('#42') alongside its UUID — both forms are accepted wherever a task_id is taken.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -79,7 +78,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_task_propose",
-		Description: "Propose a new task. Lands as status=backlog, awaiting=human — the owner triages it from the review queue (accept = move to todo, dismiss = delete).",
+		Description: "Propose a new task. Lands in status=backlog with awaiting=none — the owner triages it on the kanban board (drag to todo / in_progress / done; dismiss = delete). The task is NOT added to the review queue (which is reserved for agent-submitted work). The task becomes claimable via /api/v1/agent/tasks?ready=true only after the owner drags it out of backlog.",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"project_id", "title", "description_md"},
@@ -132,7 +131,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string"},
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
@@ -151,7 +150,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string"},
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
@@ -170,7 +169,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string"},
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
 				"note":    map[string]any{"type": "string", "description": "Optional note for the human reviewer"},
 			},
 		},
@@ -194,7 +193,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string"},
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
@@ -444,7 +443,7 @@ func stringParam(params map[string]any, key string) string {
 
 // agentGet issues a GET against the agent namespace.
 func agentGet(ctx context.Context, c *http.Client, cfg ServerConfig, path string) (any, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.OrendaBaseURL+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.OrendaBaseURL+path, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -529,7 +528,7 @@ func readBody(resp *http.Response) (any, error) {
 	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		// Not JSON — return raw.
+		//nolint:nilerr // deliberate: a non-JSON payload is a valid result (raw text), not a failure.
 		return string(raw), nil
 	}
 	return v, nil

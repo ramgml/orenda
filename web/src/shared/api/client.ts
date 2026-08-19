@@ -132,6 +132,14 @@ export interface Project {
   name: string;
   color: string;
   description?: string;
+  /**
+   * wiki:project-wiki-link. Slug of the wiki page that holds the
+   * project's documentation (постановка, decision log, roadmap
+   * slice). Empty / undefined means no link — the project header
+   * hides the "Open wiki" button in that case. Setting an unknown
+   * slug returns 422 from the user/agent PATCH.
+   */
+  wiki_slug?: string;
   owner_id: string;
   archived: boolean;
   created_at: string;
@@ -172,6 +180,13 @@ export interface ProjectBoard {
 
 export interface Task {
   id: string;
+  /**
+   * Human-readable sequential task number (`#123`). Assigned by the
+   * server on creation and stable for the task's lifetime — agents and
+   * humans reference tasks by it in conversation. `0` means the row
+   * predates numbering; the UI hides the chip in that case.
+   */
+  number: number;
   /**
    * Phase 16: empty string is a valid value — represents a task in
    * the Inbox (project_id IS NULL). Use the dedicated /inbox/tasks
@@ -411,7 +426,13 @@ class ApiClient {
 
   updateProject(
     projectId: string,
-    input: Partial<{ name: string; color: string; description: string; archived: boolean }>,
+    input: Partial<{
+      name: string;
+      color: string;
+      description: string;
+      wiki_slug: string;
+      archived: boolean;
+    }>,
   ): Promise<Project> {
     return this.http.patch<Project>(`/api/v1/projects/${projectId}`, input).then((r) => r.data);
   }
@@ -1409,6 +1430,15 @@ export interface BackupSettings {
   enabled: boolean;
   remote_url: string;
   has_auth: boolean;
+  /**
+   * Phase 32.7: cron-driven snapshot fire. Operators can edit
+   * from /settings/backups; the server persists and hot-reloads
+   * without a restart. The default ("0 3 * * *" = daily 03:00
+   * UTC) is shown by the form when the persisted value is empty.
+   */
+  snapshot_cron: string;
+  /** Phase 32.7: 0 = keep forever; otherwise days to retain. */
+  snapshot_rotation_days: number;
   updated_at?: string;
   /**
    * Phase 28.1 polish.1: when the UI has overridden the in-memory
@@ -1420,15 +1450,18 @@ export interface BackupSettings {
 }
 
 /**
- * Body shape for `setBackupSettings`. All three are optional so
- * the operator can change one field at a time without us having
- * to round-trip the current state; missing `enabled` keeps the
- * persisted value.
+ * Body shape for `setBackupSettings`. All fields are optional so
+ * the operator can change one at a time without round-tripping the
+ * current state; missing fields keep the persisted value. The
+ * server validates snapshot_cron (5-field cron expression) and
+ * rejects negative snapshot_rotation_days.
  */
 export interface BackupSettingsInput {
   enabled?: boolean;
   remote_url?: string;
   remote_auth?: string;
+  snapshot_cron?: string;
+  snapshot_rotation_days?: number;
 }
 
 export interface BackupSnapshot {

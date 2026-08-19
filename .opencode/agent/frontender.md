@@ -91,9 +91,9 @@ Reindex knowledge graph after code changes: codebase-memory-MCP `index_repositor
 Same rules as backender. Report vitest/E2E counts in your final report (and the task comment in the dogfood instance) — `docs/SESSION.md` is no longer the count tracker (Phase 32 freeze).
 
 1. Verify every DoD item by execution. A test run, a smoke walkthrough, a command whose output you can quote in the PR. "Implemented" and "should work" are not verification.
-2. Report partial as partial. If 4 of 6 DoD items pass, name exactly which 2 are missing and why. A `PLAN.md` checkbox `[x]` only when every item passes.
+2. Report partial as partial. If 4 of 6 DoD items pass, name exactly which 2 are missing and why. A task's DoD turns done only when every item passes.
 3. No silent scope reduction. A blocked/ambiguous/wrong requirement is surfaced (PR or user) — not dropped, stubbed, or deferred to unrecorded "later".
-4. No stubs in delivered code. No `TODO: implement`, no `placeholder`, no `alert('not implemented')`. A deliberately deferred seam goes into `docs/PLAN.md` as a known gap.
+4. No stubs in delivered code. No `TODO: implement`, no `placeholder`, no `alert('not implemented')`. A deliberately deferred seam is filed as a task in the dogfood instance (known gap).
 5. Self-review against the DoD before reporting back. Walk top to bottom; one evidence line per item.
 
 # Mutation check (mirrors Phase 26 DoD)
@@ -102,7 +102,7 @@ For at least one critical flow, invert a real condition in your code (e.g. `t.Du
 
 # Parallel work
 
-You may run in parallel with `backender`. Hot files (`client.ts`, `App.tsx`) — append-only, never refactor a neighbor. If your task and a `backender` task both touch `docs/PLAN.md` (checkbox update), coordinate via commit messages or defer the checkbox to one PR.
+You may run in parallel with `backender`. Hot files (`client.ts`, `App.tsx`) — append-only, never refactor a neighbor. `docs/PLAN.md` is frozen (Phase 32.6): no checkbox updates there, ever.
 
 # Output
 

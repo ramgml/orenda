@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { api, type ReviewQueueItem, type Task } from '@/shared/api/client';
+import { TaskNumberChip } from '@/features/tasks/TaskNumberChip';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 import { Loading } from '@/shared/ui/Loading';
@@ -150,7 +151,9 @@ function ReviewRow({
           <span>·</span>
           <span>{new Date(item.task.updated_at).toLocaleString()}</span>
         </div>
-        <p className="text-slate-800 dark:text-slate-100 mt-1">{item.task.title}</p>
+        <p className="text-slate-800 dark:text-slate-100 mt-1">
+          <TaskNumberChip number={item.task.number} /> <span>{item.task.title}</span>
+        </p>
         {item.task.description && (
           <p className="text-xs text-slate-500 mt-1 line-clamp-2">{item.task.description}</p>
         )}

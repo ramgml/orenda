@@ -244,7 +244,7 @@ func parseSearchTypes(s string) []search.Type {
 }
 
 // parseLimitParam parses an integer query param with min/max clamping.
-func parseLimitParam(s string, def, max int) int {
+func parseLimitParam(s string, def, maxVal int) int {
 	if s == "" {
 		return def
 	}
@@ -258,8 +258,8 @@ func parseLimitParam(s string, def, max int) int {
 	if n < 1 {
 		return def
 	}
-	if n > max {
-		return max
+	if n > maxVal {
+		return maxVal
 	}
 	return n
 }

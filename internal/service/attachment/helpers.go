@@ -26,10 +26,10 @@ func newUUIDLite() string {
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	out := make([]byte, 36)
-	const hex = "0123456789abcdef"
+	const hexDigits = "0123456789abcdef"
 	for i, x := range b {
-		out[i*2] = hex[x>>4]
-		out[i*2+1] = hex[x&0xf]
+		out[i*2] = hexDigits[x>>4]
+		out[i*2+1] = hexDigits[x&0xf]
 		if i == 3 || i == 5 || i == 7 || i == 9 {
 			out[i*2+2] = '-'
 			out[i*2+3] = '-'
@@ -40,7 +40,7 @@ func newUUIDLite() string {
 	const dashes = "----"
 	clean := make([]byte, 0, 36)
 	for i := 0; i < 16; i++ {
-		clean = append(clean, hex[b[i]>>4], hex[b[i]&0xf])
+		clean = append(clean, hexDigits[b[i]>>4], hexDigits[b[i]&0xf])
 		if i == 3 || i == 5 || i == 7 || i == 9 {
 			clean = append(clean, '-')
 		}

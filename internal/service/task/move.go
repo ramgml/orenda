@@ -164,12 +164,12 @@ func (s *Service) lookupColumnForStatus(ctx context.Context, projectID, status s
 // and Move when the user dragged a card to a column with a different
 // status.
 //
-// Returns the new status. The column id is updated in-place on tr
-// (via the repo Update call at the call site), so callers don't
-// need a separate return value to emit a single activity row.
-func (s *Service) syncColumnToStatus(ctx context.Context, tr *task.Task) (newStatus string) {
+// The column id is updated in-place on tr (via the repo Update call
+// at the call site), so callers don't need a separate return value
+// to emit a single activity row.
+func (s *Service) syncColumnToStatus(ctx context.Context, tr *task.Task) {
 	if s.Columns == nil || tr.ProjectID == "" {
-		return string(tr.Status)
+		return
 	}
 	colID := s.lookupColumnForStatus(ctx, tr.ProjectID, string(tr.Status))
 	if colID == "" {
@@ -178,10 +178,9 @@ func (s *Service) syncColumnToStatus(ctx context.Context, tr *task.Task) (newSta
 		// already picked — the status label changes but the visual
 		// position doesn't, which is the right UX for a custom
 		// status without a column.
-		return string(tr.Status)
+		return
 	}
 	tr.ColumnID = colID
-	return string(tr.Status)
 }
 
 // SyncStatusAndColumn is the public surface of the same logic —
@@ -266,13 +265,14 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 		}
 	}
 
-	// Phase 33.1: dragging an awaiting=human card to a non-review
-	// column means the human just acted on it (accepting an
-	// agent-proposed backlog task onto the board, or pulling a review
-	// card somewhere else). Clear the wait flag so the task leaves
-	// GET /review-queue and becomes claimable via
-	// /agent/tasks?ready=true. Cards moved INTO the review column
-	// keep/set their awaiting via the review flow, not here.
+	// Phase 33.1 + 33.3: defensive clearing of awaiting=human on a
+	// move to a non-review column. The propose handler no longer
+	// stamps awaiting=human (Phase 33.3: backlog tasks are triaged on
+	// the board, not in the review queue), so this branch is
+	// effectively only hit by legacy rows and by user-created
+	// awaiting=human cards. Keeping the logic intact is the right
+	// call — it's the safety net for any existing awaiting=human row
+	// that gets dragged onto the board.
 	if tr.Awaiting == task.AwaitingHuman && tr.Status != task.StatusReview {
 		tr.Awaiting = task.AwaitingNone
 	}
@@ -624,9 +624,7 @@ func (s *Service) checkDependencyCycles(ctx context.Context, taskID string, prop
 				continue
 			}
 			seen[cur] = true
-			for _, next := range edges[cur] {
-				stack = append(stack, next)
-			}
+			stack = append(stack, edges[cur]...)
 		}
 	}
 	return nil
@@ -634,7 +632,7 @@ func (s *Service) checkDependencyCycles(ctx context.Context, taskID string, prop
 
 // Submit marks a task as ready for human review (status=review,
 // awaiting=human).
-func (s *Service) Submit(ctx context.Context, taskID, agentID string, note string) (*task.Task, error) {
+func (s *Service) Submit(ctx context.Context, taskID, agentID, note string) (*task.Task, error) {
 	// Verify the agent still holds the lock before flipping the status.
 	if s.Locks != nil {
 		// We don't fail hard on missing lock — Phase 3 schema enforces
@@ -781,13 +779,7 @@ func (s *Service) MirrorSave(ctx context.Context, tr *task.Task) {
 		its, _ := s.Tasks.ListChecklistItems(ctx, r.ID)
 		conv := make([]task.ChecklistItem, 0, len(its))
 		for _, it := range its {
-			conv = append(conv, task.ChecklistItem{
-				ID:          it.ID,
-				ChecklistID: it.ChecklistID,
-				Title:       it.Title,
-				Done:        it.Done,
-				Position:    it.Position,
-			})
+			conv = append(conv, task.ChecklistItem(it))
 		}
 		itemsByList[r.ID] = conv
 	}

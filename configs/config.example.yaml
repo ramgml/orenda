@@ -47,9 +47,19 @@ backup:
   snapshot_dir: "data/snapshots"
   snapshot_rotation_days: 30
   git_push_interval: "5m"
-  # NOTE: cron expressions are not parsed yet (Phase 7 debt) — snapshots
-  # run on a plain 24h ticker from process start.
+  # Phase 32.7: 5-field cron expression (UTC). Drives the
+  # snapshot fire loop in the scheduler. The same field is
+  # editable from /settings/backups and hot-reloaded without
+  # a restart; the YAML value is the cold-start default when
+  # the operator hasn't saved one in the UI yet. Operators in
+  # non-UTC time zones convert by hand (UTC math, DST-neutral
+  # by construction — see docs/PLAN.md Phase 32.7).
   sqlite_snapshot_cron: "0 3 * * *"
+  # Phase 32.8: renamed the log type from "wal_archive" to
+  # "wal_checkpoint" — the underlying code is a SQLite WAL
+  # truncation, NOT an off-host WAL archive. The YAML key stays
+  # `wal_archive_interval` for back-compat with existing config
+  # files. See wiki:decision-log "WAL archive vs WAL checkpoint".
   wal_archive_interval: "15m"
 
 # Token-bucket rate limits (Phase 28.8). Anonymous = per IP (covers

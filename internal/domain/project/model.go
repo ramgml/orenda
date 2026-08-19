@@ -22,11 +22,20 @@ var (
 //
 // Soft-deleted via Archived=true; Phase 9+ will add a UI toggle for the
 // archive view but Phase 1 only exposes Create/List/Get/Update/Delete.
+//
+// WikiSlug (wiki:project-wiki-link) points at the wiki page that holds
+// the project's documentation (постановка, decision log, etc.). Empty
+// means no link. The DB layer treats empty string and SQL NULL as the
+// same state — handlers normalize "" to NULL on write and the repo
+// returns NULL as "" on read. The FK is wiki_pages.slug ON DELETE SET
+// NULL, so deleting a wiki page silently unlinks the project (which is
+// the right outcome — the page is gone, the project still exists).
 type Project struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
 	Color       string    `json:"color"`
 	Description string    `json:"description,omitempty"`
+	WikiSlug    string    `json:"wiki_slug,omitempty"`
 	OwnerID     string    `json:"owner_id"`
 	Archived    bool      `json:"archived"`
 	CreatedAt   time.Time `json:"created_at"`

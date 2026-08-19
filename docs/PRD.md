@@ -347,7 +347,7 @@ orenda/
 ├── scripts/
 ├── docs/
 │   ├── PRD.md                  # этот файл
-│   ├── PLAN.md                 # фазы и задачи
+│   ├── PLAN.md                 # фазы ≤ 32 (замороженный архив)
 │   ├── ARCHITECTURE.md         # детальная архитектура
 │   ├── API.md                  # REST API reference
 │   └── DB.md                   # схема БД

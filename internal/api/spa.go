@@ -30,14 +30,14 @@ func spaHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		upath := r.URL.Path
 		if upath == "" || upath == "/" {
-			serveIndex(w, r, sub)
+			serveIndex(w, sub)
 			return
 		}
 
 		// Strip leading slash to match fs.FS conventions.
 		rel := strings.TrimPrefix(upath, "/")
 		if rel == "" {
-			serveIndex(w, r, sub)
+			serveIndex(w, sub)
 			return
 		}
 		if info, err := fs.Stat(sub, rel); err == nil && !info.IsDir() {
@@ -54,7 +54,7 @@ func spaHandler() http.HandlerFunc {
 		// emits hashed asset filenames under /assets/ which we already
 		// matched above).
 		if !strings.HasPrefix(upath, "/api/") && !strings.HasPrefix(upath, "/healthz") {
-			serveIndex(w, r, sub)
+			serveIndex(w, sub)
 			return
 		}
 
@@ -65,7 +65,7 @@ func spaHandler() http.HandlerFunc {
 // serveIndex writes web/dist/index.html with a short cache TTL.
 //
 // In dev (no embedded dist) it returns 404 with a helpful hint.
-func serveIndex(w http.ResponseWriter, r *http.Request, sub fs.FS) {
+func serveIndex(w http.ResponseWriter, sub fs.FS) {
 	body, err := fs.ReadFile(sub, "index.html")
 	if err != nil {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")

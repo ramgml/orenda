@@ -50,12 +50,15 @@ func (s *stubRepo) Create(_ context.Context, _ *agent.Agent) error {
 	return nil
 }
 func (s *stubRepo) GetByID(_ context.Context, _ string) (*agent.Agent, error) {
+	//nolint:nilnil // interface-compliance stub, never invoked by the sweep path; (nil, nil) is the intentional no-op.
 	return nil, nil
 }
 func (s *stubRepo) GetByName(_ context.Context, _ string) (*agent.Agent, error) {
+	//nolint:nilnil // interface-compliance stub, never invoked by the sweep path; (nil, nil) is the intentional no-op.
 	return nil, nil
 }
 func (s *stubRepo) GetByTokenID(_ context.Context, _ string) (*agent.Agent, error) {
+	//nolint:nilnil // interface-compliance stub, never invoked by the sweep path; (nil, nil) is the intentional no-op.
 	return nil, nil
 }
 func (s *stubRepo) List(_ context.Context) ([]*agent.Agent, error) {
@@ -65,6 +68,7 @@ func (s *stubRepo) ListAll(_ context.Context) ([]*agent.Agent, error) {
 	return nil, nil
 }
 func (s *stubRepo) TouchLastSeen(_ context.Context, _ string) (*agent.Agent, error) {
+	//nolint:nilnil // interface-compliance stub, never invoked by the sweep path; (nil, nil) is the intentional no-op.
 	return nil, nil
 }
 func (s *stubRepo) Update(_ context.Context, _ *agent.Agent) error {

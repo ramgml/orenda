@@ -217,7 +217,7 @@ func (s *Service) ExpandRecurrence(e *event.Event, from, to time.Time) ([]event.
 
 // parseRRule returns (interval, count, until, err). Empty rule → all
 // zero values, no error.
-func parseRRule(rule string) (interval int, count int, until time.Time, err error) {
+func parseRRule(rule string) (interval, count int, until time.Time, err error) {
 	rule = strings.TrimSpace(rule)
 	if rule == "" {
 		return 0, 0, time.Time{}, nil
@@ -256,7 +256,7 @@ func stepFor(rule string, interval int) func(time.Time) time.Time {
 	var freq string
 	for _, part := range strings.Split(rule, ";") {
 		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
-		if len(kv) == 2 && strings.ToUpper(kv[0]) == "FREQ" {
+		if len(kv) == 2 && strings.EqualFold(kv[0], "FREQ") {
 			freq = strings.ToUpper(kv[1])
 		}
 	}
@@ -371,13 +371,10 @@ func (s *Service) publish(ctx context.Context, eventType string, tr *task.Task) 
 func (s *Service) createTask(ctx context.Context, t *task.Task) (*task.Task, error) {
 	// We don't have a direct Repo helper to "first column of project";
 	// instead we keep t.ColumnID empty and let the storage layer (or
-	// post-create patch) figure it out. For now we patch via Tasks.Update.
-	if t.ColumnID == "" {
-		// We can't look up a column without a project.Repo dependency;
-		// the FK on column_id is SET NULL so leaving it empty is safe —
-		// the task will show up in the kanban at column_id=null which
-		// the UI treats as "unscheduled".
-	}
+	// post-create patch) figure it out. We can't look up a column
+	// without a project.Repo dependency; the FK on column_id is SET
+	// NULL so leaving it empty is safe — the task will show up in the
+	// kanban at column_id=null which the UI treats as "unscheduled".
 	if err := s.Tasks.Create(ctx, t); err != nil {
 		return nil, fmt.Errorf("event.Create: %w", err)
 	}

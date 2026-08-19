@@ -32,6 +32,14 @@ func (f *fakeRepo) GetByID(_ context.Context, id string) (*task.Task, error) {
 	}
 	return nil, task.ErrNotFound
 }
+func (f *fakeRepo) GetByNumber(_ context.Context, number int) (*task.Task, error) {
+	for _, t := range f.tasks {
+		if t.Number == number {
+			return t, nil
+		}
+	}
+	return nil, task.ErrNotFound
+}
 func (f *fakeRepo) ListByProject(context.Context, task.Filter) ([]*task.Task, error) {
 	return nil, nil
 }
@@ -70,6 +78,7 @@ func (f *fakeRepo) FirstColumnID(context.Context, string) (string, error) { retu
 // Checklist stubs — the reminder path doesn't exercise them but
 // task.Repository now requires them. Returning empty results is fine.
 func (f *fakeRepo) AddChecklist(context.Context, string, string) (*task.ChecklistRow, error) {
+	//nolint:nilnil // interface-compliance stub, the reminder path never calls it; (nil, nil) is the intentional no-op.
 	return nil, nil
 }
 func (f *fakeRepo) ListChecklists(context.Context, string) ([]task.ChecklistRow, error) {
@@ -77,6 +86,7 @@ func (f *fakeRepo) ListChecklists(context.Context, string) ([]task.ChecklistRow,
 }
 func (f *fakeRepo) DeleteChecklist(context.Context, string) error { return nil }
 func (f *fakeRepo) AddChecklistItem(context.Context, string, string) (*task.ChecklistItemRow, error) {
+	//nolint:nilnil // interface-compliance stub, the reminder path never calls it; (nil, nil) is the intentional no-op.
 	return nil, nil
 }
 func (f *fakeRepo) ListChecklistItems(context.Context, string) ([]task.ChecklistItemRow, error) {

@@ -220,7 +220,7 @@ type curriculumQuiz struct {
 // draft) can edit without churning references. Quiz LessonIDs are
 // filled in from the parent module's lesson IDs.
 func decodeCurriculumSwap(req curriculumRequest, courseID string) ([]*course.Module, []*course.Lesson, []*course.Quiz) {
-	var modules []*course.Module
+	modules := make([]*course.Module, 0, len(req.Modules))
 	var lessons []*course.Lesson
 	var quizzes []*course.Quiz
 	for _, m := range req.Modules {

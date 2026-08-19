@@ -76,10 +76,50 @@ type ProposeInput struct {
 	TargetDate string `json:"target_date"` // YYYY-MM-DD
 }
 
+// ProposeResult is the return shape of Propose. Refreshed is true
+// when the call collapsed onto an existing pending proposal (no
+// new row, no new WS event); false when a new proposal was
+// created. The planner agent can use the flag for logging or to
+// skip its "new proposal" notification.
+type ProposeResult struct {
+	Proposal  *study.Proposal
+	Refreshed bool
+}
+
 // Propose persists a new pending proposal. createdByAgent is the
 // authenticated agent's id (the REST handler stamps it on the way
 // in — the body never carries an actor field).
-func (s *Service) Propose(ctx context.Context, createdByAgent string, in ProposeInput) (*study.Proposal, error) {
+//
+// Phase 32.9 dedup contract:
+//   - Before Create, Propose asks the repo for an existing pending
+//     proposal from the same agent with the same (course_id,
+//     normalized_title). If one exists, Propose returns it with
+//     Refreshed=true — no new row, no new WS event.
+//   - Resolved proposals (accepted/dismissed) do NOT dedup — the
+//     user already triaged them; a fresh Propose after dismiss
+//     creates a new pending row (the agent's new suggestion is a
+//     separate entity from the user's rejected old one).
+//   - Different course_id or different normalized_title → new
+//     row, Refreshed=false.
+//
+// Normalization (study.NormalizeTitle): trim + collapse
+// whitespace + lowercase ASCII. See wiki:study-proposals-dedup.
+func (s *Service) Propose(ctx context.Context, createdByAgent string, in ProposeInput) (*ProposeResult, error) {
+	if createdByAgent == "" {
+		return nil, fmt.Errorf("study.Propose: createdByAgent is required")
+	}
+	if in.Title == "" {
+		return nil, study.ErrInvalidInput
+	}
+	normalized := study.NormalizeTitle(in.Title)
+	existing, err := s.Proposals.FindPendingEquivalent(ctx, createdByAgent, in.CourseID, normalized)
+	if err != nil {
+		return nil, fmt.Errorf("study.Propose: dedup lookup: %w", err)
+	}
+	if existing != nil {
+		return &ProposeResult{Proposal: existing, Refreshed: true}, nil
+	}
+
 	p := &study.Proposal{
 		CourseID:       in.CourseID,
 		Title:          in.Title,
@@ -95,7 +135,7 @@ func (s *Service) Propose(ctx context.Context, createdByAgent string, in Propose
 		"course_id":   p.CourseID,
 		"agent_id":    p.CreatedByAgent,
 	})
-	return p, nil
+	return &ProposeResult{Proposal: p, Refreshed: false}, nil
 }
 
 // AcceptResult is the wire shape the user REST endpoint returns.

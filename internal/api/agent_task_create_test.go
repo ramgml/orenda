@@ -1,13 +1,18 @@
 package api_test
 
-// Phase 33.1: agent-side task creation — POST /api/v1/agent/tasks.
+// Phase 33.1 + 33.3: agent-side task creation — POST /api/v1/agent/tasks.
 //
 // The DOGFOOD rule "new work = a task in the instance" was not
 // executable by agents (the user-side create endpoint sits under
-// RequireUser). These tests pin the agent-namespace twin: the task
-// lands as status=backlog + awaiting=human (visible in the existing
-// review queue), a kanban move to todo clears awaiting, and the task
-// then shows up in GET /api/v1/agent/tasks?ready=true.
+// RequireUser). These tests pin the agent-namespace twin:
+//
+//   - the proposed task lands as status=backlog + awaiting=none,
+//     visible only on the kanban backlog column (NOT in the review
+//     queue, which is reserved for agent-submitted work),
+//   - the proposed task is NOT claimable from GET /api/v1/agent/tasks
+//     (the listing filters to Status=todo),
+//   - after the owner drags the card out of backlog (kanban move),
+//     the task shows up in GET /api/v1/agent/tasks?ready=true.
 
 import (
 	"bytes"
@@ -64,7 +69,7 @@ func newProposeFixture(t *testing.T) *proposeFixture {
 	ownerEmail := "propose-owner-" + randLite()[:8] + "@x.com"
 	require.NoError(t, users.Create(context.Background(), &user.User{
 		Email:        ownerEmail,
-		PasswordHash: mustHashFast(t, "hunter2!"),
+		PasswordHash: mustHashFast(t),
 		DisplayName:  "Owner",
 	}))
 	var ownerID string
@@ -197,7 +202,8 @@ func TestAgent_ProposeTask_Created(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
 	assert.NotEmpty(t, got.ID)
 	assert.Equal(t, task.StatusBacklog, got.Status)
-	assert.Equal(t, task.AwaitingHuman, got.Awaiting)
+	assert.Equal(t, task.AwaitingNone, got.Awaiting,
+		"propose must land with awaiting=none (Phase 33.3: review queue is for submit'нутой работы, not backlog)")
 	assert.Equal(t, f.projectID, got.ProjectID)
 	assert.Equal(t, f.backlogColID, got.ColumnID, "task should land on the backlog column")
 	assert.Equal(t, task.PriorityMedium, got.Priority, "priority defaults to medium")
@@ -319,21 +325,49 @@ func TestAgent_ProposeTask_Auth(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, rr.Code, "body=%s", rr.Body.String())
 }
 
-// The full triage loop: propose → owner sees it in the review queue →
-// kanban-move backlog→todo clears awaiting → task becomes claimable
-// via GET /api/v1/agent/tasks?ready=true.
-func TestAgent_ProposeTask_ReviewQueueTriageFlow(t *testing.T) {
+// The full triage loop: propose → owner sees it ONLY on the backlog
+// column (NOT in the review queue, NOT in the agent list) → owner
+// drags the card to todo → task becomes claimable via
+// GET /api/v1/agent/tasks?ready=true.
+//
+// Phase 33.3: the propose handler no longer stamps awaiting=human.
+// The review queue is reserved for agent-submitted work
+// (status=review); backlog triage happens on the board. The agent
+// does not see the task on /api/v1/agent/tasks until the owner has
+// moved it into a claimable column.
+func TestAgent_ProposeTask_BoardTriageFlow(t *testing.T) {
 	f := newProposeFixture(t)
 
 	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
 	require.Equal(t, http.StatusCreated, rr.Code, "body=%s", rr.Body.String())
 	var created task.Task
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created))
+	assert.Equal(t, task.StatusBacklog, created.Status)
+	assert.Equal(t, task.AwaitingNone, created.Awaiting,
+		"propose must land awaiting=none; review queue is for submit'нутой работы")
 
-	// Immediately visible in the owner's review queue.
+	// 1. NOT in the review queue (proposed backlog tasks are triaged on the board).
 	rr = f.doWithCookie(t, http.MethodGet, "/api/v1/review-queue", nil)
 	require.Equal(t, http.StatusOK, rr.Code)
-	assert.Contains(t, rr.Body.String(), created.ID, "proposed task must appear in /review-queue")
+	assert.NotContains(t, rr.Body.String(), created.ID,
+		"proposed task must NOT appear in /review-queue; body=%s", rr.Body.String())
+
+	// 2. NOT in the agent list (with or without ?ready=true).
+	for _, q := range []string{"", "?ready=true"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/tasks"+q, nil)
+		req.Header.Set("Authorization", "Bearer "+f.token)
+		rr = httptest.NewRecorder()
+		f.router.ServeHTTP(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code)
+		assert.NotContains(t, rr.Body.String(), created.ID,
+			"proposed task must NOT appear in /api/v1/agent/tasks%s; body=%s", q, rr.Body.String())
+	}
+
+	// 3. Visible on the kanban backlog (the owner triages there).
+	rr = f.doWithCookie(t, http.MethodGet, "/api/v1/projects/"+f.projectID+"/tasks?status=backlog", nil)
+	require.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Body.String(), created.ID,
+		"proposed task must be visible on the kanban backlog; body=%s", rr.Body.String())
 
 	// Accept = kanban move backlog → todo (existing user endpoint).
 	rr = f.doWithCookie(t, http.MethodPost, "/api/v1/tasks/"+created.ID+"/move",
@@ -342,14 +376,9 @@ func TestAgent_ProposeTask_ReviewQueueTriageFlow(t *testing.T) {
 	var moved task.Task
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &moved))
 	assert.Equal(t, task.StatusTodo, moved.Status)
-	assert.Equal(t, task.AwaitingNone, moved.Awaiting, "move to todo must clear awaiting")
+	assert.Equal(t, task.AwaitingNone, moved.Awaiting, "move to todo must keep awaiting=none")
 
-	// Out of the review queue.
-	rr = f.doWithCookie(t, http.MethodGet, "/api/v1/review-queue", nil)
-	require.Equal(t, http.StatusOK, rr.Code)
-	assert.NotContains(t, rr.Body.String(), created.ID)
-
-	// Claimable by agents now.
+	// 4. Now claimable by agents.
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/tasks?ready=true", nil)
 	req.Header.Set("Authorization", "Bearer "+f.token)
 	readyRR := httptest.NewRecorder()
@@ -357,4 +386,37 @@ func TestAgent_ProposeTask_ReviewQueueTriageFlow(t *testing.T) {
 	require.Equal(t, http.StatusOK, readyRR.Code)
 	assert.Contains(t, readyRR.Body.String(), created.ID,
 		"triaged task must appear in ?ready=true; body=%s", readyRR.Body.String())
+}
+
+// Phase 33.3: pin the invariant that a backlog task is NEVER
+// claimable by an agent, even when no other ready work exists. The
+// owner must drag it out of backlog first. Without this guarantee
+// agents would race for half-formed propose-tasks and the review
+// surface would re-appear under a different name.
+func TestAgent_ProposeTask_BacklogNotInAgentList(t *testing.T) {
+	f := newProposeFixture(t)
+
+	// Seed another ready-to-do task so the agent list is not empty —
+	// the assertion below must hold even with other tasks present.
+	other := &task.Task{ProjectID: f.projectID, ColumnID: f.todoColID, Title: "other"}
+	require.NoError(t, sqlite.NewTaskRepository(f.db).Create(context.Background(), other))
+
+	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var created task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created))
+
+	// Agent list — both ready=true and full — must show the todo
+	// task but NOT the backlog proposal.
+	for _, q := range []string{"", "?ready=true"} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/tasks"+q, nil)
+		req.Header.Set("Authorization", "Bearer "+f.token)
+		rr = httptest.NewRecorder()
+		f.router.ServeHTTP(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code)
+		body := rr.Body.String()
+		assert.Contains(t, body, other.ID, "ready todo task must be in /agent/tasks%s", q)
+		assert.NotContains(t, body, created.ID,
+			"backlog proposal must NOT be in /agent/tasks%s (invariant: agent does not pull from backlog)", q)
+	}
 }

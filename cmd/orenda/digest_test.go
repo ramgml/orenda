@@ -160,9 +160,9 @@ func TestComputeWeeklyDigestStats_CountsTasksDone(t *testing.T) {
 	_, _ = db.Exec(`INSERT INTO projects (id, name, owner_id) VALUES ('p1', 'P', 'u1')`)
 	// Tasks use assignee_type/assignee_id (the worker), not a
 	// direct owner_id.
-	_, _ = db.Exec(`INSERT INTO tasks (id, project_id, title, status, assignee_type, assignee_id, updated_at) VALUES
-		('t1', 'p1', 'In-period done', 'done', 'user', 'u1', ?),
-		('t2', 'p1', 'Pre-period done', 'done', 'user', 'u1', ?)`,
+	_, _ = db.Exec(`INSERT INTO tasks (id, project_id, title, status, assignee_type, assignee_id, updated_at, number) VALUES
+		('t1', 'p1', 'In-period done', 'done', 'user', 'u1', ?, 1),
+		('t2', 'p1', 'Pre-period done', 'done', 'user', 'u1', ?, 2)`,
 		recent, old)
 
 	stats, err := computeWeeklyDigestStats(context.Background(), db, "u1", now)
@@ -180,9 +180,9 @@ func TestComputeWeeklyDigestStats_OverdueExcludesDone(t *testing.T) {
 	now := time.Now().UTC()
 	yesterday := now.Add(-24 * time.Hour).Format(time.RFC3339)
 	_, _ = db.Exec(`INSERT INTO projects (id, name, owner_id) VALUES ('p1', 'P', 'u1')`)
-	_, _ = db.Exec(`INSERT INTO tasks (id, project_id, title, status, assignee_type, assignee_id, due_at) VALUES
-		('t1', 'p1', 'Overdue', 'todo', 'user', 'u1', ?),
-		('t2', 'p1', 'Overdue but done', 'done', 'user', 'u1', ?)`,
+	_, _ = db.Exec(`INSERT INTO tasks (id, project_id, title, status, assignee_type, assignee_id, due_at, number) VALUES
+		('t1', 'p1', 'Overdue', 'todo', 'user', 'u1', ?, 1),
+		('t2', 'p1', 'Overdue but done', 'done', 'user', 'u1', ?, 2)`,
 		yesterday, yesterday)
 
 	stats, err := computeWeeklyDigestStats(context.Background(), db, "u1", now)

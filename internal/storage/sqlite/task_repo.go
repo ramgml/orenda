@@ -30,6 +30,26 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 		t.ID = newUUID()
 	}
 
+	// number comes from the task_number_seq high-watermark, not from
+	// MAX(tasks.number): a MAX+1 would re-issue the newest task's
+	// number after that task is deleted, and a "#42" reference in a
+	// commit message, branch name or PR title must keep pointing at
+	// the same task forever. The watermark UPDATE...RETURNING and the
+	// INSERT share one transaction, so the draw is atomic and the
+	// sequence can never run backwards.
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("task.Create: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var number int
+	if err := tx.QueryRowContext(ctx,
+		`UPDATE task_number_seq SET next = next + 1 WHERE id = 1 RETURNING next - 1`,
+	).Scan(&number); err != nil {
+		return fmt.Errorf("task.Create: draw number: %w", err)
+	}
+
 	const q = `
 		INSERT INTO tasks (
 			id, project_id, parent_task_id, column_id, title, description,
@@ -38,6 +58,7 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 			time_estimate_s, time_spent_s, position,
 			start_at, end_at, all_day, color, recurrence,
 			study_course_id,
+			number,
 			created_at, updated_at
 		) VALUES (
 			?, ?, ?, ?, ?, ?,
@@ -46,10 +67,11 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 			?, ?, ?,
 			?, ?, ?, ?, ?,
 			?,
+			?,
 			datetime('now'), datetime('now')
 		)
 	`
-	_, err := r.db.ExecContext(ctx, q,
+	_, err = tx.ExecContext(ctx, q,
 		t.ID, nullString(t.ProjectID), nullString(t.ParentTaskID), nullString(t.ColumnID),
 		t.Title, t.Description,
 		string(t.Status), string(t.Priority), nullString(string(t.AssigneeType)),
@@ -62,9 +84,13 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 		boolToInt(t.AllDay), nullString(t.Color),
 		nullString(t.Recurrence),
 		nullString(t.StudyCourseID),
+		number,
 	)
 	if err != nil {
 		return fmt.Errorf("task.Create: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("task.Create: commit: %w", err)
 	}
 	got, err := r.GetByID(ctx, t.ID)
 	if err != nil {
@@ -77,6 +103,14 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 func (r *taskRepo) GetByID(ctx context.Context, id string) (*task.Task, error) {
 	const q = selectTaskColumns + " WHERE id = ?"
 	return scanTask(r.db.QueryRowContext(ctx, q, id))
+}
+
+// GetByNumber resolves the human-readable "#N" reference to a task.
+// The UNIQUE index idx_tasks_number (migration 033) makes this an
+// index point lookup.
+func (r *taskRepo) GetByNumber(ctx context.Context, number int) (*task.Task, error) {
+	const q = selectTaskColumns + " WHERE number = ?"
+	return scanTask(r.db.QueryRowContext(ctx, q, number))
 }
 
 func (r *taskRepo) ListByProject(ctx context.Context, f task.Filter) ([]*task.Task, error) {
@@ -232,10 +266,10 @@ func (r *taskRepo) ListByProjectWithStats(ctx context.Context, f task.Filter) ([
 // aggregateCounters returns counts[comments/attachments/children/
 // checklist_items] for each task id. Tasks with no activity get
 // zero-valued counters (not missing keys).
-func (r *taskRepo) aggregateCounters(ctx context.Context, ids []string) (map[string]task.TaskCounters, error) {
-	out := make(map[string]task.TaskCounters, len(ids))
+func (r *taskRepo) aggregateCounters(ctx context.Context, ids []string) (map[string]task.Counters, error) {
+	out := make(map[string]task.Counters, len(ids))
 	for _, id := range ids {
-		out[id] = task.TaskCounters{}
+		out[id] = task.Counters{}
 	}
 	placeholders := strings.Repeat("?, ", len(ids)-1) + "?"
 	args := make([]any, len(ids))
@@ -515,7 +549,7 @@ func (r *taskRepo) ChildProgress(ctx context.Context, parentID string) (total, d
 
 func (r *taskRepo) ListAwaitingReview(ctx context.Context) ([]task.ReviewQueueItem, error) {
 	const q = `
-		SELECT t.id, t.project_id, t.parent_task_id, t.column_id, t.title, t.description,
+		SELECT t.id, t.number, t.project_id, t.parent_task_id, t.column_id, t.title, t.description,
 		       t.status, t.priority, t.assignee_type, t.assignee_id, t.awaiting,
 		       t.context_md, t.agent_notes, t.due_at, t.started_at, t.claimed_at, t.completed_at,
 		       t.time_estimate_s, t.time_spent_s, t.position,
@@ -562,7 +596,7 @@ func (r *taskRepo) ListAwaitingReview(ctx context.Context) ([]task.ReviewQueueIt
 			created, updated               string
 		)
 		if err := rows.Scan(
-			&item.Task.ID, &projectID, &parent, &columnID, &item.Task.Title, &desc,
+			&item.Task.ID, &item.Task.Number, &projectID, &parent, &columnID, &item.Task.Title, &desc,
 			&status, &priority, &assigneeType, &assigneeID, &awaiting,
 			&contextMD, &agentNotes,
 			&due, &started, &claimed, &compl,
@@ -716,7 +750,7 @@ func (r *taskRepo) DeleteTag(ctx context.Context, id string) error {
 // differently (shaded) but it still cares about them.
 func (r *taskRepo) ListByDueBetween(ctx context.Context, from, to time.Time) ([]*task.Task, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, project_id, parent_task_id, column_id, title, description,
+		SELECT id, number, project_id, parent_task_id, column_id, title, description,
 		       status, priority, assignee_type, assignee_id, awaiting,
 		       context_md, agent_notes, due_at, started_at, claimed_at,
 		       completed_at, time_estimate_s, time_spent_s, position,
@@ -1238,7 +1272,7 @@ func (r *taskRepo) FirstColumnID(ctx context.Context, projectID string) (string,
 // selectTaskColumns is the column list used by every task query; keeping it
 // in one place ensures the scanner below stays in sync with the SQL.
 const selectTaskColumns = `
-SELECT id, project_id, parent_task_id, column_id, title, description,
+SELECT id, number, project_id, parent_task_id, column_id, title, description,
        status, priority, assignee_type, assignee_id, awaiting,
        context_md, agent_notes, due_at, started_at, claimed_at, completed_at,
        time_estimate_s, time_spent_s, position,
@@ -1271,7 +1305,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 		created, updated               string
 	)
 	err := row.Scan(
-		&t.ID, &projectID, &parent, &columnID, &t.Title, &desc,
+		&t.ID, &t.Number, &projectID, &parent, &columnID, &t.Title, &desc,
 		&status, &priority, &assigneeType, &assigneeID, &awaiting,
 		&contextMD, &agentNotes,
 		&due, &started, &claimed, &compl,
@@ -1324,7 +1358,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 // Phase 11 single-owner mode means everything).
 func (r *taskRepo) ListInRange(ctx context.Context, from, to time.Time, projectID string) ([]*task.Task, error) {
 	const base = `
-		SELECT id, project_id, parent_task_id, column_id, title, description,
+		SELECT id, number, project_id, parent_task_id, column_id, title, description,
 		       status, priority, assignee_type, assignee_id, awaiting,
 		       context_md, agent_notes, due_at, started_at, claimed_at, completed_at,
 		       time_estimate_s, time_spent_s, position,
@@ -1376,7 +1410,7 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 		created, updated               string
 	)
 	err := rows.Scan(
-		&t.ID, &projectID, &parent, &columnID, &t.Title, &desc,
+		&t.ID, &t.Number, &projectID, &parent, &columnID, &t.Title, &desc,
 		&status, &priority, &assigneeType, &assigneeID, &awaiting,
 		&contextMD, &agentNotes,
 		&due, &started, &claimed, &compl,

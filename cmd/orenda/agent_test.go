@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -104,11 +104,18 @@ func resolveAgentCtxForTest(opts agentCLIOptions) (*agentCtx, error) {
 			}
 		}
 	}
-	if url == "" {
-		return nil, errors.New("orenda agent: --url (or ORENDA_URL) is required")
-	}
-	if token == "" {
-		return nil, errors.New("orenda agent: --token (or ORENDA_AGENT_TOKEN) is required")
+	if url == "" || token == "" {
+		// Same message shape as resolveAgentCtx: name the config
+		// file path so the failure tells the operator where to
+		// put the credentials.
+		cfgHint, err := agentConfigPath()
+		if err != nil {
+			cfgHint = "~/.config/orenda/agent.yaml"
+		}
+		if url == "" {
+			return nil, fmt.Errorf("orenda agent: --url (or ORENDA_URL, or url: in %s) is required", cfgHint)
+		}
+		return nil, fmt.Errorf("orenda agent: --token (or ORENDA_AGENT_TOKEN, or token: in %s) is required", cfgHint)
 	}
 	return &agentCtx{BaseURL: url, Token: token}, nil
 }
@@ -153,16 +160,21 @@ func TestResolveAgentCtx_Flag(t *testing.T) {
 func TestResolveAgentCtx_Missing(t *testing.T) {
 	t.Setenv("ORENDA_URL", "")
 	t.Setenv("ORENDA_AGENT_TOKEN", "")
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
 	_, err := resolveAgentCtxForTest(agentCLIOptions{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 	t.Logf("error: %s", err.Error())
-	// Accept either the URL-missing error or the token-missing
-	// error (the URL check fires first).
-	if !strings.Contains(err.Error(), "--url") && !strings.Contains(err.Error(), "--token") {
-		t.Errorf("error should mention --url or --token, got: %s", err.Error())
+	// The error must name the config file path so a fresh machine
+	// knows where to put the credentials (the URL check fires first).
+	wantPath := filepath.Join(xdg, "orenda", "agent.yaml")
+	if !strings.Contains(err.Error(), "--url") {
+		t.Errorf("error should mention --url, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), wantPath) {
+		t.Errorf("error should contain the config path %q, got: %s", wantPath, err.Error())
 	}
 }
 
@@ -325,4 +337,39 @@ func TestAgentPropose_Non201IsAnError(t *testing.T) {
 		"--project", "no-such", "--title", "T", "--description", "D")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "404")
+}
+
+// TestPRNumberFromDescription pins the Phase 32.10 pr-watch
+// regex: the CLI extracts the first PR-like reference from the
+// task description. Supported forms: "PR #N", "closes #N",
+// "refs #N", "fixes #N", or a bare "#N" at the start of a line.
+func TestPRNumberFromDescription(t *testing.T) {
+	cases := []struct {
+		name   string
+		desc   string
+		want   int
+		wantOK bool
+	}{
+		{"pr-prefix", "PR #42 — implement feature", 42, true},
+		{"closes-prefix", "closes #11 (Phase 32.7)", 11, true},
+		{"refs-prefix", "refs #13 (Phase 32.9)", 13, true},
+		{"fixes-prefix", "Fixes #7 — typo in README", 7, true},
+		{"uppercase-PR", "PR #99 done", 99, true},
+		{"first-match wins", "PR #5 wins over refs #6 later", 5, true},
+		{"bare-hash-at-start", "#8 — small fix", 8, true},
+		{"empty", "", 0, false},
+		{"no-pr", "no PR reference here", 0, false},
+		{"only-hash-not-at-start", "see issue #5 for context", 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := prNumberFromDescription(tc.desc)
+			if ok != tc.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tc.wantOK)
+			}
+			if got != tc.want {
+				t.Fatalf("n = %d, want %d", got, tc.want)
+			}
+		})
+	}
 }

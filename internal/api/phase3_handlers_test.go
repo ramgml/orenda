@@ -130,7 +130,7 @@ func buildP3Router(t *testing.T) (http.Handler, *sqlLite) {
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
 		Email:        p3Email,
-		PasswordHash: mustHashFast(t, "hunter2!"),
+		PasswordHash: mustHashFast(t),
 		DisplayName:  "P3",
 	}))
 

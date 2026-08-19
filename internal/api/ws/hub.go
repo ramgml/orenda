@@ -32,6 +32,7 @@ var AllTopics = []string{
 	"comments",
 	"events",
 	"notifications",
+	"projects",
 	"timers",
 	"wiki",
 }

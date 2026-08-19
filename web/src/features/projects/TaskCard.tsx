@@ -2,6 +2,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useDraggable } from '@dnd-kit/core';
 
 import { openTaskModal } from '@/features/tasks/TaskModal';
+import { TaskNumberChip } from '@/features/tasks/TaskNumberChip';
 import { TaskTagChips } from '@/features/tasks/TaskTagChip';
 import { useAgents } from '@/shared/hooks/useAgents';
 import type { Agent, Task } from '@/shared/api/client';
@@ -110,7 +111,9 @@ export function TaskCard({
               child
             </span>
           )}
-          <div className="text-slate-800 dark:text-slate-100">{task.title}</div>
+          <div className="text-slate-800 dark:text-slate-100">
+            <TaskNumberChip number={task.number} /> <span>{task.title}</span>
+          </div>
         </div>
         <AssigneeChip task={task} agent={assignedAgent} />
       </div>
