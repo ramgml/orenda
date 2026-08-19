@@ -29,7 +29,7 @@ func TestMigrateDown_RoundTrip(t *testing.T) {
 		"010_backups", "011_sync_ops", "012_events_to_tasks",
 		"014_child_tasks_inherit_column", "016_task_dependencies",
 		"019_courses", "020_columns_status", "021_agent_type_labels",
-		"022_study_planning",
+		"022_study_planning", "033_task_numbers",
 	}
 	for _, v := range reversible {
 		t.Run(v, func(t *testing.T) {

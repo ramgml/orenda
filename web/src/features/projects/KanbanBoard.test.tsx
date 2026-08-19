@@ -55,6 +55,7 @@ function makeColumn(over: Partial<Column> = {}): Column {
 function makeTask(over: Partial<Task> = {}): Task {
   return {
     id: 'task-1',
+    number: 1,
     project_id: 'p1',
     column_id: 'col-1',
     title: 'Dense task',

@@ -57,7 +57,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_list_tasks",
-		Description: "List claimable tasks. ?ready=true filters to unblocked, unclaimed, open tasks (the agent's ready-list).",
+		Description: "List claimable tasks. ?ready=true filters to unblocked, unclaimed, open tasks (the agent's ready-list). Each task carries a human `number` ('#42') alongside its UUID — both forms are accepted wherever a task_id is taken.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -132,7 +132,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string"},
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
@@ -151,7 +151,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string"},
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
@@ -170,7 +170,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string"},
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
 				"note":    map[string]any{"type": "string", "description": "Optional note for the human reviewer"},
 			},
 		},
@@ -194,7 +194,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string"},
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {

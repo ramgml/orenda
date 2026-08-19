@@ -24,6 +24,7 @@ import { ChecklistsList } from './ChecklistsList';
 import { TagsList } from './TagsList';
 import { BlockedByList } from './BlockedByList';
 import { TaskLink } from './TaskModal';
+import { TaskNumberChip } from './TaskNumberChip';
 import { TaskFieldControls } from './TaskFieldControls';
 
 /**
@@ -282,7 +283,12 @@ export function TaskViewBody({
           </div>
         )}
 
-        <EditableTitle value={task.title} onSave={onSaveTitle} busy={busy} />
+        <div className="flex items-center gap-2">
+          <TaskNumberChip number={task.number} />
+          <div className="flex-1 min-w-0">
+            <EditableTitle value={task.title} onSave={onSaveTitle} busy={busy} />
+          </div>
+        </div>
 
         <DescriptionEditor value={task.description ?? ''} onSave={onSaveDescription} busy={busy} />
 

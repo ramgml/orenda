@@ -188,6 +188,18 @@ func printJSON(cmd *cobra.Command, v any) error {
 	return nil
 }
 
+// printTaskRefHeader prints a human "#N  title  (uuid)" line so the
+// operator sees the task's human number next to its id. Suppressed
+// under -json (scripts read the same fields from the payload) and
+// when the server predates task numbers (number <= 0).
+func printTaskRefHeader(cmd *cobra.Command, number int, title, id string) {
+	jsonFlag, _ := cmd.Flags().GetBool("json")
+	if jsonFlag || number <= 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "#%d  %s  (%s)\n", number, title, id)
+}
+
 // newAgentCmd wires the `orenda agent` subcommand tree.
 func newAgentCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -205,6 +217,10 @@ Workflow shape:
   orenda agent submit <task-id>       # mark ready for human review
   orenda agent release <task-id>      # drop a claim
   orenda agent await                   # long-poll for the next event
+
+<task-id> accepts the UUID or the human number: "42" or "#42"
+(tasks carry a sequential number alongside the UUID — it is what
+branch names, commit messages and PR titles reference).
 
 Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
 ~/.config/orenda/agent.yaml.`,
@@ -283,8 +299,9 @@ func newAgentNextCmd() *cobra.Command {
 			var resp struct {
 				Tasks []struct {
 					Task struct {
-						ID    string `json:"id"`
-						Title string `json:"title"`
+						ID     string `json:"id"`
+						Number int    `json:"number"`
+						Title  string `json:"title"`
 					} `json:"task"`
 					Ready bool `json:"ready"`
 				} `json:"tasks"`
@@ -305,6 +322,7 @@ func newAgentNextCmd() *cobra.Command {
 				os.Exit(2)
 			}
 			// Print the candidate, then claim it.
+			printTaskRefHeader(cmd, first.Task.Number, first.Task.Title, first.Task.ID)
 			if err := printJSON(cmd, first); err != nil {
 				return err
 			}
@@ -422,7 +440,7 @@ func newAgentProposeCmd() *cobra.Command {
 
 func newAgentContextCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "context <task-id>",
+		Use:   "context <task-id|#N>",
 		Short: "Fetch the full task context (task + comments + activity + children + checklists)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -438,6 +456,18 @@ func newAgentContextCmd() *cobra.Command {
 			if code != http.StatusOK {
 				return fmt.Errorf("agent context: HTTP %d: %s", code, raw)
 			}
+			// Header line carries the human number next to the UUID;
+			// the full snapshot follows as JSON.
+			var env struct {
+				Task struct {
+					ID     string `json:"id"`
+					Number int    `json:"number"`
+					Title  string `json:"title"`
+				} `json:"task"`
+			}
+			if err := json.Unmarshal(raw, &env); err == nil {
+				printTaskRefHeader(cmd, env.Task.Number, env.Task.Title, env.Task.ID)
+			}
 			var v any
 			if err := json.Unmarshal(raw, &v); err != nil {
 				return err
@@ -449,7 +479,7 @@ func newAgentContextCmd() *cobra.Command {
 
 func newAgentClaimCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "claim <task-id>",
+		Use:   "claim <task-id|#N>",
 		Short: "Claim a task for the agent (409 if held, 422 if blocked)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -476,7 +506,7 @@ func newAgentClaimCmd() *cobra.Command {
 
 func newAgentReleaseCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "release <task-id>",
+		Use:   "release <task-id|#N>",
 		Short: "Release a claim held by the agent",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -504,7 +534,7 @@ func newAgentReleaseCmd() *cobra.Command {
 func newAgentSubmitCmd() *cobra.Command {
 	var note string
 	cmd := &cobra.Command{
-		Use:   "submit <task-id>",
+		Use:   "submit <task-id|#N>",
 		Short: "Mark a claimed task ready for human review",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -537,7 +567,7 @@ func newAgentSubmitCmd() *cobra.Command {
 
 func newAgentCommentCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "comment <task-id> <body>",
+		Use:   "comment <task-id|#N> <body>",
 		Short: "Add a comment to a task (markdown is supported)",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

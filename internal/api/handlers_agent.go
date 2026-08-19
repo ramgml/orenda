@@ -79,7 +79,14 @@ func agentClaimTaskHandler(deps *Dependencies) http.HandlerFunc {
 		var req agentClaimRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 
-		tr, err := deps.TaskService.Claim(r.Context(), chi.URLParam(r, "id"), id.AgentID)
+		// Task numbers ("#42"/"42") resolve to the UUID here; every
+		// downstream call (claim, lock-holder lookup) works on ids.
+		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if rerr != nil {
+			writeResolveError(w, rerr)
+			return
+		}
+		tr, err := deps.TaskService.Claim(r.Context(), taskID, id.AgentID)
 		if err != nil {
 			if errors.Is(err, taskservice.ErrLockTaken) {
 				// Phase 15: extend 409 with the current holder
@@ -87,7 +94,7 @@ func agentClaimTaskHandler(deps *Dependencies) http.HandlerFunc {
 				// TaskLockHolder seam is wired. Bare
 				// {"error":"lock_taken"} is the backwards-compatible
 				// fallback when the lookup fails or returns empty.
-				writeJSON(w, http.StatusConflict, lockTakenResponse(deps, r.Context(), chi.URLParam(r, "id")))
+				writeJSON(w, http.StatusConflict, lockTakenResponse(deps, r.Context(), taskID))
 				return
 			}
 			// Phase 15.3: 422 with the unfinished blockers list so
@@ -126,7 +133,12 @@ func agentReleaseTaskHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "task service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		tr, err := deps.TaskService.Release(r.Context(), chi.URLParam(r, "id"), id.AgentID)
+		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if rerr != nil {
+			writeResolveError(w, rerr)
+			return
+		}
+		tr, err := deps.TaskService.Release(r.Context(), taskID, id.AgentID)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -155,7 +167,12 @@ func agentSubmitTaskHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		var in req
 		_ = json.NewDecoder(r.Body).Decode(&in)
-		tr, err := deps.TaskService.Submit(r.Context(), chi.URLParam(r, "id"), id.AgentID, in.Note)
+		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if rerr != nil {
+			writeResolveError(w, rerr)
+			return
+		}
+		tr, err := deps.TaskService.Submit(r.Context(), taskID, id.AgentID, in.Note)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -174,7 +191,13 @@ func agentTaskContextHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 		ctx := r.Context()
-		taskID := chi.URLParam(r, "id")
+		// "#42"/"42" resolve to the UUID; the snapshot below then keys
+		// everything (comments, activity, children, locks) off the id.
+		taskID, rerr := resolveTaskRef(ctx, deps, chi.URLParam(r, "id"))
+		if rerr != nil {
+			writeResolveError(w, rerr)
+			return
+		}
 		tr, err := deps.Tasks.GetByID(ctx, taskID)
 		if err != nil {
 			writeError(w, err)
