@@ -1096,6 +1096,37 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/TodayResponse' }
 
+  # Phase 32.11: Dashboard chat pane (commands-only MVP). Messages are
+  # persisted to chat_messages (migration 032) for history replay and
+  # fanned out live on the WS topic "chat".
+  /api/v1/dashboard/chat:
+    post:
+      tags: [chat]
+      summary: Post a chat message; the server replies with a command result (/plan day, /help).
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                thread_id: { type: string }
+                message: { type: string }
+      responses:
+        '201': { description: created }
+        '400': { description: invalid_json / empty_message }
+        '503': { description: chat_not_wired }
+
+  /api/v1/dashboard/chat/{thread}:
+    get:
+      tags: [chat]
+      summary: Replay the persisted chat history for a thread.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
+
   # ---- courses ----
   /api/v1/courses:
     get:
