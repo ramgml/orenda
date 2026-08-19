@@ -19,6 +19,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-19
+
+Fourth pre-alpha release. Focus: human-readable task numbers (#N) on every surface, the dashboard chat backend MVP, harness-side PR sync, study-proposal server-side dedup, and a UI-editable backup snapshot cron. Also folds back two main-only commits that never reached `dev` (the 0.3.0 release prep and the Phase 32.2 capabilities feature, PR #5).
+
+### Added
+- **Task numbers (#N):** every task now carries a human-readable sequential number alongside its UUID. A sequence watermark in storage assigns numbers monotonically; agent REST, the `orenda agent` CLI, and MCP tools all resolve `#N` references to the underlying task id; the web UI renders a `TaskNumberChip`. Naming conventions (branch `task-N-slug`, commit `task(N): ...`, PR `[Task N] ...`) are pinned in `AGENTS.md` / `docs/DOGFOOD.md`.
+- **Phase 32.11:** Dashboard chat pane — commands-only MVP backend. Migration `032` adds the `chat_messages` table (sender_type user|agent, body_md, command, result_ref). `POST /api/v1/dashboard/chat` dispatches `/plan day` (synthesizes a study proposal via the existing Phase 31 pipeline — the result lands in the Dashboard proposals tray for accept/dismiss) and `/help`; plain text gets a canned reply (free-form LLM dialogue is a separate phase). `GET /api/v1/dashboard/chat/{thread}` replays history (cap 50). Both user and agent rows fan out live on the WS topic `chat`.
+- **Phase 32.10:** `orenda agent pr-watch <task-id> [--repo owner/name] [--number N]` — harness-side PR sync helper. Local-first installs behind NAT can't receive GitHub webhooks, so the harness polls instead: the command reads the task context, extracts a PR number from the description (`PR #N` / `closes #N` / `refs #N` / `fixes #N` / bare `#N`), shells out to `gh pr view`, and prints the PR state as JSON. Orenda itself runs no daemon; the harness diffs the output and posts comments via `orenda agent comment`. 10 regex test cases pin the extraction.
+- **Phase 32.7:** Backup snapshot schedule is now a real cron expression, editable from Settings → Backups and hot-reloaded without a restart. Replaces the fixed 24h ticker from Phase 7.5. A minimal UTC-only 5-field cron parser in `internal/backup` (~200 LoC, no new dependency) supports `*`, `n`, `n-m`, `*/k`, `n-m/k`, and comma lists with dom/dow OR semantics. `PUT /api/v1/backups/settings` accepts `snapshot_cron` + `snapshot_rotation_days`, validates via `backup.Parse`, persists to `backup_settings`, and merges into the live Service (DB > in-memory > `DefaultSchedule '0 3 * * *'`). Boot refuses to start on a bad YAML/env expression; a corrupted DB row falls back to the default and notifies via the FailureNotifier seam.
+
+### Changed
+- **Phase 32.9:** Study proposals v2 — server-side dedup on `Propose`. Planners run twice a day; without dedup each run filed a fresh `pending` proposal and the Dashboard tray filled with duplicates. Dedup key = `(created_by_agent, course_id, normalized_title)` (trim + whitespace-collapse + lowercase via `study.NormalizeTitle`). On a hit the service returns the existing row with `Refreshed=true` (no create, no WS event). Resolved proposals (accepted/dismissed) are never dedup targets — the user's verdict is final.
+- **Phase 32.8:** WAL archive → WAL checkpoint rename. The Phase 32.3 audit flagged `runWAL` / `wal_archive` as dead code; it wasn't dead — it runs `PRAGMA wal_checkpoint(TRUNCATE)` every 15 min to bound the WAL file. The name lied (no off-host WAL shipping exists). Kept the code, renamed everything (`runCheckpoint`, `wal_checkpoint` op/RecordLog) for accuracy; true PITR-style archive stays a separate decision (wiki:decision-log).
+- **Phase 32.6:** File backlog frozen — `PLAN.md`/`SESSION.md` are archives; the live queue is the dogfood instance queue (the opencode watchdog now reads it instead of file rules; `.opencode/watchdog.json` rules emptied, checks/scripts left in place for re-enable from git history).
+
+### Fixed
+- **Phase 32.6:** Git hooks now unset `GIT_*` environment variables before spawning `go test` — a hook-spawned test run could corrupt the shared `.git/config`.
+
+### Docs
+- `docs/RELEASE.md` — the release process (snapshot of wiki:release-process): branch/tag model, prep → PR → tag → dogfood-update steps, and the prohibitions (no release tags on `dev`, no merge to `main` without the release gate).
+- `docs/DOGFOOD.md` — agent entry point now documents the one-time auth setup CLI chain and the token priority order (`~/.config/orenda/agent.yaml`), so a fresh agent session no longer hunts for URL/token.
+
 ## [0.3.0] — 2026-08-18
 
 Third pre-alpha release. Focus: dogfood migration (the project is now managed inside its own running instance), agent self-service task creation, course activity audit, and local-first CI gates.
