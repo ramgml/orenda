@@ -109,6 +109,15 @@ components:
       type: object
       properties:
         id: { type: string }
+        number:
+          type: integer
+          description: |
+            Human-readable sequential task number ("#42"). Assigned at
+            creation from a high-watermark sequence (task_number_seq);
+            never reused after a delete. Every task-id-taking endpoint
+            on the agent surface (and the trivial user-side lookups)
+            accepts "#42" / "42" in place of the UUID in the {id} path
+            parameter.
         project_id: { type: string }
         title: { type: string }
         status:
@@ -1840,9 +1849,14 @@ paths:
     post:
       tags: [agent]
       summary: Atomic claim (409 lock_taken / 422 task_blocked).
+      description: |
+        {id} accepts the task UUID or the human number: "42" or "#42"
+        (a pure-digit path segment resolves through tasks.number).
+        Unknown numbers return 404 with body {"error":"task #N not found"}.
       security: [{ bearerAuth-agent: [] }]
       responses:
         '200': { description: ok }
+        '404': { description: 'not_found — includes task #N not found for numeric refs' }
         '409':
           description: lock_taken — Phase 15: response body includes holder_agent_id, holder_agent_name, and claimed_at so the agent can see who's holding the lock and reach out.
         '422': { description: task_blocked + unfinished_blockers }
@@ -1850,14 +1864,16 @@ paths:
   /api/v1/agent/tasks/{id}/release:
     post:
       tags: [agent]
-      summary: Release a claim.
+      summary: Release a claim ({id} accepts UUID or "#42"/"42").
       security: [{ bearerAuth-agent: [] }]
-      responses: { '200': { description: ok } }
+      responses:
+        '200': { description: ok }
+        '404': { description: 'not_found — includes task #N not found for numeric refs' }
 
   /api/v1/agent/tasks/{id}/submit:
     post:
       tags: [agent]
-      summary: Mark ready for human review.
+      summary: Mark ready for human review ({id} accepts UUID or "#42"/"42").
       security: [{ bearerAuth-agent: [] }]
       requestBody:
         required: false
@@ -1867,20 +1883,25 @@ paths:
               type: object
               properties:
                 note: { type: string }
-      responses: { '200': { description: ok } }
+      responses:
+        '200': { description: ok }
+        '404': { description: 'not_found — includes task #N not found for numeric refs' }
 
   /api/v1/agent/tasks/{id}/context:
     get:
       tags: [agent]
-      summary: Full snapshot for resume.
+      summary: Full snapshot for resume ({id} accepts UUID or "#42"/"42").
       description: |
         Phase 15: the response now includes `blocked_by` (list of
         unresolved blocker task ids) and `lock_holder` (agent_id,
         agent_name, acquired_at) when applicable. Both fields are
         omitted when there are no open blockers / no active lock —
         same shape as the user-facing /api/v1/tasks/{id}/context.
+        {id} accepts the task UUID or the human number ("42" / "#42").
       security: [{ bearerAuth-agent: [] }]
-      responses: { '200': { description: ok } }
+      responses:
+        '200': { description: ok }
+        '404': { description: 'not_found — includes task #N not found for numeric refs' }
 
   # Phase 27.11: agent-namespace comment. Mirrors the user-cookie
   # /api/v1/tasks/{id}/comments POST but writes the comment as
@@ -1889,7 +1910,7 @@ paths:
   /api/v1/agent/tasks/{id}/comments:
     post:
       tags: [agent]
-      summary: Add a comment authored by the agent (author_type=agent).
+      summary: Add a comment authored by the agent (author_type=agent; {id} accepts UUID or "#42"/"42").
       security: [{ bearerAuth-agent: [] }]
       requestBody:
         required: true
@@ -1903,6 +1924,7 @@ paths:
       responses:
         '201': { description: created }
         '401': { description: missing or invalid agent token }
+        '404': { description: 'not_found — includes task #N not found for numeric refs' }
 
   # Phase 27.11: agent-namespace long-poll. Mirrors the user-cookie
   # /api/v1/events/await POST but subscribes the WS hub under the
@@ -2408,6 +2430,36 @@ paths:
         - in: query
           name: limit
           schema: { type: integer }
+      responses: { '200': { description: ok } }
+
+  # Phase 32.11: dashboard chat pane (commands-only MVP). User-cookie
+  # surface; /plan day files a study proposal (result_ref = proposal id),
+  # /help returns static text, anything else echoes an acknowledgement.
+  /api/v1/dashboard/chat:
+    post:
+      tags: [chat]
+      summary: Post a dashboard chat message ("/plan day" | "/help" | plain echo).
+      security: [{ cookieAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                thread_id: { type: string, description: 'defaults to "default"' }
+                message: { type: string }
+      responses:
+        '201': { description: 'created — { user_message, agent_message, result_ref? }' }
+        '400': { description: invalid_json / empty_message }
+        '503': { description: chat_not_wired }
+
+  /api/v1/dashboard/chat/{thread}:
+    get:
+      tags: [chat]
+      summary: List chat messages for a thread (history replay, capped at 50; ?limit=N).
+      security: [{ cookieAuth: [] }]
       responses: { '200': { description: ok } }
 
   # ---- SPA fallback ----

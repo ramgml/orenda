@@ -128,7 +128,7 @@ Process rules (binary, like the rest of this file):
 ### When you start a task
 1. Work comes from the dogfood instance (`orenda agent next` / MCP `orenda_list_tasks`) — see `docs/DOGFOOD.md`. `docs/PLAN.md` is a frozen archive of phases ≤ 32, not a queue.
 2. Check Definition of Done (in the task description / linked wiki постановка).
-3. Create worktree + branch `phase-X-Y-short-name` (см. «Worktree per task» — обязательно, без исключений).
+3. Create worktree + branch `task-123-short-slug` (123 = номер задачи; см. «Worktree per task» — обязательно, без исключений).
 4. Implement tasks in order.
 5. Run `make test && make lint`.
 6. Re-index the codebase knowledge graph after code changes: codebase-memory-mcp `index_repository` with `mode: "fast"` (`"full"` on first index). Code discovery runs through `search_graph`/`trace_path` — a stale graph misleads the next agent.
@@ -177,15 +177,16 @@ A task is done or not done — "almost done" is not done. Phases here have been 
 ## Communication
 
 - Comments in code: **English**.
-- Commit messages: `phase(X.Y): short description` (e.g., `phase(1.3): add task repository`).
-- PR titles: `[Phase X.Y] short description`.
+- Commit messages: `task(123): short description` — the task's human number (every task carries a sequential `#N` alongside its UUID; see `docs/DOGFOOD.md` «Именование по номеру задачи»).
+- PR titles: `[Task 123] short description`.
 - Issue references: `closes #N` or `refs PRD#section`.
+- Archive scheme for phases ≤ 32 (historical branches/commits only, never rewritten): `phase(X.Y): ...` commits, `[Phase X.Y] ...` PR titles, `phase-X-Y-<name>` branches.
 
 ## Git workflow
 
 - `main` — stable releases only. Tagged `vX.Y.Z`. No direct commits.
 - `dev` — active development. Default branch for feature work.
-- `phase-X-Y-<name>` — feature branches off `dev`. One branch per PLAN task.
+- `task-123-short-slug` — feature branches off `dev`. One branch per task; `123` is the task's human number (`tasks.number`), the slug is 2–4 words.
 - Merge to `dev` after review. Tag phase milestone: `git tag v0.1.0-phaseX`.
 - Promote to `main` via PR from `dev` when ready. Tag release: `git tag vX.Y.Z`.
 - See `CHANGELOG.md` for versioning policy and release notes.
@@ -196,16 +197,17 @@ Agents run in parallel and **cannot see each other**. You cannot know whether an
 
 ```bash
 # Start of task: branch + worktree off dev, nested under .worktrees/
-git worktree add .worktrees/<task> -b phase-X-Y-<name> dev
+# (123 = task number, slug = 2–4 words)
+git worktree add .worktrees/task-123-short-slug -b task-123-short-slug dev
 
-# ...work in .worktrees/<task>...
+# ...work in .worktrees/task-123-short-slug...
 
 # Commit early, commit often: uncommitted work is unprotected —
 # another agent's tree operation can silently destroy it.
-git add -A && git commit -m "phase(X.Y): ..."
+git add -A && git commit -m "task(123): ..."
 
 # After merge to dev:
-git worktree remove .worktrees/<task> && git worktree prune
+git worktree remove .worktrees/task-123-short-slug && git worktree prune
 ```
 
 Rules:

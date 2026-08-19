@@ -22,8 +22,18 @@
 
 1. **Постановка** — wiki-страница в инстансе: мотивация, дизайн-решения, evidence, DoD. Агенты пишут через MCP (`orenda_pages_save`) или REST `PUT /api/v1/agent/pages/{slug}`.
 2. **Задача** — в проекте «Orenda dev», в описании ссылка на постановку. Критерий готовности — в самой задаче (CONTEXT.md: «задача без критерия тлеет»).
-3. **Claim** — `orenda agent next` (готовая к работе задача) → `orenda agent claim <id>`. 409 `lock_taken` несёт holder-поля — спроси holder'а или возьми следующую.
+3. **Claim** — `orenda agent next` (готовая к работе задача) → `orenda agent claim <id>`. Вместо UUID везде принимается человекочитаемый номер: `orenda agent claim 42` или `orenda agent claim '#42'` (REST `/api/v1/agent/tasks/{id}/*`, CLI и MCP резолвят `#N`/`N` через `tasks.number`; неизвестный номер → 404 `task #N not found`). 409 `lock_taken` несёт holder-поля — спроси holder'а или возьми следующую.
 4. **Работа** — код в git по правилам `AGENTS.md` (worktree per task, тесты, минимальные диффы). Контекст задачи: `orenda agent context <id>` — блокеры, комментарии, дети, lock holder.
+
+### Именование по номеру задачи (task numbers)
+
+У каждой задачи есть последовательный номер `#N` рядом с UUID (номера не переиспользуются после удаления). Git-артефакты ссылаются на номер:
+
+- **ветка:** `task-123-short-slug` (worktree: `.worktrees/task-123-short-slug`);
+- **коммит:** `task(123): short description`;
+- **PR:** `[Task 123] short description`.
+
+Архивная схема `phase-X-Y-*` / `phase(X.Y):` остаётся только для фаз ≤ 32 (исторические ветки и коммиты не переписываем).
 5. **PR** — по шаблону `.github/PULL_REQUEST_TEMPLATE.md`; merge в `dev` после ревью.
 6. **Review в Orenda** — `orenda agent submit <id>` → человек принимает/возвращает на `/review`. Возврат всегда с комментарием — это обратная связь, а не сбой.
 7. **Принятые решения** — короткая запись на wiki-странице «Decision log» (что решили и почему, одна запись на решение).
@@ -50,8 +60,8 @@ kanban-move в `todo` (сбрасывает `awaiting`, задача появл�
 
 ```bash
 orenda agent me          # кто я, жив ли токен
-orenda agent next        # первая готовая задача (exit 2 = работы нет)
-orenda agent context <id>
+orenda agent next        # первая готовая задача (exit 2 = работы нет); печатает #N рядом с UUID
+orenda agent context 42  # <id> = UUID или номер («42» / «#42»)
 ```
 
 или через MCP: `orenda_list_tasks` → `orenda_claim` → `orenda_context`.

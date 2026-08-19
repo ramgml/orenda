@@ -41,6 +41,7 @@ function withQuery(node: JSX.Element, seedAgents?: unknown[]): JSX.Element {
 function makeTask(): Task {
   return {
     id: 'task-42',
+    number: 42,
     project_id: 'p1',
     column_id: 'col-1',
     title: 'Sample task',
@@ -240,8 +241,12 @@ describe('TaskCard', () => {
     // The title is rendered; no tag-pill spans should be present.
     // We anchor on the TaskTagChip class signature: inline-flex items-center
     // px-1.5 py-0.5 text-[10px] font-medium rounded border max-w-[8rem].
+    // The task-number chip also carries inline-flex/items-center, so it
+    // is excluded by testid — this assertion is about tag pills only.
     const card = getCardRoot(container);
-    const tagPills = card.querySelectorAll('span.inline-flex.items-center');
+    const tagPills = card.querySelectorAll(
+      'span.inline-flex.items-center:not([data-testid="task-number-chip"])',
+    );
     expect(tagPills.length).toBe(0);
   });
 

@@ -56,7 +56,13 @@ func agentCreateTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		taskID := chi.URLParam(r, "id")
+		// "#42"/"42" resolve to the task UUID before the comment is
+		// written — same convention as the other agent task routes.
+		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if rerr != nil {
+			writeResolveError(w, rerr)
+			return
+		}
 		c := &comment.Comment{
 			TargetID:   taskID,
 			AuthorType: comment.AuthorAgent,
