@@ -25,7 +25,7 @@ EMBED_DIST := internal/embed/web/dist
 VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.1.0")
 LDFLAGS    := -ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: all dev build test lint lint-new clean migrate-up migrate-down \
+.PHONY: all dev build test test-gate lint lint-new clean migrate-up migrate-down \
         backup backup-push backup-snapshot backup-status \
         web-install web-dev web-build web-test test-e2e \
         embed-dists run version help govulncheck hooks \
@@ -88,8 +88,26 @@ run: build
 ## Phase 26.F: vitest is part of the pre-commit / pre-push gate now
 ## (no longer a separate "wave rule"). E2E stays separate — it requires
 ## Chromium and a built binary; see test-e2e.
+##
+## `-count=1` deliberately disables the Go test cache: this is the FULL,
+## from-scratch run. It is what the CI backstop (push to dev) and the
+## release gate execute. The local pre-push hook runs `test-gate` instead —
+## same suites, but with the Go test cache enabled (see below).
 test:
 	$(GO) test ./... -race -count=1
+	cd $(WEB_DIR) && $(NPM) run test
+
+## test-gate: pre-push gate suite. Identical coverage to `test` (go test
+## -race over ./... + vitest), but WITHOUT `-count=1`, so the Go test
+## cache applies: a push with no code changes re-runs in seconds, and a
+## push touching one package re-runs only that package and its dependents
+## (the cache keys on file contents of the package and its dependency
+## graph, plus env and flags — a real code change can never be served
+## stale from cache). The uncached `make test` stays as the CI backstop
+## on push to dev (wiki:ci-local-gates-hooks), which covers the exotica
+## the cache cannot see (ports, clocks).
+test-gate:
+	$(GO) test ./... -race
 	cd $(WEB_DIR) && $(NPM) run test
 
 ## lint: Run linters (golangci-lint + eslint)
@@ -134,7 +152,7 @@ hooks:
 		echo "hooks: setting core.hooksPath = $$hooks in $$main_git/config"; \
 		GIT_DIR="$$main_git" git config core.hooksPath "$$hooks"; \
 	fi
-	@echo "hooks: active — pre-commit (gofmt + prettier --check) and pre-push (make lint-new + make test)"
+	@echo "hooks: active — pre-commit (gofmt + prettier --check) and pre-push (make lint-new + make test-gate)"
 	@echo "hooks: bypass with SKIP_ORENDA_HOOKS=1 (avoid --no-verify — see AGENTS.md)"
 
 ## web-format: Format web/ sources with Prettier (writes in-place).
