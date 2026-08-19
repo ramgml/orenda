@@ -466,11 +466,29 @@ paths:
         '404': { description: not found }
     patch:
       tags: [projects]
-      summary: Update project fields (name/color/description/archived).
+      summary: Update project fields (name/color/description/wiki_slug/archived).
+      description: |
+        Pointer fields: nil leaves the column alone; non-nil replaces.
+        wiki_slug must reference an existing wiki page (422 on miss);
+        empty string unlinks the project. Whitespace around the slug
+        is trimmed server-side.
       security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                color: { type: string }
+                description: { type: string }
+                wiki_slug: { type: string, description: "Slug of an existing wiki page; empty → unlink." }
+                archived: { type: boolean }
       responses:
         '200': { description: ok }
         '404': { description: not found }
+        '422': { description: wiki_slug_not_found }
     delete:
       tags: [projects]
       summary: Delete project (cascades to boards/columns/tasks).
@@ -1799,6 +1817,44 @@ paths:
       summary: Refresh last_seen_at.
       security: [{ bearerAuth-agent: [] }]
       responses: { '200': { description: ok } }
+
+  # wiki:agent-project-description + wiki:project-wiki-link — agent
+  # read/write of a project. PATCH carries description and / or
+  # wiki_slug (pointer fields; nil leaves the column alone).
+  # wiki_slug must reference an existing wiki page or the request is
+  # rejected with 422 wiki_slug_not_found — same contract as the
+  # user-cookie PATCH so the two surfaces stay in sync.
+  /api/v1/agent/projects/{id}:
+    get:
+      tags: [agent]
+      summary: Read one project (full row incl. wiki_slug).
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '404': { description: not_found }
+    patch:
+      tags: [agent]
+      summary: Update description and / or wiki_slug.
+      description: |
+        Pointer fields: nil leaves the column alone; non-nil replaces.
+        wiki_slug must reference an existing wiki page (422 on miss);
+        empty string unlinks the project. Description accepts any
+        string including "". name / color / archived are intentionally
+        user-only and are rejected as no-ops even if sent.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description: { type: string }
+                wiki_slug: { type: string, description: "Slug of an existing wiki page; empty → unlink." }
+      responses:
+        '200': { description: ok }
+        '404': { description: not_found }
+        '422': { description: wiki_slug_not_found }
 
   /api/v1/agent/tasks:
     get:

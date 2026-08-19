@@ -37,13 +37,15 @@ func (r *projectRepo) CreateProject(ctx context.Context, p *project.Project) (*p
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// wiki_slug is nullable; normalize "" to NULL on insert so the FK
+	// semantics line up with the rest of the codebase.
 	const insProject = `
-		INSERT INTO projects (id, name, color, description, owner_id, archived,
+		INSERT INTO projects (id, name, color, description, wiki_slug, owner_id, archived,
 		                     created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
+		VALUES (?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
 	`
 	if _, err := tx.ExecContext(ctx, insProject,
-		p.ID, p.Name, p.Color, p.Description, p.OwnerID,
+		p.ID, p.Name, p.Color, p.Description, nullString(p.WikiSlug), p.OwnerID,
 	); err != nil {
 		return nil, nil, nil, fmt.Errorf("project.CreateProject: insert project: %w", err)
 	}
@@ -102,18 +104,19 @@ func (r *projectRepo) CreateProject(ctx context.Context, p *project.Project) (*p
 
 func (r *projectRepo) GetProject(ctx context.Context, id string) (*project.Project, error) {
 	const q = `
-		SELECT id, name, color, description, owner_id, archived, created_at, updated_at
+		SELECT id, name, color, description, wiki_slug, owner_id, archived, created_at, updated_at
 		FROM projects WHERE id = ?
 	`
 	row := r.db.QueryRowContext(ctx, q, id)
 	var (
 		p    project.Project
 		desc sql.NullString
+		wiki sql.NullString
 		arch int
 		cAt  string
 		uAt  string
 	)
-	err := row.Scan(&p.ID, &p.Name, &p.Color, &desc, &p.OwnerID, &arch, &cAt, &uAt)
+	err := row.Scan(&p.ID, &p.Name, &p.Color, &desc, &wiki, &p.OwnerID, &arch, &cAt, &uAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, project.ErrNotFound
 	}
@@ -121,6 +124,7 @@ func (r *projectRepo) GetProject(ctx context.Context, id string) (*project.Proje
 		return nil, fmt.Errorf("project.GetProject: %w", err)
 	}
 	p.Description = desc.String
+	p.WikiSlug = wiki.String
 	p.Archived = arch != 0
 	p.CreatedAt = parseTime(cAt)
 	p.UpdatedAt = parseTime(uAt)
@@ -136,7 +140,7 @@ func (r *projectRepo) ListProjects(ctx context.Context, ownerID string) ([]*proj
 	// invisible to the frontend's project list.
 	_ = ownerID
 	const q = `
-		SELECT id, name, color, description, owner_id, archived, created_at, updated_at
+		SELECT id, name, color, description, wiki_slug, owner_id, archived, created_at, updated_at
 		FROM projects
 		ORDER BY created_at DESC
 	`
@@ -151,14 +155,16 @@ func (r *projectRepo) ListProjects(ctx context.Context, ownerID string) ([]*proj
 		var (
 			p    project.Project
 			desc sql.NullString
+			wiki sql.NullString
 			arch int
 			cAt  string
 			uAt  string
 		)
-		if err := rows.Scan(&p.ID, &p.Name, &p.Color, &desc, &p.OwnerID, &arch, &cAt, &uAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Color, &desc, &wiki, &p.OwnerID, &arch, &cAt, &uAt); err != nil {
 			return nil, fmt.Errorf("project.ListProjects: scan: %w", err)
 		}
 		p.Description = desc.String
+		p.WikiSlug = wiki.String
 		p.Archived = arch != 0
 		p.CreatedAt = parseTime(cAt)
 		p.UpdatedAt = parseTime(uAt)
@@ -176,10 +182,10 @@ func (r *projectRepo) UpdateProject(ctx context.Context, p *project.Project) err
 	}
 	const q = `
 		UPDATE projects
-		SET name = ?, color = ?, description = ?, archived = ?
+		SET name = ?, color = ?, description = ?, wiki_slug = ?, archived = ?
 		WHERE id = ?
 	`
-	res, err := r.db.ExecContext(ctx, q, p.Name, p.Color, p.Description, boolToInt(p.Archived), p.ID)
+	res, err := r.db.ExecContext(ctx, q, p.Name, p.Color, p.Description, nullString(p.WikiSlug), boolToInt(p.Archived), p.ID)
 	if err != nil {
 		return fmt.Errorf("project.UpdateProject: %w", err)
 	}

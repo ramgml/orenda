@@ -61,6 +61,15 @@ export function ProjectDetailPage(): JSX.Element {
             </span>
           )}
         </h1>
+        {project?.wiki_slug && (
+          <a
+            href={`/pages/${encodeURIComponent(project.wiki_slug)}`}
+            className="text-xs px-2 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 flex-shrink-0"
+            title="Open the linked wiki page"
+          >
+            Wiki page ↗
+          </a>
+        )}
       </div>
 
       <ProjectTabs projectId={project?.id ?? id ?? ''} />
