@@ -59,7 +59,7 @@ func newAgentWikiFixture(t *testing.T) *agentWikiFixture {
 	ownerEmail := "aw-owner-" + randLite()[:8] + "@x.com"
 	require.NoError(t, users.Create(context.Background(), &user.User{
 		Email:        ownerEmail,
-		PasswordHash: mustHashFast(t, "hunter2!"),
+		PasswordHash: mustHashFast(t),
 		DisplayName:  "Owner",
 	}))
 

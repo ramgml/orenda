@@ -48,7 +48,7 @@ func newAgentFixture(t *testing.T) *agentFixture {
 	ownerEmail := "agent-owner-" + randLite()[:8] + "@x.com"
 	require.NoError(t, users.Create(context.Background(), &user.User{
 		Email:        ownerEmail,
-		PasswordHash: mustHashFast(t, "hunter2!"),
+		PasswordHash: mustHashFast(t),
 		DisplayName:  "Owner",
 	}))
 

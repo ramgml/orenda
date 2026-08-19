@@ -175,7 +175,7 @@ type Task struct {
 	// progress" without a per-card fetch. Always optional — GET
 	// /tasks/{id} doesn't set them; the handlers that wrap
 	// ListByProject do. The card UI treats absent values as "0".
-	Counters *TaskCounters `json:"counters,omitempty"`
+	Counters *Counters `json:"counters,omitempty"`
 
 	// Phase 15: number of unfinished blockers. Same optional
 	// lifecycle — only set by list endpoints that join with
@@ -206,10 +206,10 @@ type Task struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// TaskCounters is the bundle of per-task counts the kanban card
+// Counters is the bundle of per-task counts the kanban card
 // renders. Phase 17 aggregates them in a single SQL query so the
 // card render doesn't fan out into per-row fetches.
-type TaskCounters struct {
+type Counters struct {
 	Comments       int `json:"comments"`
 	Attachments    int `json:"attachments"`
 	ChildrenTotal  int `json:"children_total"`

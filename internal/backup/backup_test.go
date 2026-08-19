@@ -274,7 +274,7 @@ func TestService_UpdateConfig_ConcurrentReadersSeeNoTear(t *testing.T) {
 	}
 	for i := 0; i < 25; i++ {
 		wg.Add(1)
-		go func(i int) {
+		go func() {
 			defer wg.Done()
 			for j := 0; j < 200; j++ {
 				url := urlA
@@ -287,7 +287,7 @@ func TestService_UpdateConfig_ConcurrentReadersSeeNoTear(t *testing.T) {
 					RemoteURL: url,
 				})
 			}
-		}(i)
+		}()
 	}
 
 	wg.Wait()

@@ -34,7 +34,7 @@ type Repository interface {
 	// matching the dedup key (agent_id, course_id, normalized_title).
 	// Phase 32.9: called by Service.Propose before Create so the
 	// planner's evening+morning runs don't multiply rows.
-	// Returns study.ErrNotFound when no equivalent pending proposal exists.
+	// Returns (nil, nil) when no equivalent pending proposal exists.
 	// course_id="" matches the NULL/empty-course proposals (so two
 	// course-less proposals with the same normalized title collide).
 	FindPendingEquivalent(ctx context.Context, agentID, courseID, normalizedTitle string) (*Proposal, error)

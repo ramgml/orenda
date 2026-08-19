@@ -46,13 +46,18 @@
 инстансе (постановка в wiki, если решение нетривиально). PLAN.md и SESSION.md
 замораживаются архивом в Phase 32.6 — туда больше не пишем.
 
-**Исполнимо агентом (Phase 33.1).** Агент заводит задачу сам —
+**Исполнимо агентом (Phase 33.1 + 33.3).** Агент заводит задачу сам —
 `orenda agent propose --project <id> --title ... --description-file ...`
 (REST `POST /api/v1/agent/tasks`, MCP `orenda_task_propose`). Задача падает в
-`status=backlog, awaiting=human` и видна владельцу в review queue; принятие =
-kanban-move в `todo` (сбрасывает `awaiting`, задача появляется в
-`GET /api/v1/agent/tasks?ready=true`), отклонение = delete. Агент НЕ начинает
-работу над предложенной задачей до триажа человеком.
+`status=backlog, awaiting=none` и видна владельцу на канбан-доске в колонке
+backlog. Review queue — только для сданной агентом работы (`status=review`),
+предложенное в backlog там не появляется (Phase 33.3: review surface — для
+review, а не для триажа бэклога). Принятие = kanban-move backlog→todo
+(задача появляется в `GET /api/v1/agent/tasks?ready=true`); отклонение =
+delete. Агент НЕ начинает работу над предложенной задачей до триажа
+человеком — в `?ready=true` бэклог не попадает, инвариант
+«агент не берёт из бэклога» закреплён тестом
+`TestAgent_ProposeTask_BacklogNotInAgentList`.
 
 ## Входная точка агента
 

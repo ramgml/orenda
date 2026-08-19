@@ -11,7 +11,7 @@ Local-first productivity suite (tasks, calendar, wiki) where **AI-agents are fir
 | Layer | Tech |
 |-------|------|
 | Backend | Go 1.22+ (chi, modernc.org/sqlite, jwt, gorilla/websocket, cobra) |
-| Frontend | React 18 + TS + Vite + Tailwind + shadcn/ui |
+| Frontend | React 18 + TS + Vite + Tailwind + shadcn/ui (`@radix-ui/react-dialog` ^1.1.23, `class-variance-authority` ^0.7.1, `clsx` ^2.1.1, `tailwind-merge` ^3.6.0; Phase 32.13 — one `Dialog` primitive replaces the corresponding self-made modal in `Backups.tsx`) |
 | DB | SQLite (WAL mode) |
 | Migrations | custom runner `sqlite.Migrate`/`MigrateDown` (sequential `NNN_*.sql` / `NNN_*.down.sql`) |
 

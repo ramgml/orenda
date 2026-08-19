@@ -12,9 +12,6 @@ import (
 // requestIDMiddleware is a thin alias to chi's middleware.RequestID.
 var requestIDMiddleware = middleware.RequestID
 
-// realIPMiddleware is a thin alias to chi's middleware.RealIP.
-var realIPMiddleware = middleware.RealIP
-
 // recovererMiddleware is a thin alias to chi's middleware.Recoverer.
 var recovererMiddleware = middleware.Recoverer
 

@@ -32,7 +32,7 @@ import (
 const p6Email = "p6-owner@orenda.test"
 
 // p6Fixture returns a router with the full Phase 6 dependency set.
-func p6Fixture(t *testing.T) (http.Handler, *sqlLite, *notifierservice.Service) {
+func p6Fixture(t *testing.T) (http.Handler, *sqlLite) {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/p6.db"), sqlite.OpenConfig{
@@ -46,7 +46,7 @@ func p6Fixture(t *testing.T) (http.Handler, *sqlLite, *notifierservice.Service) 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
 		Email:        p6Email,
-		PasswordHash: mustHashFast(t, "hunter2!"),
+		PasswordHash: mustHashFast(t),
 		DisplayName:  "P6",
 	}))
 
@@ -92,7 +92,7 @@ func p6Fixture(t *testing.T) (http.Handler, *sqlLite, *notifierservice.Service) 
 		Notifier:     notifierSvc,
 		CookieName:   "orenda_session",
 	}
-	return api.NewRouter(&deps), db, notifierSvc
+	return api.NewRouter(&deps), db
 }
 
 // p6TokenMinter adapts the tokens repo to agentservice.TokenMinter.
@@ -117,10 +117,10 @@ func p6Login(t *testing.T, router http.Handler) string {
 	return rr.Result().Cookies()[0].Value
 }
 
-// p6AuthJSON sends an authenticated JSON request.
-func p6AuthJSON(router http.Handler, method, path, cookie string, body any) *httptest.ResponseRecorder {
+// p6AuthJSON sends an authenticated JSON POST request.
+func p6AuthJSON(router http.Handler, path, cookie string, body any) *httptest.ResponseRecorder {
 	buf, _ := json.Marshal(body)
-	req := httptest.NewRequest(method, path, bytes.NewReader(buf))
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(buf))
 	req.Header.Set("Content-Type", "application/json")
 	req.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
 	rr := httptest.NewRecorder()
@@ -137,10 +137,10 @@ func p6AuthGet(router http.Handler, cookie, path string) *httptest.ResponseRecor
 	return rr
 }
 
-// p6SeedAgent creates a real agent (returns id + plain token).
-func p6SeedAgent(t *testing.T, router http.Handler, cookie, name string) (string, string) {
+// p6SeedAgent creates a real agent and returns its id.
+func p6SeedAgent(t *testing.T, router http.Handler, cookie, name string) string {
 	t.Helper()
-	rr := p6AuthJSON(router, http.MethodPost, "/api/v1/agents", cookie,
+	rr := p6AuthJSON(router, "/api/v1/agents", cookie,
 		map[string]any{"name": name, "type": []string{"qwen"}})
 	require.Equal(t, http.StatusCreated, rr.Code, "body=%s", rr.Body.String())
 	var resp struct {
@@ -150,13 +150,13 @@ func p6SeedAgent(t *testing.T, router http.Handler, cookie, name string) (string
 		PlainToken string `json:"plain_token"`
 	}
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
-	return resp.Agent.ID, resp.PlainToken
+	return resp.Agent.ID
 }
 
-// p6SeedTask creates a project + task; returns (projectID, columnID, taskID).
-func p6SeedTask(t *testing.T, router http.Handler, cookie string) (string, string, string) {
+// p6SeedTask creates a project + task and returns the task id.
+func p6SeedTask(t *testing.T, router http.Handler, cookie string) string {
 	t.Helper()
-	rr := p6AuthJSON(router, http.MethodPost, "/api/v1/projects", cookie,
+	rr := p6AuthJSON(router, "/api/v1/projects", cookie,
 		map[string]any{"name": "P6"})
 	require.Equal(t, http.StatusCreated, rr.Code)
 	var p struct {
@@ -174,27 +174,27 @@ func p6SeedTask(t *testing.T, router http.Handler, cookie string) (string, strin
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &b))
 	require.NotEmpty(t, b.Columns)
 
-	rr = p6AuthJSON(router, http.MethodPost, "/api/v1/projects/"+p.ID+"/tasks", cookie,
+	rr = p6AuthJSON(router, "/api/v1/projects/"+p.ID+"/tasks", cookie,
 		map[string]any{"title": "t", "column_id": b.Columns[0].ID})
 	require.Equal(t, http.StatusCreated, rr.Code)
 	var tr struct {
 		ID string `json:"id"`
 	}
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &tr))
-	return p.ID, b.Columns[0].ID, tr.ID
+	return tr.ID
 }
 
 func TestP6_SubmitNotifiesOwner(t *testing.T) {
-	router, _, _ := p6Fixture(t)
+	router, _ := p6Fixture(t)
 	cookie := p6Login(t, router)
 
-	_, _, taskID := p6SeedTask(t, router, cookie)
+	taskID := p6SeedTask(t, router, cookie)
 
 	// Seed an agent so Submit's TaskService can bind it.
-	agentID, _ := p6SeedAgent(t, router, cookie, "p6-notify")
+	agentID := p6SeedAgent(t, router, cookie, "p6-notify")
 
 	// Submit via cookie-authenticated user (Phase 3 handler).
-	rr := p6AuthJSON(router, http.MethodPost, "/api/v1/tasks/"+taskID+"/submit", cookie,
+	rr := p6AuthJSON(router, "/api/v1/tasks/"+taskID+"/submit", cookie,
 		map[string]any{"agent_id": agentID, "note": "ready"})
 	require.Equal(t, http.StatusOK, rr.Code, "submit body=%s", rr.Body.String())
 
@@ -217,7 +217,7 @@ func TestP6_SubmitNotifiesOwner(t *testing.T) {
 }
 
 func TestP6_MentionNotifiesMentionedUser(t *testing.T) {
-	router, db, _ := p6Fixture(t)
+	router, db := p6Fixture(t)
 	cookie := p6Login(t, router)
 
 	// Add a second user (the mentioned one) — they should get the
@@ -230,10 +230,10 @@ func TestP6_MentionNotifiesMentionedUser(t *testing.T) {
 	}
 	require.NoError(t, users.Create(context.Background(), other))
 
-	_, _, taskID := p6SeedTask(t, router, cookie)
+	taskID := p6SeedTask(t, router, cookie)
 
 	// Write a comment mentioning the other user by id.
-	rr := p6AuthJSON(router, http.MethodPost, "/api/v1/tasks/"+taskID+"/comments", cookie,
+	rr := p6AuthJSON(router, "/api/v1/tasks/"+taskID+"/comments", cookie,
 		map[string]any{"body_md": "Hello @user:" + other.ID})
 	require.Equal(t, http.StatusCreated, rr.Code)
 
@@ -250,14 +250,14 @@ func TestP6_MentionNotifiesMentionedUser(t *testing.T) {
 }
 
 func TestP6_SubmitDedupes(t *testing.T) {
-	router, _, _ := p6Fixture(t)
+	router, _ := p6Fixture(t)
 	cookie := p6Login(t, router)
 
-	_, _, taskID := p6SeedTask(t, router, cookie)
-	agentID, _ := p6SeedAgent(t, router, cookie, "p6-dedup")
+	taskID := p6SeedTask(t, router, cookie)
+	agentID := p6SeedAgent(t, router, cookie, "p6-dedup")
 
 	for i := 0; i < 3; i++ {
-		rr := p6AuthJSON(router, http.MethodPost, "/api/v1/tasks/"+taskID+"/submit", cookie,
+		rr := p6AuthJSON(router, "/api/v1/tasks/"+taskID+"/submit", cookie,
 			map[string]any{"agent_id": agentID})
 		require.Equal(t, http.StatusOK, rr.Code)
 	}
@@ -272,13 +272,13 @@ func TestP6_SubmitDedupes(t *testing.T) {
 }
 
 func TestP6_MarkNotificationRead(t *testing.T) {
-	router, _, _ := p6Fixture(t)
+	router, _ := p6Fixture(t)
 	cookie := p6Login(t, router)
 
-	_, _, taskID := p6SeedTask(t, router, cookie)
-	agentID, _ := p6SeedAgent(t, router, cookie, "p6-read")
+	taskID := p6SeedTask(t, router, cookie)
+	agentID := p6SeedAgent(t, router, cookie, "p6-read")
 
-	p6AuthJSON(router, http.MethodPost, "/api/v1/tasks/"+taskID+"/submit", cookie,
+	p6AuthJSON(router, "/api/v1/tasks/"+taskID+"/submit", cookie,
 		map[string]any{"agent_id": agentID})
 
 	rr := p6AuthGet(router, cookie, "/api/v1/notifications")
@@ -293,7 +293,7 @@ func TestP6_MarkNotificationRead(t *testing.T) {
 	require.Equal(t, 1, out.Unread)
 
 	notifID := out.Notifications[0].ID
-	rr = p6AuthJSON(router, http.MethodPost, "/api/v1/notifications/"+notifID+"/read", cookie, nil)
+	rr = p6AuthJSON(router, "/api/v1/notifications/"+notifID+"/read", cookie, nil)
 	assert.Equal(t, http.StatusNoContent, rr.Code)
 
 	rr = p6AuthGet(router, cookie, "/api/v1/notifications")

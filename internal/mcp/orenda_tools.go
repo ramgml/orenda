@@ -4,7 +4,6 @@
 // endpoints so the MCP server is a thin facade — the CLI and the
 // UI use the same HTTP surface, the MCP server adds tool discovery
 // and JSON-RPC framing on top.
-
 package mcp
 
 import (
@@ -79,7 +78,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_task_propose",
-		Description: "Propose a new task. Lands as status=backlog, awaiting=human — the owner triages it from the review queue (accept = move to todo, dismiss = delete).",
+		Description: "Propose a new task. Lands in status=backlog with awaiting=none — the owner triages it on the kanban board (drag to todo / in_progress / done; dismiss = delete). The task is NOT added to the review queue (which is reserved for agent-submitted work). The task becomes claimable via /api/v1/agent/tasks?ready=true only after the owner drags it out of backlog.",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"project_id", "title", "description_md"},
@@ -444,7 +443,7 @@ func stringParam(params map[string]any, key string) string {
 
 // agentGet issues a GET against the agent namespace.
 func agentGet(ctx context.Context, c *http.Client, cfg ServerConfig, path string) (any, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.OrendaBaseURL+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.OrendaBaseURL+path, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -529,7 +528,7 @@ func readBody(resp *http.Response) (any, error) {
 	}
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
-		// Not JSON — return raw.
+		//nolint:nilerr // deliberate: a non-JSON payload is a valid result (raw text), not a failure.
 		return string(raw), nil
 	}
 	return v, nil

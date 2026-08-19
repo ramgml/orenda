@@ -38,7 +38,7 @@ func TestIntegration_MoveRejectsWhenColumnWIPFull(t *testing.T) {
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
-		Email: "wip@x.com", PasswordHash: mustHashFast(t, "hunter2!"), DisplayName: "W",
+		Email: "wip@x.com", PasswordHash: mustHashFast(t), DisplayName: "W",
 	}))
 
 	hub := ws.NewHub()
@@ -149,7 +149,7 @@ func TestIntegration_ListEvents_ExpandsRecurrence(t *testing.T) {
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
-		Email: "rr@x.com", PasswordHash: mustHashFast(t, "hunter2!"), DisplayName: "R",
+		Email: "rr@x.com", PasswordHash: mustHashFast(t), DisplayName: "R",
 	}))
 
 	hub := ws.NewHub()

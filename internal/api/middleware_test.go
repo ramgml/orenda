@@ -56,8 +56,7 @@ func TestRequestLogger_TagsSlow(t *testing.T) {
 	// but we can assert the slowCount counter increments when the
 	// recorded duration crosses the threshold.
 	ResetLiveStats()
-	var mw func(http.Handler) http.Handler
-	mw = func(next http.Handler) http.Handler {
+	mw := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			ww := httptest.NewRecorder()

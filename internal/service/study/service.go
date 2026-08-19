@@ -28,7 +28,6 @@ package study
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -114,7 +113,7 @@ func (s *Service) Propose(ctx context.Context, createdByAgent string, in Propose
 	}
 	normalized := study.NormalizeTitle(in.Title)
 	existing, err := s.Proposals.FindPendingEquivalent(ctx, createdByAgent, in.CourseID, normalized)
-	if err != nil && !errors.Is(err, study.ErrNotFound) {
+	if err != nil {
 		return nil, fmt.Errorf("study.Propose: dedup lookup: %w", err)
 	}
 	if existing != nil {

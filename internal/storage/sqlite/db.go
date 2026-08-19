@@ -249,7 +249,7 @@ func collectMigrationFiles(fsys fs.FS, dir string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: read migrations dir %q: %w", dir, err)
 	}
-	var files []string
+	files := make([]string, 0, len(entries))
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -419,6 +419,7 @@ func applyMigrationDownUnsafe(ctx context.Context, db *sql.DB, version, body str
 		return fmt.Errorf("sqlite: foreign_keys off (down): %w", err)
 	}
 	// Best-effort restore even on early exit paths.
+	//nolint:contextcheck // runs from defer after ctx may be cancelled; the pragma restore must not depend on it.
 	defer func() {
 		_, _ = conn.ExecContext(context.Background(), `PRAGMA foreign_keys = ON`)
 	}()
@@ -515,6 +516,7 @@ func applyMigrationUnsafe(ctx context.Context, db *sql.DB, version, body string)
 	if err != nil {
 		return fmt.Errorf("unsafe borrow conn: %w", err)
 	}
+	//nolint:contextcheck // runs from defer after ctx may be cancelled; the pragma restore must not depend on it.
 	defer func() {
 		// Best-effort restore. If this fails the conn is poisoned
 		// but the pool will detect it on next use (the SQLite

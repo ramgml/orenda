@@ -403,7 +403,7 @@ func downloadAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", a.Mime)
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", a.Size))
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, sanitizeFilename(a.Filename)))
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, sanitizeFilename(a.Filename)))
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.Copy(w, f)
 	}

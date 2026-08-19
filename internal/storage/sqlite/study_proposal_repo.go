@@ -142,7 +142,8 @@ func (r *studyProposalRepo) FindPendingEquivalent(ctx context.Context, agentID, 
 	p, err := scanProposal(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, study.ErrNotFound
+			//nolint:nilnil // Find-semantics: no equivalent proposal is a normal outcome; callers branch on nil.
+			return nil, nil
 		}
 		return nil, fmt.Errorf("study.FindPendingEquivalent: %w", err)
 	}

@@ -3,24 +3,29 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ramgml/orenda/internal/domain/project"
+	"github.com/ramgml/orenda/internal/domain/wiki"
 )
 
 // projectInput is the JSON body for create/update operations.
 //
 // Pointer fields let a caller distinguish "leave alone" (nil) from
 // "set to empty string" (non-nil pointing at ""). That matters for
-// Description, where empty is a valid value once a project has been
-// cleared. Name and Color still default to skipping empty values
-// at the handler layer — see patchProjectHandler.
+// Description and WikiSlug, where empty is a valid value once a
+// project has been cleared / unlinked. Name and Color still default
+// to skipping empty values at the handler layer — see
+// patchProjectHandler.
 type projectInput struct {
 	Name        *string `json:"name"`
 	Color       *string `json:"color"`
 	Description *string `json:"description"`
+	WikiSlug    *string `json:"wiki_slug"`
 	Archived    *bool   `json:"archived"`
 }
 
@@ -92,6 +97,10 @@ func getProjectHandler(deps *Dependencies) http.HandlerFunc {
 //   - description: nil → leave alone; "" or any string → replace. The
 //     pointer lets callers explicitly clear a previously-set
 //     description, which the previous non-pointer version could not do.
+//   - wiki_slug: nil → leave alone; "" → unlink (stored as NULL);
+//     non-empty → must reference an existing wiki page or 422. Trim
+//     whitespace so a stray space from a UI input doesn't silently
+//     break the FK.
 //   - archived: nil → leave alone; bool → set.
 func patchProjectHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -121,6 +130,27 @@ func patchProjectHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		if in.Description != nil {
 			p.Description = *in.Description
+		}
+		if in.WikiSlug != nil {
+			slug := strings.TrimSpace(*in.WikiSlug)
+			if slug == "" {
+				p.WikiSlug = ""
+			} else {
+				if deps.WikiService == nil {
+					http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
+					return
+				}
+				if _, err := deps.WikiService.GetBySlug(r.Context(), slug); err != nil {
+					if errors.Is(err, wiki.ErrNotFound) {
+						writeJSON(w, http.StatusUnprocessableEntity,
+							map[string]string{"error": "wiki_slug_not_found", "slug": slug})
+						return
+					}
+					writeError(w, err)
+					return
+				}
+				p.WikiSlug = slug
+			}
 		}
 		if in.Archived != nil {
 			p.Archived = *in.Archived

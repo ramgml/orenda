@@ -92,7 +92,7 @@ type Dependencies struct {
 	Users       user.Repository
 	Projects    project.Repository
 	Tasks       task.Repository
-	Tokens      APITokenLookup
+	Tokens      TokenLookup
 	TaskService *taskservice.Service
 	// TaskLockHolder is the narrow seam for looking up who's
 	// holding a task_locks row. Phase 15: previously the repo
@@ -172,6 +172,11 @@ type Dependencies struct {
 	// Phase 32.5: course activity repo (read side for /courses/{id}/activity).
 	// nil-safe — handler returns 503 when not wired.
 	CourseActivityRepo CourseActivityRepo
+	// ProjectActivityRecorder is the write side for project_activity
+	// rows (wiki:agent-project-description). The agent-projects PATCH
+	// handler emits a row via this seam. nil-safe — handlers guard
+	// before calling (mirrors ActivityRecorder).
+	ProjectActivityRecorder ProjectActivityRecorder
 	// Phase 31: study service. Propose / Accept / Dismiss lives here.
 	// nil-safe — handlers return 503 when the service hasn't been
 	// wired (e.g. tests).
@@ -216,7 +221,6 @@ func NewRouter(deps *Dependencies) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(requestIDHeader())
-	r.Use(realIP())
 	r.Use(requestLogger(logger))
 	r.Use(recoverer())
 	// Phase 22.3: maintenance mode is checked on every request; it
@@ -617,6 +621,15 @@ func NewRouter(deps *Dependencies) http.Handler {
 				r.Use(RequireAgent(cfg))
 				r.Get("/agent/me", agentMeHandler(deps))
 				r.Post("/agent/heartbeat", agentHeartbeatHandler(deps))
+				// wiki:agent-project-description — agent read/write of the
+				// project description. v1 exposes only description; the
+				// project-wiki-link task adds wiki_slug on top.
+				r.Route("/agent/projects", func(r chi.Router) {
+					r.Route("/{id}", func(r chi.Router) {
+						r.Get("/", agentGetProjectHandler(deps))
+						r.Patch("/", agentPatchProjectHandler(deps))
+					})
+				})
 				r.Route("/agent/tasks", func(r chi.Router) {
 					// Phase 15: list tasks the agent could act on.
 					// Supports ?ready=true to filter out blocked or
@@ -764,16 +777,19 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_, _ = w.Write(buf)
 }
 
-// requestIDHeader, realIP, recoverer are thin local wrappers around chi
+// requestIDHeader, recoverer are thin local wrappers around chi
 // middleware so the package doesn't need a direct import of chi/middleware
 // in router.go (and the import is in one place only: middleware.go).
+//
+// chi's RealIP used to sit between requestID and the logger but was
+// dropped: it is deprecated upstream (GHSA-3fxj-6jh8-hvhx,
+// GHSA-rjr7-jggh-pgcp) because it trusts X-Forwarded-For /
+// X-Real-IP unconditionally. Orenda is local-first with no trusted
+// proxy in front, so the raw TCP peer (r.RemoteAddr) is the correct
+// identity for logging and the login rate limiter.
 
 func requestIDHeader() func(http.Handler) http.Handler {
 	return requestIDMiddleware
-}
-
-func realIP() func(http.Handler) http.Handler {
-	return realIPMiddleware
 }
 
 func recoverer() func(http.Handler) http.Handler {

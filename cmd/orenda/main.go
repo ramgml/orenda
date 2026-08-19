@@ -52,8 +52,8 @@ import (
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
 	courseservice "github.com/ramgml/orenda/internal/service/course"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
-	"github.com/ramgml/orenda/internal/service/notifier"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
+	projectservice "github.com/ramgml/orenda/internal/service/project"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
 	studyservice "github.com/ramgml/orenda/internal/service/study"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
@@ -64,7 +64,6 @@ import (
 	activitydomain "github.com/ramgml/orenda/internal/domain/activity"
 	attachmentdomain "github.com/ramgml/orenda/internal/domain/attachment"
 	commentdomain "github.com/ramgml/orenda/internal/domain/comment"
-	taskdomain "github.com/ramgml/orenda/internal/domain/task"
 )
 
 // apiAttachmentResult aliases api.AttachmentResult so the adapter below
@@ -83,7 +82,7 @@ type sqliteTokenMinterAdapter struct {
 	repo *sqlite.APITokenRepo
 }
 
-func (a sqliteTokenMinterAdapter) MintToken(ctx context.Context, userID, name, hash, scopesJSON string, expiresAt *time.Time) (string, string, error) {
+func (a sqliteTokenMinterAdapter) MintToken(ctx context.Context, userID, name, hash, scopesJSON string, expiresAt *time.Time) (tokenID, tokenName string, err error) {
 	row, err := a.repo.Create(ctx, userID, name, hash, scopesJSON, expiresAt)
 	if err != nil {
 		return "", "", err
@@ -185,7 +184,7 @@ func int64ToString(v int64) string {
 // we need, and the projection is cheaper than a second type.
 func findTelegramSubscriber(
 	ctx context.Context,
-	repo notifier.SubscriptionRepository,
+	repo notifierservice.SubscriptionRepository,
 	chatID int64,
 ) string {
 	addr := int64ToString(chatID)
@@ -260,12 +259,13 @@ type taskOwnerResolverAdapter struct {
 	users    user.Repository
 }
 
-func (a taskOwnerResolverAdapter) OwnerForTask(ctx context.Context, taskID string) (string, string, error) {
+func (a taskOwnerResolverAdapter) OwnerForTask(ctx context.Context, taskID string) (ownerID, taskTitle string, err error) {
 	if a.tasks == nil || taskID == "" {
 		return "", "", nil
 	}
 	tr, err := a.tasks.GetByID(ctx, taskID)
 	if err != nil || tr == nil {
+		//nolint:nilerr // deliberate: a failed owner lookup must not fail the write path — notifications are skipped instead.
 		return "", "", nil
 	}
 	// Inbox tasks (project_id empty) have no recipient — Phase 16.
@@ -277,6 +277,7 @@ func (a taskOwnerResolverAdapter) OwnerForTask(ctx context.Context, taskID strin
 	}
 	p, err := a.projects.GetProject(ctx, tr.ProjectID)
 	if err != nil || p == nil {
+		//nolint:nilerr // deliberate: a failed owner lookup must not fail the write path — notifications are skipped instead.
 		return "", "", nil
 	}
 	return p.OwnerID, tr.Title, nil
@@ -311,7 +312,7 @@ var pendingNotifier *backup.Scheduler
 // Hub / Recorder already wired in main.go so live subscribers see
 // the task immediately.
 type courseTaskCreatorAdapter struct {
-	tasksRepo taskdomain.Repository
+	tasksRepo task.Repository
 	db        *sql.DB
 	hub       ws.Hub
 	recorder  courseTaskActivityRecorder
@@ -328,15 +329,15 @@ type courseTaskActivityRecorder interface {
 }
 
 func (a courseTaskCreatorAdapter) CreateGeneratorTask(ctx context.Context, ownerID, courseID, title, intentMD string) (string, error) {
-	t := &taskdomain.Task{
+	t := &task.Task{
 		Title:     fmt.Sprintf("Build curriculum for: %s", title),
 		ContextMD: fmt.Sprintf("course_id=%s\nintent=%s\n", courseID, intentMD),
-		Status:    taskdomain.StatusTodo,
-		Priority:  taskdomain.PriorityMedium,
-		Awaiting:  taskdomain.AwaitingAgent,
+		Status:    task.StatusTodo,
+		Priority:  task.PriorityMedium,
+		Awaiting:  task.AwaitingAgent,
 		// ProjectID left empty — Phase 16 inbox cards float until
 		// the agent (or the user) files them under a project.
-		AssigneeType: taskdomain.AssigneeType("user"),
+		AssigneeType: task.AssigneeType("user"),
 		AssigneeID:   ownerID,
 	}
 	if err := a.tasksRepo.Create(ctx, t); err != nil {
@@ -354,13 +355,13 @@ func (a courseTaskCreatorAdapter) CreateQuizReviewTask(ctx context.Context, owne
 	if err != nil {
 		return "", err
 	}
-	t := &taskdomain.Task{
+	t := &task.Task{
 		Title:        fmt.Sprintf("Review quiz answer: %s / %s", lessonTitle, quizTitle),
 		ContextMD:    fmt.Sprintf("quiz_id=%s\nlesson_id=%s\nanswer=%s\n", quizID, lessonID, answer),
-		Status:       taskdomain.StatusTodo,
-		Priority:     taskdomain.PriorityMedium,
-		Awaiting:     taskdomain.AwaitingAgent,
-		AssigneeType: taskdomain.AssigneeType("user"),
+		Status:       task.StatusTodo,
+		Priority:     task.PriorityMedium,
+		Awaiting:     task.AwaitingAgent,
+		AssigneeType: task.AssigneeType("user"),
 		AssigneeID:   ownerID,
 	}
 	if err := a.tasksRepo.Create(ctx, t); err != nil {
@@ -375,7 +376,7 @@ func (a courseTaskCreatorAdapter) CreateQuizReviewTask(ctx context.Context, owne
 // (Phase 27.9). Errors are swallowed on purpose — best-effort
 // observability for a row that already lives in the DB; surfacing
 // would risk failing a successful course operation.
-func (a courseTaskCreatorAdapter) notifyCreated(ctx context.Context, t *taskdomain.Task, ownerID, source string) {
+func (a courseTaskCreatorAdapter) notifyCreated(ctx context.Context, t *task.Task, ownerID, source string) {
 	if a.hub != nil {
 		a.hub.Publish(ctx, ws.Event{
 			Topic: "tasks",
@@ -427,14 +428,14 @@ func (a courseTaskCreatorAdapter) CompleteTask(ctx context.Context, taskID, note
 	if err != nil {
 		// Already gone or never existed — treat as best-effort
 		// success so the course swap can commit.
-		if errors.Is(err, taskdomain.ErrNotFound) {
+		if errors.Is(err, task.ErrNotFound) {
 			return nil
 		}
 		return fmt.Errorf("course.CompleteTask: load: %w", err)
 	}
 	now := time.Now().UTC()
-	t.Status = taskdomain.StatusDone
-	t.Awaiting = taskdomain.AwaitingNone
+	t.Status = task.StatusDone
+	t.Awaiting = task.AwaitingNone
 	t.CompletedAt = &now
 	if note != "" {
 		if t.ContextMD != "" {
@@ -513,6 +514,26 @@ func identitySourceFromAPI(ctx context.Context) (coursedomain.ActorType, string,
 	}
 	if id.AgentID != "" {
 		return coursedomain.ActorAgent, id.AgentID, true
+	}
+	return "", "", false
+}
+
+// projectIdentitySourceFromAPI is the IdentitySource the project
+// activity recorder uses (wiki:agent-project-description). Same
+// shape as identitySourceFromAPI but returns the project domain's
+// ActorType. v1 only the agent-namespace PATCH writes rows, but the
+// recorder resolves the actor generically so a future user-side
+// write path produces correct rows without handler changes.
+func projectIdentitySourceFromAPI(ctx context.Context) (project.ActorType, string, bool) {
+	id, present := api.IdentityFrom(ctx)
+	if !present {
+		return "", "", false
+	}
+	if id.UserID != "" {
+		return project.ActorUser, id.UserID, true
+	}
+	if id.AgentID != "" {
+		return project.ActorAgent, id.AgentID, true
 	}
 	return "", "", false
 }
@@ -776,6 +797,15 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// same seam.
 	taskSvc.CommentLister = commentSvc
 
+	// wiki:agent-project-description — project activity feed. Wire the
+	// recorder so the agent-namespace PATCH /agent/projects/{id} writes
+	// project_activity rows (kind=description_changed + before/after
+	// diff). IdentitySource reads from api.Identity (the same key the
+	// auth middleware uses) so the row carries actor_type=agent.
+	projectActivityRepo := sqlite.NewProjectActivityRepository(db)
+	projectActivityRecorder := projectservice.NewActivityRecorder(projectActivityRepo)
+	projectActivityRecorder.IdentitySource = projectIdentitySourceFromAPI
+
 	// Agent service — Register, Heartbeat, SweepOffline. Exposed
 	// through /api/v1/agents (REST) and /api/v1/agent/* (namespace)
 	// since Phase 3; the AgentService dep is wired into the router
@@ -1010,6 +1040,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		Courses:            courseRepo,
 		CourseService:      courseSvc,
 		CourseActivityRepo: courseActivityRepo,
+		// wiki:agent-project-description — write side for project_activity
+		// rows. The agent-namespace PATCH /agent/projects/{id} emits a
+		// description_changed row through this seam.
+		ProjectActivityRecorder: projectActivityRecorder,
 		// Phase 31: study service wires the user-side accept/dismiss
 		// + the agent-side propose. nil-safe in handlers (they check
 		// before calling) but the production binary must wire it
@@ -1185,7 +1219,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 // absCfg is currently unused; the parameter is kept so future versions can
 // resolve paths relative to the config file when needed (e.g. if the
 // operator installs Orenda in /opt but runs from /home/me).
-func cwdOr(_ string, fallback string) string {
+func cwdOr(_, fallback string) string {
 	wd, err := os.Getwd()
 	if err != nil || wd == "" {
 		return fallback

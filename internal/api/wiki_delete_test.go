@@ -34,7 +34,7 @@ func wikiRouter(t *testing.T) (http.Handler, string) {
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
-		Email: "w@x.com", PasswordHash: mustHashFast(t, "hunter2!"), DisplayName: "W",
+		Email: "w@x.com", PasswordHash: mustHashFast(t), DisplayName: "W",
 	}))
 
 	hub := ws.NewHub()

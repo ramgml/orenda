@@ -466,11 +466,29 @@ paths:
         '404': { description: not found }
     patch:
       tags: [projects]
-      summary: Update project fields (name/color/description/archived).
+      summary: Update project fields (name/color/description/wiki_slug/archived).
+      description: |
+        Pointer fields: nil leaves the column alone; non-nil replaces.
+        wiki_slug must reference an existing wiki page (422 on miss);
+        empty string unlinks the project. Whitespace around the slug
+        is trimmed server-side.
       security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                color: { type: string }
+                description: { type: string }
+                wiki_slug: { type: string, description: "Slug of an existing wiki page; empty → unlink." }
+                archived: { type: boolean }
       responses:
         '200': { description: ok }
         '404': { description: not found }
+        '422': { description: wiki_slug_not_found }
     delete:
       tags: [projects]
       summary: Delete project (cascades to boards/columns/tasks).
@@ -1800,6 +1818,44 @@ paths:
       security: [{ bearerAuth-agent: [] }]
       responses: { '200': { description: ok } }
 
+  # wiki:agent-project-description + wiki:project-wiki-link — agent
+  # read/write of a project. PATCH carries description and / or
+  # wiki_slug (pointer fields; nil leaves the column alone).
+  # wiki_slug must reference an existing wiki page or the request is
+  # rejected with 422 wiki_slug_not_found — same contract as the
+  # user-cookie PATCH so the two surfaces stay in sync.
+  /api/v1/agent/projects/{id}:
+    get:
+      tags: [agent]
+      summary: Read one project (full row incl. wiki_slug).
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '404': { description: not_found }
+    patch:
+      tags: [agent]
+      summary: Update description and / or wiki_slug.
+      description: |
+        Pointer fields: nil leaves the column alone; non-nil replaces.
+        wiki_slug must reference an existing wiki page (422 on miss);
+        empty string unlinks the project. Description accepts any
+        string including "". name / color / archived are intentionally
+        user-only and are rejected as no-ops even if sent.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description: { type: string }
+                wiki_slug: { type: string, description: "Slug of an existing wiki page; empty → unlink." }
+      responses:
+        '200': { description: ok }
+        '404': { description: not_found }
+        '422': { description: wiki_slug_not_found }
+
   /api/v1/agent/tasks:
     get:
       tags: [agent]
@@ -1813,16 +1869,18 @@ paths:
           name: limit
           schema: { type: integer, default: 100 }
       responses: { '200': { description: ok } }
-    # Phase 33.1: agent proposes a NEW task. Lands as status=backlog +
-    # awaiting=human, so it appears in the existing review queue
-    # (awaiting='human' OR status='review') for human triage.
-    # Accept = kanban-move to todo (clears awaiting via Service.Move);
-    # dismiss = DELETE /api/v1/tasks/{id}. Activity row task.created is
-    # written with actor_type=agent; a task.created event is published
-    # on the WS topic `tasks`.
+    # Phase 33.1 + 33.3: agent proposes a NEW task. Lands as
+    # status=backlog + awaiting=none on the backlog column so the
+    # owner can triage it on the kanban (drag to todo / in_progress
+    # / done). The task is NOT added to the review queue — the
+    # queue is reserved for agent-submitted work (status=review).
+    # Accept = kanban move to a real-work column; dismiss = DELETE
+    # /api/v1/tasks/{id}. Activity row task.created is written with
+    # actor_type=agent; a task.created event is published on the WS
+    # topic `tasks`.
     post:
       tags: [agent]
-      summary: Propose a new task (status=backlog, awaiting=human — human triages from the review queue).
+      summary: Propose a new task (lands in backlog, awaiting=none; owner triages on the board by moving to todo).
       security: [{ bearerAuth-agent: [] }]
       requestBody:
         required: true
@@ -1839,7 +1897,7 @@ paths:
                 blocked_by: { type: array, items: { type: string } }
                 parent_task_id: { type: string }
       responses:
-        '201': { description: created (backlog, awaiting=human) }
+        '201': { description: created (backlog, awaiting=none) }
         '400': { description: invalid_json / invalid_input (missing project_id, title or description_md) }
         '401': { description: missing or invalid agent token }
         '404': { description: not_found (unknown project / parent_task_id / blocked_by id) }

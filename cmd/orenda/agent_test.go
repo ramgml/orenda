@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -104,11 +104,18 @@ func resolveAgentCtxForTest(opts agentCLIOptions) (*agentCtx, error) {
 			}
 		}
 	}
-	if url == "" {
-		return nil, errors.New("orenda agent: --url (or ORENDA_URL) is required")
-	}
-	if token == "" {
-		return nil, errors.New("orenda agent: --token (or ORENDA_AGENT_TOKEN) is required")
+	if url == "" || token == "" {
+		// Same message shape as resolveAgentCtx: name the config
+		// file path so the failure tells the operator where to
+		// put the credentials.
+		cfgHint, err := agentConfigPath()
+		if err != nil {
+			cfgHint = "~/.config/orenda/agent.yaml"
+		}
+		if url == "" {
+			return nil, fmt.Errorf("orenda agent: --url (or ORENDA_URL, or url: in %s) is required", cfgHint)
+		}
+		return nil, fmt.Errorf("orenda agent: --token (or ORENDA_AGENT_TOKEN, or token: in %s) is required", cfgHint)
 	}
 	return &agentCtx{BaseURL: url, Token: token}, nil
 }
@@ -153,16 +160,21 @@ func TestResolveAgentCtx_Flag(t *testing.T) {
 func TestResolveAgentCtx_Missing(t *testing.T) {
 	t.Setenv("ORENDA_URL", "")
 	t.Setenv("ORENDA_AGENT_TOKEN", "")
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
 	_, err := resolveAgentCtxForTest(agentCLIOptions{})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 	t.Logf("error: %s", err.Error())
-	// Accept either the URL-missing error or the token-missing
-	// error (the URL check fires first).
-	if !strings.Contains(err.Error(), "--url") && !strings.Contains(err.Error(), "--token") {
-		t.Errorf("error should mention --url or --token, got: %s", err.Error())
+	// The error must name the config file path so a fresh machine
+	// knows where to put the credentials (the URL check fires first).
+	wantPath := filepath.Join(xdg, "orenda", "agent.yaml")
+	if !strings.Contains(err.Error(), "--url") {
+		t.Errorf("error should mention --url, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), wantPath) {
+		t.Errorf("error should contain the config path %q, got: %s", wantPath, err.Error())
 	}
 }
 

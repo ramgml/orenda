@@ -196,8 +196,9 @@ func buildTree(byParent map[string][]*wiki.Page, parentID string) []*wiki.TreeNo
 // extractSlugs returns every [[slug]] token in body.
 func extractSlugs(body string) []string {
 	seen := make(map[string]struct{})
-	var out []string
-	for _, m := range slugLinkRE.FindAllStringSubmatch(body, -1) {
+	matches := slugLinkRE.FindAllStringSubmatch(body, -1)
+	out := make([]string, 0, len(matches))
+	for _, m := range matches {
 		if _, ok := seen[m[1]]; ok {
 			continue
 		}
