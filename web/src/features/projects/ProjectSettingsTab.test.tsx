@@ -36,8 +36,28 @@ describe('ProjectSettingsTab — wiki_slug field', () => {
     vi.spyOn(api, 'getProject').mockResolvedValue(baseProject);
     vi.spyOn(api, 'listPages').mockResolvedValue({
       tree: [
-        { page: { id: 'w-1', slug: 'roadmap', title: 'Roadmap', position: 0 }, children: [] },
-        { page: { id: 'w-2', slug: 'adr', title: 'Decision log', position: 1 }, children: [] },
+        {
+          page: {
+            id: 'w-1',
+            slug: 'roadmap',
+            title: 'Roadmap',
+            position: 0,
+            created_at: '2026-08-19T12:00:00Z',
+            updated_at: '2026-08-19T12:00:00Z',
+          },
+          children: [],
+        },
+        {
+          page: {
+            id: 'w-2',
+            slug: 'adr',
+            title: 'Decision log',
+            position: 1,
+            created_at: '2026-08-19T12:00:00Z',
+            updated_at: '2026-08-19T12:00:00Z',
+          },
+          children: [],
+        },
       ],
     });
   });
