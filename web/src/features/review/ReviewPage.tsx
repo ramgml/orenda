@@ -152,7 +152,7 @@ function ReviewRow({
           <span>{new Date(item.task.updated_at).toLocaleString()}</span>
         </div>
         <p className="text-slate-800 dark:text-slate-100 mt-1">
-          <TaskNumberChip number={item.task.number} /> {item.task.title}
+          <TaskNumberChip number={item.task.number} /> <span>{item.task.title}</span>
         </p>
         {item.task.description && (
           <p className="text-xs text-slate-500 mt-1 line-clamp-2">{item.task.description}</p>

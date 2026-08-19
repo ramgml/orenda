@@ -112,7 +112,7 @@ export function TaskCard({
             </span>
           )}
           <div className="text-slate-800 dark:text-slate-100">
-            <TaskNumberChip number={task.number} /> {task.title}
+            <TaskNumberChip number={task.number} /> <span>{task.title}</span>
           </div>
         </div>
         <AssigneeChip task={task} agent={assignedAgent} />
