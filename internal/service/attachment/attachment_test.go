@@ -196,3 +196,47 @@ func TestAttachmentService_MimeAllowed_Wildcard(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, attachmentsvc.ErrMimeRejected)
 }
+
+// Regression test (task 32): nothing on the production path pre-creates
+// UploadDir — cmd/orenda only resolves it — so StoreFromBytes must create
+// it lazily instead of failing with "create tmp: no such file or directory".
+func TestAttachmentService_Store_MissingUploadDirCreated(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/a.db"), sqlite.OpenConfig{
+		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+
+	// NOT created: the service must create it on first store.
+	uploads := filepath.Join(dir, "uploads")
+	_, statErr := os.Stat(uploads)
+	require.True(t, os.IsNotExist(statErr), "test precondition: uploads dir must not exist")
+
+	svc := attachmentsvc.New(sqlite.NewAttachmentRepository(db), attachmentsvc.Config{
+		UploadDir:    uploads,
+		MaxSizeBytes: 1 << 20,
+		AllowedMimes: []string{"text/*"},
+	}, &memHub{})
+
+	res, err := svc.StoreFromBytes(
+		context.Background(), attachment.TargetTask, "t-1",
+		"lazy.txt", "text/plain", attachment.UploaderUser, "u-1",
+		bytes.NewReader([]byte("lazy")),
+	)
+	require.NoError(t, err)
+	assert.False(t, res.Duplicate)
+
+	// File lives under uploads/YYYY/MM/.
+	assert.FileExists(t, res.Attachment.Path)
+	rel, err := filepath.Rel(uploads, res.Attachment.Path)
+	require.NoError(t, err)
+	parts := strings.Split(rel, string(filepath.Separator))
+	require.Len(t, parts, 3) // YYYY/MM/{id}-{name}
+
+	// Row is listable.
+	list, err := svc.ListByTarget(context.Background(), attachment.TargetTask, "t-1")
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
+}
