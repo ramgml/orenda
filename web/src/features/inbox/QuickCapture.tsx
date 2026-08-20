@@ -131,6 +131,19 @@ export function QuickCapture() {
         <DialogContent
           aria-label="Quick capture"
           className="w-full max-w-lg gap-3 p-4 sm:rounded-lg"
+          onOpenAutoFocus={(e) => {
+            // Phase 32.13: pre-migration, a ref-callback on the
+            // textarea called `el.focus()` on mount. Radix's
+            // FocusScope otherwise focuses the first focusable
+            // element — which is the hidden × button inside
+            // DialogContent — so the hotkey flow 'q → start typing'
+            // would lose the caret. Keep the textarea first.
+            e.preventDefault();
+            const ta = document.querySelector<HTMLTextAreaElement>(
+              '[data-testid="quick-capture-input"]',
+            );
+            ta?.focus();
+          }}
         >
           {created ? (
             <div className="space-y-3" data-testid="quick-capture-toast">

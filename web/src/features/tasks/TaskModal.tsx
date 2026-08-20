@@ -48,8 +48,8 @@ import { useBodyScrollLock } from '@/shared/hooks/useBodyScrollLock';
  *      from one task to another keeps the same `TaskModal` mounted
  *      (just `useParams().id` changes), so the lock stays on.
  *      Closing (any path) unmounts the component and restores the
-      the previous overflow value — not just "visible", because a
-      previous host app could have set its own value.
+ *      the previous overflow value — not just "visible", because a
+ *      previous host app could have set its own value.
  */
 export function TaskModal(): JSX.Element | null {
   const { id } = useParams<{ id: string }>();
@@ -103,7 +103,20 @@ export function TaskModal(): JSX.Element | null {
         <DialogOverlay className="z-[60] bg-black/50" />
         <DialogPrimitive.Content
           aria-label="Task details"
-          className="z-[60] left-0 right-0 top-0 bottom-0 translate-x-0 translate-y-0 max-w-none h-screen flex items-start justify-center p-2 md:p-6 overflow-y-auto bg-transparent border-0 shadow-none sm:rounded-none gap-0"
+          className="fixed inset-0 z-[60] max-w-none h-screen flex items-start justify-center p-2 md:p-6 overflow-y-auto bg-transparent border-0 shadow-none sm:rounded-none gap-0"
+          onClick={(e) => {
+            // Pre-migration contract: clicking the overlay (the
+            // empty padding area around the card) closes the
+            // modal. The card itself used `stopPropagation`, so
+            // only the scroll container's own click target —
+            // never a descendant — fires this. Phase 32.13
+            // (shadcn migration): we are the scroll container
+            // (DialogPrimitive.Content, not a sibling overlay),
+            // so Radix's onPointerDownOutside doesn't fire when
+            // the user clicks our empty padding — we catch it
+            // ourselves via the target-equals-currentTarget check.
+            if (e.target === e.currentTarget) close();
+          }}
         >
           <div className="bg-white dark:bg-slate-900 rounded-lg shadow-2xl max-w-4xl w-full my-auto relative">
             <button
