@@ -128,7 +128,7 @@ func (a *agentCtx) agentGet(ctx context.Context, path string) (body []byte, stat
 
 func (a *agentCtx) agentPost(ctx context.Context, path string, body any) (respBody []byte, status int, err error) {
 	var rdr io.Reader
-	if body != nil {
+	if payload != nil {
 		raw, err := json.Marshal(payload)
 		if err != nil {
 			return nil, 0, err
@@ -212,7 +212,7 @@ func printTaskRefHeader(cmd *cobra.Command, number int, title, id string) {
 // — body is marshalled to JSON here so the caller can pass a map.
 func (a *agentCtx) agentPatch(ctx context.Context, path string, payload any) (body []byte, status int, err error) {
 	var rdr io.Reader
-	if body != nil {
+	if payload != nil {
 		raw, err := json.Marshal(payload)
 		if err != nil {
 			return nil, 0, err
