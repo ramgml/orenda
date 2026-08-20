@@ -215,8 +215,14 @@ web-install:
 web-dev:
 	cd $(WEB_DIR) && $(NPM) run dev
 
-## web-build: Build React SPA
+## web-build: Install npm dependencies (strict, lockfile-pinned) and build the SPA.
+## `npm ci` is idempotent and fast when package-lock.json is unchanged;
+## it guarantees that tsc/Vite see exactly the dependencies committed in
+## package-lock.json, so a release that adds a new npm package can no
+## longer break install.sh / update-dogfood.sh with "Cannot find module"
+## (Task #26).
 web-build:
+	cd $(WEB_DIR) && $(NPM) ci
 	cd $(WEB_DIR) && $(NPM) run build
 
 ## web-test: Run the vitest suite (component / unit / hook tests)

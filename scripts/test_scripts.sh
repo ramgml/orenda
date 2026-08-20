@@ -96,5 +96,32 @@ else
   pass "update-dogfood --force on non-main branch still exits non-zero"
 fi
 
+# install.sh / make build must run `npm ci` before `npm run build`
+# so that a release adding a new npm dependency does not break the
+# dogfood update (Task #26). Makefile web-build is the single point
+# where the SPA pipeline is defined; `install.sh` delegates to it via
+# `make build`. We verify the dry-run shape: `npm ci` must precede
+# `npm run build`.
+echo
+echo "= install.sh build path ="
+build_recipe="$(cd "$SCRIPT_DIR" && make -n web-build 2>/dev/null)"
+if echo "$build_recipe" | grep -q 'cd web && npm ci'; then
+  pass "make web-build invokes 'npm ci' (lockfile-pinned install)"
+else
+  fail "make web-build must invoke 'npm ci' before 'npm run build' (Task #26)"
+fi
+if echo "$build_recipe" | grep -q 'cd web && npm run build'; then
+  pass "make web-build still invokes 'npm run build'"
+else
+  fail "make web-build must invoke 'npm run build' (Task #26)"
+fi
+ci_pos="$(echo "$build_recipe" | grep -n 'cd web && npm ci' | head -1 | cut -d: -f1)"
+build_pos="$(echo "$build_recipe" | grep -n 'cd web && npm run build' | head -1 | cut -d: -f1)"
+if [[ -n "$ci_pos" && -n "$build_pos" && "$ci_pos" -lt "$build_pos" ]]; then
+  pass "'npm ci' precedes 'npm run build' in web-build"
+else
+  fail "'npm ci' must precede 'npm run build' in web-build (Task #26)"
+fi
+
 echo
 echo "All scripts/smoke tests passed."
