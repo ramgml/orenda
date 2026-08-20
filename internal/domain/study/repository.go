@@ -1,6 +1,9 @@
 package study
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Repository persists study proposals.
 //
@@ -38,4 +41,10 @@ type Repository interface {
 	// course_id="" matches the NULL/empty-course proposals (so two
 	// course-less proposals with the same normalized title collide).
 	FindPendingEquivalent(ctx context.Context, agentID, courseID, normalizedTitle string) (*Proposal, error)
+	// CountAcceptedInWindow returns the count of accepted proposals
+	// for a course whose created_at is inside [since, ∞). Phase
+	// 32.12: feeds the drift classifier — the planner compares
+	// actual_velocity (completed lessons / week) against this
+	// target_velocity (accepted proposals / week).
+	CountAcceptedInWindow(ctx context.Context, courseID string, since time.Time) (int, error)
 }

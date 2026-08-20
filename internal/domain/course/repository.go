@@ -1,6 +1,9 @@
 package course
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Repository persists courses, modules, lessons, and quizzes.
 //
@@ -47,6 +50,10 @@ type Repository interface {
 	// CompleteLesson path which has to walk to the next sibling.
 	GetLesson(ctx context.Context, id string) (*Lesson, error)
 	UpdateLesson(ctx context.Context, l *Lesson) error
+	// VelocityStatsByCourse returns the rolling-window lesson
+	// completion stats for the course (Phase 32.12). The window is
+	// passed by the caller (typically 14 days; see the wiki).
+	VelocityStatsByCourse(ctx context.Context, courseID string, since time.Time) (VelocityStats, error)
 	// UpdateLessonContent writes the lesson's content_md/status/task_id
 	// without touching title/position. Used by MaterializeLesson.
 	// status is opaque to the repo (the service enforces the lifecycle);

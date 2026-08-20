@@ -214,15 +214,38 @@ components:
     ActiveCourseProgress:
       type: object
       properties:
-        lessons_total: { type: integer }
-        lessons_done: { type: integer }
+        lessons_total:
+          type: integer
+        lessons_done:
+          type: integer
         open_lessons:
           type: array
-          items: { $ref: '#/components/schemas/OpenLesson' }
+          items:
+            $ref: '#/components/schemas/OpenLesson'
         last_completed_at:
           type: string
           format: date-time
           nullable: true
+        # Phase 32.12: rolling velocity + drift over a 14-day window.
+        # Planner scales its proposal cadence based on drift:
+        # ahead → fewer proposals, behind → more, on_track → as usual.
+        pace:
+          $ref: '#/components/schemas/ActiveCoursePace'
+
+    ActiveCoursePace:
+      type: object
+      description: Per-course pace metrics for the agent-planner (Phase 32.12).
+      properties:
+        since:
+          type: string
+          format: date-time
+        window_days: { type: integer }
+        lessons_done_in_window: { type: integer }
+        actual_velocity_per_week: { type: number, format: float }
+        target_velocity_per_week: { type: number, format: float }
+        drift:
+          type: string
+          enum: [ahead, on_track, behind]
 
     OpenLesson:
       type: object

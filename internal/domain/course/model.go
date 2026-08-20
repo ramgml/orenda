@@ -188,6 +188,11 @@ type Lesson struct {
 	Status    LessonStatus `json:"status"`
 	Position  int          `json:"position"`
 	TaskID    string       `json:"task_id,omitempty"`
+	// CompletedAt is set when Status flips to Done (Phase 32.12).
+	// Nil for legacy done-lessons (pre-migration 025) or any
+	// future writes that don't represent completion. Feeds the
+	// rolling-velocity classifier in enrichActiveCourse.
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }
 
 // Quiz is a question under a lesson.

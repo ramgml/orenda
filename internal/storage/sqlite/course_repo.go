@@ -82,11 +82,30 @@ func (r *courseRepo) GetCourse(ctx context.Context, id string) (*course.Course, 
 }
 
 func (r *courseRepo) ListCourses(ctx context.Context, ownerID string) ([]*course.Course, error) {
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, title, intent_md, level, pace, status, owner_id,
+	// Empty ownerID means "list all courses". The single-owner
+	// architecture (Phase 32.12 follow-on) intentionally relaxes
+	// the filter when the caller has no usable scope — the agent
+	// middleware authenticates the bearer token but the token's
+	// user_id is a synthetic "agent-owner" user, not the human
+	// owner who created the course. The /agent/* handlers are
+	// tutor-side; the human owner's id is the only meaningful
+	// scope, and we don't track created_by on agents. A multi-user
+	// future would reintroduce the filter.
+	var query string
+	var args []any
+	if ownerID == "" {
+		query = `SELECT id, title, intent_md, level, pace, status, owner_id,
 		        COALESCE(generator_task_id, ''), COALESCE(pace_notes_md, ''),
 		        created_at, updated_at
-		 FROM courses WHERE owner_id = ? ORDER BY updated_at DESC`, ownerID)
+		 FROM courses ORDER BY updated_at DESC`
+	} else {
+		query = `SELECT id, title, intent_md, level, pace, status, owner_id,
+		        COALESCE(generator_task_id, ''), COALESCE(pace_notes_md, ''),
+		        created_at, updated_at
+		 FROM courses WHERE owner_id = ? ORDER BY updated_at DESC`
+		args = []any{ownerID}
+	}
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("course.List: %w", err)
 	}
@@ -327,10 +346,21 @@ func (r *courseRepo) GetLesson(ctx context.Context, id string) (*course.Lesson, 
 }
 
 func (r *courseRepo) UpdateLesson(ctx context.Context, l *course.Lesson) error {
+	// Phase 32.12: completed_at is stamped when the lesson transitions
+	// to Done. UpdateLesson is the single write path for lesson state,
+	// so we keep the timestamp logic here rather than introducing a
+	// second method (smaller blast radius — see CompleteLesson in
+	// service/course/course.go for the open → done transition).
+	var completedArg interface{}
+	if l.CompletedAt != nil {
+		completedArg = l.CompletedAt.UTC().Format(time.RFC3339)
+	} else {
+		completedArg = nil
+	}
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE course_lessons SET title=?, content_md=?, status=?, position=?, task_id=?
+		`UPDATE course_lessons SET title=?, content_md=?, status=?, position=?, task_id=?, completed_at=?
 		 WHERE id = ?`,
-		l.Title, l.ContentMD, string(l.Status), l.Position, nullString(l.TaskID), l.ID,
+		l.Title, l.ContentMD, string(l.Status), l.Position, nullString(l.TaskID), completedArg, l.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("course.UpdateLesson: %w", err)
@@ -340,6 +370,77 @@ func (r *courseRepo) UpdateLesson(ctx context.Context, l *course.Lesson) error {
 		return course.ErrNotFound
 	}
 	return nil
+}
+
+// MarkLessonDone atomically transitions a lesson to status='done' and
+// stamps completed_at. Phase 32.12: the lesson completion timestamp
+// is what feeds the rolling velocity classifier for the agent-side
+// course list. Pre-migration rows have NULL completed_at; the
+// classifier treats those as "before the window" and excludes them
+// from the rolling count, which is conservative (planner sees slower
+// pace than reality rather than faster).
+//
+// Idempotent: re-running on an already-done lesson is a no-op on
+// status but updates completed_at. That's intentional — letting the
+// service clock overwrite an old completion timestamp lets a workflow
+// "refresh" the timestamp (rare; documented for the operationally
+// curious). The repo also tolerates a status that wasn't 'open' as
+// long as the lesson exists; the service layer's CompleteLesson
+// gates the transition (status must be 'open' before flip).
+func (r *courseRepo) MarkLessonDone(ctx context.Context, lessonID string, at time.Time) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE course_lessons
+		 SET status = ?, completed_at = ?
+		 WHERE id = ?`,
+		string(course.LessonDone), at.UTC().Format(time.RFC3339), lessonID,
+	)
+	if err != nil {
+		return fmt.Errorf("course.MarkLessonDone: %w", err)
+	}
+	return nil
+}
+
+// VelocityStatsByCourse returns the rolling velocity for a course
+// (Phase 32.12). "Done" rows with NULL completed_at are skipped
+// (pre-migration 025 data) — counted as zero contribution to the
+// rolling window. Done rows whose completed_at is older than `since`
+// are also skipped.
+//
+// Returns domain.VelocityStats so callers (handlers / drift
+// classifier / SKILL.md-described planner) consume a single named
+// type across the codebase; the storage layer is the only place
+// that knows about SQL.
+func (r *courseRepo) VelocityStatsByCourse(ctx context.Context, courseID string, since time.Time) (course.VelocityStats, error) {
+	out := course.VelocityStats{
+		Since:  since,
+		Window: 14 * 24 * time.Hour,
+	}
+	var (
+		count   int
+		lastStr sql.NullString
+	)
+	row := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*), MAX(completed_at)
+		 FROM course_lessons l
+		 JOIN course_modules m ON m.id = l.module_id
+		 WHERE m.course_id = ?
+		   AND l.status = ?
+		   AND l.completed_at IS NOT NULL
+		   AND l.completed_at >= ?`,
+		courseID, string(course.LessonDone), since.UTC().Format(time.RFC3339),
+	)
+	if err := row.Scan(&count, &lastStr); err != nil {
+		return out, fmt.Errorf("course.VelocityStats: scan: %w", err)
+	}
+	out.LessonsDoneInWindow = count
+	if lastStr.Valid && lastStr.String != "" {
+		ts, perr := time.Parse(time.RFC3339, lastStr.String)
+		if perr != nil {
+			return out, fmt.Errorf("course.VelocityStats: parse last_completed_at %q: %w", lastStr.String, perr)
+		}
+		out.LastCompletedAt = &ts
+	}
+	return out, nil
 }
 
 // DeleteLesson removes the lesson; its quizzes cascade. The row is
