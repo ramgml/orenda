@@ -762,7 +762,8 @@ func (r *taskRepo) ListByDueBetween(ctx context.Context, from, to time.Time) ([]
 		       completed_at, time_estimate_s, time_spent_s, position,
 		       start_at, end_at, all_day, color, recurrence,
 		       study_course_id,
-		       created_at, updated_at
+		       created_by_type, created_by_id,
+	       created_at, updated_at
 		FROM tasks
 		WHERE due_at IS NOT NULL
 		  AND due_at >= ?
@@ -1352,8 +1353,6 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	t.StudyCourseID = studyCourse.String
 	t.CreatedByType = task.CreatorType(createdByType.String)
 	t.CreatedByID = createdByID.String
-	t.CreatedByType = task.CreatorType(createdByType.String)
-	t.CreatedByID = createdByID.String
 	if estS.Valid {
 		v := int(estS.Int64)
 		t.TimeEstimateS = &v
@@ -1377,7 +1376,8 @@ func (r *taskRepo) ListInRange(ctx context.Context, from, to time.Time, projectI
 		       time_estimate_s, time_spent_s, position,
 		       start_at, end_at, all_day, color, recurrence,
 		       study_course_id,
-		       created_at, updated_at
+		       created_by_type, created_by_id,
+	       created_at, updated_at
 		FROM tasks
 		WHERE start_at IS NOT NULL AND end_at IS NOT NULL
 		  AND start_at < ? AND end_at > ?`
