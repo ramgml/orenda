@@ -11,7 +11,10 @@
 #   make lint-new   — golangci-lint run --new-from-merge-base=origin/dev
 #                     (same flag the PR CI uses; pre-existing debt is
 #                     silent by design — see Phase 30.16)
-#   make test       — go test ./... -race -count=1 + vitest
+#   make test-gate  — go test ./... -race (Go test cache ENABLED — no
+#                     -count=1, so an unchanged tree re-runs in seconds)
+#                     + vitest. The full uncached `make test` stays as
+#                     the CI backstop on push to dev.
 #
 # Exits non-zero to block the push. Set SKIP_ORENDA_HOOKS=1 to bypass.
 # `--no-verify` is forbidden by AGENTS.md.
@@ -55,9 +58,9 @@ if ! make lint-new; then
   exit 1
 fi
 
-echo "pre-push: running \`make test\` (go test -race + vitest)…"
-if ! make test; then
-  echo "pre-push: make test failed — push blocked." >&2
+echo "pre-push: running \`make test-gate\` (go test -race, cached + vitest)…"
+if ! make test-gate; then
+  echo "pre-push: make test-gate failed — push blocked." >&2
   exit 1
 fi
 

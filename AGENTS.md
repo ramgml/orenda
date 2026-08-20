@@ -78,7 +78,17 @@ Hook contract:
 | Hook        | Runs on        | Checks                                                            | Cost       |
 |-------------|----------------|-------------------------------------------------------------------|------------|
 | `pre-commit`| `git commit`   | `gofmt -l` on staged `.go` + `prettier --check` on staged web     | <2 s       |
-| `pre-push`  | `git push`     | `make lint-new` + `make test`                                     | ~1 min     |
+| `pre-push`  | `git push`     | `make lint-new` + `make test-gate`                                | ~1 min cold, seconds warm |
+
+`make test-gate` runs the same suites as `make test` (`go test ./... -race`
++ vitest) but **without `-count=1`**, so the Go test cache applies: a push
+with no code changes re-runs in seconds; a push touching one package
+re-runs only that package and its dependents (the cache keys on file
+contents of the package and its whole dependency graph, plus env and
+flags — a real code change can never be served stale). The full uncached
+`make test` remains the contract for the CI backstop on push to `dev`
+and the release gate — the safety net for exotica the cache cannot see
+(ports, clocks).
 
 `make lint-new` is `golangci-lint run --new-from-merge-base=origin/dev ./...`
 — exactly the gate the old PR CI used, minus the pre-existing lint debt

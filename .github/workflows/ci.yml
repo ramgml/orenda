@@ -157,12 +157,12 @@ jobs:
         working-directory: web
         run: npm ci
 
-      - name: Go test (race)
-        run: go test ./... -race -count=1
-
-      - name: vitest
-        working-directory: web
-        run: npm test
+      - name: "make test (full uncached run: go test -race -count=1 + vitest)"
+        # The CI backstop deliberately runs the FULL `make test` target
+        # (-count=1 disables the Go test cache) — single source of truth
+        # for the from-scratch suite. The local pre-push hook uses the
+        # cached `make test-gate` instead (wiki:ci-local-gates-hooks).
+        run: make test
 
   build:
     name: Build (binary with embedded SPA)
