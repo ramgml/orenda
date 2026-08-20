@@ -220,7 +220,7 @@ func (s *Service) RetractProposal(ctx context.Context, taskID, agentID string) e
 	}
 
 	if s.Mirror != nil {
-		s.Mirror.DeleteTask(taskID)
+		_ = s.Mirror.DeleteTask(taskID)
 	}
 
 	if s.Recorder != nil {

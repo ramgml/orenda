@@ -128,7 +128,7 @@ func (a *agentCtx) agentGet(ctx context.Context, path string) (body []byte, stat
 
 func (a *agentCtx) agentPost(ctx context.Context, path string, body any) (respBody []byte, status int, err error) {
 	var rdr io.Reader
-	if payload != nil {
+	if body != nil {
 		raw, err := json.Marshal(body)
 		if err != nil {
 			return nil, 0, err
