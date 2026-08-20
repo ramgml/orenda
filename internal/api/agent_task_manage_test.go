@@ -58,7 +58,7 @@ func TestAgent_PatchOwnProposal_OK(t *testing.T) {
 		}
 	}
 	require.NotNil(t, patchRow, "task.updated activity row expected (got actions: %v)", actionList(rows))
-	assert.Equal(t, "agent", string(patchRow.ActorType))
+	assert.Equal(t, "agent", patchRow.ActorType)
 	assert.Equal(t, f.agentID, patchRow.ActorID)
 }
 

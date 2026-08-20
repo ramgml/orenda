@@ -157,7 +157,7 @@ func buildEditProposalPatch(in agentTaskPatchInput) (taskservice.EditProposalPat
 		out.Description = &v
 	}
 	if in.Priority != "" {
-		p := task.Priority(in.Priority)
+		p := in.Priority
 		switch p {
 		case task.PriorityLow, task.PriorityMedium, task.PriorityHigh, task.PriorityUrgent:
 			out.Priority = &p
