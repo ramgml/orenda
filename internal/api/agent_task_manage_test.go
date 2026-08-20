@@ -85,7 +85,7 @@ func TestAgent_PatchTriagedOwnProposal_403(t *testing.T) {
 	var proposed task.Task
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
 
-	t.Require().NoError(moveTaskToColumn(t, f, proposed.ID, f.todoColID))
+	moveTaskToColumn(t, f, proposed.ID, f.todoColID)
 
 	rr = f.patchAsAgent(t, proposed.ID, map[string]any{"title": "still mine"})
 	require.Equal(t, http.StatusForbidden, rr.Code, "body=%s", rr.Body.String())
@@ -127,7 +127,7 @@ func TestAgent_HolderAgentNotes_OK(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 	var proposed task.Task
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
-	t.Require().NoError(moveTaskToColumn(t, f, proposed.ID, f.todoColID))
+	moveTaskToColumn(t, f, proposed.ID, f.todoColID)
 
 	rr = f.claimAsAgent(t, proposed.ID)
 	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
@@ -145,7 +145,7 @@ func TestAgent_NonHolderAgentNotes_403(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 	var proposed task.Task
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
-	t.Require().NoError(moveTaskToColumn(t, f, proposed.ID, f.todoColID))
+	moveTaskToColumn(t, f, proposed.ID, f.todoColID)
 	rr = f.claimAsAgent(t, proposed.ID)
 	require.Equal(t, http.StatusOK, rr.Code)
 
@@ -237,14 +237,6 @@ func listActivityForTask(t *testing.T, f *proposeFixture, taskID string) []activ
 	return out
 }
 
-func moveTaskToColumn(t *testing.T, f *proposeFixture, taskID, columnID string) {
-	t.Helper()
-	body := map[string]any{"column_id": columnID}
-	rr := f.doWithCookie(t, http.MethodPatch, "/api/v1/tasks/"+taskID, body)
-	require.Equal(t, http.StatusOK, rr.Code, "move body=%s", rr.Body.String())
-	return nil
-}
-
 type secondAgent struct {
 	ID         string
 	PlainToken string
@@ -273,4 +265,11 @@ func actionList(rows []activityRow) []string {
 		out = append(out, r.Action)
 	}
 	return out
+}
+
+func moveTaskToColumn(t *testing.T, f *proposeFixture, taskID, columnID string) {
+	t.Helper()
+	body := map[string]any{"column_id": columnID}
+	rr := f.doWithCookie(t, http.MethodPatch, "/api/v1/tasks/"+taskID, body)
+	require.Equal(t, http.StatusOK, rr.Code, "move body=%s", rr.Body.String())
 }
