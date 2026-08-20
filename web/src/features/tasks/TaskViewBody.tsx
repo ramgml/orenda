@@ -1,4 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 import { useAuth } from '@/features/auth/AuthContext';
 import {
@@ -499,7 +501,7 @@ function EditableTitle({
   );
 }
 
-function DescriptionEditor({
+export function DescriptionEditor({
   value,
   onSave,
   busy,
@@ -528,13 +530,23 @@ function DescriptionEditor({
       );
     }
     return (
-      <button
-        type="button"
+      <div
         onClick={() => setEditing(true)}
-        className="block text-left text-slate-700 dark:text-slate-300 whitespace-pre-wrap hover:bg-slate-50 dark:hover:bg-slate-900 rounded px-2 py-1 w-full"
+        className="cursor-pointer rounded px-2 py-1 w-full hover:bg-slate-50 dark:hover:bg-slate-900"
       >
-        {value}
-      </button>
+        <article className="prose dark:prose-invert max-w-none text-sm">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              // A click on a link inside the description must follow
+              // the link, not flip the editor into edit mode.
+              a: ({ node, ...props }) => <a {...props} onClick={(e) => e.stopPropagation()} />,
+            }}
+          >
+            {value}
+          </ReactMarkdown>
+        </article>
+      </div>
     );
   }
   return (
