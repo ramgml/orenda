@@ -108,6 +108,20 @@ const (
 	AssigneeAgent AssigneeType = "agent"
 )
 
+// CreatorType identifies the kind of actor that originally filed the
+// task. The shape is the same as AssigneeType (a discriminator + a
+// nullable id), but the semantics are different: CreatedBy is set
+// once at insert and never changes. The agent's PATCH/DELETE
+// permission gate (Phase 33.2) reads `created_by_type='agent' AND
+// created_by_id=me` to decide whether a no-longer-backlog proposal
+// is editable.
+type CreatorType string
+
+const (
+	CreatorUser  CreatorType = "user"
+	CreatorAgent CreatorType = "agent"
+)
+
 // Sentinel errors returned by task repository implementations.
 var (
 	ErrNotFound         = errors.New("task: not found")
@@ -133,26 +147,34 @@ type Task struct {
 	// watermark; never reused after a delete. The agent surface (REST
 	// /agent/tasks/{id}/*, CLI, MCP) resolves "#42"/"42" through this
 	// column — see ParseRefNumber and Repository.GetByNumber.
-	Number        int          `json:"number"`
-	ProjectID     string       `json:"project_id"`
-	ParentTaskID  string       `json:"parent_task_id,omitempty"`
-	ColumnID      string       `json:"column_id,omitempty"`
-	Title         string       `json:"title"`
-	Description   string       `json:"description,omitempty"`
-	Status        Status       `json:"status"`
-	Priority      Priority     `json:"priority"`
-	AssigneeType  AssigneeType `json:"assignee_type,omitempty"`
-	AssigneeID    string       `json:"assignee_id,omitempty"`
-	Awaiting      Awaiting     `json:"awaiting"`
-	ContextMD     string       `json:"context_md,omitempty"`
-	AgentNotes    string       `json:"agent_notes,omitempty"`
-	DueAt         *time.Time   `json:"due_at,omitempty"`
-	StartedAt     *time.Time   `json:"started_at,omitempty"`
-	ClaimedAt     *time.Time   `json:"claimed_at,omitempty"`
-	CompletedAt   *time.Time   `json:"completed_at,omitempty"`
-	TimeEstimateS *int         `json:"time_estimate_s,omitempty"`
-	TimeSpentS    int          `json:"time_spent_s"`
-	Position      float64      `json:"position"`
+	Number       int          `json:"number"`
+	ProjectID    string       `json:"project_id"`
+	ParentTaskID string       `json:"parent_task_id,omitempty"`
+	ColumnID     string       `json:"column_id,omitempty"`
+	Title        string       `json:"title"`
+	Description  string       `json:"description,omitempty"`
+	Status       Status       `json:"status"`
+	Priority     Priority     `json:"priority"`
+	AssigneeType AssigneeType `json:"assignee_type,omitempty"`
+	AssigneeID   string       `json:"assignee_id,omitempty"`
+	// Phase 33.2: who filed the task. Set at insert by the
+	// user-side POST /api/v1/tasks (CreatorUser) and the agent-side
+	// POST /api/v1/agent/tasks (CreatorAgent). The id is nullable
+	// for legacy rows that predate migration 024; the agent-side
+	// edit gate treats NULL id as "not my row" so an agent can't
+	// piggy-back on a legacy proposal.
+	CreatedByType CreatorType `json:"created_by_type,omitempty"`
+	CreatedByID   string      `json:"created_by_id,omitempty"`
+	Awaiting      Awaiting    `json:"awaiting"`
+	ContextMD     string      `json:"context_md,omitempty"`
+	AgentNotes    string      `json:"agent_notes,omitempty"`
+	DueAt         *time.Time  `json:"due_at,omitempty"`
+	StartedAt     *time.Time  `json:"started_at,omitempty"`
+	ClaimedAt     *time.Time  `json:"claimed_at,omitempty"`
+	CompletedAt   *time.Time  `json:"completed_at,omitempty"`
+	TimeEstimateS *int        `json:"time_estimate_s,omitempty"`
+	TimeSpentS    int         `json:"time_spent_s"`
+	Position      float64     `json:"position"`
 
 	// Calendar fields. When both StartAt and EndAt are set the task
 	// shows on the calendar; otherwise it's a plain kanban item.

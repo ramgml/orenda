@@ -59,6 +59,7 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 			start_at, end_at, all_day, color, recurrence,
 			study_course_id,
 			number,
+			created_by_type, created_by_id,
 			created_at, updated_at
 		) VALUES (
 			?, ?, ?, ?, ?, ?,
@@ -68,6 +69,7 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 			?, ?, ?, ?, ?,
 			?,
 			?,
+			?, ?,
 			datetime('now'), datetime('now')
 		)
 	`
@@ -85,6 +87,7 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 		nullString(t.Recurrence),
 		nullString(t.StudyCourseID),
 		number,
+		nullString(string(t.CreatedByType)), nullString(t.CreatedByID),
 	)
 	if err != nil {
 		return fmt.Errorf("task.Create: %w", err)
@@ -1278,6 +1281,7 @@ SELECT id, number, project_id, parent_task_id, column_id, title, description,
        time_estimate_s, time_spent_s, position,
        start_at, end_at, all_day, color, recurrence,
        study_course_id,
+       created_by_type, created_by_id,
        created_at, updated_at
 FROM tasks
 `
@@ -1299,6 +1303,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 		due, started, claimed, compl   sql.NullString
 		calStart, calEnd, color        sql.NullString
 		recurrence, studyCourse        sql.NullString
+		createdByType, createdByID     sql.NullString
 		allDay                         int
 		estS                           sql.NullInt64
 		status, priority, awaiting     string
@@ -1312,6 +1317,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 		&estS, &t.TimeSpentS, &t.Position,
 		&calStart, &calEnd, &allDay, &color, &recurrence,
 		&studyCourse,
+		&createdByType, &createdByID,
 		&created, &updated,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1341,6 +1347,8 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	t.Color = color.String
 	t.Recurrence = recurrence.String
 	t.StudyCourseID = studyCourse.String
+	t.CreatedByType = task.CreatorType(createdByType.String)
+	t.CreatedByID = createdByID.String
 	if estS.Valid {
 		v := int(estS.Int64)
 		t.TimeEstimateS = &v
