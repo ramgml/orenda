@@ -237,7 +237,7 @@ func listActivityForTask(t *testing.T, f *proposeFixture, taskID string) []activ
 	return out
 }
 
-func moveTaskToColumn(t *testing.T, f *proposeFixture, taskID, columnID string) error {
+func moveTaskToColumn(t *testing.T, f *proposeFixture, taskID, columnID string) {
 	t.Helper()
 	body := map[string]any{"column_id": columnID}
 	rr := f.doWithCookie(t, http.MethodPatch, "/api/v1/tasks/"+taskID, body)

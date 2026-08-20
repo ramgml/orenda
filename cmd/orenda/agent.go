@@ -224,7 +224,7 @@ func (a *agentCtx) agentPatch(ctx context.Context, path string, body any) ([]byt
 
 // agentDelete issues a DELETE against the agent namespace and returns
 // the raw body. Caller decodes. Phase 33.2: retract uses this.
-func (a *agentCtx) agentDelete(ctx context.Context, path string) ([]byte, int, error) {
+func (a *agentCtx) agentDelete(ctx context.Context, path string) (body []byte, status int, err error) {
 	return a.doRaw(ctx, http.MethodDelete, path, nil, "")
 }
 
