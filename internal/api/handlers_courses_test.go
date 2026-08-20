@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
@@ -72,6 +73,9 @@ func (r *fakeCourseRepo) GetLesson(_ context.Context, id string) (*course.Lesson
 	return l, nil
 }
 func (r *fakeCourseRepo) UpdateLesson(context.Context, *course.Lesson) error { return nil }
+func (r *fakeCourseRepo) VelocityStatsByCourse(_ context.Context, _ string, since time.Time) (course.VelocityStats, error) {
+	return course.VelocityStats{Since: since, Window: 14 * 24 * time.Hour}, nil
+}
 func (r *fakeCourseRepo) UpdateLessonContent(_ context.Context, id, content string, status course.LessonStatus, taskID string) error {
 	l, ok := r.lessons[id]
 	if !ok {

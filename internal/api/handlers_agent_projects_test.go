@@ -90,11 +90,14 @@ func newAgentProjectFixture(t *testing.T) *agentProjectFixture {
 		if !ok || id == nil {
 			return "", "", false
 		}
-		if id.UserID != "" {
-			return project.ActorUser, id.UserID, true
-		}
+		// Phase 32.12 follow-on: agents carry a UserID on the identity
+		// (api_tokens.user_id). Check AgentID FIRST so agent-side writes
+		// still produce ActorAgent rows.
 		if id.AgentID != "" {
 			return project.ActorAgent, id.AgentID, true
+		}
+		if id.UserID != "" {
+			return project.ActorUser, id.UserID, true
 		}
 		return "", "", false
 	}

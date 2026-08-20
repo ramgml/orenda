@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 
 	"github.com/ramgml/orenda/internal/domain/course"
 	coursesvc "github.com/ramgml/orenda/internal/service/course"
@@ -327,11 +328,16 @@ func listCoursesHandlerAgent(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "course repo not wired", http.StatusServiceUnavailable)
 			return
 		}
-		// Single-owner: the agent sees whatever the system owner has;
-		// ListCourses("") is the "list all" form. A multi-user future
-		// would scope this to the agent's bound owner. The volume is
-		// tiny (≤ tens of courses for a personal install), so the
-		// ?status= filter below is applied in memory.
+		// Single-owner: the agent sees whatever the system owner has.
+		// Phase 32.12 follow-on (closes Phase 31.5 debt): the
+		// agent's bearer token resolves to a synthetic "agent-owner"
+		// user (api_tokens.user_id), not the human owner who created
+		// the course. There's no created_by field on agents, so we
+		// intentionally pass empty ownerID here — ListCourses treats
+		// empty as "list all" for the single-owner architecture.
+		// The user-side handler still scopes by the cookie's user_id
+		// (which IS the human owner) and gets the same answer with a
+		// tighter filter.
 		items, err := deps.Courses.ListCourses(r.Context(), "")
 		if err != nil {
 			writeError(w, err)
@@ -383,11 +389,36 @@ func listCoursesHandlerAgent(deps *Dependencies) http.HandlerFunc {
 // open_lessons lists the unlocked, not-yet-done lessons so the
 // planner can suggest specific lesson reviews instead of a generic
 // "study today" nudge.
+//
+// Phase 32.12: Pace carries the rolling velocity + drift signal so the
+// // planner can scale its proposal cadence. Drift is on_track when
+// there's not enough data — conservative, never panics.
 type activeCourseProgress struct {
 	LessonsTotal    int                `json:"lessons_total"`
 	LessonsDone     int                `json:"lessons_done"`
 	OpenLessons     []*openLessonEntry `json:"open_lessons"`
 	LastCompletedAt *string            `json:"last_completed_at,omitempty"`
+	Pace            *activeCoursePace  `json:"pace,omitempty"`
+}
+
+// activeCoursePace is the per-course pace metrics the planner
+// consumes. Phase 32.12.
+//
+// ActualVelocityPerWeek is lessons_done in [since, now] divided by
+// the window expressed in weeks — what the user is actually doing.
+//
+// Drift compares actual against the proposal-side target (count of
+// accepted study proposals in the same window, divided by the
+// window in weeks). drift='on_track' when there's no data on either
+// side (no proposals, no completions) — the planner keeps proposing
+// as usual, just doesn't try to "catch up" until it has a signal.
+type activeCoursePace struct {
+	Since                 string  `json:"since"`
+	WindowDays            int     `json:"window_days"`
+	LessonsDoneInWindow   int     `json:"lessons_done_in_window"`
+	ActualVelocityPerWeek float64 `json:"actual_velocity_per_week"`
+	TargetVelocityPerWeek float64 `json:"target_velocity_per_week"`
+	Drift                 string  `json:"drift"` // ahead|on_track|behind
 }
 
 type openLessonEntry struct {
@@ -409,8 +440,41 @@ func enrichActiveCourse(ctx context.Context, deps *Dependencies, base map[string
 	if err != nil {
 		return base, err
 	}
+	// Phase 32.12: rolling velocity + drift over a 14-day window.
+	// Both legs of the drift computation are best-effort: a single
+	// transient error shouldn't fail the whole /agent/courses
+	// list. The planner treats zero values as "no data" and keeps
+	// proposing as usual (drift=on_track).
+	now := time.Now().UTC()
+	since := now.Add(-14 * 24 * time.Hour)
+	windowDays := 14
+
+	var velocity course.VelocityStats = course.VelocityStats{
+		Since:  since,
+		Window: time.Duration(windowDays) * 24 * time.Hour,
+	}
+	if v, verr := deps.Courses.VelocityStatsByCourse(ctx, courseID, since); verr != nil {
+		if deps.Logger != nil {
+			deps.Logger.Warn("course pace velocity lookup failed",
+				zap.String("course_id", courseID), zap.Error(verr))
+		}
+	} else {
+		velocity = v
+	}
+
+	var targetCount int
+	if deps.StudyProposals != nil {
+		if n, terr := deps.StudyProposals.CountAcceptedInWindow(ctx, courseID, since); terr != nil {
+			if deps.Logger != nil {
+				deps.Logger.Warn("course pace target lookup failed",
+					zap.String("course_id", courseID), zap.Error(terr))
+			}
+		} else {
+			targetCount = n
+		}
+	}
+
 	open := []*openLessonEntry{}
-	var lastDone *time.Time
 
 	modules, err := deps.Courses.ListModules(ctx, courseID)
 	if err != nil {
@@ -441,15 +505,35 @@ func enrichActiveCourse(ctx context.Context, deps *Dependencies, base map[string
 			})
 		}
 	}
-	if lastDone != nil {
-		s := lastDone.UTC().Format(time.RFC3339)
-		base["last_completed_at"] = &s
-	}
 
 	prog := activeCourseProgress{
 		LessonsTotal: progress.LessonsTotal,
 		LessonsDone:  progress.LessonsDone,
 		OpenLessons:  open,
+	}
+	// Phase 32.12: pace metrics. The drift classifier compares
+	// actual_velocity_per_week against target_velocity_per_week
+	// (target = accepted study proposals / week). When the user
+	// has neither completed lessons nor accepted proposals, the
+	// classifier returns on_track — the planner keeps proposing
+	// as usual, just doesn't try to "catch up".
+	windowDur := velocity.Window
+	if windowDur <= 0 {
+		windowDur = 14 * 24 * time.Hour
+	}
+	actualPerWeek := float64(velocity.LessonsDoneInWindow) * float64(7*24*time.Hour) / float64(windowDur)
+	targetPerWeek := float64(targetCount) * float64(7*24*time.Hour) / float64(windowDur)
+	prog.Pace = &activeCoursePace{
+		Since:                 velocity.Since.UTC().Format(time.RFC3339),
+		WindowDays:            int(windowDur / (24 * time.Hour)),
+		LessonsDoneInWindow:   velocity.LessonsDoneInWindow,
+		ActualVelocityPerWeek: actualPerWeek,
+		TargetVelocityPerWeek: targetPerWeek,
+		Drift:                 string(course.ClassifyDrift(actualPerWeek, targetPerWeek)),
+	}
+	if velocity.LastCompletedAt != nil {
+		s := velocity.LastCompletedAt.UTC().Format(time.RFC3339)
+		prog.LastCompletedAt = &s
 	}
 	base["progress"] = &prog
 	return base, nil

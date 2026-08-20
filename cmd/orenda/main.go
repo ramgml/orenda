@@ -509,11 +509,16 @@ func identitySourceFromAPI(ctx context.Context) (coursedomain.ActorType, string,
 	if !present {
 		return "", "", false
 	}
-	if id.UserID != "" {
-		return coursedomain.ActorUser, id.UserID, true
-	}
+	// Phase 32.12 follow-on: agents now carry a UserID on their
+	// identity (the api_tokens.user_id of the synthetic "agent-owner"
+	// user). Check AgentID FIRST so agent-side writes still produce
+	// ActorAgent rows; only fall through to the user branch when
+	// AgentID is empty (true cookie session).
 	if id.AgentID != "" {
 		return coursedomain.ActorAgent, id.AgentID, true
+	}
+	if id.UserID != "" {
+		return coursedomain.ActorUser, id.UserID, true
 	}
 	return "", "", false
 }
@@ -529,11 +534,16 @@ func projectIdentitySourceFromAPI(ctx context.Context) (project.ActorType, strin
 	if !present {
 		return "", "", false
 	}
-	if id.UserID != "" {
-		return project.ActorUser, id.UserID, true
-	}
+	// Phase 32.12 follow-on: agents now carry a UserID on their
+	// identity (the api_tokens.user_id of the synthetic "agent-owner"
+	// user). Check AgentID FIRST so agent-side writes still produce
+	// ActorAgent rows; only fall through to the user branch when
+	// AgentID is empty (true cookie session).
 	if id.AgentID != "" {
 		return project.ActorAgent, id.AgentID, true
+	}
+	if id.UserID != "" {
+		return project.ActorUser, id.UserID, true
 	}
 	return "", "", false
 }
@@ -1044,6 +1054,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		// rows. The agent-namespace PATCH /agent/projects/{id} emits a
 		// description_changed row through this seam.
 		ProjectActivityRecorder: projectActivityRecorder,
+		// Phase 32.12: study proposals repo wired so enrichActiveCourse
+		// can compute target_velocity (count of accepted proposals in
+		// the pace window). nil-safe — handler falls back to target=0
+		// when not wired, which ClassifyDrift translates to on_track.
+		StudyProposals: sqlite.NewStudyProposalRepository(db),
 		// Phase 31: study service wires the user-side accept/dismiss
 		// + the agent-side propose. nil-safe in handlers (they check
 		// before calling) but the production binary must wire it
