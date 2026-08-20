@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Docs
-- Review loop reassigned (2026-08-20): PR review + merge to `dev` moved from the owner to the PM agent (omp, variant-B subagent dispatch). The owner audits merges through the dogfood review queue; a reject there means a revert task. Updated `docs/DOGFOOD.md` steps 5–6 and `AGENTS.md` git workflow.
+- Review loop updated (2026-08-20): PR review is assigned to the PM agent (omp, variant-B subagent dispatch) with a formal GitHub approve / request-changes verdict; merge to `dev` stays with the owner, who also closes the dogfood review-queue card as the merge audit. The PM additionally watches git-tree/worktree hygiene (drift, stale branches, stranded WIP). Updated `docs/DOGFOOD.md` steps 5–6 and `AGENTS.md` git workflow.
 
 ## [0.4.0] — 2026-08-19
 

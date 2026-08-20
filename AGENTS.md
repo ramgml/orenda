@@ -197,7 +197,7 @@ A task is done or not done — "almost done" is not done. Phases here have been 
 - `main` — stable releases only. Tagged `vX.Y.Z`. No direct commits.
 - `dev` — active development. Default branch for feature work.
 - `task-123-short-slug` — feature branches off `origin/dev` (fetch first; never off local `dev`). One branch per task; `123` is the task's human number (`tasks.number`), the slug is 2–4 words.
-- Merge to `dev` is performed by the PM (omp) after review — agents never merge. Tag phase milestone: `git tag v0.1.0-phaseX`.
+- Merge to `dev` is performed by the owner after the PM's approving review — agents never merge. Tag phase milestone: `git tag v0.1.0-phaseX`.
 - Promote to `main` via PR from `dev` when ready. Tag release: `git tag vX.Y.Z`.
 - See `CHANGELOG.md` for versioning policy and release notes.
 
@@ -231,7 +231,7 @@ Rules:
 - Placement: **always nested `.worktrees/<task>`** — never a sibling `../` directory next to the repo. This is safe **only because** `.worktrees/` is in `.gitignore`: the leading dot keeps Go tooling out (`go test ./...` skips dot-dirs) and gitignore keeps `git add -A`, search and watchers clean. Any other location is forbidden: sibling checkouts pollute the shared parent directory seen by every project and agent, and an unignored nested checkout breaks the main tree (embedded-repo index garbage, duplicate module builds, watcher storms).
 - Gitignored content is not copied. In a fresh worktree run `npm install` in `web/` and `./bin/orenda migrate up` (each worktree gets its own `data/orenda.db`).
 - **Ports:** `:2137` is reserved for the usage/dogfood systemd instance (from `~/opt/orenda`). `:2138` is the dev default (`make dev`); `:21371` is E2E. Don't run two instances on the same port; pick one or set `ORENDA_SERVER__PORT` to something free. Phase 28.20 split these so dev and usage can co-exist.
-- Merge to `dev` is a deliberate act by the PM: only after review, and never against someone's uncommitted work in the main tree. Agents do not merge their PRs.
+- Merge to `dev` is a deliberate act by the owner: only after the PM's approving review, and never against someone's uncommitted work in the main tree. Agents do not merge their PRs.
 - Remove the worktree right after its branch is merged; run `git worktree prune` occasionally.
 
 ## License
