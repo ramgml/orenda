@@ -71,17 +71,18 @@ func createInboxTaskHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 		tr := &task.Task{
-			ProjectID:    "", // explicit: inbox
-			ColumnID:     "", // no column in inbox
-			ParentTaskID: in.ParentTaskID,
-			Title:        in.Title,
-			Description:  in.Description,
-			Status:       in.Status,
-			Priority:     in.Priority,
-			AssigneeType: in.AssigneeType,
-			AssigneeID:   in.AssigneeID,
-			ContextMD:    in.ContextMD,
-			AgentNotes:   in.AgentNotes,
+			ProjectID:     "", // explicit: inbox
+			ColumnID:      "", // no column in inbox
+			ParentTaskID:  in.ParentTaskID,
+			Title:         in.Title,
+			Description:   in.Description,
+			Status:        in.Status,
+			Priority:      in.Priority,
+			AssigneeType:  in.AssigneeType,
+			AssigneeID:    in.AssigneeID,
+			ContextMD:     in.ContextMD,
+			AgentNotes:    in.AgentNotes,
+			CreatedByType: task.CreatorUser,
 		}
 		// Phase 30.10: quick capture accepts an optional due date —
 		// same parsing contract as the project create endpoint.

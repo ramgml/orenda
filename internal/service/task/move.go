@@ -373,6 +373,7 @@ func NullHub() Hub { return nullHub{} }
 type Locks interface {
 	Acquire(ctx context.Context, taskID, agentID string) error
 	Release(ctx context.Context, taskID, agentID string) error
+	Holder(ctx context.Context, taskID string) (agentID string, acquiredAt time.Time, err error)
 }
 
 // Claim assigns a task to an agent atomically.

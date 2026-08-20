@@ -59,6 +59,17 @@ const (
 	// "" before/after sentinel means "no colour".
 	ActionTagsReplaced Action = "tags_replaced"
 	ActionColorChanged Action = "color_changed"
+
+	// Phase 33.2: agent-side task management audit verbs.
+	// task.updated covers proposal edits and agent_notes writes
+	// (both are field-level mutations); the payload distinguishes
+	// the two cases (per-field diff vs. notes before/after).
+	// task.deleted covers hard delete of an agent's proposal; the
+	// payload is a snapshot of the task so the activity row stays
+	// meaningful after the row is gone.
+	ActionUpdated    Action = "task.updated"
+	ActionDeleted    Action = "task.deleted"
+	ActionAgentNotes Action = "task.agent_notes_updated"
 )
 
 // Sentinel errors.

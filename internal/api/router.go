@@ -647,6 +647,8 @@ func NewRouter(deps *Dependencies) http.Handler {
 					// triages it through the existing review queue.
 					r.Post("/", agentCreateTaskHandler(deps))
 					r.Route("/{id}", func(r chi.Router) {
+						r.Patch("/", agentPatchTaskHandler(deps))
+						r.Delete("/", agentDeleteTaskHandler(deps))
 						r.Post("/claim", agentClaimTaskHandler(deps))
 						r.Post("/release", agentReleaseTaskHandler(deps))
 						r.Post("/submit", agentSubmitTaskHandler(deps))

@@ -29,6 +29,9 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 	if t.ID == "" {
 		t.ID = newUUID()
 	}
+	if t.CreatedByType == "" {
+		t.CreatedByType = task.CreatorUser
+	}
 
 	// number comes from the task_number_seq high-watermark, not from
 	// MAX(tasks.number): a MAX+1 would re-issue the newest task's
@@ -1349,6 +1352,8 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	t.StudyCourseID = studyCourse.String
 	t.CreatedByType = task.CreatorType(createdByType.String)
 	t.CreatedByID = createdByID.String
+	t.CreatedByType = task.CreatorType(createdByType.String)
+	t.CreatedByID = createdByID.String
 	if estS.Valid {
 		v := int(estS.Int64)
 		t.TimeEstimateS = &v
@@ -1412,6 +1417,7 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 		due, started, claimed, compl   sql.NullString
 		calStart, calEnd, color        sql.NullString
 		recurrence, studyCourse        sql.NullString
+		createdByType, createdByID     sql.NullString
 		allDay                         int
 		estS                           sql.NullInt64
 		status, priority, awaiting     string
@@ -1425,6 +1431,7 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 		&estS, &t.TimeSpentS, &t.Position,
 		&calStart, &calEnd, &allDay, &color, &recurrence,
 		&studyCourse,
+		&createdByType, &createdByID,
 		&created, &updated,
 	)
 	if err != nil {
@@ -1450,6 +1457,8 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 	t.Color = color.String
 	t.Recurrence = recurrence.String
 	t.StudyCourseID = studyCourse.String
+	t.CreatedByType = task.CreatorType(createdByType.String)
+	t.CreatedByID = createdByID.String
 	if estS.Valid {
 		v := int(estS.Int64)
 		t.TimeEstimateS = &v

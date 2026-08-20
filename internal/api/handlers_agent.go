@@ -203,12 +203,6 @@ func agentTaskContextHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		// Verify the agent holds the task — agents should only see context
-		// for tasks they've claimed.
-		if tr.AssigneeID != id.AgentID {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
 		out := &TaskContext{Task: tr}
 		if deps.Comments != nil {
 			out.Comments, _ = deps.Comments.ListByTarget(ctx, "task", taskID)

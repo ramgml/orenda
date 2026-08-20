@@ -87,7 +87,13 @@ func newProposeFixture(t *testing.T) *proposeFixture {
 	tasks := sqlite.NewTaskRepository(db)
 	activityRepo := sqlite.NewActivityRepository(db)
 	commentSvc := commentservice.New(sqlite.NewCommentRepository(db), hub, nil)
-	taskSvc := taskservice.New(tasks, sqlite.NewTaskLockRepository(db), nil, nil, hub)
+	// taskservice.Recorder adapter — the service expects the
+	// internal/service/task.Recorder interface (Record with
+	// actorType), while the activity service exposes RecordTask.
+	// Wrap so the service's audit path (used by manage.go's
+	// task.updated / task.deleted rows) actually writes.
+	taskRecorder := activityRecorderAdapter{repo: activityRepo}
+	taskSvc := taskservice.New(tasks, sqlite.NewTaskLockRepository(db), taskRecorder, nil, hub)
 	taskSvc.Columns = projects
 
 	tokens := sqlite.NewAPITokenRepository(db)

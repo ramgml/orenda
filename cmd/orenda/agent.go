@@ -207,6 +207,27 @@ func printTaskRefHeader(cmd *cobra.Command, number int, title, id string) {
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "#%d  %s  (%s)\n", number, title, id)
 }
 
+// agentPatch issues a PATCH against the agent namespace and returns the
+// raw JSON body. Caller decodes. Phase 33.2: same shape as agentPost
+// — body is marshalled to JSON here so the caller can pass a map.
+func (a *agentCtx) agentPatch(ctx context.Context, path string, body any) ([]byte, int, error) {
+	var rdr io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return nil, 0, err
+		}
+		rdr = bytes.NewReader(raw)
+	}
+	return a.doRaw(ctx, http.MethodPatch, path, rdr, "application/json")
+}
+
+// agentDelete issues a DELETE against the agent namespace and returns
+// the raw body. Caller decodes. Phase 33.2: retract uses this.
+func (a *agentCtx) agentDelete(ctx context.Context, path string) ([]byte, int, error) {
+	return a.doRaw(ctx, http.MethodDelete, path, nil, "")
+}
+
 // newAgentCmd wires the `orenda agent` subcommand tree.
 func newAgentCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -247,6 +268,8 @@ Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
 	cmd.AddCommand(newAgentReleaseCmd())
 	cmd.AddCommand(newAgentSubmitCmd())
 	cmd.AddCommand(newAgentCommentCmd())
+	cmd.AddCommand(newAgentUpdateCmd())
+	cmd.AddCommand(newAgentRetractCmd())
 	cmd.AddCommand(newAgentAwaitCmd())
 	cmd.AddCommand(newAgentPagesCmd())
 	cmd.AddCommand(newAgentSearchCmd())
@@ -595,6 +618,113 @@ func newAgentCommentCmd() *cobra.Command {
 			}
 			if code != http.StatusCreated && code != http.StatusOK {
 				return fmt.Errorf("agent comment: HTTP %d: %s", code, raw)
+			}
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		},
+	}
+}
+
+// newAgentUpdateCmd wires `orenda agent update <task-id>` (Phase 33.2).
+//
+// Edit own un-triaged proposal (status=backlog + awaiting=human) or
+// update agent_notes as the lock holder. Two paths:
+//
+//   - {agent_notes: "..."} only → holder gate
+//   - any other field → proposal gate
+//
+// Permission failures surface as HTTP 403 with body {"error":
+// "not_your_proposal"} / {"error": "not_lock_holder"}; the CLI
+// propagates the HTTP status and body so the operator sees what
+// went wrong.
+func newAgentUpdateCmd() *cobra.Command {
+	var (
+		title, description, priority, dueAt, parentID, agentNotes string
+	)
+	cmd := &cobra.Command{
+		Use:   "update <task-id|#N>",
+		Short: "Edit own un-triaged proposal (title/description/priority/due_at/parent_task_id) or update agent_notes as the lock holder",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			body := map[string]any{}
+			if title != "" {
+				body["title"] = title
+			}
+			if description != "" {
+				body["description_md"] = description
+			}
+			if priority != "" {
+				body["priority"] = priority
+			}
+			if dueAt != "" {
+				body["due_at"] = dueAt
+			}
+			if parentID != "" {
+				body["parent_task_id"] = parentID
+			}
+			if agentNotes != "" {
+				body["agent_notes"] = agentNotes
+			}
+			if len(body) == 0 {
+				return fmt.Errorf("agent update: no fields supplied (--title / --description / --priority / --due-at / --parent-task-id / --agent-notes)")
+			}
+			raw, code, err := ctx.agentPatch(cmd.Context(),
+				"/api/v1/agent/tasks/"+args[0], body)
+			if err != nil {
+				return err
+			}
+			if code != http.StatusOK {
+				return fmt.Errorf("agent update: HTTP %d: %s", code, raw)
+			}
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		},
+	}
+	cmd.Flags().StringVar(&title, "title", "", "new title")
+	cmd.Flags().StringVar(&description, "description", "", "new description (markdown)")
+	cmd.Flags().StringVar(&priority, "priority", "", "new priority (low|medium|high|urgent)")
+	cmd.Flags().StringVar(&dueAt, "due-at", "", "new due date (RFC3339)")
+	cmd.Flags().StringVar(&parentID, "parent-task-id", "", "re-parent under a different parent")
+	cmd.Flags().StringVar(&agentNotes, "agent-notes", "", "set agent_notes (holder-only path)")
+	return cmd
+}
+
+// newAgentRetractCmd wires `orenda agent retract <task-id>` (Phase 33.2).
+//
+// Hard-delete own un-triaged proposal. Same gate as PATCH: 403
+// not_your_proposal when the task is triaged or authored by
+// someone else. Success is HTTP 204 (no body).
+func newAgentRetractCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "retract <task-id|#N>",
+		Short: "Hard-delete own un-triaged proposal",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			raw, code, err := ctx.agentDelete(cmd.Context(),
+				"/api/v1/agent/tasks/"+args[0])
+			if err != nil {
+				return err
+			}
+			if code != http.StatusNoContent && code != http.StatusOK {
+				return fmt.Errorf("agent retract: HTTP %d: %s", code, raw)
+			}
+			if code == http.StatusNoContent {
+				fmt.Fprintln(cmd.OutOrStdout(), "retracted")
+				return nil
 			}
 			var v any
 			if err := json.Unmarshal(raw, &v); err != nil {
