@@ -78,6 +78,16 @@ type Recorder interface {
 	Record(ctx context.Context, taskID string, actorType activity.ActorType, actorID string, action activity.Action, payload string) error
 }
 
+// TombstoneRecorder is the audit hook for hard-delete (retract) flows.
+// Phase 33.2.1: RetractProposal writes a row here because
+// task_activity.task_id has ON DELETE CASCADE — a post-delete insert
+// fails the FK or vanishes with the parent row. The tombstone table
+// (migration 025) has no FK, so the audit row survives the task
+// delete. nil-safe — handlers can run without a tombstone backend.
+type TombstoneRecorder interface {
+	RecordRetracted(ctx context.Context, taskID string, snapshotJSON string, actorType activity.ActorType, actorID string) error
+}
+
 // Hub is the in-process notification seam. Phase 2.5 wires the WebSocket
 // hub; Phase 3 wires the agent inbox.
 //
@@ -87,10 +97,11 @@ type Hub = ws.Hub
 
 // Service holds the dependencies Move() and future business logic need.
 type Service struct {
-	Tasks    task.Repository
-	Locks    Locks
-	Recorder Recorder
-	Comments CommentAdder
+	Tasks     task.Repository
+	Locks     Locks
+	Recorder  Recorder
+	Tombstone TombstoneRecorder
+	Comments  CommentAdder
 	// CommentLister is the seam MirrorSave uses to fetch the
 	// task's current comment thread for the markdown mirror. The
 	// concrete implementation is *comment.Service; nil means
@@ -129,6 +140,16 @@ func New(tasks task.Repository, locks Locks, recorder Recorder, comments Comment
 		Comments: comments,
 		Hub:      hub,
 	}
+}
+
+// NewWithTombstone wires the Phase 33.2.1 retract-tombstone recorder
+// into the Service. The retract flow needs a TombstoneRecorder to
+// persist audits that survive the task row (task_activity.task_id
+// has ON DELETE CASCADE).
+func NewWithTombstone(tasks task.Repository, locks Locks, recorder Recorder, tombstone TombstoneRecorder, comments CommentAdder, hub Hub) *Service {
+	s := New(tasks, locks, recorder, comments, hub)
+	s.Tombstone = tombstone
+	return s
 }
 
 // lookupColumnForStatus returns the column id on the (single) board of

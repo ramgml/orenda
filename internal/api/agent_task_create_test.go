@@ -93,7 +93,8 @@ func newProposeFixture(t *testing.T) *proposeFixture {
 	// Wrap so the service's audit path (used by manage.go's
 	// task.updated / task.deleted rows) actually writes.
 	taskRecorder := activityRecorderAdapter{repo: activityRepo}
-	taskSvc := taskservice.New(tasks, sqlite.NewTaskLockRepository(db), taskRecorder, nil, hub)
+	tombstoneRecorder := sqlite.NewTaskRetractedRepository(db)
+	taskSvc := taskservice.NewWithTombstone(tasks, sqlite.NewTaskLockRepository(db), taskRecorder, tombstoneRecorder, nil, hub)
 	taskSvc.Columns = projects
 
 	tokens := sqlite.NewAPITokenRepository(db)

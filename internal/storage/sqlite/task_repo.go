@@ -472,6 +472,106 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) error {
 	return nil
 }
 
+// UpdateProposalFields writes only the listed columns and asserts
+// the proposal-gate (created_by_type='agent' AND
+// created_by_id=? AND status='backlog') in the WHERE. Phase 33.2.1:
+// this is the TOCTOU fix for the agent-side EditProposal path. A
+// concurrent owner triage that flips status out of 'backlog'
+// returns RowsAffected()==0, and the caller surfaces
+// ErrConcurrentTriage.
+func (r *taskRepo) UpdateProposalFields(ctx context.Context, p task.ProposalPatchParams) error {
+	sets := []string{}
+	args := []any{}
+	if p.Title != nil {
+		sets = append(sets, "title = ?")
+		args = append(args, *p.Title)
+	}
+	if p.Description != nil {
+		sets = append(sets, "description = ?")
+		args = append(args, *p.Description)
+	}
+	if p.Priority != nil {
+		sets = append(sets, "priority = ?")
+		args = append(args, string(*p.Priority))
+	}
+	if p.DueAt != nil {
+		sets = append(sets, "due_at = ?")
+		if p.DueAt.IsZero() {
+			args = append(args, nil)
+		} else {
+			args = append(args, p.DueAt.Format("2006-01-02 15:04:05"))
+		}
+	}
+	if p.ParentID != nil {
+		sets = append(sets, "parent_task_id = ?")
+		args = append(args, nullString(*p.ParentID))
+	}
+	if len(sets) == 0 {
+		return task.ErrInvalidInput
+	}
+	sets = append(sets, "updated_at = datetime('now')")
+	q := "UPDATE tasks SET " + strings.Join(sets, ", ") +
+		" WHERE id = ? AND created_by_type = 'agent' AND created_by_id = ? AND status = 'backlog'"
+	args = append(args, p.TaskID, p.Gate.CreatedByID)
+	res, err := r.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return fmt.Errorf("task.UpdateProposalFields: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return task.ErrNotFound
+	}
+	return nil
+}
+
+// UpdateAgentNotesField writes ONLY agent_notes and asserts the
+// holder gate (assignee_type='agent' AND assignee_id=?) in the
+// WHERE. Phase 33.2.1: this avoids the pre-33.2.1 full-row Update
+// that resurrected the assignee snapshot after a concurrent
+// Release cleared it.
+func (r *taskRepo) UpdateAgentNotesField(ctx context.Context, taskID, agentID, notes string) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE tasks SET agent_notes = ?, updated_at = datetime('now')
+		WHERE id = ? AND assignee_type = 'agent' AND assignee_id = ?
+	`, nullString(notes), taskID, agentID)
+	if err != nil {
+		return fmt.Errorf("task.UpdateAgentNotesField: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return task.ErrNotFound
+	}
+	return nil
+}
+
+// DeleteWithProposalGate hard-deletes only when the proposal-gate
+// still holds. Phase 33.2.1: paired with the tombstone write in
+// the retract path so the audit survives even when the row is
+// gone.
+func (r *taskRepo) DeleteWithProposalGate(ctx context.Context, taskID, agentID string) error {
+	res, err := r.db.ExecContext(ctx, `
+		DELETE FROM tasks
+		WHERE id = ? AND created_by_type = 'agent' AND created_by_id = ? AND status = 'backlog'
+	`, taskID, agentID)
+	if err != nil {
+		return fmt.Errorf("task.DeleteWithProposalGate: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return task.ErrNotFound
+	}
+	return nil
+}
+
 func (r *taskRepo) Delete(ctx context.Context, id string) error {
 	res, err := r.db.ExecContext(ctx, `DELETE FROM tasks WHERE id = ?`, id)
 	if err != nil {

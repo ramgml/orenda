@@ -15,17 +15,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ramgml/orenda/internal/domain/task"
-	"github.com/ramgml/orenda/internal/storage/sqlite"
-
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
+	"github.com/ramgml/orenda/internal/storage/sqlite"
 )
 
 func TestAgent_PatchOwnProposal_OK(t *testing.T) {
@@ -154,6 +155,102 @@ func TestAgent_NonHolderAgentNotes_403(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, rr.Code, "body=%s", rr.Body.String())
 }
 
+func TestAgent_ContextScrubsNotesForNonHolder(t *testing.T) {
+	// Phase 33.2.1: a non-holder reader sees task.agent_notes and
+	// task.context_md scrubbed (empty string) AND the activity
+	// feed has task.agent_notes_updated rows filtered out.
+	f := newProposeFixture(t)
+	body := validProposeBody(f.projectID)
+	body["title"] = "Has notes"
+	body["context_md"] = "# private context"
+	rr := f.proposeAsAgent(t, body)
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var proposed task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
+
+	// Owner drags to todo, agent claims, writes agent_notes.
+	moveTaskToColumn(t, f, proposed.ID, f.todoColID)
+	rr = f.claimAsAgent(t, proposed.ID)
+	require.Equal(t, http.StatusOK, rr.Code)
+	rr = f.patchAsAgent(t, proposed.ID, map[string]any{"agent_notes": "secret"})
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	// Register reader B who is NOT the holder.
+	agentB := registerSecondAgent(t, f, "scrub-reader")
+
+	// Reader B reads context: agent_notes + context_md must be empty.
+	rr = f.contextAsAgentToken(t, proposed.ID, agentB.PlainToken)
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+	var ctx struct {
+		Task     map[string]any `json:"task"`
+		Activity []struct {
+			Action string `json:"action"`
+		} `json:"activity"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ctx))
+	assert.True(t, ctx.Task["agent_notes"] == nil || ctx.Task["agent_notes"] == "", "agent_notes must be scrubbed for non-holder")
+	assert.True(t, ctx.Task["context_md"] == nil || ctx.Task["context_md"] == "", "context_md must be scrubbed for non-holder")
+	for _, a := range ctx.Activity {
+		assert.NotEqual(t, "task.agent_notes_updated", a.Action,
+			"notes activity rows must be filtered for non-holder")
+	}
+}
+
+func TestAgent_ContextHolderSeesOwnNotesAndActivity(t *testing.T) {
+	// The holder reads everything: their own notes + their own
+	// activity rows are NOT scrubbed.
+	f := newProposeFixture(t)
+	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var proposed task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
+	moveTaskToColumn(t, f, proposed.ID, f.todoColID)
+	rr = f.claimAsAgent(t, proposed.ID)
+	require.Equal(t, http.StatusOK, rr.Code)
+	rr = f.patchAsAgent(t, proposed.ID, map[string]any{"agent_notes": "my notes"})
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	rr = f.contextAsAgentToken(t, proposed.ID, f.token)
+	require.Equal(t, http.StatusOK, rr.Code)
+	var ctx struct {
+		Task     map[string]any `json:"task"`
+		Activity []struct {
+			Action string `json:"action"`
+		} `json:"activity"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ctx))
+	assert.Equal(t, "my notes", ctx.Task["agent_notes"])
+	hasNotesActivity := false
+	for _, a := range ctx.Activity {
+		if a.Action == "task.agent_notes_updated" {
+			hasNotesActivity = true
+		}
+	}
+	assert.True(t, hasNotesActivity, "holder's activity feed keeps notes rows")
+}
+
+func TestAgent_ContextProposerSeesOwnContextBeforeClaim(t *testing.T) {
+	// Before claim, the original proposer is neither assignee nor
+	// "holder" — agent_notes and context_md are scrubbed for them
+	// too. (Task.agent_notes only becomes relevant post-claim.)
+	f := newProposeFixture(t)
+	body := validProposeBody(f.projectID)
+	body["context_md"] = "secret pre-claim context"
+	rr := f.proposeAsAgent(t, body)
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var proposed task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
+
+	rr = f.contextAsAgentToken(t, proposed.ID, f.token)
+	require.Equal(t, http.StatusOK, rr.Code)
+	var ctx struct {
+		Task map[string]any `json:"task"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ctx))
+	assert.True(t, ctx.Task["context_md"] == nil || ctx.Task["context_md"] == "",
+		"context_md is per-claim private; pre-claim proposer is not yet the holder")
+}
+
 func TestAgent_ContextAnyAgent_OK(t *testing.T) {
 	f := newProposeFixture(t)
 	body := validProposeBody(f.projectID)
@@ -169,6 +266,51 @@ func TestAgent_ContextAnyAgent_OK(t *testing.T) {
 	var ctx map[string]any
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ctx))
 	require.Contains(t, ctx, "task")
+}
+
+func TestAgent_PatchTask_ByNumber_OK(t *testing.T) {
+	// Phase 33.2.1: PATCH accepts the human number "#42" / "42".
+	f := newProposeFixture(t)
+	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var proposed task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
+	require.Greater(t, proposed.Number, 0, "number assigned")
+	number := proposed.Number
+	numberStr := fmt.Sprintf("%d", number)
+	_ = numberStr
+
+	// PATCH via the bare number.
+	rr = f.patchAsAgent(t, numberStr, map[string]any{"title": "by number"})
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+	var updated task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &updated))
+	assert.Equal(t, "by number", updated.Title)
+}
+
+func TestAgent_DeleteTask_ByNumber_OK(t *testing.T) {
+	f := newProposeFixture(t)
+	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var proposed task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
+	numberStr := fmt.Sprintf("%d", proposed.Number)
+
+	rr = f.deleteAsAgent(t, numberStr)
+	require.Equal(t, http.StatusNoContent, rr.Code, "body=%s", rr.Body.String())
+}
+
+func (f *proposeFixture) releaseAsAgent(t *testing.T, id string) *httptest.ResponseRecorder {
+	return f.releaseAsAgentToken(t, id, f.token)
+}
+
+func (f *proposeFixture) releaseAsAgentToken(t *testing.T, id, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/tasks/"+id+"/release", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	f.router.ServeHTTP(rr, req)
+	return rr
 }
 
 // ---- helpers ----
@@ -272,4 +414,107 @@ func moveTaskToColumn(t *testing.T, f *proposeFixture, taskID, columnID string) 
 	body := map[string]any{"column_id": columnID}
 	rr := f.doWithCookie(t, http.MethodPatch, "/api/v1/tasks/"+taskID, body)
 	require.Equal(t, http.StatusOK, rr.Code, "move body=%s", rr.Body.String())
+}
+
+func TestAgent_DeleteAuditSurvivesViaTombstone(t *testing.T) {
+	// Phase 33.2.1: retract writes a tombstone row in
+	// task_retracted (no FK on tasks.id, so the audit survives the
+	// hard delete).
+	f := newProposeFixture(t)
+	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var proposed task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
+
+	rr = f.deleteAsAgent(t, proposed.ID)
+	require.Equal(t, http.StatusNoContent, rr.Code, "body=%s", rr.Body.String())
+
+	repo := sqlite.NewTaskRetractedRepository(f.db)
+	n, err := repo.CountForTask(context.Background(), proposed.ID)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, n, 1, "tombstone row must exist for retracted task")
+	rows, err := repo.GetForTask(context.Background(), proposed.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, rows)
+	assert.Contains(t, rows[0].ActorID, f.agentID, "tombstone carries agent id")
+}
+
+func TestAgent_EditProposal_TriagedBeforeRequest_Returns403(t *testing.T) {
+	// A proposal that the owner dragged out of backlog before the
+	// PATCH is no longer the agent's proposal. Pre-check reads the
+	// post-triage state and rejects with 403 not_your_proposal.
+	// The gate-in-WHERE still fires in the rare TOCTOU window
+	// (separately exercised at the repo level in TestGate_UpdateProposalFields).
+	f := newProposeFixture(t)
+	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var proposed task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
+	moveTaskToColumn(t, f, proposed.ID, f.todoColID)
+	rr = f.patchAsAgent(t, proposed.ID, map[string]any{"title": "still mine"})
+	require.Equal(t, http.StatusForbidden, rr.Code, "body=%s", rr.Body.String())
+}
+
+// TestGate_UpdateProposalFields exercises the WHERE gate directly:
+// calling UpdateProposalFields on a row whose status has flipped
+// out of 'backlog' (or whose created_by_id doesn't match) must
+// return RowsAffected()==0 (ErrNotFound in the repo, ErrConcurrentTriage
+// from the service). The handler path also pre-checks via
+// IsOwnProposal and returns 403 for a concurrent triage (see
+// TestAgent_EditProposal_TriagedBeforeRequest_Returns403); this
+// direct test pins the gate itself.
+func TestGate_UpdateProposalFields(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "/g.db"), sqlite.OpenConfig{
+		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	defer db.Close()
+	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	tasks := sqlite.NewTaskRepository(db)
+	tr := &task.Task{
+		Title: "g", Status: task.StatusTodo, Priority: task.PriorityMedium,
+		CreatedByType: task.CreatorAgent, CreatedByID: "agent-A",
+	}
+	require.NoError(t, tasks.Create(context.Background(), tr))
+	title := "patched"
+	err = tasks.UpdateProposalFields(context.Background(), task.ProposalPatchParams{
+		TaskID: tr.ID,
+		Gate:   task.ProposalGate{CreatedByID: "agent-A"},
+		Title:  &title,
+	})
+	assert.ErrorIs(t, err, task.ErrNotFound, "gate must reject when status != backlog")
+
+	// Same row, but gate agent-id wrong.
+	err = tasks.UpdateProposalFields(context.Background(), task.ProposalPatchParams{
+		TaskID: tr.ID,
+		Gate:   task.ProposalGate{CreatedByID: "agent-B"},
+		Title:  &title,
+	})
+	assert.ErrorIs(t, err, task.ErrNotFound, "gate must reject when creator id differs")
+}
+
+func TestAgent_UpdateAgentNotes_ReleaseInterleaved_NoResurrect(t *testing.T) {
+	// Phase 33.2.1 TOCTOU fix: a concurrent Release that clears the
+	// assignee must stop the notes write. Pre-33.2.1 the full-row
+	// Update resurrected assignee from the stale in-memory snapshot.
+	f := newProposeFixture(t)
+	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var proposed task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
+	moveTaskToColumn(t, f, proposed.ID, f.todoColID)
+	rr = f.claimAsAgent(t, proposed.ID)
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	// Release: clears the assignee (frees the lock).
+	rr = f.releaseAsAgent(t, proposed.ID)
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	// Now the notes PATCH: assignee is no longer 'agent/me' → gate
+	// fails → 404 (RowsAffected==0 → ErrNotFound → translateManageError
+	// returns not_found since ErrNotLockHolder from the re-check
+	// would also match — both surface a non-200).
+	rr = f.patchAsAgent(t, proposed.ID, map[string]any{"agent_notes": "sneaky"})
+	assert.NotEqual(t, http.StatusOK, rr.Code, "must not write notes after release")
 }

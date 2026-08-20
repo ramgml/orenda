@@ -54,6 +54,10 @@ var (
 	// caller bug (or an empty body); we surface 400 to make it
 	// obvious rather than silently 200 with no-op.
 	ErrNoPatchFields = errors.New("task service: no patch fields supplied")
+	// ErrConcurrentTriage: a TOCTOU race — the row's status left
+	// backlog (or another gate) between the gate-check read and the
+	// gated update. Mapped to HTTP 409 Conflict by the handler.
+	ErrConcurrentTriage = errors.New("task service: concurrent triage")
 )
 
 // EditProposalPatch carries the fields the agent may change on a
@@ -92,10 +96,18 @@ type EditProposalDiff struct {
 // IsOwnProposal reports whether tr is the caller's un-triaged proposal.
 //
 // The four predicates mirror the wiki:agent-task-management spec —
-// only the original author may edit/retract, and only before triage
-// (status=backlog + awaiting=human). Legacy rows with a NULL
-// created_by_id are treated as user-authored, so an agent can never
-// piggy-back on a row that pre-dates migration 024.
+// only the original author may edit/retract, and only before triage.
+//
+// Phase 33.3 changed the propose handler to land proposals with
+// awaiting=none (not awaiting=human as earlier spec implied); the
+// user-visible meaning is the same — the owner has not moved the
+// card off the backlog column yet. The gate uses status=backlog
+// alone as the "un-triaged" marker; awaiting is no longer part of
+// the gate.
+//
+// Legacy rows with a NULL created_by_id are treated as
+// user-authored, so an agent can never piggy-back on a row that
+// pre-dates migration 024.
 func IsOwnProposal(tr *task.Task, agentID string) bool {
 	// "Un-triaged" = still in backlog. Phase 33.3 flipped the
 	// propose handler to land proposals with awaiting=none (not
@@ -164,37 +176,71 @@ func (s *Service) EditProposal(ctx context.Context, taskID, agentID string, patc
 	if patch.isEmpty() {
 		return nil, ErrNoPatchFields
 	}
+	// Read once for permission + before-snapshot + diff computation.
+	// Phase 33.2.1: the WRITE re-asserts the gate in WHERE so a
+	// concurrent owner triage cannot be clobbered (see
+	// Tasks.UpdateProposalFields).
 	tr, err := s.Tasks.GetByID(ctx, taskID)
 	if err != nil {
 		return nil, err
 	}
+	// Pre-check catches the "never yours / already triaged" cases
+	// with a clean 403; the WHERE-gate in UpdateProposalFields
+	// catches the rare TOCTOU race between this read and the
+	// subsequent write.
 	if !IsOwnProposal(tr, agentID) {
 		return nil, ErrNotOwnProposal
 	}
 
 	before := *tr
 	changes := applyEditProposalPatch(tr, patch)
+	if len(changes) == 0 {
+		// No-op patch — return the current state without writing.
+		return &EditProposalDiff{Before: &before, After: tr, Changes: changes}, nil
+	}
 
-	if err := s.Tasks.Update(ctx, tr); err != nil {
+	// Gated partial UPDATE: only the columns the patch touched, only
+	// when (created_by_type, created_by_id, status) still match the
+	// proposal gate. RowsAffected()==0 on a concurrent triage →
+	// ErrConcurrentTriage.
+	params := task.ProposalPatchParams{
+		TaskID:      tr.ID,
+		Gate:        task.ProposalGate{CreatedByID: agentID},
+		Title:       patch.Title,
+		Description: patch.Description,
+		Priority:    patch.Priority,
+		DueAt:       patch.DueAt,
+		ParentID:    patch.ParentTaskID,
+	}
+	if err := s.Tasks.UpdateProposalFields(ctx, params); err != nil {
+		if errors.Is(err, task.ErrNotFound) {
+			return nil, ErrConcurrentTriage
+		}
 		return nil, fmt.Errorf("task.EditProposal: update: %w", err)
 	}
+
+	// Re-read so we have the canonical after-state for the diff /
+	// WS payload / mirror. Cheap (PK lookup).
+	updated, err := s.Tasks.GetByID(ctx, tr.ID)
+	if err != nil {
+		return nil, fmt.Errorf("task.EditProposal: re-read: %w", err)
+	}
+	tr = updated
 
 	if s.Mirror != nil {
 		s.MirrorSave(ctx, tr)
 	}
 
-	if len(changes) > 0 {
-		s.recordUpdated(ctx, tr.ID, agentID, changes)
-		if s.Hub != nil {
-			s.Hub.Publish(ctx, ws.Event{
-				Topic: "tasks",
-				Body: map[string]any{
-					"type":  "task.updated",
-					"task":  tr,
-					"actor": agentID,
-				},
-			})
-		}
+	s.recordUpdated(ctx, tr.ID, agentID, changes)
+	if s.Hub != nil {
+		s.Hub.Publish(ctx, ws.Event{
+			Topic: "tasks",
+			Body: map[string]any{
+				"type":  "task.updated",
+				"task":  tr,
+				"actor": agentID,
+			},
+		})
 	}
 
 	return &EditProposalDiff{Before: &before, After: tr, Changes: changes}, nil
@@ -215,18 +261,26 @@ func (s *Service) RetractProposal(ctx context.Context, taskID, agentID string) e
 		return ErrNotOwnProposal
 	}
 
-	if err := s.Tasks.Delete(ctx, taskID); err != nil {
-		return fmt.Errorf("task.RetractProposal: delete: %w", err)
-	}
-
-	if s.Mirror != nil {
-		_ = s.Mirror.DeleteTask(taskID)
-	}
-
-	if s.Recorder != nil {
-		snap := *tr
-		snapJSON := fmt.Sprintf(`{"id":%q,"title":%q,"project_id":%q}`,
-			snap.ID, snap.Title, snap.ProjectID)
+	// Phase 33.2.1: write the tombstone BEFORE the delete so a
+	// concurrent owner triage that already moved the row past
+	// backlog leaves us with no orphan audit. DeleteWithProposalGate
+	// asserts the same gate as UpdateProposalFields (created_by_type
+	// 'agent', created_by_id=me, status='backlog'); RowsAffected()==0
+	// → ErrConcurrentTriage. The tombstone write runs against the
+	// pre-delete row captured here; the AND-gate's matching is
+	// authoritative on whether the retract is allowed.
+	snapJSON := fmt.Sprintf(`{"id":%q,"title":%q,"project_id":%q}`,
+		tr.ID, tr.Title, tr.ProjectID)
+	if s.Tombstone != nil {
+		if err := s.Tombstone.RecordRetracted(ctx, taskID,
+			snapJSON, activity.ActorAgent, agentID); err != nil {
+			zap.L().Warn("manage: tombstone record failed (pre-delete)",
+				zap.String("task_id", taskID),
+				zap.Error(err))
+		}
+	} else if s.Recorder != nil {
+		// Legacy path: best-effort activity row — likely to vanish
+		// post-delete via FK CASCADE.
 		if err := s.Recorder.Record(ctx, taskID,
 			activity.ActorAgent, agentID,
 			activity.ActionDeleted, snapJSON); err != nil {
@@ -236,6 +290,18 @@ func (s *Service) RetractProposal(ctx context.Context, taskID, agentID string) e
 				zap.Error(err))
 		}
 	}
+
+	if err := s.Tasks.DeleteWithProposalGate(ctx, taskID, agentID); err != nil {
+		if errors.Is(err, task.ErrNotFound) {
+			return ErrConcurrentTriage
+		}
+		return fmt.Errorf("task.RetractProposal: delete: %w", err)
+	}
+
+	if s.Mirror != nil {
+		_ = s.Mirror.DeleteTask(taskID)
+	}
+
 	if s.Hub != nil {
 		s.Hub.Publish(ctx, ws.Event{
 			Topic: "tasks",
@@ -259,6 +325,12 @@ func (s *Service) RetractProposal(ctx context.Context, taskID, agentID string) e
 // lock) through this method; PATCHes with any other field on a
 // non-own row fail with ErrNotOwnProposal (EditProposal).
 func (s *Service) UpdateAgentNotes(ctx context.Context, taskID, agentID, notes string) (*task.Task, error) {
+	// Phase 33.2.1: gate-protected partial update. Pre-write, read
+	// the row only to (a) confirm the caller is the holder (we
+	// still trust the holder check here, defense in depth) and
+	// (b) capture the before-snapshot for the activity row. The
+	// WRITE doesn't pull a fresh task snapshot — a concurrent
+	// Release that clears the assignee leaves RowsAffected()==0.
 	tr, err := s.Tasks.GetByID(ctx, taskID)
 	if err != nil {
 		return nil, err
@@ -270,10 +342,19 @@ func (s *Service) UpdateAgentNotes(ctx context.Context, taskID, agentID, notes s
 	if before == notes {
 		return tr, nil
 	}
-	tr.AgentNotes = notes
-	if err := s.Tasks.Update(ctx, tr); err != nil {
+	if err := s.Tasks.UpdateAgentNotesField(ctx, taskID, agentID, notes); err != nil {
+		if errors.Is(err, task.ErrNotFound) {
+			return nil, ErrConcurrentTriage
+		}
 		return nil, fmt.Errorf("task.UpdateAgentNotes: update: %w", err)
 	}
+	// Re-read for the canonical after-state (the WS payload /
+	// mirror). Cheap PK lookup.
+	updated, err := s.Tasks.GetByID(ctx, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("task.UpdateAgentNotes: re-read: %w", err)
+	}
+	tr = updated
 	if s.Mirror != nil {
 		s.MirrorSave(ctx, tr)
 	}

@@ -82,7 +82,15 @@ func agentPatchTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		taskID := chi.URLParam(r, "id")
+		// "#42"/"42" resolve to the UUID (Phase 33.2.1 parity with
+		// /claim/release/submit/context). A bare numeric path that
+		// doesn't match any task returns 404 with the friendly body
+		// {"error":"task #N not found"}.
+		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if rerr != nil {
+			writeResolveError(w, rerr)
+			return
+		}
 
 		// Holder-only short-circuit: a PATCH carrying only
 		// agent_notes routes to UpdateAgentNotes (which checks the
@@ -133,7 +141,11 @@ func agentDeleteTaskHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "task service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		taskID := chi.URLParam(r, "id")
+		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if rerr != nil {
+			writeResolveError(w, rerr)
+			return
+		}
 		if err := deps.TaskService.RetractProposal(r.Context(), taskID, id.AgentID); err != nil {
 			translateManageError(w, err, "delete_task")
 			return
@@ -218,6 +230,11 @@ func translateManageError(w http.ResponseWriter, err error, op string) {
 	case errors.Is(err, taskservice.ErrNotLockHolder):
 		writeJSON(w, http.StatusForbidden,
 			map[string]string{"error": "not_lock_holder"})
+	case errors.Is(err, taskservice.ErrConcurrentTriage):
+		// TOCTOU race: the row left the gate between the gate-check
+		// read and the gated update/delete. 409 with no body mutation.
+		writeJSON(w, http.StatusConflict,
+			map[string]string{"error": "concurrent_triage"})
 	case errors.Is(err, taskservice.ErrNoPatchFields):
 		writeJSON(w, http.StatusBadRequest,
 			map[string]string{"error": "no_patch_fields"})
