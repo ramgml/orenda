@@ -37,7 +37,21 @@ git push origin main vX.Y.Z   # по команде владельца
 - Тег `v*` повторно запускает release gate.
 - После релиза — merge `main` обратно в `dev` (прецедент: `3e33309` после v0.2.0), иначе расходятся `VERSION`/`CHANGELOG.md`.
 
-### 4. Обновление dogfood-инстанса
+### 4. GitHub Release
+
+Release gate на тегах (`ci.yml`) прогоняет только lint/test/build/e2e — **GitHub Release он не создаёт**, шаг ручной. Без него тег есть, а на странице Releases версия отсутствует (инцидент v0.4.0, замечен 2026-08-20).
+
+```bash
+# body = секция [X.Y.Z] из CHANGELOG.md (от `## [X.Y.Z]` до следующего `## [`);
+# границы секций: grep -n '^## \[' CHANGELOG.md
+gh release create vX.Y.Z \
+  --title "Orenda vX.Y.Z — <краткий фокус>" \
+  --notes-file <section.md> --latest
+```
+
+Проверка: `gh release list` показывает новый тег как `Latest`, в body — только своя секция changelog (без заголовка следующей).
+
+### 5. Обновление dogfood-инстанса
 
 ```bash
 cd ~/opt/orenda && scripts/update-dogfood.sh
@@ -49,6 +63,7 @@ cd ~/opt/orenda && scripts/update-dogfood.sh
 
 - Не тегать релизные `vX.Y.Z` на `dev` — релизные теги живут только на `main`.
 - Не мержить в `main` без PR — теряется release gate.
+- Не считать релиз выпущенным без GitHub Release (шаг 4) — тег + зелёный гейт ≠ опубликованный релиз.
 - Не выпускать с красным гейтом. Full-lint на `main` приведён к new-vs-main (`6c75411`): перманентно красный гейт — не гейт; долг Phase 30.16 закрывается фоном, релизы не блокирует.
 - Не обходить хуки `--no-verify`; исключение — `SKIP_ORENDA_HOOKS=1` с фиксацией в PR.
 
