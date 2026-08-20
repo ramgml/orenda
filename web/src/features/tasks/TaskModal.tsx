@@ -1,4 +1,5 @@
-import { useCallback, useEffect, type ReactNode } from 'react';
+import { useCallback, type ReactNode } from 'react';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Link,
   useLocation,
@@ -9,6 +10,7 @@ import {
 } from 'react-router-dom';
 
 import { TaskViewBody } from './TaskViewBody';
+import { Dialog, DialogOverlay, DialogPortal } from '@/shared/ui/dialog';
 import { useBodyScrollLock } from '@/shared/hooks/useBodyScrollLock';
 
 /**
@@ -46,8 +48,8 @@ import { useBodyScrollLock } from '@/shared/hooks/useBodyScrollLock';
  *      from one task to another keeps the same `TaskModal` mounted
  *      (just `useParams().id` changes), so the lock stays on.
  *      Closing (any path) unmounts the component and restores the
- *      previous overflow value — not just "visible", because a
- *      previous host app could have set its own value.
+      the previous overflow value — not just "visible", because a
+      previous host app could have set its own value.
  */
 export function TaskModal(): JSX.Element | null {
   const { id } = useParams<{ id: string }>();
@@ -62,22 +64,6 @@ export function TaskModal(): JSX.Element | null {
     navigate(-1);
   }, [navigate]);
 
-  // Esc closes. We attach to `window` (not the modal) so a focused
-  // input doesn't swallow the keydown — `Escape` already means
-  // "cancel" inside inputs, and a second Escape then closes the
-  // modal. The native input-handler in TaskViewBody consumes the
-  // first Escape; this listener catches the second.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent): void {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        close();
-      }
-    }
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [close]);
-
   // Phase 28.3: lock the background page from scrolling while the
   // modal is mounted — implementation lives in `@/shared/hooks/useBodyScrollLock`
   // so other modals can reuse it and so it stays testable in
@@ -87,46 +73,56 @@ export function TaskModal(): JSX.Element | null {
   // Closing (any path) unmounts the component and the hook restores
   // the previous overflow value — not just "visible", because a
   // previous host could have set its own value.
+  //
+  // Phase 32.13 (shadcn/ui migration): the previous build also
+  // attached a window-level Escape listener. The Dialog primitive's
+  // `onEscapeKeyDown` (capture-phase on the document) catches Esc
+  // inside any input — the input's own handler fires in bubble
+  // phase, so the modal closes on the first press regardless of
+  // focus.
   useBodyScrollLock();
 
   if (!id) return null;
 
+  // Phase 32.13 (shadcn/ui migration): we compose DialogOverlay +
+  // DialogPrimitive.Content directly instead of using the
+  // `DialogContent` wrapper because this modal's "long-content
+  // scroll" contract (Phase 28.3) requires the backdrop itself to
+  // be the scroll container with a flex layout that centres a
+  // short card via `my-auto` and lets a tall card reach the
+  // padding edge. `DialogContent` hardcodes `fixed left-[50%]
+  // top-[50%]` centring + a centred content box; we override both.
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Task details"
-      // Phase 28.3: drop `md:items-center`. The card carries its own
-      // `my-auto`, so on a short card the margin centres it; on a
-      // tall card `my-auto` collapses to the padding (`p-2 md:p-6`),
-      // letting `overflow-y-auto` actually scroll all the way up.
-      className="fixed inset-0 z-[60] bg-black/50 flex items-start justify-center p-2 md:p-6 overflow-y-auto"
-      onClick={close}
+    <Dialog
+      open
+      onOpenChange={(o) => {
+        if (!o) close();
+      }}
     >
-      <div
-        className="bg-white dark:bg-slate-900 rounded-lg shadow-2xl max-w-4xl w-full my-auto relative"
-        // stopPropagation so clicks inside the modal don't bubble to
-        // the backdrop (which would close the modal).
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          type="button"
-          onClick={close}
-          aria-label="Close task"
-          className="absolute top-2 right-2 z-10 h-8 w-8 rounded-full flex items-center justify-center text-slate-500 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+      <DialogPortal>
+        <DialogOverlay className="z-[60] bg-black/50" />
+        <DialogPrimitive.Content
+          aria-label="Task details"
+          className="z-[60] left-0 right-0 top-0 bottom-0 translate-x-0 translate-y-0 max-w-none h-screen flex items-start justify-center p-2 md:p-6 overflow-y-auto bg-transparent border-0 shadow-none sm:rounded-none gap-0"
         >
-          ×
-        </button>
-        <div className="p-4 md:p-6">
-          <TaskViewBody taskId={id} onClose={close} />
-        </div>
-      </div>
-    </div>
+          <div className="bg-white dark:bg-slate-900 rounded-lg shadow-2xl max-w-4xl w-full my-auto relative">
+            <button
+              type="button"
+              onClick={close}
+              aria-label="Close task"
+              className="absolute top-2 right-2 z-10 h-8 w-8 rounded-full flex items-center justify-center text-slate-500 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              ×
+            </button>
+            <div className="p-4 md:p-6">
+              <TaskViewBody taskId={id} onClose={close} />
+            </div>
+          </div>
+        </DialogPrimitive.Content>
+      </DialogPortal>
+    </Dialog>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Helpers used by callers (kanban card, activity link, search hit, …).
 // Keeping the navigation contract in one place means the
 // background-location trick works for every entry point without each
 // caller having to remember the magic option.

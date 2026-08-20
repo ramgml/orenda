@@ -26,6 +26,7 @@ import { enUS } from 'date-fns/locale';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 
 import { api, type CalendarEvent } from '@/shared/api/client';
+import { Dialog, DialogContent } from '@/shared/ui/dialog';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 import { useWebSocketTopic } from '@/shared/ws';
 
@@ -707,144 +708,152 @@ function EventModal({
       setBusy(false);
     }
   }
-
+  // Phase 32.13 (shadcn/ui migration): the overlay is now a
+  // Dialog primitive. Esc / click-outside / focus return are
+  // handled by `@radix-ui/react-dialog`; we wire `onOpenChange`
+  // to the existing `onCancel` callback. Form state and submit
+  // semantics stay local — Radix never owns the form.
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <form
-        onSubmit={submit}
-        className="bg-white dark:bg-slate-900 rounded-lg shadow-xl w-full max-w-md p-5 space-y-3"
-      >
-        <h3 className="font-semibold text-lg">{title}</h3>
+    <Dialog
+      open
+      onOpenChange={(o) => {
+        if (!o) onCancel();
+      }}
+    >
+      <DialogContent aria-label={title} className="max-w-md gap-3 p-5 sm:rounded-lg">
+        <form onSubmit={submit} className="space-y-3">
+          <h3 className="font-semibold text-lg">{title}</h3>
 
-        <label className="block text-sm">
-          <span className="text-xs text-slate-500">Title</span>
-          <input
-            autoFocus
-            value={form.title}
-            onChange={(e) => setForm({ ...form, title: e.target.value })}
-            className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
-            required
-          />
-        </label>
-
-        <label className="block text-sm">
-          <span className="text-xs text-slate-500">Description</span>
-          <textarea
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-            rows={2}
-            className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
-          />
-        </label>
-
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <label className="block">
-            <span className="text-xs text-slate-500">Start</span>
+          <label className="block text-sm">
+            <span className="text-xs text-slate-500">Title</span>
             <input
-              type={form.all_day ? 'date' : 'datetime-local'}
-              value={toLocalInput(form.start_at, form.all_day)}
-              onChange={(e) =>
-                setForm({ ...form, start_at: fromLocalInput(e.target.value, form.all_day) })
-              }
+              autoFocus
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
               className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+              required
             />
           </label>
-          <label className="block">
-            <span className="text-xs text-slate-500">End</span>
-            <input
-              type={form.all_day ? 'date' : 'datetime-local'}
-              value={toLocalInput(form.end_at, form.all_day)}
-              onChange={(e) =>
-                setForm({ ...form, end_at: fromLocalInput(e.target.value, form.all_day) })
-              }
-              className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+
+          <label className="block text-sm">
+            <span className="text-xs text-slate-500">Description</span>
+            <textarea
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              rows={2}
+              className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
             />
           </label>
-        </div>
 
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={form.all_day}
-            onChange={(e) => setForm({ ...form, all_day: e.target.checked })}
-          />
-          All day
-        </label>
-
-        <label className="block text-sm">
-          <span className="text-xs text-slate-500">Project</span>
-          <select
-            value={form.project_id}
-            onChange={(e) => setForm({ ...form, project_id: e.target.value })}
-            className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
-          >
-            {/* Phase 16: empty string = Inbox (no project). The
-                server stores project_id IS NULL for these events. */}
-            <option value="">Inbox (no project)</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <div>
-          <div className="text-xs text-slate-500 mb-1">Color</div>
-          <div className="flex flex-wrap gap-1.5">
-            {PRESET_COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setForm({ ...form, color: c })}
-                className={`w-6 h-6 rounded-full ring-2 ${
-                  form.color === c ? 'ring-orenda-500' : 'ring-transparent hover:ring-slate-300'
-                }`}
-                style={{ backgroundColor: c }}
-                aria-label={`Color ${c}`}
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <label className="block">
+              <span className="text-xs text-slate-500">Start</span>
+              <input
+                type={form.all_day ? 'date' : 'datetime-local'}
+                value={toLocalInput(form.start_at, form.all_day)}
+                onChange={(e) =>
+                  setForm({ ...form, start_at: fromLocalInput(e.target.value, form.all_day) })
+                }
+                className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
               />
-            ))}
+            </label>
+            <label className="block">
+              <span className="text-xs text-slate-500">End</span>
+              <input
+                type={form.all_day ? 'date' : 'datetime-local'}
+                value={toLocalInput(form.end_at, form.all_day)}
+                onChange={(e) =>
+                  setForm({ ...form, end_at: fromLocalInput(e.target.value, form.all_day) })
+                }
+                className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+              />
+            </label>
           </div>
-        </div>
 
-        {err && <div className="text-sm text-red-600">{err}</div>}
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.all_day}
+              onChange={(e) => setForm({ ...form, all_day: e.target.checked })}
+            />
+            All day
+          </label>
 
-        <div className="flex items-center justify-between pt-2">
+          <label className="block text-sm">
+            <span className="text-xs text-slate-500">Project</span>
+            <select
+              value={form.project_id}
+              onChange={(e) => setForm({ ...form, project_id: e.target.value })}
+              className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+            >
+              {/* Phase 16: empty string = Inbox (no project). The
+                  server stores project_id IS NULL for these events. */}
+              <option value="">Inbox (no project)</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <div>
-            {onDelete && (
+            <div className="text-xs text-slate-500 mb-1">Color</div>
+            <div className="flex flex-wrap gap-1.5">
+              {PRESET_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setForm({ ...form, color: c })}
+                  className={`w-6 h-6 rounded-full ring-2 ${
+                    form.color === c ? 'ring-orenda-500' : 'ring-transparent hover:ring-slate-300'
+                  }`}
+                  style={{ backgroundColor: c }}
+                  aria-label={`Color ${c}`}
+                />
+              ))}
+            </div>
+          </div>
+
+          {err && <div className="text-sm text-red-600">{err}</div>}
+
+          <div className="flex items-center justify-between pt-2">
+            <div>
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm('Delete this event?')) {
+                      onDelete().catch((e) => setErr(e instanceof Error ? e.message : String(e)));
+                    }
+                  }}
+                  disabled={busy}
+                  className="px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20 text-sm disabled:opacity-50"
+                >
+                  Delete
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  if (window.confirm('Delete this event?')) {
-                    onDelete().catch((e) => setErr(e instanceof Error ? e.message : String(e)));
-                  }
-                }}
-                disabled={busy}
-                className="px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20 text-sm disabled:opacity-50"
+                onClick={onCancel}
+                className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-sm"
               >
-                Delete
+                Cancel
               </button>
-            )}
+              <button
+                type="submit"
+                disabled={busy}
+                className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
+              >
+                {busy ? 'Saving…' : 'Save'}
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-sm"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={busy}
-              className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
-            >
-              {busy ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </div>
-      </form>
-    </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
