@@ -85,7 +85,7 @@ func TestAgent_PatchTriagedOwnProposal_403(t *testing.T) {
 	var proposed task.Task
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
 
-	require.NoError(t, moveTaskToColumn(t, f, proposed.ID, f.todoColID))
+	t.Require().NoError(moveTaskToColumn(t, f, proposed.ID, f.todoColID))
 
 	rr = f.patchAsAgent(t, proposed.ID, map[string]any{"title": "still mine"})
 	require.Equal(t, http.StatusForbidden, rr.Code, "body=%s", rr.Body.String())
@@ -127,7 +127,7 @@ func TestAgent_HolderAgentNotes_OK(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 	var proposed task.Task
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
-	require.NoError(t, moveTaskToColumn(t, f, proposed.ID, f.todoColID))
+	t.Require().NoError(moveTaskToColumn(t, f, proposed.ID, f.todoColID))
 
 	rr = f.claimAsAgent(t, proposed.ID)
 	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
@@ -145,7 +145,7 @@ func TestAgent_NonHolderAgentNotes_403(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 	var proposed task.Task
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
-	require.NoError(t, moveTaskToColumn(t, f, proposed.ID, f.todoColID))
+	t.Require().NoError(moveTaskToColumn(t, f, proposed.ID, f.todoColID))
 	rr = f.claimAsAgent(t, proposed.ID)
 	require.Equal(t, http.StatusOK, rr.Code)
 
