@@ -129,7 +129,7 @@ func (a *agentCtx) agentGet(ctx context.Context, path string) (body []byte, stat
 func (a *agentCtx) agentPost(ctx context.Context, path string, body any) (respBody []byte, status int, err error) {
 	var rdr io.Reader
 	if body != nil {
-		raw, err := json.Marshal(body)
+		raw, err := json.Marshal(payload)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -210,10 +210,10 @@ func printTaskRefHeader(cmd *cobra.Command, number int, title, id string) {
 // agentPatch issues a PATCH against the agent namespace and returns the
 // raw JSON body. Caller decodes. Phase 33.2: same shape as agentPost
 // — body is marshalled to JSON here so the caller can pass a map.
-func (a *agentCtx) agentPatch(ctx context.Context, path string, body any) (body []byte, status int, err error) {
+func (a *agentCtx) agentPatch(ctx context.Context, path string, payload any) (body []byte, status int, err error) {
 	var rdr io.Reader
 	if body != nil {
-		raw, err := json.Marshal(body)
+		raw, err := json.Marshal(payload)
 		if err != nil {
 			return nil, 0, err
 		}
