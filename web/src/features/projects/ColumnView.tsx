@@ -158,7 +158,7 @@ export function ColumnView({
 
       <ul className="space-y-2 flex-1">
         {tasks.map((t) => (
-          <li key={t.id} className="flex items-start gap-1">
+          <li key={t.id} className="flex items-start gap-1 min-w-0">
             {onToggleTask && (
               <input
                 type="checkbox"

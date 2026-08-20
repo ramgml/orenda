@@ -328,4 +328,45 @@ describe('TaskCard', () => {
     // Visible label uses the first 6 chars of the id, like before.
     expect(chip.textContent).toContain('agent-');
   });
+  // Task #31: cards overflowed their column on narrow viewports /
+  // long unbroken titles. The fix pins two classes on the card:
+  // `w-full min-w-0` on the root (a flex item of the row <li>, so it
+  // fills the track but may shrink below its content's intrinsic
+  // width) and `break-words` on the title span so long URLs/wraps
+  // instead of widening the card. Pin both so a styling pass can't
+  // silently reintroduce the overflow.
+  it('root carries w-full min-w-0 and the title wraps long words (task #31)', () => {
+    const longTitle = 'https://example.com/some/deeply/nested/path/without-any-space-0123456789';
+    const { container } = render(
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard
+              task={{
+                ...makeTask(),
+                title: longTitle,
+                assignee_type: 'agent',
+                assignee_id: 'agent-x',
+              }}
+            />
+          </DndContext>
+        </MemoryRouter>,
+      ),
+    );
+    const root = container.querySelector('[data-testid="task-card"]') as HTMLElement;
+    expect(root).toBeTruthy();
+    expect(root.className).toMatch(/\bw-full\b/);
+    expect(root.className).toMatch(/\bmin-w-0\b/);
+    // The title span must allow wrapping — a single unbreakable
+    // string was enough to push the card past the column border.
+    const titleSpan = root.querySelector(`span.break-words`) as HTMLElement;
+    expect(titleSpan).toBeTruthy();
+    expect(titleSpan.textContent).toBe(longTitle);
+    // The agent assignee chip must be able to shrink too — at very
+    // narrow columns it otherwise pokes past the card border.
+    const chip = root.querySelector('[data-testid="assignee-agent"]') as HTMLElement;
+    expect(chip).toBeTruthy();
+    expect(chip.className).toMatch(/\bmin-w-0\b/);
+    expect(chip.className).toMatch(/\bmax-w-full\b/);
+  });
 });

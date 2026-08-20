@@ -96,7 +96,7 @@ export function TaskCard({
       {...listeners}
       style={stripeStyle}
       data-testid="task-card"
-      className={`rounded border border-l-4 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 p-2 text-sm cursor-grab select-none ${priorityBorder} ${
+      className={`w-full min-w-0 rounded border border-l-4 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 p-2 text-sm cursor-grab select-none ${priorityBorder} ${
         isDragging ? 'opacity-40 border-orenda-500' : ''
       }`}
     >
@@ -112,7 +112,8 @@ export function TaskCard({
             </span>
           )}
           <div className="text-slate-800 dark:text-slate-100">
-            <TaskNumberChip number={task.number} /> <span>{task.title}</span>
+            <TaskNumberChip number={task.number} />{' '}
+            <span className="break-words">{task.title}</span>
           </div>
         </div>
         <AssigneeChip task={task} agent={assignedAgent} />
@@ -211,7 +212,7 @@ function AssigneeChip({ task, agent }: { task: Task; agent?: Agent }): JSX.Eleme
     return (
       <span
         data-testid="assignee-agent"
-        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-violet-100 text-violet-700 border border-violet-300"
+        className="inline-flex items-center min-w-0 max-w-full px-1.5 py-0.5 rounded text-[10px] bg-violet-100 text-violet-700 border border-violet-300"
         title={title}
       >
         🤖 <span className="ml-0.5 truncate max-w-[6rem]">{display}</span>
