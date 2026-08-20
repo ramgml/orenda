@@ -111,12 +111,14 @@ func agentCreateTaskHandler(deps *Dependencies) http.HandlerFunc {
 		// fills Awaiting=none when the field is left empty, so we just
 		// don't set it here.
 		tr := &task.Task{
-			ProjectID:    in.ProjectID,
-			ParentTaskID: in.ParentTaskID,
-			Title:        in.Title,
-			Description:  in.DescriptionMD,
-			Status:       task.StatusBacklog,
-			Priority:     prio,
+			ProjectID:     in.ProjectID,
+			ParentTaskID:  in.ParentTaskID,
+			Title:         in.Title,
+			Description:   in.DescriptionMD,
+			Status:        task.StatusBacklog,
+			Priority:      prio,
+			CreatedByType: task.CreatorAgent,
+			CreatedByID:   id.AgentID,
 		}
 		// Land on the board's backlog column so the card is visible in
 		// the kanban for triage. A project without a backlog-status

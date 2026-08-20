@@ -2032,6 +2032,39 @@ paths:
         '204': { description: timeout }
         '401': { description: missing or invalid agent token }
 
+
+  # Phase 33.2: agent-side task management — PATCH + DELETE.
+  /api/v1/agent/tasks/{id}:
+    patch:
+      tags: [agent]
+      summary: Edit own un-triaged proposal, or update agent_notes as the lock holder.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                description_md: { type: string }
+                priority: { type: string, enum: [low, medium, high, urgent] }
+                due_at: { type: string, format: date-time, nullable: true }
+                parent_task_id: { type: string }
+                agent_notes: { type: string }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_json / no_patch_fields }
+        '403': { description: not_your_proposal / not_lock_holder }
+        '404': { description: not_found }
+    delete:
+      tags: [agent]
+      summary: Retract own un-triaged proposal (hard delete).
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '204': { description: deleted }
+        '403': { description: not_your_proposal }
+        '404': { description: not_found }
   /api/v1/agent/courses:
     get:
       tags: [agent, courses]

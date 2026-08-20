@@ -70,7 +70,16 @@ func (f *fakeRepo) ListInRange(_ context.Context, from, to time.Time, _ string) 
 	}
 	return out, nil
 }
-func (f *fakeRepo) Update(context.Context, *task.Task) error              { return nil }
+func (f *fakeRepo) Update(context.Context, *task.Task) error { return nil }
+func (f *fakeRepo) UpdateProposalFields(context.Context, task.ProposalPatchParams) error {
+	return nil
+}
+func (f *fakeRepo) UpdateAgentNotesField(context.Context, string, string, string) error {
+	return nil
+}
+func (f *fakeRepo) DeleteWithProposalGate(context.Context, string, string) error {
+	return nil
+}
 func (f *fakeRepo) Delete(context.Context, string) error                  { return nil }
 func (f *fakeRepo) CountByColumn(context.Context, string) (int, error)    { return 0, nil }
 func (f *fakeRepo) FirstColumnID(context.Context, string) (string, error) { return "", nil }
