@@ -28,12 +28,15 @@ import { TimeBadge } from './TimeBadge';
  *   - Awaiting: small badge when awaiting='human' or 'agent'.
  *   - Progress: children (↳) and checklist (☑) ratios when > 0.
  *   - Counters: 💬 N comments, 📎 N attachments.
- *   - Assignee: agent=🤖 + name, user=initials.
+ *   - Assignee: agent=🤖 + name, user=initials. Always visible at the
+ *     bottom of the card so a long agent name never squeezes the title.
  *   - Tags: existing chips (Phase 13).
  *   - Blocked: red badge if Phase 15 blockers count > 0.
  *
  * Density: a localStorage toggle ("compact" / "detailed") hides the
- * secondary counters and progress. Default is "detailed".
+ * secondary counters and progress. Default is "detailed". The assignee
+ * chip stays visible in both modes — see the render() body for how the
+ * compact-mode fallback re-mounts the chip on its own line.
  */
 export function TaskCard({
   task,
@@ -115,7 +118,6 @@ export function TaskCard({
             <TaskNumberChip number={task.number} /> <span>{task.title}</span>
           </div>
         </div>
-        <AssigneeChip task={task} agent={assignedAgent} />
       </div>
 
       {task.tags && task.tags.length > 0 && detailed && (
@@ -132,6 +134,13 @@ export function TaskCard({
               📅 {formatDueDate(task.due_at)}
             </span>
           )}
+          {/* Task #34: assignee chip moved here from the title row
+              so a long agent name (Phase 28.19's labels) can no
+              longer squeeze the title into a narrow column. Sits
+              between the due and awaiting badges — close to
+              awaiting as requested, but the visual order keeps the
+              primary time signal (due) first. */}
+          <AssigneeChip task={task} agent={assignedAgent} />
           {task.awaiting && task.awaiting !== 'none' && (
             <span
               data-testid="awaiting-badge"
@@ -188,13 +197,26 @@ export function TaskCard({
             )}
         </div>
       )}
+
+      {/* Task #34: in compact mode the badges row above is hidden, so
+          the assignee signal would disappear entirely. Re-mount the
+          chip on its own line so it stays visible at every density.
+          AssigneeChip returns null when no assignee is set, so an
+          unassigned task adds zero extra height. */}
+      {!detailed && <AssigneeChip task={task} agent={assignedAgent} />}
     </div>
   );
 }
 
 /**
- * Render the assignee corner. Agents get a 🤖 + name; users get
+ * Render the assignee chip. Agents get a 🤖 + name; users get
  * initials. Hidden when no assignee.
+ *
+ * Task #34: previously rendered in the title row, where a long
+ * agent name would compress the title into a narrow column. The
+ * chip now lives at the bottom of the card (inside the detailed
+ * badges row, or on its own line in compact mode) — see TaskCard
+ * for the placement.
  *
  * Phase 28.19: when the agent record is available (TaskCard looks it
  * up via useAgents), the title attribute carries the agent's name +
