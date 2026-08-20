@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs
+- Review loop reassigned (2026-08-20): PR review + merge to `dev` moved from the owner to the PM agent (omp, variant-B subagent dispatch). The owner audits merges through the dogfood review queue; a reject there means a revert task. Updated `docs/DOGFOOD.md` steps 5–6 and `AGENTS.md` git workflow.
+
 ## [0.4.0] — 2026-08-19
 
 Fourth pre-alpha release. Focus: human-readable task numbers (#N) on every surface, the dashboard chat backend MVP, harness-side PR sync, study-proposal server-side dedup, a UI-editable backup snapshot cron, the agent project surface with a full activity audit, the shadcn/ui foundation, and the Phase 30.16 lint-debt sweep. Also folds back two main-only commits that never reached `dev` (the 0.3.0 release prep and the Phase 32.2 capabilities feature, PR #5).
