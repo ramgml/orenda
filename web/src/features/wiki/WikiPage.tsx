@@ -6,6 +6,9 @@ import remarkGfm from 'remark-gfm';
 import { api, type WikiPage, type WikiTreeNode } from '@/shared/api/client';
 import { useWebSocketTopic } from '@/shared/ws';
 import { slugify } from '@/shared/util/slug';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
+import { Textarea } from '@/shared/ui/textarea';
 
 import { MarkdownEditor } from './MarkdownEditor';
 
@@ -223,17 +226,17 @@ function WikiSidebar({
     <aside className="rounded border border-slate-200 dark:border-slate-800 p-3 overflow-auto max-h-[80vh] space-y-3">
       <form onSubmit={submitNewPage} className="space-y-1.5">
         <h2 className="text-sm font-semibold text-slate-500">New page</h2>
-        <input
+        <Input
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Page title (any language)"
-          className="w-full px-2 py-1 text-sm rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+          className="text-sm"
           autoFocus
         />
         <div className="flex items-center gap-1">
           <span className="text-xs text-slate-500 font-mono shrink-0">/wiki/</span>
-          <input
+          <Input
             type="text"
             value={slug}
             onChange={(e) => {
@@ -245,16 +248,17 @@ function WikiSidebar({
               setSlugOverride(isAuto ? null : v);
             }}
             placeholder="auto-generated"
-            className="flex-1 min-w-0 px-2 py-1 text-xs font-mono rounded border border-slate-200 dark:border-slate-700 bg-transparent"
+            className="flex-1 min-w-0 text-xs font-mono"
           />
         </div>
-        <button
+        <Button
           type="submit"
           disabled={creating || !title.trim()}
-          className="w-full px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-xs"
+          className="w-full text-xs"
+          size="sm"
         >
           {creating ? 'Creating…' : 'Create'}
-        </button>
+        </Button>
         {err && <p className="text-xs text-red-600">{err}</p>}
       </form>
 
@@ -309,33 +313,30 @@ function PageEditor({
   return (
     <>
       <div className="flex items-center justify-between gap-3">
-        <input
+        <Input
           type="text"
           value={page.title}
           onChange={(e) => onChange({ ...page, title: e.target.value })}
-          className="text-2xl font-semibold bg-transparent border-b border-transparent focus:border-orenda-500 focus:outline-none flex-1 min-w-0"
+          className="text-2xl font-semibold bg-transparent border-0 focus-visible:ring-0 px-0 flex-1 min-w-0"
           placeholder="Untitled"
         />
         <div className="flex items-center gap-2 text-xs shrink-0">
           {dirty && <span className="text-amber-600">unsaved</span>}
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={saving || !dirty}
-            className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white"
-          >
+          <Button type="button" onClick={onSave} disabled={saving || !dirty} size="sm">
             {saving ? 'Saving…' : 'Save'}
-          </button>
+          </Button>
           {page.id && (
-            <button
+            <Button
               type="button"
               onClick={onDelete}
               disabled={deleting}
               title="Delete this page"
-              className="px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20 disabled:opacity-50"
+              variant="outline"
+              size="sm"
+              className="text-red-700 border-red-300 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
             >
               {deleting ? 'Deleting…' : 'Delete'}
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -372,12 +373,12 @@ function PageEditor({
           )}
         </div>
       ) : (
-        <textarea
+        <Textarea
           value={page.content_md ?? ''}
           onChange={(e) => onChange({ ...page, content_md: e.target.value })}
           rows={22}
           spellCheck={false}
-          className="w-full px-4 py-3 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 font-mono text-sm leading-relaxed outline-none focus:border-orenda-500 resize-y"
+          className="w-full font-mono text-sm leading-relaxed outline-none resize-y"
         />
       )}
 
@@ -521,14 +522,16 @@ function TreeNode({
         style={{ paddingLeft: depth * 12 }}
       >
         {hasChildren ? (
-          <button
+          <Button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="px-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs shrink-0"
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 px-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xs shrink-0"
             title={open ? 'Collapse' : 'Expand'}
           >
             {open ? '▾' : '▸'}
-          </button>
+          </Button>
         ) : (
           <span className="w-3 shrink-0" />
         )}
@@ -544,22 +547,26 @@ function TreeNode({
         </Link>
         {/* Hover-revealed action buttons */}
         <div className="flex items-center gap-0.5 pr-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
+          <Button
             type="button"
             onClick={() => setAddingChild((v) => !v)}
+            variant="ghost"
+            size="sm"
+            className="h-6 px-1.5 text-xs"
             title="Add sub-page"
-            className="px-1.5 py-0.5 text-xs rounded hover:bg-orenda-200 dark:hover:bg-orenda-900/40"
           >
             +
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={() => setMenuOpen((v) => !v)}
+            variant="ghost"
+            size="sm"
+            className="h-6 px-1.5 text-xs"
             title="More"
-            className="px-1.5 py-0.5 text-xs rounded hover:bg-slate-200 dark:hover:bg-slate-700"
           >
             ⋯
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -576,25 +583,29 @@ function TreeNode({
 
       {menuOpen && (
         <div className="ml-6 my-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm p-2 text-xs space-y-1">
-          <button
+          <Button
             type="button"
             onClick={() => {
               setMoveTarget('pick');
               setMenuOpen(false);
             }}
-            className="block w-full text-left px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-xs h-auto"
             disabled={busy}
           >
             Move to…
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={onDelete}
-            className="block w-full text-left px-2 py-1 rounded text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-xs h-auto text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
             disabled={busy}
           >
             Delete
-          </button>
+          </Button>
         </div>
       )}
 
@@ -678,30 +689,28 @@ function NewPageForm({
         if (e.key === 'Escape') onCancel();
       }}
     >
-      <input
+      <Input
         autoFocus
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-2 py-1 text-sm rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950"
+        className="text-sm"
       />
       {title && <div className="text-[10px] text-slate-500 font-mono">→ /wiki/{autoSlug}</div>}
       {err && <div className="text-xs text-red-600">{err}</div>}
       <div className="flex items-center gap-1 text-xs">
-        <button
-          type="submit"
-          disabled={creating || !title.trim()}
-          className="px-2 py-0.5 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white"
-        >
+        <Button type="submit" disabled={creating || !title.trim()} size="sm" className="text-xs">
           {creating ? '…' : 'Create'}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           onClick={onCancel}
-          className="px-2 py-0.5 rounded text-slate-500 hover:text-slate-700"
+          variant="ghost"
+          size="sm"
+          className="text-xs text-slate-500 hover:text-slate-700"
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -748,36 +757,42 @@ function MoveTargetPicker({
       <div className="font-medium mb-1">Move to…</div>
       {err && <div className="text-red-600 mb-1">{err}</div>}
       <div className="max-h-48 overflow-auto space-y-0.5">
-        <button
+        <Button
           type="button"
           onClick={() => onPick('')}
           disabled={busy}
-          className="block w-full text-left px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start text-xs h-auto"
         >
           ↩ Top level
-        </button>
+        </Button>
         {pages === null && <div className="text-slate-400 px-2">Loading…</div>}
         {pages?.map((p) => (
-          <button
+          <Button
             key={p.id}
             type="button"
             onClick={() => onPick(p.id)}
             disabled={busy}
-            className="block w-full text-left px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 truncate"
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-xs h-auto truncate"
             title={p.title}
           >
             📄 {p.title}
-          </button>
+          </Button>
         ))}
       </div>
       <div className="mt-1">
-        <button
+        <Button
           type="button"
           onClick={onCancel}
-          className="px-2 py-0.5 rounded text-slate-500 hover:text-slate-700"
+          variant="ghost"
+          size="sm"
+          className="text-xs text-slate-500 hover:text-slate-700"
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );

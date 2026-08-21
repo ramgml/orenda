@@ -1,6 +1,9 @@
 import { FormEvent, useEffect, useState } from 'react';
 
 import { api } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
 
 interface Subscription {
   id: string;
@@ -199,13 +202,9 @@ export function BotsSettingsPage(): JSX.Element {
             <code className="px-1 bg-slate-100 dark:bg-slate-800 rounded">data/config.yaml</code>.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setCreating((v) => !v)}
-          className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-sm"
-        >
+        <Button type="button" onClick={() => setCreating((v) => !v)} variant="default" size="sm">
           {creating ? 'Cancel' : 'Add subscription'}
-        </button>
+        </Button>
       </header>
 
       {/* Phase 10 Test send UI: deliver a one-off message through any
@@ -228,39 +227,43 @@ export function BotsSettingsPage(): JSX.Element {
         <form onSubmit={onTestSend} className="grid sm:grid-cols-3 gap-3 items-end">
           <label className="grid gap-1 text-sm">
             <span className="text-slate-500">Bot type</span>
-            <select
-              data-testid="bot-test-type"
+            <Select
               value={testBotType}
-              onChange={(e) => setTestBotType(e.target.value as typeof testBotType)}
-              className="px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+              onValueChange={(v) => setTestBotType(v as typeof testBotType)}
             >
-              {TEST_BOT_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger data-testid="bot-test-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TEST_BOT_TYPES.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {t}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
           <label className="grid gap-1 text-sm sm:col-span-2">
             <span className="text-slate-500">Target address</span>
-            <input
+            <Input
               type="text"
               data-testid="bot-test-target"
               value={testTarget}
               onChange={(e) => setTestTarget(e.target.value)}
               placeholder={targetPlaceholder(testBotType)}
-              className="px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
               required
             />
           </label>
-          <button
+          <Button
             type="submit"
             data-testid="bot-test-submit"
             disabled={testing || testTarget.trim().length === 0}
-            className="sm:col-span-3 px-3 py-2 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
+            variant="default"
+            size="sm"
+            className="sm:col-span-3"
           >
             {testing ? 'Sending…' : 'Send test'}
-          </button>
+          </Button>
         </form>
         {testResult && testResult.kind === 'ok' && (
           <div
@@ -294,24 +297,25 @@ export function BotsSettingsPage(): JSX.Element {
           replies with a 6-character code; paste it below and hit Bind.
         </p>
         <form onSubmit={onBindTelegram} className="flex gap-2 items-center">
-          <input
+          <Input
             type="text"
             data-testid="telegram-bind-input"
             value={bindCode}
             onChange={(e) => setBindCode(e.target.value.toUpperCase().trim())}
             placeholder="ABC123"
             maxLength={6}
-            className="font-mono uppercase tracking-widest px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent w-32 text-center"
+            className="font-mono uppercase tracking-widest w-32 text-center"
             disabled={binding}
           />
-          <button
+          <Button
             type="submit"
             data-testid="telegram-bind-submit"
             disabled={binding || bindCode.length === 0}
-            className="px-3 py-2 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
+            variant="default"
+            size="sm"
           >
             {binding ? 'Binding…' : 'Bind'}
-          </button>
+          </Button>
         </form>
       </section>
 
@@ -334,27 +338,26 @@ export function BotsSettingsPage(): JSX.Element {
           <div className="grid sm:grid-cols-2 gap-3">
             <label className="grid gap-1 text-sm">
               <span className="text-slate-500">Bot type</span>
-              <select
-                data-testid="add-subscription-bot-type"
-                value={botType}
-                onChange={(e) => setBotType(e.target.value)}
-                className="px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
-              >
-                {BOT_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+              <Select value={botType} onValueChange={setBotType}>
+                <SelectTrigger data-testid="add-subscription-bot-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {BOT_TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </label>
             <label className="grid gap-1 text-sm">
               <span className="text-slate-500">Target address</span>
-              <input
+              <Input
                 type="text"
                 value={target}
                 onChange={(e) => setTarget(e.target.value)}
                 placeholder={targetPlaceholder(botType)}
-                className="px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
                 required
               />
             </label>
@@ -382,12 +385,9 @@ export function BotsSettingsPage(): JSX.Element {
               ))}
             </div>
           </fieldset>
-          <button
-            type="submit"
-            className="px-3 py-2 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-sm"
-          >
+          <Button type="submit" variant="default" size="sm">
             Add subscription
-          </button>
+          </Button>
         </form>
       )}
 
@@ -405,13 +405,15 @@ export function BotsSettingsPage(): JSX.Element {
                 </p>
                 <p className="text-xs text-slate-500">{s.events.join(', ')}</p>
               </div>
-              <button
+              <Button
                 type="button"
                 onClick={() => onDelete(s.id)}
+                variant="ghost"
+                size="sm"
                 className="text-red-600 text-xs hover:underline"
               >
                 Delete
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

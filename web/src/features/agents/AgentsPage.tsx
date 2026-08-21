@@ -2,6 +2,8 @@ import { FormEvent, KeyboardEvent, useEffect, useState } from 'react';
 
 import { useAuth } from '@/features/auth/AuthContext';
 import { api, type Agent } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 
 /**
  * /agents — list registered agents + create new ones.
@@ -123,13 +125,9 @@ export function AgentsPage(): JSX.Element {
             {user ? ` Signed in as ${user.email}.` : ''}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setCreating((v) => !v)}
-          className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-sm"
-        >
+        <Button type="button" onClick={() => setCreating((v) => !v)} variant="default" size="sm">
           {creating ? 'Cancel' : 'New agent'}
-        </button>
+        </Button>
       </header>
 
       {error && (
@@ -144,13 +142,15 @@ export function AgentsPage(): JSX.Element {
           <code className="block px-2 py-1 bg-white rounded text-xs font-mono break-all">
             {createdToken}
           </code>
-          <button
+          <Button
             type="button"
             onClick={() => setCreatedToken(null)}
+            variant="ghost"
+            size="sm"
             className="mt-2 text-xs underline"
           >
             Dismiss
-          </button>
+          </Button>
         </div>
       )}
 
@@ -159,12 +159,11 @@ export function AgentsPage(): JSX.Element {
           onSubmit={onCreate}
           className="mb-4 p-4 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 grid gap-2"
         >
-          <input
+          <Input
             type="text"
             placeholder="Agent name (unique)"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
             autoFocus
             required
           />
@@ -176,19 +175,15 @@ export function AgentsPage(): JSX.Element {
             onChipsChange={setPendingLabels}
             onKeyDown={(e) => onLabelKey(e, labelDraft, setLabelDraft, setPendingLabels)}
           />
-          <input
+          <Input
             type="text"
             placeholder="Description (optional)"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
           />
-          <button
-            type="submit"
-            className="px-3 py-2 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-sm"
-          >
+          <Button type="submit" variant="default" size="sm">
             Create
-          </button>
+          </Button>
         </form>
       )}
 
@@ -263,13 +258,15 @@ export function AgentsPage(): JSX.Element {
                 <td>{a.last_seen_at ?? '—'}</td>
                 <td className="text-slate-500 text-xs">{a.created_at}</td>
                 <td>
-                  <button
+                  <Button
                     type="button"
                     onClick={() => onDelete(a.id)}
+                    variant="ghost"
+                    size="sm"
                     className="text-red-600 text-xs hover:underline"
                   >
                     Delete
-                  </button>
+                  </Button>
                 </td>
               </tr>
             ))}

@@ -17,6 +17,10 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 import { api, type Course } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
+import { Textarea } from '@/shared/ui/textarea';
 
 import { parseCurriculumMarkdown } from './curriculumMarkdown';
 
@@ -395,84 +399,94 @@ function SortableLessonRow(props: {
         >
           ⠿
         </button>
-        <input
+        <Input
           type="text"
           value={l.title}
           onChange={(e) => h.updateLesson(m.id, l.id, { title: e.target.value })}
           placeholder="Lesson title"
           data-testid="editor-lesson-title"
-          className="flex-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
+          className="flex-1 text-sm"
         />
-        <button
+        <Button
           type="button"
           onClick={() => h.removeLesson(m.id, l.id)}
           data-testid="editor-lesson-remove"
-          className="px-2 py-1 rounded text-red-700 hover:bg-red-100 text-xs"
+          variant="ghost"
+          size="sm"
+          className="text-red-700 hover:bg-red-100 text-xs"
         >
           Remove
-        </button>
+        </Button>
       </div>
-      <textarea
+      <Textarea
         value={l.content_md}
         onChange={(e) => h.updateLesson(m.id, l.id, { content_md: e.target.value })}
         placeholder="Optional lesson body (markdown)"
         rows={2}
-        className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs"
+        className="text-xs"
       />
       <div className="pl-2 border-l border-slate-200 dark:border-slate-700">
         <ul className="space-y-1">
           {l.quizzes.map((q) => (
             <li key={q.id} className="space-y-1" data-testid="editor-quiz">
               <div className="flex gap-2 items-center">
-                <select
+                <Select
                   value={q.kind}
-                  onChange={(e) =>
+                  onValueChange={(v) =>
                     h.updateQuiz(m.id, l.id, q.id, {
-                      kind: e.target.value as 'exact' | 'open',
+                      kind: v as 'exact' | 'open',
                     })
                   }
-                  className="text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-1 py-0.5"
                 >
-                  <option value="exact">exact</option>
-                  <option value="open">open</option>
-                </select>
-                <input
+                  <SelectTrigger className="w-20 text-xs h-7">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="exact">exact</SelectItem>
+                    <SelectItem value="open">open</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
                   type="text"
                   value={q.question_md}
                   onChange={(e) => h.updateQuiz(m.id, l.id, q.id, { question_md: e.target.value })}
                   placeholder="Question"
                   data-testid="editor-quiz-question"
-                  className="flex-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs"
+                  className="flex-1 text-xs h-7"
                 />
-                <button
+                <Button
                   type="button"
                   onClick={() => h.removeQuiz(m.id, l.id, q.id)}
-                  className="px-1.5 py-0.5 rounded text-red-700 hover:bg-red-100 text-xs"
+                  variant="ghost"
+                  size="sm"
+                  className="text-red-700 hover:bg-red-100 text-xs"
                 >
                   ×
-                </button>
+                </Button>
               </div>
               {q.kind === 'exact' && (
-                <input
+                <Input
                   type="text"
                   value={q.expected_md}
                   onChange={(e) => h.updateQuiz(m.id, l.id, q.id, { expected_md: e.target.value })}
                   placeholder="Expected answer"
                   data-testid="editor-quiz-expected"
-                  className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-xs"
+                  className="w-full text-xs"
                 />
               )}
             </li>
           ))}
         </ul>
-        <button
+        <Button
           type="button"
           onClick={() => h.addQuiz(m.id, l.id)}
           data-testid="editor-add-quiz"
+          variant="link"
+          size="sm"
           className="mt-1 text-xs text-orenda-700 hover:underline"
         >
           + Add quiz
-        </button>
+        </Button>
       </div>
     </li>
   );
@@ -501,29 +515,31 @@ function SortableModuleRow(props: { m: EditorModule; h: RowHandlers }): JSX.Elem
         >
           ⠿
         </button>
-        <input
+        <Input
           type="text"
           value={m.title}
           onChange={(e) => h.updateModule(m.id, { title: e.target.value })}
           placeholder="Module title (e.g. Basics)"
           data-testid="editor-module-title"
-          className="flex-1 px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
+          className="flex-1 text-sm"
         />
-        <button
+        <Button
           type="button"
           onClick={() => h.removeModule(m.id)}
           data-testid="editor-module-remove"
-          className="px-2 py-1 rounded text-red-700 hover:bg-red-50 text-sm"
+          variant="ghost"
+          size="sm"
+          className="text-red-700 hover:bg-red-50"
         >
           Remove
-        </button>
+        </Button>
       </div>
-      <textarea
+      <Textarea
         value={m.description}
         onChange={(e) => h.updateModule(m.id, { description: e.target.value })}
         placeholder="Optional description"
         rows={2}
-        className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-xs"
+        className="text-xs"
       />
 
       <SortableContext items={m.lessons.map((l) => l.id)} strategy={verticalListSortingStrategy}>
@@ -533,14 +549,16 @@ function SortableModuleRow(props: { m: EditorModule; h: RowHandlers }): JSX.Elem
           ))}
         </ul>
       </SortableContext>
-      <button
+      <Button
         type="button"
         onClick={() => h.addLesson(m.id)}
         data-testid="editor-add-lesson"
+        variant="link"
+        size="sm"
         className="text-xs text-orenda-700 hover:underline"
       >
         + Add lesson
-      </button>
+      </Button>
     </li>
   );
 }
@@ -900,22 +918,24 @@ export function CourseCurriculumEditor(props: {
         <div className="text-xs text-slate-500 font-mono">
           {moduleCount} modules · {lessonCount} lessons · {quizCount} quizzes
         </div>
-        <button
+        <Button
           type="button"
           onClick={() => {
             setImportOpen((v) => !v);
             setImportError(null);
           }}
           data-testid="editor-import-toggle"
+          variant="link"
+          size="sm"
           className="text-xs text-orenda-700 hover:underline"
         >
           {importOpen ? 'Close import' : 'Import markdown'}
-        </button>
+        </Button>
       </div>
 
       {importOpen && (
         <div className="space-y-2 rounded border border-slate-200 dark:border-slate-800 p-2">
-          <textarea
+          <Textarea
             value={importText}
             onChange={(e) => setImportText(e.target.value)}
             rows={8}
@@ -923,17 +943,18 @@ export function CourseCurriculumEditor(props: {
               '## Module title\n### Lesson title\n- [exact] Question | Expected answer\n- [open] Open question'
             }
             data-testid="editor-import-textarea"
-            className="w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-xs font-mono"
+            className="text-xs font-mono"
           />
           {importError && <p className="text-xs text-red-600">{importError}</p>}
-          <button
+          <Button
             type="button"
             onClick={applyImport}
             data-testid="editor-import-apply"
-            className="px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-xs"
+            size="sm"
+            className="text-xs"
           >
             Apply
-          </button>
+          </Button>
         </div>
       )}
 
@@ -958,35 +979,32 @@ export function CourseCurriculumEditor(props: {
         </SortableContext>
       </DndContext>
 
-      <button
+      <Button
         type="button"
         onClick={addModule}
         data-testid="editor-add-module"
+        variant="link"
+        size="sm"
         className="text-sm text-orenda-700 hover:underline"
       >
         + Add module
-      </button>
+      </Button>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       <div className="flex gap-2 pt-2">
-        <button
+        <Button
           type="button"
           onClick={() => void onSave()}
           disabled={busy}
           data-testid="editor-save"
-          className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
+          size="sm"
         >
           {busy ? 'Saving…' : granular ? 'Save changes' : 'Save curriculum'}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={busy}
-          className="px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm"
-        >
+        </Button>
+        <Button type="button" onClick={onCancel} disabled={busy} variant="outline" size="sm">
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );

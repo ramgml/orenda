@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 
 import { api } from '@/shared/api/client';
 import { useWebSocketTopic } from '@/shared/ws';
+import { Button } from '@/shared/ui/button';
 import {
   CourseCurriculumEditor,
   type EditorModule,
@@ -182,23 +183,26 @@ export function CourseDetailPage(): JSX.Element {
       {/* Lifecycle actions */}
       {course.status === 'review' && (
         <div className="flex gap-2">
-          <button
+          <Button
             type="button"
             onClick={() => void onApprove()}
             disabled={busy}
             data-testid="course-approve"
-            className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm"
+            size="sm"
+            className="bg-emerald-600 hover:bg-emerald-700"
           >
             Approve curriculum
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={() => void onRequestChanges()}
             disabled={busy}
-            className="px-3 py-1.5 rounded border border-amber-300 text-amber-700 hover:bg-amber-50 text-sm"
+            variant="outline"
+            size="sm"
+            className="border-amber-300 text-amber-700 hover:bg-amber-50"
           >
             Request changes
-          </button>
+          </Button>
         </div>
       )}
 
@@ -225,14 +229,15 @@ export function CourseDetailPage(): JSX.Element {
 
       {editable && (
         <div className="flex gap-2 items-center">
-          <button
+          <Button
             type="button"
             onClick={() => setEditing((v) => !v)}
             data-testid="course-edit-toggle"
-            className="px-3 py-1.5 rounded border border-slate-300 hover:bg-slate-50 text-sm"
+            variant="outline"
+            size="sm"
           >
             {editing ? 'Done editing' : 'Edit curriculum'}
-          </button>
+          </Button>
           <span className="text-xs text-slate-500">
             {course.status === 'active'
               ? 'Granular edits — student progress is preserved.'

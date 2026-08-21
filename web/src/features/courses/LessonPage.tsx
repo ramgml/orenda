@@ -4,6 +4,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import { api } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Textarea } from '@/shared/ui/textarea';
 
 /**
  * /lessons/:id — single lesson view (Phase 27.4).
@@ -174,34 +176,35 @@ export function LessonPage(): JSX.Element {
       {!isLocked &&
         (editingContent ? (
           <div className="space-y-2" data-testid="lesson-edit-content">
-            <textarea
+            <Textarea
               value={draftContent}
               onChange={(e) => setDraftContent(e.target.value)}
               rows={12}
-              className="w-full rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm font-mono"
+              className="text-sm font-mono"
               placeholder="Lesson body (markdown)"
             />
             <div className="flex gap-2">
-              <button
+              <Button
                 type="button"
                 onClick={() => void onSaveContent()}
                 disabled={savingContent || !draftContent.trim()}
                 data-testid="lesson-save-content"
-                className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
+                size="sm"
               >
                 {savingContent ? 'Saving…' : 'Save content'}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 onClick={() => {
                   setEditingContent(false);
                   setDraftContent(lesson.content_md ?? '');
                 }}
                 disabled={savingContent}
-                className="px-3 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm"
+                variant="outline"
+                size="sm"
               >
                 Cancel
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
@@ -217,14 +220,16 @@ export function LessonPage(): JSX.Element {
               )}
             </article>
             {canEditContent && (
-              <button
+              <Button
                 type="button"
                 onClick={() => setEditingContent(true)}
                 data-testid="lesson-edit-content"
+                variant="ghost"
+                size="sm"
                 className="text-xs text-orenda-700 hover:underline"
               >
                 Edit content
-              </button>
+              </Button>
             )}
           </>
         ))}
@@ -261,7 +266,7 @@ export function LessonPage(): JSX.Element {
                   </p>
                 ) : (
                   <>
-                    <textarea
+                    <Textarea
                       data-testid="quiz-answer-input"
                       value={answers[q.id] ?? ''}
                       onChange={(e) =>
@@ -271,19 +276,20 @@ export function LessonPage(): JSX.Element {
                         }))
                       }
                       rows={3}
-                      className="w-full rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm"
+                      className="text-sm"
                       placeholder="Type your answer…"
                     />
                     <div className="flex items-center gap-3">
-                      <button
+                      <Button
                         type="button"
                         data-testid="quiz-submit"
                         onClick={() => void onAnswer(q.id)}
                         disabled={submitting || !(answers[q.id] ?? '').trim()}
-                        className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white text-sm"
+                        size="sm"
+                        className="bg-slate-700 hover:bg-slate-800"
                       >
                         Submit
-                      </button>
+                      </Button>
                       {result && (
                         <span
                           data-testid="quiz-result"
@@ -311,7 +317,7 @@ export function LessonPage(): JSX.Element {
       )}
 
       <div className="flex items-center gap-3 pt-2">
-        <button
+        <Button
           type="button"
           data-testid="lesson-complete"
           onClick={() => void onComplete()}
@@ -325,10 +331,11 @@ export function LessonPage(): JSX.Element {
                   ? 'Already completed'
                   : 'Mark this lesson done'
           }
-          className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm"
+          size="sm"
+          className="bg-emerald-600 hover:bg-emerald-700"
         >
           {isDone ? 'Completed' : 'Complete lesson'}
-        </button>
+        </Button>
         {!isLocked && !isDone && quizzes.length > 0 && !allAnswered && (
           <span className="text-xs text-slate-500">Answer all quizzes to enable completion.</span>
         )}

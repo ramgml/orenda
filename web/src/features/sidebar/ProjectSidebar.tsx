@@ -42,6 +42,7 @@ import { api } from '@/shared/api/client';
 import { useProjects } from '@/shared/hooks/useProjects';
 import { useOpenTaskCounts } from '@/shared/hooks/useOpenTaskCounts';
 import { usePinnedProjects } from '@/shared/hooks/usePinnedProjects';
+import { Button } from '@/shared/ui/button';
 
 import { SidebarNav } from './SidebarNav';
 import { SidebarProjectItem } from './SidebarProjectItem';
@@ -205,15 +206,16 @@ export function ProjectSidebar(): JSX.Element {
 
       {/* Footer: collapse toggle + user email. */}
       <div className="border-t border-slate-200 dark:border-slate-800 px-2 py-2 flex items-center gap-2">
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={toggle}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="h-7 w-7 rounded flex items-center justify-center text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200"
+          className="h-7 w-7 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
         >
           <span aria-hidden>{collapsed ? '»' : '«'}</span>
-        </button>
+        </Button>
         {!collapsed && user && (
           <span className="text-xs text-slate-400 truncate" title={user.email}>
             {user.email}

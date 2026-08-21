@@ -20,6 +20,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Column, Task } from '@/shared/api/client';
 import { KanbanBoard } from '@/features/projects/KanbanBoard';
 
+// jsdom doesn't implement scrollIntoView or scrolling APIs that Radix
+// Select needs. Stub them globally before any component renders.
+Element.prototype.scrollIntoView = vi.fn();
+Element.prototype.scrollTo = vi.fn();
+Object.defineProperty(Element.prototype, 'scrollTop', { value: 0, writable: true });
+Object.defineProperty(Element.prototype, 'scrollHeight', { value: 0, writable: true });
+
 const { stubHttp } = vi.hoisted(() => ({
   stubHttp: {
     get: vi.fn(),
@@ -143,9 +150,16 @@ describe('KanbanBoard — card density toggle', () => {
     mountBoard([task]);
 
     fireEvent.click(await screen.findByRole('checkbox', { name: /select dense task/i }));
-    fireEvent.change(screen.getByRole('combobox', { name: /bulk priority/i }), {
-      target: { value: 'urgent' },
+    // Radix Select: click trigger to open, then click the option.
+    // The bulk action bar renders after selection — wait for the combobox.
+    const trigger = await screen.findByRole('combobox', { name: /bulk priority/i });
+    fireEvent.click(trigger);
+    // Radix Select renders options in a portal after the trigger click.
+    // Wait for the option to appear in the DOM.
+    await waitFor(() => {
+      expect(screen.getAllByRole('option').length).toBeGreaterThan(0);
     });
+    fireEvent.click(screen.getByRole('option', { name: 'Urgent' }));
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
     await waitFor(() => {

@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { api, type Project, type WikiTreeNode } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
+import { Textarea } from '@/shared/ui/textarea';
 
 /**
  * /projects/:id/settings — color, description, archive, delete.
@@ -126,11 +129,11 @@ export function ProjectSettingsTab(): JSX.Element {
             className="h-9 w-12 rounded border border-slate-300 dark:border-slate-700 cursor-pointer"
             aria-label="Project color"
           />
-          <input
+          <Input
             type="text"
             value={color}
             onChange={(e) => setColor(e.target.value)}
-            className="flex-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent font-mono text-sm"
+            className="flex-1 font-mono text-sm"
             placeholder="#3b82f6"
           />
         </div>
@@ -138,22 +141,17 @@ export function ProjectSettingsTab(): JSX.Element {
 
       <section className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 space-y-3">
         <h2 className="text-base font-semibold">Description</h2>
-        <textarea
+        <Textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={4}
-          className="w-full px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
+          className="text-sm"
           placeholder="What is this project about?"
         />
         <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={saveBasics}
-            disabled={busy}
-            className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-sm disabled:opacity-50"
-          >
+          <Button type="button" onClick={saveBasics} disabled={busy} variant="default" size="sm">
             {busy ? 'Saving…' : 'Save changes'}
-          </button>
+          </Button>
         </div>
       </section>
 
@@ -163,13 +161,13 @@ export function ProjectSettingsTab(): JSX.Element {
           Link this project to its wiki page (постановка, decision log, roadmap slice). Leave empty
           to unlink.
         </p>
-        <input
+        <Input
           type="text"
           list="wiki-slug-options"
           value={wikiSlug}
           onChange={(e) => setWikiSlug(e.target.value)}
           placeholder="page-slug"
-          className="w-full px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm font-mono"
+          className="text-sm font-mono"
           aria-label="Wiki page slug"
         />
         <datalist id="wiki-slug-options">
@@ -194,14 +192,9 @@ export function ProjectSettingsTab(): JSX.Element {
           </p>
         )}
         <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={saveBasics}
-            disabled={busy}
-            className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-sm disabled:opacity-50"
-          >
+          <Button type="button" onClick={saveBasics} disabled={busy} variant="default" size="sm">
             {busy ? 'Saving…' : 'Save changes'}
-          </button>
+          </Button>
         </div>
       </section>
 
@@ -211,14 +204,9 @@ export function ProjectSettingsTab(): JSX.Element {
           Archived projects stay in the list but are hidden from the Kanban view. You can restore
           them later.
         </p>
-        <button
-          type="button"
-          onClick={toggleArchive}
-          disabled={busy}
-          className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-sm hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50"
-        >
+        <Button type="button" onClick={toggleArchive} disabled={busy} variant="outline" size="sm">
           {project.archived ? 'Unarchive' : 'Archive'}
-        </button>
+        </Button>
       </section>
 
       <section className="rounded border border-red-300 bg-red-50/40 dark:bg-red-900/10 dark:border-red-800 p-4 space-y-3">
@@ -229,31 +217,35 @@ export function ProjectSettingsTab(): JSX.Element {
         </p>
         {confirmDelete ? (
           <div className="flex items-center gap-2">
-            <button
+            <Button
               type="button"
               onClick={deleteProject}
               disabled={busy}
-              className="px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 text-white text-sm disabled:opacity-50"
+              variant="destructive"
+              size="sm"
             >
               {busy ? 'Deleting…' : 'Yes, delete project'}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               onClick={() => setConfirmDelete(false)}
               disabled={busy}
-              className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-sm"
+              variant="outline"
+              size="sm"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         ) : (
-          <button
+          <Button
             type="button"
             onClick={() => setConfirmDelete(true)}
-            className="px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50 text-sm"
+            variant="outline"
+            size="sm"
+            className="border-red-300 text-red-700 hover:bg-red-50"
           >
             Delete project…
-          </button>
+          </Button>
         )}
       </section>
     </div>
