@@ -138,6 +138,172 @@ func TestIntegration_MoveRejectsWhenColumnWIPFull(t *testing.T) {
 // Phase 23.3: listEventsHandler expands recurring events via
 // Service.ExpandRecurrence so a DAILY master emits N occurrences
 // inside [from, to).
+// Task 38: POST /api/v1/events must return 422 (not panic) when
+// start_at or end_at is missing from the request body. The old code
+// dereferenced parseOptionalTime() without a nil check, causing a
+// nil pointer dereference on any body that omitted those fields.
+func TestCreateEvent_MissingTimesReturns422(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/task38.db"), sqlite.OpenConfig{
+		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+
+	users := sqlite.NewUserRepository(db)
+	require.NoError(t, users.Create(context.Background(), &user.User{
+		Email: "task38@x.com", PasswordHash: mustHashFast(t), DisplayName: "T38",
+	}))
+
+	hub := ws.NewHub()
+	t.Cleanup(func() {
+		if c, ok := hub.(interface{ Close() }); ok {
+			c.Close()
+		}
+	})
+
+	repo := sqlite.NewTaskRepository(db)
+	taskSvc := taskservice.New(repo, sqlite.NewTaskLockRepository(db), nil, nil, hub)
+	eventSvc := eventservice.New(repo, hub, nil)
+	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
+	router := api.NewRouter(&api.Dependencies{
+		Logger:       zap.NewNop(),
+		Signer:       signer,
+		Users:        users,
+		Projects:     sqlite.NewProjectRepository(db),
+		Tasks:        repo,
+		Tokens:       sqlite.NewAPITokenRepository(db),
+		TaskService:  taskSvc,
+		EventService: eventSvc,
+		WSHub:        hub,
+		CookieName:   "orenda_session",
+	})
+
+	body, _ := json.Marshal(map[string]string{"email": "task38@x.com", "password": "hunter2!"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
+	cookie := rr.Result().Cookies()[0].Value
+
+	cases := []struct {
+		name string
+		body map[string]any
+	}{
+		{"missing both", map[string]any{"title": "Test"}},
+		{"missing start_at only", map[string]any{"title": "Test", "end_at": "2026-08-21T15:00:00Z"}},
+		{"missing end_at only", map[string]any{"title": "Test", "start_at": "2026-08-21T14:00:00Z"}},
+		{"wrong field names", map[string]any{"title": "Test", "date": "2026-08-21", "start_time": "14:00", "end_time": "15:00"}},
+		{"empty strings", map[string]any{"title": "Test", "start_at": "", "end_at": ""}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			buf, _ := json.Marshal(tc.body)
+			r := httptest.NewRequest(http.MethodPost, "/api/v1/events", bytes.NewReader(buf))
+			r.Header.Set("Content-Type", "application/json")
+			r.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, r)
+			require.Equal(t, http.StatusUnprocessableEntity, w.Code,
+				"expected 422, got %d: %s", w.Code, w.Body.String())
+			assert.Contains(t, w.Body.String(), "start_at")
+		})
+	}
+}
+
+// Task 38: PATCH /api/v1/events/{id} with an unparseable (but non-empty)
+// start_at must return 422, not panic. The old code dereferenced
+// parseOptionalTime() inside the "if in.StartAt != "" guard, which
+// still panics when parseOptionalTime returns nil for garbage input.
+func TestUpdateEvent_InvalidTimestampReturns422(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/task38u.db"), sqlite.OpenConfig{
+		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+
+	users := sqlite.NewUserRepository(db)
+	require.NoError(t, users.Create(context.Background(), &user.User{
+		Email: "task38u@x.com", PasswordHash: mustHashFast(t), DisplayName: "T38U",
+	}))
+
+	hub := ws.NewHub()
+	t.Cleanup(func() {
+		if c, ok := hub.(interface{ Close() }); ok {
+			c.Close()
+		}
+	})
+
+	repo := sqlite.NewTaskRepository(db)
+	taskSvc := taskservice.New(repo, sqlite.NewTaskLockRepository(db), nil, nil, hub)
+	eventSvc := eventservice.New(repo, hub, nil)
+	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
+	router := api.NewRouter(&api.Dependencies{
+		Logger:       zap.NewNop(),
+		Signer:       signer,
+		Users:        users,
+		Projects:     sqlite.NewProjectRepository(db),
+		Tasks:        repo,
+		Tokens:       sqlite.NewAPITokenRepository(db),
+		TaskService:  taskSvc,
+		EventService: eventSvc,
+		WSHub:        hub,
+		CookieName:   "orenda_session",
+	})
+
+	body, _ := json.Marshal(map[string]string{"email": "task38u@x.com", "password": "hunter2!"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
+	cookie := rr.Result().Cookies()[0].Value
+
+	authed := func(method, path string, body any) *httptest.ResponseRecorder {
+		buf, _ := json.Marshal(body)
+		r := httptest.NewRequest(method, path, bytes.NewReader(buf))
+		r.Header.Set("Content-Type", "application/json")
+		r.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		return w
+	}
+
+	// Create a valid event first.
+	start := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
+	end := start.Add(30 * time.Minute)
+	rr = authed(http.MethodPost, "/api/v1/events", map[string]any{
+		"title":    "Valid",
+		"start_at": start.Format(time.RFC3339),
+		"end_at":   end.Format(time.RFC3339),
+	})
+	require.Equal(t, http.StatusCreated, rr.Code, rr.Body.String())
+	var created struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created))
+	require.NotEmpty(t, created.ID)
+
+	// PATCH with garbage start_at → must 422, not panic.
+	rr = authed(http.MethodPatch, "/api/v1/events/"+created.ID, map[string]any{
+		"start_at": "not-a-timestamp",
+	})
+	require.Equal(t, http.StatusUnprocessableEntity, rr.Code,
+		"expected 422, got %d: %s", rr.Code, rr.Body.String())
+	assert.Contains(t, rr.Body.String(), "start_at")
+
+	// PATCH with garbage end_at → same.
+	rr = authed(http.MethodPatch, "/api/v1/events/"+created.ID, map[string]any{
+		"end_at": "definitely-not-valid",
+	})
+	require.Equal(t, http.StatusUnprocessableEntity, rr.Code,
+		"expected 422, got %d: %s", rr.Code, rr.Body.String())
+	assert.Contains(t, rr.Body.String(), "end_at")
+}
+
 func TestIntegration_ListEvents_ExpandsRecurrence(t *testing.T) {
 	dir := t.TempDir()
 	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "rr.db"), sqlite.OpenConfig{
