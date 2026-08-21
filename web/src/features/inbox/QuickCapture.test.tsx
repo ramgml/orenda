@@ -297,4 +297,17 @@ describe('QuickCapture', () => {
     fireEvent.click(screen.getByTestId('quick-capture-toggle'));
     expect((screen.getByTestId('quick-capture-due') as HTMLInputElement).value).toBe('');
   });
+
+  // Phase 32.13: regression guard. Pre-migration, a ref-callback
+  // called `el.focus()` on the textarea. The shadcn DialogContent
+  // wrapper has a built-in × close button as its first focusable
+  // child, so Radix's FocusScope would otherwise focus that hidden
+  // button — breaking the 'q → start typing' hotkey flow. The
+  // onOpenAutoFocus handler must redirect focus to the textarea.
+  it('focuses the textarea on open so the hotkey flow stays one keystroke from thinking to typing', () => {
+    mount();
+    fireEvent.click(screen.getByTestId('quick-capture-toggle'));
+    const textarea = screen.getByTestId('quick-capture-input') as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(textarea);
+  });
 });

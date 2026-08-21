@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { TaskCard } from './TaskCard';
 import { openTaskModal } from '@/features/tasks/TaskModal';
 import { api, type Column, type Task } from '@/shared/api/client';
+import { Dialog, DialogContent } from '@/shared/ui/dialog';
 import { queueCreateTask } from '@/shared/offline/outbox';
 
 /**
@@ -361,14 +362,28 @@ function EditColumnModal({
     }
   }
 
+  // Phase 32.13 (shadcn/ui migration): the modal overlay is now a
+  // Dialog primitive. Esc / click-outside / focus return are
+  // handled by @radix-ui/react-dialog; we only wire `onOpenChange`
+  // to the existing `onClose` callback. The two-step delete
+  // confirm stays as in-component state because it has to
+  // survive an Esc/click-outside — opening the Dialog in
+  // `controlled` mode means Esc / click-outside invoke `onClose`
+  // without losing the column from the board.
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-sm w-full p-5 space-y-3">
+    <Dialog
+      open
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+    >
+      <DialogContent aria-label="Edit column" className="max-w-sm gap-3 p-5 sm:rounded-lg">
         <h3 className="font-semibold">Edit column</h3>
         <form onSubmit={submit} className="space-y-2">
           <label className="block text-sm">
             Name
             <input
+              name="column-name"
               autoFocus
               value={name}
               onChange={(e) => {
@@ -451,7 +466,7 @@ function EditColumnModal({
             {confirmDelete ? `Click again to delete "${initialName}"` : 'Delete column'}
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

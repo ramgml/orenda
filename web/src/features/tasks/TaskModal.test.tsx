@@ -19,7 +19,7 @@
  * the whole data-loading subsystem (auth + API + WS); the modal's
  * own layout and scroll-lock logic is what we're pinning.
  */
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
@@ -33,9 +33,14 @@ vi.mock('@/features/tasks/TaskViewBody', () => ({
 }));
 
 function renderModal(taskId = 'task-abc'): ReturnType<typeof render> {
+  // Two entries — '/inbox' then '/tasks/:id' — so navigate(-1) inside
+  // the modal pops back to a real route that exists. The pre-migration
+  // contract was "background page stays mounted", and the modal
+  // unmounts when the URL leaves the task route.
   return render(
-    <MemoryRouter initialEntries={[`/tasks/${taskId}`]}>
+    <MemoryRouter initialEntries={['/inbox', `/tasks/${taskId}`]} initialIndex={1}>
       <Routes>
+        <Route path="/inbox" element={<div>inbox background</div>} />
         <Route path="/tasks/:id" element={<TaskModal />} />
       </Routes>
     </MemoryRouter>,
@@ -106,5 +111,25 @@ describe('TaskModal — Phase 28.3 scroll fix', () => {
     // through `close` → unmount).
     body.click();
     expect(screen.queryByTestId('mocked-task-body')).toBeTruthy();
+  });
+
+  // Phase 32.13: the migrated overlay has no separate backdrop
+  // element — the DialogPrimitive.Content itself is the scroll
+  // container with flex padding. Radix's onPointerDownOutside
+  // only fires when the click is outside the Content box, which
+  // is never true here. The migration uses a target-equals-
+  // currentTarget click handler on the Content to preserve the
+  // pre-migration "click the empty padding to close" contract.
+  it('click on the scroll container (overlay area) closes the modal', async () => {
+    renderModal();
+    const dialog = screen.getByRole('dialog', { name: 'Task details' });
+    // Hit the dialog itself (padding area, not the card).
+    fireEvent.click(dialog);
+    // close() calls navigate(-1); in a routed test, the only
+    // mounted route was /tasks/:id, so navigation pops back to
+    // the in-memory '/'. The component unmounts.
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Task details' })).toBeNull();
+    });
   });
 });
