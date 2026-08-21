@@ -113,7 +113,7 @@ export function ColumnView({
           ? 'border-orenda-500 bg-orenda-50 dark:bg-orenda-900/20'
           : atLimit
             ? 'border-amber-400 dark:border-amber-500 ring-1 ring-amber-300/40 dark:ring-amber-500/30'
-            : 'border-slate-200 dark:border-slate-800'
+            : 'border-border'
       }`}
     >
       <div
@@ -441,7 +441,7 @@ function EditColumnModal({
             </Button>
           </div>
         </form>
-        <div className="border-t border-slate-200 dark:border-slate-800 pt-3 space-y-1">
+        <div className="border-t border-border pt-3 space-y-1">
           <p className="text-xs text-slate-500">
             {currentTaskCount === 0
               ? 'This column is empty — safe to delete.'

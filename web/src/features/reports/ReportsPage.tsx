@@ -81,14 +81,14 @@ export function ReportsPage(): JSX.Element {
         </div>
       </div>
 
-      <div className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950">
+      <div className="rounded border border-border p-4 bg-white dark:bg-slate-950">
         <h2 className="font-semibold mb-2">Tasks</h2>
         {tasks.length === 0 ? (
           <p className="text-slate-500 text-sm">No time logged in this window.</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-slate-500 border-b border-slate-200 dark:border-slate-800">
+              <tr className="text-left text-slate-500 border-b border-border">
                 <th className="py-2">Task</th>
                 <th>Total</th>
                 <th className="w-1/2">Distribution</th>
@@ -106,7 +106,7 @@ export function ReportsPage(): JSX.Element {
                   </td>
                   <td className="font-mono">{formatHM(t.total_sec)}</td>
                   <td>
-                    <div className="h-3 bg-slate-100 dark:bg-slate-800 rounded overflow-hidden">
+                    <div className="h-3 bg-muted rounded overflow-hidden">
                       <div
                         className="h-full bg-orenda-500"
                         style={{ width: `${max ? Math.round((t.total_sec / max) * 100) : 0}%` }}

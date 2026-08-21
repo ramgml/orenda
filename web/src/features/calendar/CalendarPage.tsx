@@ -311,7 +311,7 @@ export function CalendarPage(): JSX.Element {
 
         {error && <ErrorBanner message={error} />}
 
-        <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2 h-[75vh] calendar-shell">
+        <div className="rounded border border-border bg-white dark:bg-slate-950 p-2 h-[75vh] calendar-shell">
           <CalendarErrorBoundary>
             <DnDCalendar
               localizer={localizer}
@@ -602,7 +602,7 @@ function MiniCalendar({
   const today = new Date();
 
   return (
-    <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2 text-sm">
+    <div className="rounded border border-border bg-white dark:bg-slate-950 p-2 text-sm">
       <div className="flex items-center justify-between mb-2">
         <Button
           type="button"

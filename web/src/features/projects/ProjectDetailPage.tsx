@@ -121,7 +121,7 @@ function ProjectTabs({ projectId }: { projectId: string }): JSX.Element | null {
     </NavLink>
   );
   return (
-    <nav className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-800">
+    <nav className="flex items-center gap-1 border-b border-border">
       {tab(base, 'Kanban')}
       {tab(`${base}/activity`, 'Activity')}
       {tab(`${base}/attachments`, 'Attachments')}

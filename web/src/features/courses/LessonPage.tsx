@@ -166,7 +166,7 @@ export function LessonPage(): JSX.Element {
       {isLocked && (
         <div
           data-testid="lesson-locked"
-          className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-slate-50 dark:bg-slate-900 text-sm text-slate-600"
+          className="rounded border border-border p-4 bg-slate-50 dark:bg-slate-900 text-sm text-slate-600"
         >
           🔒 This lesson is locked. The tutor hasn't written the content yet — check back once the
           agent has materialised it.
@@ -211,7 +211,7 @@ export function LessonPage(): JSX.Element {
           <>
             <article
               data-testid="lesson-content"
-              className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-6 py-5 prose dark:prose-invert max-w-none text-sm"
+              className="rounded border border-border bg-white dark:bg-slate-950 px-6 py-5 prose dark:prose-invert max-w-none text-sm"
             >
               {lesson.content_md ? (
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{lesson.content_md}</ReactMarkdown>
@@ -255,7 +255,7 @@ export function LessonPage(): JSX.Element {
               <div
                 key={q.id}
                 data-testid="quiz-row"
-                className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950 space-y-2"
+                className="rounded border border-border p-4 bg-white dark:bg-slate-950 space-y-2"
               >
                 <div className="prose dark:prose-invert max-w-none text-sm">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{q.question_md}</ReactMarkdown>

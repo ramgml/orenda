@@ -90,7 +90,7 @@ export function SidebarProjectItem({
     <div
       className={`group relative flex items-center gap-2 rounded px-2 py-1.5 text-sm ${
         active
-          ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-50'
+          ? 'bg-muted text-slate-900 dark:text-slate-50'
           : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
       }`}
     >

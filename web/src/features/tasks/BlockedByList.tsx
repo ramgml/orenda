@@ -183,7 +183,7 @@ function DependencyEditor({
   }
 
   return (
-    <div className="rounded border border-slate-200 dark:border-slate-800 p-2 bg-slate-50 dark:bg-slate-900/40 space-y-2">
+    <div className="rounded border border-border p-2 bg-slate-50 dark:bg-slate-900/40 space-y-2">
       {!projectId ? (
         <p className="text-xs text-slate-500 italic">
           File the task under a project to add blockers.

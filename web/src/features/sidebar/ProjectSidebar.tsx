@@ -95,12 +95,12 @@ export function ProjectSidebar(): JSX.Element {
   return (
     <aside
       data-collapsed={collapsed || undefined}
-      className={`hidden md:flex flex-col shrink-0 ${containerWidth} transition-[width] duration-200 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 h-full overflow-y-auto`}
+      className={`hidden md:flex flex-col shrink-0 ${containerWidth} transition-[width] duration-200 border-r border-border bg-slate-50 dark:bg-slate-900/40 h-full overflow-y-auto`}
       aria-label="Project navigation"
     >
       {/* Header: brand + user identity (hidden when there's no room). */}
       <div
-        className={`flex items-center gap-2 px-3 h-12 border-b border-slate-200 dark:border-slate-800 ${collapsed ? 'justify-center' : ''}`}
+        className={`flex items-center gap-2 px-3 h-12 border-b border-border ${collapsed ? 'justify-center' : ''}`}
       >
         <Link to="/" className="flex items-center gap-2 font-semibold text-lg">
           <span className="inline-block h-5 w-5 rounded bg-orenda-500" aria-hidden />
@@ -199,13 +199,13 @@ export function ProjectSidebar(): JSX.Element {
           </>
         )}
 
-        <div className="my-2 mx-2 border-t border-slate-200 dark:border-slate-800" />
+        <div className="my-2 mx-2 border-t border-border" />
 
         <SidebarNav collapsed={collapsed} />
       </div>
 
       {/* Footer: collapse toggle + user email. */}
-      <div className="border-t border-slate-200 dark:border-slate-800 px-2 py-2 flex items-center gap-2">
+      <div className="border-t border-border px-2 py-2 flex items-center gap-2">
         <Button
           variant="ghost"
           size="icon"

@@ -139,7 +139,7 @@ function ReviewRow({
   return (
     <li
       data-testid="review-row"
-      className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-3 flex gap-3 items-start"
+      className="rounded border border-border bg-white dark:bg-slate-950 p-3 flex gap-3 items-start"
     >
       <Button
         type="button"

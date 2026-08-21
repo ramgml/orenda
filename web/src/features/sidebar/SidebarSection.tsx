@@ -52,7 +52,7 @@ export function SidebarSection({
         </span>
         <span className="font-semibold">{label}</span>
         {typeof count === 'number' && count > 0 && (
-          <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 tabular-nums">
+          <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground tabular-nums">
             {count}
           </span>
         )}

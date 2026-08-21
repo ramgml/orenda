@@ -69,7 +69,7 @@ export function ProjectsPage(): JSX.Element {
       {creating && (
         <form
           onSubmit={onCreate}
-          className="mb-4 p-4 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex gap-2"
+          className="mb-4 p-4 rounded border border-border bg-white dark:bg-slate-950 flex gap-2"
         >
           <Input
             type="text"
@@ -113,8 +113,8 @@ export function ProjectsPage(): JSX.Element {
                     to={`/projects/${p.id}`}
                     className={`block rounded-lg border p-4 transition ${
                       p.archived
-                        ? 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 opacity-70 hover:opacity-100'
-                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:border-orenda-500'
+                        ? 'border-border bg-slate-50 dark:bg-slate-900 opacity-70 hover:opacity-100'
+                        : 'border-border bg-white dark:bg-slate-950 hover:border-orenda-500'
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">

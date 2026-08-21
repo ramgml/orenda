@@ -159,10 +159,7 @@ export function TaskFieldControls(props: {
         data-testid="task-priority"
         options={PRIORITY_OPTIONS}
       />
-      <div
-        className="rounded border border-slate-200 dark:border-slate-800 p-3"
-        data-testid="task-assignee"
-      >
+      <div className="rounded border border-border p-3" data-testid="task-assignee">
         <label className="block">
           <span className="text-xs text-slate-500">Assignee</span>
           <Select
@@ -247,7 +244,7 @@ function SidebarSelect(props: {
   'data-testid': string;
 }): JSX.Element {
   return (
-    <div className="rounded border border-slate-200 dark:border-slate-800 p-3">
+    <div className="rounded border border-border p-3">
       <label className="block">
         <span className="text-xs text-slate-500">{props.label}</span>
         <Select value={props.value} disabled={props.disabled} onValueChange={props.onChange}>
@@ -278,10 +275,7 @@ function SidebarSelect(props: {
 // as a label with a hint pointing to the project-filing action.
 function SidebarReadOnlyField(props: { label: string; value: string; hint: string }): JSX.Element {
   return (
-    <div
-      className="rounded border border-slate-200 dark:border-slate-800 p-3"
-      data-testid="task-status-readonly"
-    >
+    <div className="rounded border border-border p-3" data-testid="task-status-readonly">
       <span className="block text-xs text-slate-500">{props.label}</span>
       <span className="block mt-1 text-sm font-medium" data-testid="task-status-value">
         {props.value}
