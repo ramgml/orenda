@@ -26,8 +26,12 @@ import { enUS } from 'date-fns/locale';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 
 import { api, type CalendarEvent } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
 import { Dialog, DialogContent } from '@/shared/ui/dialog';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
+import { Input } from '@/shared/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
+import { Textarea } from '@/shared/ui/textarea';
 import { useWebSocketTopic } from '@/shared/ws';
 
 const localizer = dateFnsLocalizer({
@@ -470,30 +474,30 @@ function Toolbar({
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onToday}
-          className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
-        >
+        <Button type="button" onClick={onToday} variant="outline" size="sm">
           Today
-        </button>
+        </Button>
         <div className="flex">
-          <button
+          <Button
             type="button"
             onClick={() => onCursor(shiftCursor(cursor, view, -1))}
-            className="px-2 py-1.5 rounded-l border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+            variant="outline"
+            size="sm"
+            className="rounded-r-none"
             title="Previous"
           >
             ‹
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={() => onCursor(shiftCursor(cursor, view, 1))}
-            className="px-2 py-1.5 rounded-r border-t border-r border-b border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+            variant="outline"
+            size="sm"
+            className="rounded-l-none border-l-0"
             title="Next"
           >
             ›
-          </button>
+          </Button>
         </div>
         <h2 className="text-xl font-semibold ml-2">{titleFor(cursor, view)}</h2>
       </div>
@@ -517,13 +521,9 @@ function Toolbar({
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          onClick={onCreate}
-          className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-sm"
-        >
+        <Button type="button" onClick={onCreate} size="sm">
           + Create
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -574,13 +574,9 @@ function CalendarSidebar({
 }): JSX.Element {
   return (
     <aside className="space-y-3">
-      <button
-        type="button"
-        onClick={onCreate}
-        className="w-full px-3 py-2 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-sm shadow"
-      >
+      <Button type="button" onClick={onCreate} className="w-full">
         + Create event
-      </button>
+      </Button>
       <MiniCalendar cursor={cursor} onPick={onPick} />
     </aside>
   );
@@ -607,28 +603,32 @@ function MiniCalendar({
   return (
     <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2 text-sm">
       <div className="flex items-center justify-between mb-2">
-        <button
+        <Button
           type="button"
           onClick={() => onPick(subMonths(cursor, 1))}
-          className="px-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+          variant="ghost"
+          size="sm"
+          className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
           title="Previous month"
         >
           ‹
-        </button>
+        </Button>
         <div className="text-xs font-semibold">
           {new Intl.DateTimeFormat('en-US', {
             month: 'long',
             year: 'numeric',
           }).format(cursor)}
         </div>
-        <button
+        <Button
           type="button"
           onClick={() => onPick(addMonths(cursor, 1))}
-          className="px-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+          variant="ghost"
+          size="sm"
+          className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
           title="Next month"
         >
           ›
-        </button>
+        </Button>
       </div>
       <div className="grid grid-cols-7 text-[10px] uppercase text-slate-400 mb-1">
         {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
@@ -726,46 +726,46 @@ function EventModal({
 
           <label className="block text-sm">
             <span className="text-xs text-slate-500">Title</span>
-            <input
+            <Input
               autoFocus
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
-              className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+              className="mt-1"
               required
             />
           </label>
 
           <label className="block text-sm">
             <span className="text-xs text-slate-500">Description</span>
-            <textarea
+            <Textarea
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               rows={2}
-              className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
+              className="mt-1 text-sm"
             />
           </label>
 
           <div className="grid grid-cols-2 gap-2 text-sm">
             <label className="block">
               <span className="text-xs text-slate-500">Start</span>
-              <input
+              <Input
                 type={form.all_day ? 'date' : 'datetime-local'}
                 value={toLocalInput(form.start_at, form.all_day)}
                 onChange={(e) =>
                   setForm({ ...form, start_at: fromLocalInput(e.target.value, form.all_day) })
                 }
-                className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+                className="mt-1"
               />
             </label>
             <label className="block">
               <span className="text-xs text-slate-500">End</span>
-              <input
+              <Input
                 type={form.all_day ? 'date' : 'datetime-local'}
                 value={toLocalInput(form.end_at, form.all_day)}
                 onChange={(e) =>
                   setForm({ ...form, end_at: fromLocalInput(e.target.value, form.all_day) })
                 }
-                className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+                className="mt-1"
               />
             </label>
           </div>
@@ -781,20 +781,24 @@ function EventModal({
 
           <label className="block text-sm">
             <span className="text-xs text-slate-500">Project</span>
-            <select
-              value={form.project_id}
-              onChange={(e) => setForm({ ...form, project_id: e.target.value })}
-              className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+            <Select
+              value={form.project_id || '__inbox__'}
+              onValueChange={(v) => setForm({ ...form, project_id: v === '__inbox__' ? '' : v })}
             >
-              {/* Phase 16: empty string = Inbox (no project). The
-                  server stores project_id IS NULL for these events. */}
-              <option value="">Inbox (no project)</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {/* Phase 16: empty string = Inbox (no project). The
+                    server stores project_id IS NULL for these events. */}
+                <SelectItem value="__inbox__">Inbox (no project)</SelectItem>
+                {projects.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
 
           <div>
@@ -820,7 +824,7 @@ function EventModal({
           <div className="flex items-center justify-between pt-2">
             <div>
               {onDelete && (
-                <button
+                <Button
                   type="button"
                   onClick={() => {
                     if (window.confirm('Delete this event?')) {
@@ -828,27 +832,21 @@ function EventModal({
                     }
                   }}
                   disabled={busy}
-                  className="px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20 text-sm disabled:opacity-50"
+                  variant="outline"
+                  size="sm"
+                  className="border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
                 >
                   Delete
-                </button>
+                </Button>
               )}
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onCancel}
-                className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-sm"
-              >
+              <Button type="button" onClick={onCancel} variant="outline" size="sm">
                 Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={busy}
-                className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
-              >
+              </Button>
+              <Button type="submit" disabled={busy} size="sm">
                 {busy ? 'Saving…' : 'Save'}
-              </button>
+              </Button>
             </div>
           </div>
         </form>

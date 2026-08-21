@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
 
 import { api, type Project } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 
 /**
  * /projects/:id — header + tab nav. The actual tab content is rendered
@@ -84,13 +86,15 @@ export function ProjectDetailPage(): JSX.Element {
       {!project && !error && (
         <p className="text-slate-500 mt-4">
           Loading…
-          <button
+          <Button
             type="button"
             onClick={() => navigate('/projects')}
+            variant="ghost"
+            size="sm"
             className="ml-3 text-xs underline"
           >
             Back to projects
-          </button>
+          </Button>
         </p>
       )}
     </section>
@@ -198,7 +202,7 @@ function InlineProjectName({
   if (editing) {
     return (
       <span className="inline-flex flex-col gap-1 min-w-0 flex-1">
-        <input
+        <Input
           ref={inputRef}
           type="text"
           value={draft}

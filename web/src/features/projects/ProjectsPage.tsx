@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 
 import { useAuth } from '@/features/auth/AuthContext';
 import { api, type Project } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 
 /**
  * /projects — list of projects owned by the authenticated user.
@@ -52,13 +54,9 @@ export function ProjectsPage(): JSX.Element {
             Signed in as <span className="font-mono">{user?.email ?? '…'}</span>
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setCreating((v) => !v)}
-          className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-sm"
-        >
+        <Button type="button" onClick={() => setCreating((v) => !v)} variant="default" size="sm">
           {creating ? 'Cancel' : 'New project'}
-        </button>
+        </Button>
       </header>
 
       {error && (
@@ -72,20 +70,17 @@ export function ProjectsPage(): JSX.Element {
           onSubmit={onCreate}
           className="mb-4 p-4 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex gap-2"
         >
-          <input
+          <Input
             type="text"
             placeholder="Project name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="flex-1 px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+            className="flex-1"
             autoFocus
           />
-          <button
-            type="submit"
-            className="px-3 py-2 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-sm"
-          >
+          <Button type="submit" variant="default" size="sm">
             Create
-          </button>
+          </Button>
         </form>
       )}
 

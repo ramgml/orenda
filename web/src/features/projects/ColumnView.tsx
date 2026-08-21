@@ -5,7 +5,10 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { TaskCard } from './TaskCard';
 import { openTaskModal } from '@/features/tasks/TaskModal';
 import { api, type Column, type Task } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
 import { Dialog, DialogContent } from '@/shared/ui/dialog';
+import { Input } from '@/shared/ui/input';
+import { cn } from '@/shared/util/cn';
 import { queueCreateTask } from '@/shared/offline/outbox';
 
 /**
@@ -177,26 +180,28 @@ export function ColumnView({
 
       {creating ? (
         <form onSubmit={submit} className="mt-2 flex gap-1">
-          <input
+          <Input
             autoFocus
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="New task"
-            className="flex-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
+            className="flex-1 text-sm"
           />
-          <button type="submit" className="px-2 py-1 rounded bg-orenda-600 text-white text-xs">
+          <Button type="submit" variant="default" size="sm" className="px-2 py-1 text-xs">
             Add
-          </button>
+          </Button>
           {error && <span className="text-xs text-red-600">{error}</span>}
         </form>
       ) : (
-        <button
+        <Button
           type="button"
           onClick={() => setCreating(true)}
+          variant="ghost"
+          size="sm"
           className="mt-2 text-xs text-slate-500 hover:text-orenda-600 self-start"
         >
           + Add task
-        </button>
+        </Button>
       )}
 
       {editing && (
@@ -382,7 +387,7 @@ function EditColumnModal({
         <form onSubmit={submit} className="space-y-2">
           <label className="block text-sm">
             Name
-            <input
+            <Input
               name="column-name"
               autoFocus
               value={name}
@@ -390,17 +395,17 @@ function EditColumnModal({
                 setName(e.target.value);
                 setConfirmDelete(false);
               }}
-              className="mt-1 block w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+              className="mt-1"
             />
           </label>
           <label className="block text-sm">
             Machine key
-            <input
+            <Input
               value={machineKey}
               onChange={(e) => setMachineKey(e.target.value)}
               data-testid="column-status"
               placeholder="e.g. in_review"
-              className="mt-1 block w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent font-mono"
+              className="mt-1 font-mono"
             />
             <span className="mt-1 block text-xs text-slate-500">
               Lowercase machine key; changing it updates tasks in this column.
@@ -417,31 +422,23 @@ function EditColumnModal({
           </label>
           <label className="block text-sm">
             WIP limit (empty = no limit)
-            <input
+            <Input
               type="number"
               min="0"
               value={wip}
               onChange={(e) => setWip(e.target.value)}
               placeholder="unlimited"
-              className="mt-1 block w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+              className="mt-1"
             />
           </label>
           {error && <p className="text-xs text-red-600">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-sm"
-            >
+            <Button type="button" onClick={onClose} variant="outline" size="sm">
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={busy}
-              className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
-            >
+            </Button>
+            <Button type="submit" disabled={busy} variant="default" size="sm">
               {busy ? 'Saving…' : 'Save'}
-            </button>
+            </Button>
           </div>
         </form>
         <div className="border-t border-slate-200 dark:border-slate-800 pt-3 space-y-1">
@@ -452,19 +449,21 @@ function EditColumnModal({
                   currentTaskCount === 1 ? '' : 's'
                 }. Move them out first.`}
           </p>
-          <button
+          <Button
             type="button"
             onClick={onDelete}
             disabled={busy}
             data-testid="delete-column-button"
-            className={
-              confirmDelete
-                ? 'w-full px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-semibold'
-                : 'w-full px-3 py-1.5 rounded border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 disabled:opacity-50 text-sm'
-            }
+            variant={confirmDelete ? 'destructive' : 'outline'}
+            size="sm"
+            className={cn(
+              'w-full',
+              !confirmDelete &&
+                'border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30',
+            )}
           >
             {confirmDelete ? `Click again to delete "${initialName}"` : 'Delete column'}
-          </button>
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

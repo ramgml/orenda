@@ -21,6 +21,9 @@ import { useAuth } from '@/features/auth/AuthContext';
 import { api, type Column, type Task } from '@/shared/api/client';
 import { useWebSocketTopic } from '@/shared/ws';
 import { queueMoveTask } from '@/shared/offline/outbox';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
 
 import { ColumnView } from './ColumnView';
 import { TaskCard } from './TaskCard';
@@ -334,17 +337,19 @@ export function KanbanBoard({
               Show child tasks <span className="text-slate-400">({childCount})</span>
             </span>
           </label>
-          <button
+          <Button
             type="button"
             onClick={() =>
               setSelectedTaskIds((current) =>
                 current.size > 0 ? new Set() : new Set(tasks.map((task) => task.id)),
               )
             }
-            className="text-xs rounded border border-slate-300 dark:border-slate-700 px-2 py-1"
+            variant="outline"
+            size="sm"
+            className="text-xs"
           >
             {selectedTaskIds.size > 0 ? 'Clear selection' : 'Select tasks'}
-          </button>
+          </Button>
           <label className="flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
             <input
               type="checkbox"
@@ -396,48 +401,53 @@ export function KanbanBoard({
       {selectedTaskIds.size > 0 && (
         <div className="sticky bottom-3 z-20 rounded-lg border border-orenda-300 bg-white dark:bg-slate-900 shadow-lg p-3 flex flex-wrap items-center gap-2">
           <strong className="text-sm">{selectedTaskIds.size} selected</strong>
-          <select
-            aria-label="Bulk status"
-            value={bulkStatus}
-            onChange={(e) => setBulkStatus(e.target.value)}
-            className="rounded border px-2 py-1 text-sm bg-transparent"
-          >
-            <option value="">Status…</option>
-            {cols
-              .filter((column) => column.status)
-              .map((column) => (
-                <option key={column.id} value={column.status}>
-                  {column.name}
-                </option>
-              ))}
-          </select>
-          <select
-            aria-label="Bulk priority"
-            value={bulkPriority}
-            onChange={(e) => setBulkPriority(e.target.value)}
-            className="rounded border px-2 py-1 text-sm bg-transparent"
-          >
-            <option value="">Priority…</option>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="urgent">Urgent</option>
-          </select>
-          <input
+          <Select value={bulkStatus} onValueChange={setBulkStatus}>
+            <SelectTrigger
+              aria-label="Bulk status"
+              className="w-auto rounded border px-2 py-1 text-sm"
+            >
+              <SelectValue placeholder="Status…" />
+            </SelectTrigger>
+            <SelectContent>
+              {cols
+                .filter((column) => column.status)
+                .map((column) => (
+                  <SelectItem key={column.id} value={column.status!}>
+                    {column.name}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <Select value={bulkPriority} onValueChange={setBulkPriority}>
+            <SelectTrigger
+              aria-label="Bulk priority"
+              className="w-auto rounded border px-2 py-1 text-sm"
+            >
+              <SelectValue placeholder="Priority…" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="low">Low</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="urgent">Urgent</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
             aria-label="Bulk assignee"
             value={bulkAssignee}
             onChange={(e) => setBulkAssignee(e.target.value)}
             placeholder="assignee type:id"
-            className="rounded border px-2 py-1 text-sm bg-transparent w-40"
+            className="w-40 text-sm"
           />
-          <button
+          <Button
             type="button"
             onClick={applyBulkEdit}
             disabled={bulkBusy}
-            className="rounded bg-orenda-600 px-3 py-1 text-sm text-white disabled:opacity-50"
+            variant="default"
+            size="sm"
           >
             {bulkBusy ? 'Applying…' : 'Apply'}
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -576,12 +586,12 @@ function AddColumnTile({
       data-testid="add-column-form"
       className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-3 flex flex-col gap-2 min-h-[200px]"
     >
-      <input
+      <Input
         autoFocus
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder="Column name"
-        className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
+        className="text-sm"
       />
       <label className="flex items-center gap-2 text-xs text-slate-500">
         Color
@@ -594,24 +604,26 @@ function AddColumnTile({
       </label>
       <label className="text-xs text-slate-500">
         Machine key (optional)
-        <input
+        <Input
           value={status}
           onChange={(e) => setStatus(e.target.value)}
           data-testid="add-column-status"
           placeholder="auto from name"
-          className="mt-1 w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 font-mono text-sm"
+          className="mt-1 font-mono text-sm"
         />
       </label>
       {error && <p className="text-xs text-red-600">{error}</p>}
       <div className="flex gap-1 mt-auto">
-        <button
+        <Button
           type="submit"
           disabled={busy}
-          className="flex-1 px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-xs"
+          variant="default"
+          size="sm"
+          className="flex-1 px-2 py-1 text-xs"
         >
           {busy ? 'Adding…' : 'Add'}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           onClick={() => {
             setOpen(false);
@@ -619,10 +631,12 @@ function AddColumnTile({
             setName('');
             setStatus('');
           }}
-          className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 text-xs"
+          variant="outline"
+          size="sm"
+          className="px-2 py-1 text-xs"
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );
