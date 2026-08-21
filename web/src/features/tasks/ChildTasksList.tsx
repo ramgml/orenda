@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
 
 import { api, type ChildTaskProgress, type Task } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 import { TaskLink } from './TaskModal';
 
 /**
@@ -148,33 +150,36 @@ export function ChildTasksList({
                   {t.assignee_type}:{(t.assignee_id ?? '').slice(0, 8)}
                 </span>
               )}
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => onDelete(t)}
                 title="Delete"
-                className="opacity-0 group-hover:opacity-100 text-xs text-slate-400 hover:text-red-500"
+                className="h-5 w-5 opacity-0 group-hover:opacity-100 text-xs text-slate-400 hover:text-red-500"
               >
                 ×
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
       )}
 
       <form onSubmit={onAdd} className="mt-2 flex gap-2">
-        <input
+        <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="+ Add child task"
-          className="flex-1 px-2 py-1 text-sm rounded border border-slate-200 dark:border-slate-700 bg-transparent"
+          className="flex-1 h-8 px-2 text-sm"
         />
-        <button
+        <Button
           type="submit"
+          size="sm"
           disabled={busy || !title.trim()}
-          className="px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-xs"
+          className="h-8 px-2 text-xs"
         >
           Add
-        </button>
+        </Button>
       </form>
     </section>
   );

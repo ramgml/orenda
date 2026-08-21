@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 
 import { api, type Tag } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 import { TaskTagChip } from './TaskTagChip';
 
 /**
@@ -123,16 +125,17 @@ export function TagsList({ taskId, initial }: { taskId: string; initial: Tag[] }
       {selectedList.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {selectedList.map((t) => (
-            <button
+            <Button
               key={t.id}
               type="button"
+              variant="ghost"
               onClick={() => void toggle(t)}
               disabled={saving}
-              className="inline-flex items-center gap-1 hover:opacity-70 disabled:opacity-50"
+              className="h-auto p-0 gap-1 hover:opacity-70"
               title={`Click to remove "${t.name}"`}
             >
               <TaskTagChip tag={t} />
-            </button>
+            </Button>
           ))}
         </div>
       ) : (
@@ -148,16 +151,17 @@ export function TagsList({ taskId, initial }: { taskId: string; initial: Tag[] }
             {catalogue
               .filter((t) => !selected.has(t.id))
               .map((t) => (
-                <button
+                <Button
                   key={t.id}
                   type="button"
+                  variant="ghost"
                   onClick={() => void toggle(t)}
                   disabled={saving}
-                  className="inline-flex items-center hover:opacity-70 disabled:opacity-50"
+                  className="h-auto p-0 hover:opacity-70"
                   title={`Attach "${t.name}"`}
                 >
                   <TaskTagChip tag={t} />
-                </button>
+                </Button>
               ))}
           </div>
         </details>
@@ -170,12 +174,12 @@ export function TagsList({ taskId, initial }: { taskId: string; initial: Tag[] }
         }}
         className="flex gap-1 items-center pt-1 border-t border-slate-100 dark:border-slate-800"
       >
-        <input
+        <Input
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           placeholder="new tag"
           disabled={creating || saving}
-          className="flex-1 min-w-0 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-xs"
+          className="flex-1 min-w-0 h-8 px-2 text-xs"
           maxLength={50}
         />
         <input
@@ -186,13 +190,14 @@ export function TagsList({ taskId, initial }: { taskId: string; initial: Tag[] }
           className="h-6 w-7 rounded border border-slate-300 dark:border-slate-700 bg-transparent cursor-pointer"
           title="Pick a colour"
         />
-        <button
+        <Button
           type="submit"
+          size="sm"
           disabled={creating || saving || !newName.trim()}
-          className="px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-xs"
+          className="h-8 px-2 text-xs"
         >
           + add
-        </button>
+        </Button>
       </form>
 
       {error && <p className="text-xs text-red-600">{error}</p>}

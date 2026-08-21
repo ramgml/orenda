@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { api, type BlockerRow } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
 import { useWebSocketTopic } from '@/shared/ws';
 
 /**
@@ -62,14 +64,15 @@ export function BlockedByList({
           Blocked by{open.length > 0 ? ` (${open.length} open)` : ''}
         </h2>
         {!editing && (
-          <button
+          <Button
             type="button"
+            variant="link"
             onClick={() => setEditing(true)}
-            className="text-[10px] text-slate-500 hover:text-orenda-600"
+            className="h-auto p-0 text-[10px] text-slate-500 hover:text-orenda-600"
             data-testid="deps-edit-toggle"
           >
             edit
-          </button>
+          </Button>
         )}
       </div>
 
@@ -191,12 +194,10 @@ function DependencyEditor({
         <ul className="max-h-48 overflow-y-auto space-y-1">
           {taskChoices.map((t) => (
             <li key={t.id} className="flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
+              <Checkbox
                 id={`dep-${t.id}`}
                 checked={selected.has(t.id)}
-                onChange={() => toggle(t.id)}
-                className="rounded"
+                onCheckedChange={() => toggle(t.id)}
               />
               <label
                 htmlFor={`dep-${t.id}`}
@@ -210,22 +211,25 @@ function DependencyEditor({
       )}
       {error && <p className="text-xs text-red-600">{error}</p>}
       <div className="flex gap-2">
-        <button
+        <Button
           type="button"
+          size="sm"
           onClick={() => void onSubmit()}
           disabled={busy || !projectId}
-          className="px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-xs"
+          className="text-xs"
         >
           Save
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={onCancel}
           disabled={busy}
-          className="px-2 py-1 rounded border border-slate-300 text-slate-700 text-xs"
+          className="text-xs"
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );

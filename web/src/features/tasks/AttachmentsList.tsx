@@ -1,6 +1,8 @@
 import { ChangeEvent, useEffect, useRef, useState } from 'react';
 
 import { api, type TaskAttachment } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 
 /**
  * Attachments block on the task view. File picker → multipart upload
@@ -63,14 +65,16 @@ export function AttachmentsList({
     <section>
       <h2 className="text-sm font-semibold mb-2 text-slate-500 flex items-center justify-between">
         <span>Attachments ({items.length})</span>
-        <button
+        <Button
           type="button"
+          variant="secondary"
+          size="sm"
           onClick={() => inputRef.current?.click()}
           disabled={busy}
-          className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs"
+          className="h-6 px-2 text-xs"
         >
           + Upload
-        </button>
+        </Button>
       </h2>
       <p className="text-xs text-slate-400 mb-2">
         Drop a file, click <span className="font-medium">+ Upload</span>, or press{' '}
@@ -83,7 +87,7 @@ export function AttachmentsList({
         </kbd>{' '}
         to paste a screenshot from the clipboard.
       </p>
-      <input ref={inputRef} type="file" className="hidden" onChange={onPick} disabled={busy} />
+      <Input ref={inputRef} type="file" className="hidden" onChange={onPick} disabled={busy} />
       {err && <p className="text-xs text-red-600 mb-2">{err}</p>}
       {items.length === 0 ? (
         <p className="text-xs text-slate-400 italic">No attachments yet.</p>
@@ -108,14 +112,16 @@ export function AttachmentsList({
                 {a.filename}
               </a>
               <span className="text-[10px] text-slate-400">{formatSize(a.size)}</span>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => onDelete(a)}
                 title="Delete"
-                className="opacity-0 group-hover:opacity-100 text-xs text-slate-400 hover:text-red-500"
+                className="h-5 w-5 opacity-0 group-hover:opacity-100 text-xs text-slate-400 hover:text-red-500"
               >
                 ×
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
