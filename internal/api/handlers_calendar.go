@@ -132,8 +132,16 @@ func createEventHandler(deps *Dependencies) http.HandlerFunc {
 		if in.ProjectID != nil {
 			e.ProjectID = *in.ProjectID
 		}
-		e.StartAt = *parseOptionalTime(in.StartAt)
-		e.EndAt = *parseOptionalTime(in.EndAt)
+		startAt := parseOptionalTime(in.StartAt)
+		endAt := parseOptionalTime(in.EndAt)
+		if startAt == nil || endAt == nil {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+				"error": "start_at and end_at are required",
+			})
+			return
+		}
+		e.StartAt = *startAt
+		e.EndAt = *endAt
 		if err := e.Validate(); err != nil {
 			writeError(w, err)
 			return
@@ -187,10 +195,24 @@ func updateEventHandler(deps *Dependencies) http.HandlerFunc {
 			existing.Description = in.Description
 		}
 		if in.StartAt != "" {
-			existing.StartAt = *parseOptionalTime(in.StartAt)
+			if t := parseOptionalTime(in.StartAt); t != nil {
+				existing.StartAt = *t
+			} else {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+					"error": "start_at is not a valid RFC3339 timestamp",
+				})
+				return
+			}
 		}
 		if in.EndAt != "" {
-			existing.EndAt = *parseOptionalTime(in.EndAt)
+			if t := parseOptionalTime(in.EndAt); t != nil {
+				existing.EndAt = *t
+			} else {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+					"error": "end_at is not a valid RFC3339 timestamp",
+				})
+				return
+			}
 		}
 		if in.Color != "" {
 			existing.Color = in.Color
