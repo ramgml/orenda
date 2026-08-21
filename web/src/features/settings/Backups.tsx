@@ -7,6 +7,7 @@ import {
   type BackupSnapshot,
 } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -293,11 +294,10 @@ export function BackupsSettingsPage(): JSX.Element {
         {settings ? (
           <div className="space-y-3 text-sm">
             <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
+              <Checkbox
                 data-testid="settings-enabled"
                 checked={formEnabled}
-                onChange={(e) => setFormEnabled(e.target.checked)}
+                onCheckedChange={(v) => setFormEnabled(v === true)}
               />
               <span>Backup enabled</span>
             </label>

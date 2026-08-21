@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 
 import { api, type Course } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
 import { Input } from '@/shared/ui/input';
 import { Textarea } from '@/shared/ui/textarea';
 
@@ -101,12 +102,10 @@ export function CoursesPage(): JSX.Element {
           className="text-sm"
         />
         <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={skipGenerator}
-            onChange={(e) => setSkipGenerator(e.target.checked)}
+            onCheckedChange={(v) => setSkipGenerator(v === true)}
             data-testid="course-skip-generator"
-            className="h-4 w-4 rounded border-slate-300"
           />
           <span>I'll build the curriculum myself (skip tutor agent)</span>
         </label>
