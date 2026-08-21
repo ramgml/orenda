@@ -22,6 +22,7 @@ import { api, type Column, type Task } from '@/shared/api/client';
 import { useWebSocketTopic } from '@/shared/ws';
 import { queueMoveTask } from '@/shared/offline/outbox';
 import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
 import { Input } from '@/shared/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
 
@@ -327,12 +328,7 @@ export function KanbanBoard({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <label className="flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showChildren}
-              onChange={(e) => setShowChildren(e.target.checked)}
-              className="rounded border-slate-300"
-            />
+            <Checkbox checked={showChildren} onCheckedChange={(v) => setShowChildren(v === true)} />
             <span>
               Show child tasks <span className="text-slate-400">({childCount})</span>
             </span>
@@ -351,12 +347,7 @@ export function KanbanBoard({
             {selectedTaskIds.size > 0 ? 'Clear selection' : 'Select tasks'}
           </Button>
           <label className="flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={compactCards}
-              onChange={(e) => onToggleCompact(e.target.checked)}
-              className="rounded border-slate-300"
-            />
+            <Checkbox checked={compactCards} onCheckedChange={(v) => onToggleCompact(v === true)} />
             <span>Compact cards</span>
           </label>
         </div>

@@ -27,6 +27,7 @@ import 'react-big-calendar/lib/css/react-big-calendar.css';
 
 import { api, type CalendarEvent } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
 import { Dialog, DialogContent } from '@/shared/ui/dialog';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 import { Input } from '@/shared/ui/input';
@@ -771,10 +772,9 @@ function EventModal({
           </div>
 
           <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={form.all_day}
-              onChange={(e) => setForm({ ...form, all_day: e.target.checked })}
+              onCheckedChange={(v) => setForm({ ...form, all_day: v === true })}
             />
             All day
           </label>

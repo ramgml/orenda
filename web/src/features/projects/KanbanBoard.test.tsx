@@ -27,6 +27,16 @@ Element.prototype.scrollTo = vi.fn();
 Object.defineProperty(Element.prototype, 'scrollTop', { value: 0, writable: true });
 Object.defineProperty(Element.prototype, 'scrollHeight', { value: 0, writable: true });
 
+// Radix UI components (Checkbox, Dialog, Select) use
+// @radix-ui/react-use-size which needs ResizeObserver in jsdom.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}
+
 const { stubHttp } = vi.hoisted(() => ({
   stubHttp: {
     get: vi.fn(),
@@ -138,10 +148,9 @@ describe('KanbanBoard — card density toggle', () => {
     // Card renders (title present) but the detailed badge row is hidden.
     expect(await screen.findByText('Dense task')).toBeTruthy();
     expect(screen.queryByTestId('due-badge')).toBeNull();
-    expect(screen.getByRole('checkbox', { name: /compact cards/i })).toHaveProperty(
-      'checked',
-      true,
-    );
+    expect(
+      screen.getByRole('checkbox', { name: /compact cards/i }).getAttribute('data-state'),
+    ).toBe('checked');
   });
 
   it('selects a task and applies a bulk priority update', async () => {

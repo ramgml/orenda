@@ -6,6 +6,7 @@ import { TaskCard } from './TaskCard';
 import { openTaskModal } from '@/features/tasks/TaskModal';
 import { api, type Column, type Task } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
 import { Dialog, DialogContent } from '@/shared/ui/dialog';
 import { Input } from '@/shared/ui/input';
 import { cn } from '@/shared/util/cn';
@@ -164,13 +165,12 @@ export function ColumnView({
         {tasks.map((t) => (
           <li key={t.id} className="flex items-start gap-1 min-w-0">
             {onToggleTask && (
-              <input
-                type="checkbox"
+              <Checkbox
                 aria-label={`Select ${t.title}`}
                 checked={selectedTaskIds?.has(t.id) ?? false}
-                onChange={() => onToggleTask(t.id)}
+                onCheckedChange={() => onToggleTask(t.id)}
                 onClick={(e) => e.stopPropagation()}
-                className="mt-3 ml-1 rounded border-slate-300"
+                className="mt-3 ml-1"
               />
             )}
             <TaskCard task={t} onOpen={openTask} />

@@ -11,6 +11,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BackupsSettingsPage } from '@/features/settings/Backups';
 
+// Radix UI components (Checkbox, Dialog, Select) use
+// @radix-ui/react-use-size which needs ResizeObserver in jsdom.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}
+
 // Stub `window.location.reload` so the reload trigger doesn't throw
 // in jsdom. The reload is the last step of the in-process restore
 // path; tests only need the call to be issued (not actually fire).
@@ -96,8 +106,8 @@ describe('BackupsSettingsPage', () => {
     // current remote URL, a Save button.
     const url = (await screen.findByTestId('settings-remote-url')) as HTMLInputElement;
     expect(url.value).toBe('git@github.com:foo/bar.git');
-    const enabled = screen.getByTestId('settings-enabled') as HTMLInputElement;
-    expect(enabled.checked).toBe(true);
+    const enabled = screen.getByTestId('settings-enabled');
+    expect(enabled.getAttribute('data-state')).toBe('checked');
     expect(screen.getByTestId('settings-save')).toBeTruthy();
     // Auth field is a password input (never pre-filled — secret).
     const auth = screen.getByTestId('settings-remote-auth') as HTMLInputElement;

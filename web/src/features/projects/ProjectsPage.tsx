@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthContext';
 import { api, type Project } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
 import { Input } from '@/shared/ui/input';
 
 /**
@@ -92,10 +93,9 @@ export function ProjectsPage(): JSX.Element {
         <>
           <div className="mb-3 text-xs text-slate-500 flex items-center gap-2">
             <label className="flex items-center gap-1">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={showArchived}
-                onChange={(e) => setShowArchived(e.target.checked)}
+                onCheckedChange={(v) => setShowArchived(v === true)}
               />
               Show archived
             </label>
