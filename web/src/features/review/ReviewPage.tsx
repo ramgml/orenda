@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { api, type ReviewQueueItem, type Task } from '@/shared/api/client';
 import { TaskNumberChip } from '@/features/tasks/TaskNumberChip';
+import { Button } from '@/shared/ui/button';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 import { Loading } from '@/shared/ui/Loading';
@@ -140,7 +141,12 @@ function ReviewRow({
       data-testid="review-row"
       className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-3 flex gap-3 items-start"
     >
-      <button type="button" onClick={onOpen} className="flex-1 min-w-0 text-left">
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={onOpen}
+        className="flex-1 min-w-0 h-auto justify-start p-0 text-left"
+      >
         <div className="flex items-center gap-2 text-xs text-slate-500">
           <span
             aria-hidden
@@ -166,26 +172,28 @@ function ReviewRow({
             </span>
           )}
         </div>
-      </button>
+      </Button>
       <div className="flex flex-col gap-1 items-end shrink-0">
-        <button
+        <Button
           type="button"
+          size="sm"
           onClick={onAccept}
           disabled={busy}
           data-testid="review-accept"
-          className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs"
+          className="bg-emerald-600 hover:bg-emerald-700 text-xs"
         >
           Accept
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          size="sm"
           onClick={onReject}
           disabled={busy}
           data-testid="review-reject"
-          className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs"
+          className="bg-amber-600 hover:bg-amber-700 text-xs"
         >
           Return
-        </button>
+        </Button>
       </div>
     </li>
   );

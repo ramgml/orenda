@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { api, type StudyProposalView, type Task } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 import { Loading } from '@/shared/ui/Loading';
 import { useWebSocketTopic } from '@/shared/ws';
@@ -232,24 +233,27 @@ function ProposalTray({
                 </p>
               </div>
               <div className="flex gap-1 shrink-0">
-                <button
+                <Button
                   type="button"
+                  size="sm"
                   data-testid="proposal-accept"
                   disabled={busy !== null}
                   onClick={() => void accept(p.id)}
-                  className="rounded bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-3 py-1 text-xs"
+                  className="bg-indigo-600 hover:bg-indigo-700 px-3 py-1 text-xs"
                 >
                   {busy === p.id ? '…' : 'Accept'}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="secondary"
+                  size="sm"
                   data-testid="proposal-dismiss"
                   disabled={busy !== null}
                   onClick={() => void dismiss(p.id)}
-                  className="rounded bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-700 dark:text-slate-200 px-3 py-1 text-xs"
+                  className="px-3 py-1 text-xs"
                 >
                   Dismiss
-                </button>
+                </Button>
               </div>
             </div>
           </li>

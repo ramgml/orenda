@@ -1,6 +1,9 @@
 import { FormEvent, useEffect, useState } from 'react';
 
 import { api, type Checklist, type ChecklistItem } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
+import { Input } from '@/shared/ui/input';
 
 /**
  * Checklists block on the task view. Multiple checklists; each
@@ -69,19 +72,21 @@ export function ChecklistsList({
         />
       ))}
       <form onSubmit={addList} className="flex gap-2">
-        <input
+        <Input
           value={newListTitle}
           onChange={(e) => setNewListTitle(e.target.value)}
           placeholder="+ Add checklist"
-          className="flex-1 px-2 py-1 text-sm rounded border border-slate-200 dark:border-slate-700 bg-transparent"
+          className="flex-1 h-8 px-2 text-sm"
         />
-        <button
+        <Button
           type="submit"
+          variant="secondary"
+          size="sm"
           disabled={busy || !newListTitle.trim()}
-          className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs"
+          className="h-8 px-2 text-xs"
         >
           Add
-        </button>
+        </Button>
       </form>
     </section>
   );
@@ -138,48 +143,54 @@ function ChecklistBlock({
             ({done}/{items.length})
           </span>
         </h3>
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon"
           onClick={onDelete}
-          className="text-xs text-slate-400 hover:text-red-500"
+          className="h-6 w-6 text-xs text-slate-400 hover:text-red-500"
           title="Delete checklist"
         >
           ×
-        </button>
+        </Button>
       </div>
       {items.length > 0 && (
         <ul className="space-y-1">
           {items.map((it) => (
             <li key={it.id} className="flex items-center gap-2 group">
-              <input type="checkbox" checked={it.done} onChange={() => toggle(it)} />
+              <Checkbox checked={it.done} onCheckedChange={() => toggle(it)} />
               <span className={`flex-1 text-sm ${it.done ? 'line-through text-slate-400' : ''}`}>
                 {it.title}
               </span>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => del(it)}
-                className="opacity-0 group-hover:opacity-100 text-xs text-slate-400 hover:text-red-500"
+                className="h-6 w-6 opacity-0 group-hover:opacity-100 text-xs text-slate-400 hover:text-red-500"
               >
                 ×
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
       )}
       <form onSubmit={addItem} className="mt-2 flex gap-2">
-        <input
+        <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="+ Add item"
-          className="flex-1 px-2 py-1 text-sm rounded border border-slate-200 dark:border-slate-700 bg-transparent"
+          className="flex-1 h-8 px-2 text-sm"
         />
-        <button
+        <Button
           type="submit"
+          variant="secondary"
+          size="sm"
           disabled={!title.trim()}
-          className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-xs"
+          className="h-8 px-2 text-xs"
         >
           Add
-        </button>
+        </Button>
       </form>
     </div>
   );

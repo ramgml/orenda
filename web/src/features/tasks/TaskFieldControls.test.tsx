@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 /**
- * TaskFieldControls tests (Phase 27.7 + 27.8.4).
+ * TaskFieldControls tests (Phase 27.7 + 27.8.4; shadcn Select since
+ * task 12 step 3b).
  *
  * Pins these contracts:
  *   1. The Status select renders the project's columns (sorted by
@@ -15,12 +16,55 @@
  * AuthContext is mocked by providing a wrapper component that sets
  * the user. We don't bother with the full AuthProvider — the
  * component reads only `useAuth().user`, which is what we stub.
+ *
+ * Task 12 step 3b: the controls are now the shadcn `Select`
+ * (Radix), not a native `<select>`. Radix opens the dropdown on
+ * `pointerdown` (mouse, button 0, no ctrl) and selects an item on
+ * `pointerup` — jsdom ships no PointerEvent implementation, so we
+ * polyfill a minimal one (plus the pointer-capture helpers Radix
+ * calls) at the top of the file and drive the dropdown with those
+ * two events. The behavioral contracts (which options render, what
+ * gets PATCHed) are unchanged.
  */
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TaskFieldControls } from '@/features/tasks/TaskFieldControls';
 import { api, type BoardColumn, type ProjectBoard } from '@/shared/api/client';
+
+// --- jsdom PointerEvent polyfill (Radix Select needs it) ---
+//
+// jsdom has no PointerEvent; testing-library's fireEvent.pointerDown
+// / .pointerUp fall back to MouseEvent and lose `pointerType`, which
+// Radix reads. A constructor extending MouseEvent with the
+// pointerType field carries everything Radix touches.
+class FakePointerEvent extends MouseEvent {
+  pointerType: string;
+  constructor(type: string, init: PointerEventInit & { pointerType?: string } = {}) {
+    super(type, init);
+    this.pointerType = init.pointerType ?? '';
+  }
+}
+window.PointerEvent = FakePointerEvent as unknown as typeof PointerEvent;
+window.HTMLElement.prototype.scrollIntoView = () => {};
+window.HTMLElement.prototype.hasPointerCapture = () => false;
+window.HTMLElement.prototype.releasePointerCapture = () => {};
+
+// Drive a Radix Select: open its dropdown via the trigger testid,
+// then resolve to the option with the accessible name.
+function openSelect(getByTestId: (id: string) => HTMLElement, testId: string): void {
+  fireEvent.pointerDown(getByTestId(testId), {
+    button: 0,
+    ctrlKey: false,
+    pointerType: 'mouse',
+  });
+}
+
+async function pickOption(name: string | RegExp): Promise<HTMLElement> {
+  const option = await screen.findByRole('option', { name });
+  fireEvent.click(option);
+  return option;
+}
 
 // AuthContext mock: provide a user with id 'u-me' so the "me"
 // branch of the Assignee select is exercisable.
@@ -50,10 +94,11 @@ const defaultBoard: ProjectBoard = {
 };
 
 function mockBoard(cols: BoardColumn[] = defaultBoardColumns): void {
-  vi.spyOn(api, 'getBoard').mockResolvedValue({
-    board: defaultBoard.board,
-    columns: cols,
-  });
+  vi.spyOn(api, 'getBoard').mockResolvedValue(defaultBoardWith(cols));
+}
+
+function defaultBoardWith(cols: BoardColumn[]): ProjectBoard {
+  return { ...defaultBoard, columns: cols };
 }
 
 beforeEach(() => {
@@ -64,32 +109,35 @@ afterEach(() => {
   cleanup();
 });
 
+function renderControls(extra: Partial<Parameters<typeof TaskFieldControls>[0]> = {}) {
+  return render(
+    <TaskFieldControls
+      status="todo"
+      priority="medium"
+      assigneeType=""
+      assigneeID=""
+      taskID="t1"
+      busy={false}
+      projectID="p1"
+      onChanged={() => {}}
+      onError={() => {}}
+      {...extra}
+    />,
+  );
+}
+
 describe('TaskFieldControls', () => {
   it('renders all three controls with the current values', async () => {
     vi.spyOn(api, 'listAgents').mockResolvedValue([]);
     mockBoard();
-    const { getByTestId } = render(
-      <TaskFieldControls
-        status="todo"
-        priority="medium"
-        assigneeType=""
-        assigneeID=""
-        taskID="t1"
-        busy={false}
-        projectID="p1"
-        onChanged={() => {}}
-        onError={() => {}}
-      />,
-    );
+    const { getByTestId } = renderControls();
     // Wait for the board to load so the Status select is present.
     await waitFor(() => expect(getByTestId('task-status')).toBeTruthy());
-    const status = getByTestId('task-status') as HTMLSelectElement;
-    const priority = getByTestId('task-priority') as HTMLSelectElement;
-    expect(status.value).toBe('todo');
-    expect(priority.value).toBe('medium');
-    // Assignee defaults to "unassigned" for an unassigned task.
-    const assignee = getByTestId('task-assignee').querySelector('select') as HTMLSelectElement;
-    expect(assignee.value).toBe('unassigned');
+    // Radix Select shows the selected option's label in the trigger.
+    expect(getByTestId('task-status').textContent).toContain('Todo');
+    expect(getByTestId('task-priority').textContent).toContain('Medium');
+    // Assignee defaults to "Unassigned" for an unassigned task.
+    expect(getByTestId('task-assignee-trigger').textContent).toContain('Unassigned');
   });
 
   it('Status select renders project columns sorted by position', async () => {
@@ -102,23 +150,12 @@ describe('TaskFieldControls', () => {
       { id: 'c-qa', board_id: 'b1', name: 'QA', position: 5120, status: 'qa' },
       { id: 'c-bl', board_id: 'b1', name: 'Backlog', position: 0, status: 'backlog' },
     ]);
-    const { getByTestId } = render(
-      <TaskFieldControls
-        status="todo"
-        priority="medium"
-        assigneeType=""
-        assigneeID=""
-        taskID="t1"
-        busy={false}
-        projectID="p1"
-        onChanged={() => {}}
-        onError={() => {}}
-      />,
-    );
-    const status = await waitFor(() => getByTestId('task-status') as HTMLSelectElement);
-    const labels = Array.from(status.options).map((o) => `${o.value}=${o.text}`);
+    const { getByTestId } = renderControls();
+    await waitFor(() => expect(getByTestId('task-status')).toBeTruthy());
+    openSelect(getByTestId, 'task-status');
+    const names = (await screen.findAllByRole('option')).map((o) => o.textContent);
     // Position-ordered: backlog, todo, done, qa.
-    expect(labels).toEqual(['backlog=Backlog', 'todo=Todo', 'done=Done', 'qa=QA']);
+    expect(names).toEqual(['Backlog', 'Todo', 'Done', 'QA']);
   });
 
   it('Patches the task when status changes', async () => {
@@ -130,21 +167,10 @@ describe('TaskFieldControls', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
     const onChanged = vi.fn();
-    const { getByTestId } = render(
-      <TaskFieldControls
-        status="todo"
-        priority="medium"
-        assigneeType=""
-        assigneeID=""
-        taskID="t1"
-        busy={false}
-        projectID="p1"
-        onChanged={onChanged}
-        onError={() => {}}
-      />,
-    );
-    const status = await waitFor(() => getByTestId('task-status') as HTMLSelectElement);
-    fireEvent.change(status, { target: { value: 'in_progress' } });
+    const { getByTestId } = renderControls({ onChanged });
+    await waitFor(() => expect(getByTestId('task-status')).toBeTruthy());
+    openSelect(getByTestId, 'task-status');
+    await pickOption('In progress');
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
     expect(spy).toHaveBeenCalledWith('t1', expect.objectContaining({ status: 'in_progress' }));
     expect(onChanged).toHaveBeenCalled();
@@ -154,20 +180,10 @@ describe('TaskFieldControls', () => {
     vi.spyOn(api, 'listAgents').mockResolvedValue([]);
     mockBoard();
     const spy = vi.spyOn(api, 'patchTask').mockResolvedValue({} as never);
-    const { getByTestId } = render(
-      <TaskFieldControls
-        status="todo"
-        priority="medium"
-        assigneeType=""
-        assigneeID=""
-        taskID="t1"
-        busy={false}
-        projectID="p1"
-        onChanged={() => {}}
-        onError={() => {}}
-      />,
-    );
-    fireEvent.change(getByTestId('task-priority'), { target: { value: 'urgent' } });
+    const { getByTestId } = renderControls();
+    await waitFor(() => expect(getByTestId('task-priority')).toBeTruthy());
+    openSelect(getByTestId, 'task-priority');
+    await pickOption('Urgent');
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith('t1', expect.objectContaining({ priority: 'urgent' })),
     );
@@ -177,21 +193,10 @@ describe('TaskFieldControls', () => {
     vi.spyOn(api, 'listAgents').mockResolvedValue([]);
     mockBoard();
     const spy = vi.spyOn(api, 'patchTask').mockResolvedValue({} as never);
-    const { getByTestId } = render(
-      <TaskFieldControls
-        status="todo"
-        priority="medium"
-        assigneeType="agent"
-        assigneeID="a1"
-        taskID="t1"
-        busy={false}
-        projectID="p1"
-        onChanged={() => {}}
-        onError={() => {}}
-      />,
-    );
-    const select = getByTestId('task-assignee').querySelector('select') as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: 'unassigned' } });
+    const { getByTestId } = renderControls({ assigneeType: 'agent', assigneeID: 'a1' });
+    await waitFor(() => expect(getByTestId('task-assignee-trigger')).toBeTruthy());
+    openSelect(getByTestId, 'task-assignee-trigger');
+    await pickOption('Unassigned');
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith(
         't1',
@@ -204,21 +209,10 @@ describe('TaskFieldControls', () => {
     vi.spyOn(api, 'listAgents').mockResolvedValue([]);
     mockBoard();
     const spy = vi.spyOn(api, 'patchTask').mockResolvedValue({} as never);
-    const { getByTestId } = render(
-      <TaskFieldControls
-        status="todo"
-        priority="medium"
-        assigneeType=""
-        assigneeID=""
-        taskID="t1"
-        busy={false}
-        projectID="p1"
-        onChanged={() => {}}
-        onError={() => {}}
-      />,
-    );
-    const select = getByTestId('task-assignee').querySelector('select') as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: 'me' } });
+    const { getByTestId } = renderControls();
+    await waitFor(() => expect(getByTestId('task-assignee-trigger')).toBeTruthy());
+    openSelect(getByTestId, 'task-assignee-trigger');
+    await pickOption('Me');
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith(
         't1',
@@ -234,24 +228,13 @@ describe('TaskFieldControls', () => {
     ]);
     mockBoard();
     vi.spyOn(api, 'patchTask').mockResolvedValue({} as never);
-    const { getByTestId } = render(
-      <TaskFieldControls
-        status="todo"
-        priority="medium"
-        assigneeType=""
-        assigneeID=""
-        taskID="t1"
-        busy={false}
-        projectID="p1"
-        onChanged={() => {}}
-        onError={() => {}}
-      />,
-    );
-    const select = getByTestId('task-assignee').querySelector('select') as HTMLSelectElement;
-    await waitFor(() => {
-      const opts = Array.from(select.options).map((o) => o.value);
-      expect(opts).toContain('agent:a1');
-    });
+    const { getByTestId } = renderControls();
+    await waitFor(() => expect(getByTestId('task-assignee-trigger')).toBeTruthy());
+    openSelect(getByTestId, 'task-assignee-trigger');
+    // The agent appears as a named option (value "agent:a1" is a
+    // React prop; the accessible surface is the label text).
+    const option = await screen.findByRole('option', { name: 'QA-bot (online)' });
+    expect(option).toBeTruthy();
   });
 
   it('surfaces api errors via onError', async () => {
@@ -259,21 +242,10 @@ describe('TaskFieldControls', () => {
     mockBoard();
     vi.spyOn(api, 'patchTask').mockRejectedValue(new Error('boom'));
     const onError = vi.fn();
-    const { getByTestId } = render(
-      <TaskFieldControls
-        status="todo"
-        priority="medium"
-        assigneeType=""
-        assigneeID=""
-        taskID="t1"
-        busy={false}
-        projectID="p1"
-        onChanged={() => {}}
-        onError={onError}
-      />,
-    );
-    const status = await waitFor(() => getByTestId('task-status') as HTMLSelectElement);
-    fireEvent.change(status, { target: { value: 'done' } });
+    const { getByTestId } = renderControls({ onError });
+    await waitFor(() => expect(getByTestId('task-status')).toBeTruthy());
+    openSelect(getByTestId, 'task-status');
+    await pickOption('Done');
     await waitFor(() => expect(onError).toHaveBeenCalledWith('boom'));
   });
 
@@ -282,19 +254,7 @@ describe('TaskFieldControls', () => {
   it('renders Status as read-only when projectID is empty (Inbox)', async () => {
     const getBoardSpy = vi.spyOn(api, 'getBoard');
     vi.spyOn(api, 'listAgents').mockResolvedValue([]);
-    const { queryByTestId, getByTestId } = render(
-      <TaskFieldControls
-        status="todo"
-        priority="medium"
-        assigneeType=""
-        assigneeID=""
-        taskID="t1"
-        busy={false}
-        projectID=""
-        onChanged={() => {}}
-        onError={() => {}}
-      />,
-    );
+    const { queryByTestId, getByTestId } = renderControls({ projectID: '' });
     // No select — read-only instead.
     expect(queryByTestId('task-status')).toBeNull();
     expect(getByTestId('task-status-readonly')).toBeTruthy();

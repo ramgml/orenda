@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { useAuth } from '@/features/auth/AuthContext';
 import { api, type Agent, type BoardColumn } from '@/shared/api/client';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
 
 /**
  * Phase 27.7 + 27.8.4: editable Status / Priority / Assignee
@@ -164,11 +165,10 @@ export function TaskFieldControls(props: {
       >
         <label className="block">
           <span className="text-xs text-slate-500">Assignee</span>
-          <select
+          <Select
             value={assigneeKey(props.assigneeType, props.assigneeID, user?.user_id ?? '')}
             disabled={props.busy || loadingAgents}
-            onChange={(e) => {
-              const v = e.target.value;
+            onValueChange={(v) => {
               if (v === 'unassigned') {
                 void patch({ assignee_type: '', assignee_id: '' });
                 return;
@@ -183,16 +183,23 @@ export function TaskFieldControls(props: {
                 void patch({ assignee_type: 'agent', assignee_id: id });
               }
             }}
-            className="w-full mt-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
           >
-            <option value="unassigned">Unassigned</option>
-            {user && <option value="me">{user.display_name || 'Me'}</option>}
-            {agents.map((a) => (
-              <option key={a.id} value={`agent:${a.id}`}>
-                {a.name} ({a.status})
-              </option>
-            ))}
-          </select>
+            <SelectTrigger
+              className="w-full mt-1 h-8 px-2 text-sm"
+              data-testid="task-assignee-trigger"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="unassigned">Unassigned</SelectItem>
+              {user && <SelectItem value="me">{user.display_name || 'Me'}</SelectItem>}
+              {agents.map((a) => (
+                <SelectItem key={a.id} value={`agent:${a.id}`}>
+                  {a.name} ({a.status})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <p className="text-[10px] text-slate-400 mt-1 truncate">currently: {assigneeLabel()}</p>
         </label>
       </div>
@@ -200,7 +207,7 @@ export function TaskFieldControls(props: {
   );
 }
 
-// assigneeKey returns the <select> value for the current assignee.
+// assigneeKey returns the dropdown value for the current assignee.
 // Unassigned → "unassigned". Me → "me". Agent → "agent:<id>".
 function assigneeKey(type: string, id: string, ownerID: string): string {
   if (!type) return 'unassigned';
@@ -243,19 +250,21 @@ function SidebarSelect(props: {
     <div className="rounded border border-slate-200 dark:border-slate-800 p-3">
       <label className="block">
         <span className="text-xs text-slate-500">{props.label}</span>
-        <select
-          value={props.value}
-          disabled={props.disabled}
-          onChange={(e) => props.onChange(e.target.value)}
-          data-testid={props['data-testid']}
-          className="w-full mt-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
-        >
-          {props.options.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+        <Select value={props.value} disabled={props.disabled} onValueChange={props.onChange}>
+          <SelectTrigger
+            className="w-full mt-1 h-8 px-2 text-sm"
+            data-testid={props['data-testid']}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {props.options.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </label>
     </div>
   );

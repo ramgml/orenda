@@ -18,9 +18,9 @@ import { useEffect, useRef, useState } from 'react';
  * old fixtures); the field is required on the `Task` type, the
  * conditional render lives here.
  *
- * The chip is a `<span role="button">`, not a `<button>`, because one
- * of its hosts (ReviewPage's ReviewRow) already renders a real
- * `<button>` around the row — nested buttons are invalid HTML.
+ * The chip is a `<span role="button">`, not a real button element,
+ * because one of its hosts (ReviewPage's ReviewRow) already renders
+ * a real button around the row — nested buttons are invalid HTML.
  */
 export function TaskNumberChip({ number }: { number: number }): JSX.Element | null {
   const [copied, setCopied] = useState(false);

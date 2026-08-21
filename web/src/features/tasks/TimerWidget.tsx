@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { useAuth } from '@/features/auth/AuthContext';
 import { api, type Task } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
 import { useWebSocketTopic } from '@/shared/ws';
 
 /**
@@ -110,13 +111,15 @@ export function TimerWidget(): JSX.Element {
               <p className="text-sm font-medium truncate">{active.taskTitle}</p>
               <p className="text-lg font-mono tabular-nums mt-1">{fmt(elapsed)}</p>
             </div>
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="sm"
               onClick={stop}
-              className="px-2 py-1 rounded bg-red-600 hover:bg-red-700 text-white text-xs"
+              className="bg-red-600 hover:bg-red-700 text-white text-xs"
             >
               Stop
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
@@ -156,7 +159,7 @@ function TimerLauncher({ startOn }: LauncherProps): JSX.Element {
 /**
  * StartTimer is the public API for starting a timer from any component.
  *
- *   <button onClick={() => StartTimer(task)}>Start</button>
+ *   <Button onClick={() => StartTimer(task)}>Start</Button>
  */
 export function StartTimer(task: Task): void {
   if (!launcherRef) {
