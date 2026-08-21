@@ -363,7 +363,7 @@ export function KanbanBoard({
         onDragEnd={onDragEnd}
       >
         <SortableContext items={cols.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-[repeat(5,minmax(0,1fr))] gap-3">
             {cols.map((col) => (
               <SortableColumnView
                 key={col.id}
@@ -479,7 +479,7 @@ function SortableColumnView({
     opacity: isDragging ? 0.4 : 1,
   };
   return (
-    <div ref={setNodeRef} style={style} {...attributes}>
+    <div ref={setNodeRef} style={style} {...attributes} className="min-w-0">
       <ColumnView
         columnId={column.id}
         projectId={projectId}
