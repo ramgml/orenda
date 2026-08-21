@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -13,6 +14,18 @@ import (
 	"github.com/ramgml/orenda/internal/domain/event"
 	"github.com/ramgml/orenda/internal/service/timeentry"
 )
+
+// resolveMasterID strips the synthetic "::N" occurrence suffix that
+// listEventsHandler stamps on recurring-event expansions. A bare UUID
+// passes through unchanged. This is the documented round-trip: the
+// calendar UI sends the synthetic id back, and the handler resolves it
+// to the master event id so GET / PATCH / DELETE operate on the master.
+func resolveMasterID(id string) string {
+	if master, _, ok := strings.Cut(id, "::"); ok {
+		return master
+	}
+	return id
+}
 
 // ----------------------------------------------------------------------------
 // Events
@@ -162,7 +175,8 @@ func getEventHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "event service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		e, err := deps.EventService.Get(r.Context(), chi.URLParam(r, "id"))
+		id := resolveMasterID(chi.URLParam(r, "id"))
+		e, err := deps.EventService.Get(r.Context(), id)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -178,7 +192,8 @@ func updateEventHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "event service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		existing, err := deps.EventService.Get(r.Context(), chi.URLParam(r, "id"))
+		id := resolveMasterID(chi.URLParam(r, "id"))
+		existing, err := deps.EventService.Get(r.Context(), id)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -246,7 +261,8 @@ func deleteEventHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "event service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		if err := deps.EventService.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
+		id := resolveMasterID(chi.URLParam(r, "id"))
+		if err := deps.EventService.Delete(r.Context(), id); err != nil {
 			writeError(w, err)
 			return
 		}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -407,4 +408,130 @@ func TestIntegration_ListEvents_ExpandsRecurrence(t *testing.T) {
 	for _, e := range list.Events[1:] {
 		assert.Empty(t, e.Recurrence, "non-first occurrence must not carry the RRULE")
 	}
+}
+
+// Task 39: synthetic occurrence ids (::N) must round-trip to the master.
+// PATCH /api/v1/events/{masterID::1} must resolve to the master and
+// succeed; GET must return the master; PATCH unknown id → 404 (not 500).
+func TestIntegration_SyntheticOccurrenceID_RoundTripsToMaster(t *testing.T) {
+	dir := t.TempDir()
+	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "t39.db"), sqlite.OpenConfig{
+		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+
+	users := sqlite.NewUserRepository(db)
+	require.NoError(t, users.Create(context.Background(), &user.User{
+		Email: "t39@x.com", PasswordHash: mustHashFast(t), DisplayName: "T39",
+	}))
+
+	hub := ws.NewHub()
+	t.Cleanup(func() {
+		if c, ok := hub.(interface{ Close() }); ok {
+			c.Close()
+		}
+	})
+
+	repo := sqlite.NewTaskRepository(db)
+	taskSvc := taskservice.New(repo, sqlite.NewTaskLockRepository(db), nil, nil, hub)
+	eventSvc := eventservice.New(repo, hub, nil)
+	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
+	router := api.NewRouter(&api.Dependencies{
+		Logger:       zap.NewNop(),
+		Signer:       signer,
+		Users:        users,
+		Projects:     sqlite.NewProjectRepository(db),
+		Tasks:        repo,
+		Tokens:       sqlite.NewAPITokenRepository(db),
+		TaskService:  taskSvc,
+		EventService: eventSvc,
+		WSHub:        hub,
+		CookieName:   "orenda_session",
+	})
+
+	body, _ := json.Marshal(map[string]string{"email": "t39@x.com", "password": "hunter2!"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code)
+	cookie := rr.Result().Cookies()[0].Value
+
+	authed := func(method, path string, body any) *httptest.ResponseRecorder {
+		buf, _ := json.Marshal(body)
+		r := httptest.NewRequest(method, path, bytes.NewReader(buf))
+		r.Header.Set("Content-Type", "application/json")
+		r.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		return w
+	}
+
+	// Create a project (event needs a project_id FK).
+	rr = authed(http.MethodPost, "/api/v1/projects", map[string]any{"name": "T39"})
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var p struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &p))
+
+	// Create a DAILY recurring event.
+	start := time.Now().UTC().Truncate(time.Hour)
+	end := start.Add(30 * time.Minute)
+	rr = authed(http.MethodPost, "/api/v1/events", map[string]any{
+		"title":      "Daily",
+		"start_at":   start.Format(time.RFC3339),
+		"end_at":     end.Format(time.RFC3339),
+		"project_id": p.ID,
+		"recurrence": "FREQ=DAILY;INTERVAL=1",
+	})
+	require.Equal(t, http.StatusCreated, rr.Code, rr.Body.String())
+
+	// List events to get synthetic ids.
+	from := start.Add(-time.Hour)
+	to := start.Add(7 * 24 * time.Hour)
+	q := "?from=" + from.Format(time.RFC3339) + "&to=" + to.Format(time.RFC3339)
+	rr = authed(http.MethodGet, "/api/v1/events"+q, nil)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+	var list struct {
+		Events []struct {
+			ID         string `json:"id"`
+			Title      string `json:"title"`
+			Recurrence string `json:"recurrence,omitempty"`
+		} `json:"events"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &list))
+	require.GreaterOrEqual(t, len(list.Events), 2, "need at least 2 occurrences")
+	secondID := list.Events[1].ID
+	assert.Contains(t, secondID, "::", "occurrence id must be synthetic")
+
+	// (a) PATCH synthetic occurrence id → 200, master title updated.
+	rr = authed(http.MethodPatch, "/api/v1/events/"+secondID, map[string]any{
+		"title": "Daily Renamed",
+	})
+	require.Equal(t, http.StatusOK, rr.Code, "PATCH synthetic id must succeed, got %d: %s", rr.Code, rr.Body.String())
+
+	// Verify master row reflects the change.
+	rr = authed(http.MethodGet, "/api/v1/events/"+secondID, nil)
+	require.Equal(t, http.StatusOK, rr.Code, "GET synthetic id must succeed, got %d: %s", rr.Code, rr.Body.String())
+	var fetched struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &fetched))
+	assert.Equal(t, "Daily Renamed", fetched.Title, "master title must be updated via synthetic id")
+
+	// (b) GET synthetic occurrence id → 200; returned id is the master
+	// (the ::N suffix is stripped, as designed).
+	masterUUID := strings.Split(secondID, "::")[0]
+	assert.Equal(t, masterUUID, fetched.ID, "GET must resolve to the master event id")
+
+	// (c) PATCH unknown plain uuid → 404 (not 500).
+	rr = authed(http.MethodPatch, "/api/v1/events/00000000-0000-0000-0000-000000000000", map[string]any{
+		"title": "Nope",
+	})
+	assert.Equal(t, http.StatusNotFound, rr.Code, "unknown event id must 404, got %d: %s", rr.Code, rr.Body.String())
+	assert.Contains(t, rr.Body.String(), "not_found")
 }
