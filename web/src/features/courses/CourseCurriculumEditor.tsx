@@ -502,7 +502,7 @@ function SortableModuleRow(props: { m: EditorModule; h: RowHandlers }): JSX.Elem
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       data-testid="editor-module"
-      className={`rounded border border-slate-200 dark:border-slate-800 p-3 bg-white dark:bg-slate-950 space-y-2 ${isDragging ? 'opacity-50' : ''}`}
+      className={`rounded border border-border p-3 bg-white dark:bg-slate-950 space-y-2 ${isDragging ? 'opacity-50' : ''}`}
     >
       <div className="flex gap-2">
         <button
@@ -543,7 +543,7 @@ function SortableModuleRow(props: { m: EditorModule; h: RowHandlers }): JSX.Elem
       />
 
       <SortableContext items={m.lessons.map((l) => l.id)} strategy={verticalListSortingStrategy}>
-        <ul className="space-y-2 pl-3 border-l border-slate-200 dark:border-slate-800">
+        <ul className="space-y-2 pl-3 border-l border-border">
           {m.lessons.map((l) => (
             <SortableLessonRow key={l.id} m={m} l={l} h={h} />
           ))}
@@ -934,7 +934,7 @@ export function CourseCurriculumEditor(props: {
       </div>
 
       {importOpen && (
-        <div className="space-y-2 rounded border border-slate-200 dark:border-slate-800 p-2">
+        <div className="space-y-2 rounded border border-border p-2">
           <Textarea
             value={importText}
             onChange={(e) => setImportText(e.target.value)}

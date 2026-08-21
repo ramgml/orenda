@@ -288,7 +288,7 @@ export function BackupsSettingsPage(): JSX.Element {
         </div>
       )}
 
-      <div className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950 space-y-3">
+      <div className="rounded border border-border p-4 bg-white dark:bg-slate-950 space-y-3">
         <h2 className="font-semibold">Settings</h2>
         {settings ? (
           <div className="space-y-3 text-sm">
@@ -412,7 +412,7 @@ export function BackupsSettingsPage(): JSX.Element {
         </Button>
       </div>
 
-      <div className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950">
+      <div className="rounded border border-border p-4 bg-white dark:bg-slate-950">
         <h2 className="font-semibold mb-2">Snapshots ({snapshots.length})</h2>
         {/* Phase 30.9: status line — count + latest snapshot timestamp
             without having to scroll the snapshot list. Pulled from
@@ -460,7 +460,7 @@ export function BackupsSettingsPage(): JSX.Element {
         )}
       </div>
 
-      <div className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950">
+      <div className="rounded border border-border p-4 bg-white dark:bg-slate-950">
         <h2 className="font-semibold mb-2">Log</h2>
         {log.length === 0 ? (
           <p className="text-slate-500 text-sm">No log entries yet.</p>
@@ -489,7 +489,7 @@ export function BackupsSettingsPage(): JSX.Element {
               <DialogTitle>Restore from snapshot</DialogTitle>
               <DialogDescription>
                 Snapshot:{' '}
-                <code className="px-1 bg-slate-100 dark:bg-slate-800 rounded text-xs break-all">
+                <code className="px-1 bg-muted rounded text-xs break-all">
                   {restoreTarget.path}
                 </code>
               </DialogDescription>
@@ -508,7 +508,7 @@ export function BackupsSettingsPage(): JSX.Element {
             <div className="relative">
               <pre
                 data-testid="restore-cli-hint"
-                className="bg-slate-100 dark:bg-slate-800 rounded p-3 text-xs overflow-x-auto whitespace-pre-wrap break-all"
+                className="bg-muted rounded p-3 text-xs overflow-x-auto whitespace-pre-wrap break-all"
               >
                 {restoreHint ?? '…'}
               </pre>

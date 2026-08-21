@@ -16,10 +16,7 @@ export function CommentsList({ comments }: { comments: Comment[] }): JSX.Element
   return (
     <ul className="space-y-2">
       {comments.map((c) => (
-        <li
-          key={c.id}
-          className="rounded border border-slate-200 dark:border-slate-800 p-2 text-sm"
-        >
+        <li key={c.id} className="rounded border border-border p-2 text-sm">
           <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
             <span className="font-mono">
               {c.author_type}:{c.author_id.slice(0, 8)}

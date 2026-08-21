@@ -77,7 +77,7 @@ function SidebarNavItem({
           [
             'relative flex items-center justify-center h-9 rounded mx-1 text-base',
             isActive
-              ? 'bg-slate-100 dark:bg-slate-800 text-orenda-600 dark:text-orenda-400'
+              ? 'bg-muted text-orenda-600 dark:text-orenda-400'
               : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-slate-200',
           ].join(' ')
         }
@@ -104,7 +104,7 @@ function SidebarNavItem({
         return [
           'relative flex items-center gap-3 px-3 py-1.5 text-sm rounded mx-2',
           active
-            ? 'bg-slate-100 dark:bg-slate-800 text-orenda-600 dark:text-orenda-400'
+            ? 'bg-muted text-orenda-600 dark:text-orenda-400'
             : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800',
         ].join(' ');
       }}

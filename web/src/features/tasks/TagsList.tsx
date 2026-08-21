@@ -116,7 +116,7 @@ export function TagsList({ taskId, initial }: { taskId: string; initial: Tag[] }
   const selectedList = catalogue.filter((t) => selected.has(t.id));
 
   return (
-    <div className="rounded border border-slate-200 dark:border-slate-800 p-3 space-y-2">
+    <div className="rounded border border-border p-3 space-y-2">
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500">Tags</p>
         {saving && <span className="text-[10px] text-slate-400">saving…</span>}

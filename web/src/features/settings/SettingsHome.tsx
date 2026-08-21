@@ -153,7 +153,7 @@ export function SettingsHome(): JSX.Element {
             key={card.to}
             to={card.to}
             data-testid={card.testId}
-            className="block rounded-lg border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950 hover:border-orenda-500 hover:shadow-sm transition-colors"
+            className="block rounded-lg border border-border p-4 bg-white dark:bg-slate-950 hover:border-orenda-500 hover:shadow-sm transition-colors"
           >
             <div className="flex items-start gap-3">
               <span aria-hidden className="text-orenda-500 text-xl leading-none mt-0.5">
@@ -169,7 +169,7 @@ export function SettingsHome(): JSX.Element {
       </div>
 
       <div
-        className="rounded-lg border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950"
+        className="rounded-lg border border-border p-4 bg-white dark:bg-slate-950"
         data-testid="settings-about"
       >
         <h2 className="font-semibold mb-2">About</h2>

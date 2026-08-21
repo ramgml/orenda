@@ -298,7 +298,7 @@ export function TaskViewBody({
         <DescriptionEditor value={task.description ?? ''} onSave={onSaveDescription} busy={busy} />
 
         {task.context_md && (
-          <details className="rounded border border-slate-200 dark:border-slate-800 p-3">
+          <details className="rounded border border-border p-3">
             <summary className="cursor-pointer text-sm text-slate-500">Agent context (md)</summary>
             <pre className="mt-2 text-xs whitespace-pre-wrap font-mono">{task.context_md}</pre>
           </details>
@@ -312,7 +312,7 @@ export function TaskViewBody({
         )}
 
         {canReview && (
-          <div className="rounded border border-slate-200 dark:border-slate-800 p-3 space-y-2">
+          <div className="rounded border border-border p-3 space-y-2">
             <p className="text-sm font-semibold">Review</p>
             <Textarea
               value={reviewComment}
@@ -379,7 +379,7 @@ export function TaskViewBody({
         <ActivityLog items={activity} />
 
         {onClose && (
-          <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+          <div className="pt-2 border-t border-border">
             <Button
               type="button"
               variant="outline"
@@ -415,7 +415,7 @@ export function TaskViewBody({
         <ColorPicker value={task.color} onSave={onSaveColor} busy={busy} />
         <TagsList taskId={taskId} initial={tags} />
         <BlockedByList taskId={taskId} projectId={task.project_id || ''} />
-        <div className="rounded border border-slate-200 dark:border-slate-800 p-3">
+        <div className="rounded border border-border p-3">
           <p className="text-xs text-slate-500 mb-1">Time tracking</p>
           <p className="font-mono mb-2">{(task.time_spent_s / 60).toFixed(1)} min</p>
           <Button
@@ -614,7 +614,7 @@ export function DescriptionEditor({
 
 function SidebarField({ label, value }: { label: string; value: string }): JSX.Element {
   return (
-    <div className="rounded border border-slate-200 dark:border-slate-800 p-3">
+    <div className="rounded border border-border p-3">
       <p className="text-xs text-slate-500">{label}</p>
       <p className="font-mono">{value}</p>
     </div>
@@ -659,7 +659,7 @@ function ColorPicker({
   }
 
   return (
-    <div className="rounded border border-slate-200 dark:border-slate-800 p-3 space-y-2">
+    <div className="rounded border border-border p-3 space-y-2">
       <p className="text-xs text-slate-500">Colour label</p>
       <div className="flex items-center gap-2">
         <input

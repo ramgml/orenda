@@ -135,7 +135,7 @@ function ChecklistBlock({
   }
 
   return (
-    <div className="rounded border border-slate-200 dark:border-slate-800 p-2">
+    <div className="rounded border border-border p-2">
       <div className="flex items-center justify-between mb-1">
         <h3 className="text-sm font-medium">
           {list.title}{' '}

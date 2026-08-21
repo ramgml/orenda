@@ -312,7 +312,7 @@ function TodaySection({
               <li
                 key={t.id}
                 data-testid={studyLink ? 'today-study-task' : 'today-task'}
-                className="rounded border border-slate-200 dark:border-slate-800 p-2 text-sm bg-white dark:bg-slate-950"
+                className="rounded border border-border p-2 text-sm bg-white dark:bg-slate-950"
               >
                 <Link
                   to={`/tasks/${t.id}`}
@@ -417,7 +417,7 @@ function UpcomingWeek({ days }: { days: { date: string; count: number }[] }): JS
             <li
               key={d.date}
               data-testid="upcoming-day-row"
-              className="flex justify-between items-center rounded border border-slate-200 dark:border-slate-800 px-3 py-1 text-sm bg-white dark:bg-slate-950"
+              className="flex justify-between items-center rounded border border-border px-3 py-1 text-sm bg-white dark:bg-slate-950"
             >
               <span className="text-slate-700 dark:text-slate-200">{label}</span>
               <span className="text-slate-500 font-mono">{d.count} due</span>

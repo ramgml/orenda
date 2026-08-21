@@ -84,10 +84,7 @@ export function SearchPage(): JSX.Element {
       ) : (
         <ul className="space-y-3">
           {hits.map((h) => (
-            <li
-              key={`${h.type}:${h.id}`}
-              className="rounded border border-slate-200 dark:border-slate-800 p-3"
-            >
+            <li key={`${h.type}:${h.id}`} className="rounded border border-border p-3">
               <div className="flex items-center justify-between mb-1">
                 {h.type === 'page' ? (
                   <Link to={hitHref(h)} className="font-medium text-orenda-600 hover:underline">

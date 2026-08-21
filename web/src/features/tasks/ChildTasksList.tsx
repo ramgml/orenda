@@ -116,7 +116,7 @@ export function ChildTasksList({
 
       {progress.total > 0 && (
         <div className="mb-3">
-          <div className="h-1.5 rounded bg-slate-100 dark:bg-slate-800 overflow-hidden">
+          <div className="h-1.5 rounded bg-muted overflow-hidden">
             <div
               className="h-full bg-green-500 transition-all"
               style={{ width: `${pct}%` }}

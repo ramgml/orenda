@@ -399,7 +399,7 @@ export function KanbanBoard({
         <DragOverlay>{activeTask ? <TaskCard task={activeTask} /> : null}</DragOverlay>
       </DndContext>
       {selectedTaskIds.size > 0 && (
-        <div className="sticky bottom-3 z-20 rounded-lg border border-orenda-300 bg-white dark:bg-slate-900 shadow-lg p-3 flex flex-wrap items-center gap-2">
+        <div className="sticky bottom-3 z-20 rounded-lg border border-orenda-300 bg-card shadow-lg p-3 flex flex-wrap items-center gap-2">
           <strong className="text-sm">{selectedTaskIds.size} selected</strong>
           <Select value={bulkStatus} onValueChange={setBulkStatus}>
             <SelectTrigger
@@ -584,7 +584,7 @@ function AddColumnTile({
     <form
       onSubmit={submit}
       data-testid="add-column-form"
-      className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-3 flex flex-col gap-2 min-h-[200px]"
+      className="rounded-lg border border-border bg-slate-50 dark:bg-slate-900 p-3 flex flex-col gap-2 min-h-[200px]"
     >
       <Input
         autoFocus

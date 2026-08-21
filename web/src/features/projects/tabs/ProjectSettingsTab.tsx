@@ -119,7 +119,7 @@ export function ProjectSettingsTab(): JSX.Element {
         </div>
       )}
 
-      <section className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 space-y-3">
+      <section className="rounded border border-border bg-white dark:bg-slate-950 p-4 space-y-3">
         <h2 className="text-base font-semibold">Appearance</h2>
         <div className="flex items-center gap-3">
           <input
@@ -139,7 +139,7 @@ export function ProjectSettingsTab(): JSX.Element {
         </div>
       </section>
 
-      <section className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 space-y-3">
+      <section className="rounded border border-border bg-white dark:bg-slate-950 p-4 space-y-3">
         <h2 className="text-base font-semibold">Description</h2>
         <Textarea
           value={description}
@@ -155,7 +155,7 @@ export function ProjectSettingsTab(): JSX.Element {
         </div>
       </section>
 
-      <section className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 space-y-3">
+      <section className="rounded border border-border bg-white dark:bg-slate-950 p-4 space-y-3">
         <h2 className="text-base font-semibold">Wiki page</h2>
         <p className="text-sm text-slate-500">
           Link this project to its wiki page (постановка, decision log, roadmap slice). Leave empty
@@ -198,7 +198,7 @@ export function ProjectSettingsTab(): JSX.Element {
         </div>
       </section>
 
-      <section className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-4 space-y-3">
+      <section className="rounded border border-border bg-white dark:bg-slate-950 p-4 space-y-3">
         <h2 className="text-base font-semibold">Archive</h2>
         <p className="text-sm text-slate-500">
           Archived projects stay in the list but are hidden from the Kanban view. You can restore

@@ -47,7 +47,7 @@ export function LoginPage(): JSX.Element {
     <div className="min-h-[60vh] flex items-center justify-center">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-6 shadow-sm"
+        className="w-full max-w-sm rounded-lg border border-border bg-white dark:bg-slate-950 p-6 shadow-sm"
       >
         <h1 className="text-xl font-semibold mb-1">Sign in to Orenda</h1>
         <p className="text-sm text-slate-500 mb-4">
@@ -97,7 +97,7 @@ export function LoginPage(): JSX.Element {
 
         <p className="mt-4 text-xs text-slate-500">
           No account? Bootstrap one from the CLI:{' '}
-          <code className="px-1 py-0.5 bg-slate-100 dark:bg-slate-800 rounded">
+          <code className="px-1 py-0.5 bg-muted rounded">
             orenda user create --email … --display-name …
           </code>
         </p>

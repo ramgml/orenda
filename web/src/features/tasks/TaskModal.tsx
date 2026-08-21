@@ -119,7 +119,7 @@ export function TaskModal(): JSX.Element | null {
             if (e.target === e.currentTarget) close();
           }}
         >
-          <div className="bg-white dark:bg-slate-900 rounded-lg shadow-2xl max-w-4xl w-full my-auto relative">
+          <div className="bg-card rounded-lg shadow-2xl max-w-4xl w-full my-auto relative">
             <Button
               type="button"
               variant="ghost"

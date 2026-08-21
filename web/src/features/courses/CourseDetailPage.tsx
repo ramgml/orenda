@@ -169,7 +169,7 @@ export function CourseDetailPage(): JSX.Element {
       {course.pace_notes_md && (
         <details
           data-testid="course-pace-notes"
-          className="rounded border border-slate-200 dark:border-slate-800 p-3 text-sm bg-white dark:bg-slate-950"
+          className="rounded border border-border p-3 text-sm bg-white dark:bg-slate-950"
         >
           <summary className="cursor-pointer text-slate-700 dark:text-slate-200 font-medium">
             Pace notes (from the planner)
@@ -269,7 +269,7 @@ export function CourseDetailPage(): JSX.Element {
             return (
               <li
                 key={m.id}
-                className="rounded border border-slate-200 dark:border-slate-800 p-3 bg-white dark:bg-slate-950"
+                className="rounded border border-border p-3 bg-white dark:bg-slate-950"
               >
                 <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                   {m.title}

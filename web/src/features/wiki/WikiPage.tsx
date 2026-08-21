@@ -223,7 +223,7 @@ function WikiSidebar({
   }
 
   return (
-    <aside className="rounded border border-slate-200 dark:border-slate-800 p-3 overflow-auto max-h-[80vh] space-y-3">
+    <aside className="rounded border border-border p-3 overflow-auto max-h-[80vh] space-y-3">
       <form onSubmit={submitNewPage} className="space-y-1.5">
         <h2 className="text-sm font-semibold text-slate-500">New page</h2>
         <Input
@@ -343,7 +343,7 @@ function PageEditor({
 
       <div className="text-xs text-slate-500 font-mono">/wiki/{page.slug}</div>
 
-      <div className="border-b border-slate-200 dark:border-slate-800 flex">
+      <div className="border-b border-border flex">
         <TabBtn active={tab === 'preview'} onClick={() => setTab('preview')}>
           Preview
         </TabBtn>
@@ -363,7 +363,7 @@ function PageEditor({
           pages={pagesTree}
         />
       ) : tab === 'preview' ? (
-        <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-6 py-5 min-h-[300px]">
+        <div className="rounded border border-border bg-white dark:bg-slate-950 px-6 py-5 min-h-[300px]">
           {page.content_md ? (
             <article className="prose dark:prose-invert max-w-none text-sm">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{page.content_md}</ReactMarkdown>
@@ -383,7 +383,7 @@ function PageEditor({
       )}
 
       {backlinks.length > 0 && (
-        <section className="rounded border border-slate-200 dark:border-slate-800 p-3">
+        <section className="rounded border border-border p-3">
           <h3 className="text-sm font-semibold text-slate-500 mb-2">Backlinks</h3>
           <ul className="space-y-1 text-sm">
             {backlinks.map((b) => (
@@ -582,7 +582,7 @@ function TreeNode({
       )}
 
       {menuOpen && (
-        <div className="ml-6 my-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm p-2 text-xs space-y-1">
+        <div className="ml-6 my-1 rounded border border-slate-200 dark:border-slate-700 bg-card shadow-sm p-2 text-xs space-y-1">
           <Button
             type="button"
             onClick={() => {
@@ -753,7 +753,7 @@ function MoveTargetPicker({
   }, [currentNodeId]);
 
   return (
-    <div className="ml-6 my-1 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm p-2 text-xs">
+    <div className="ml-6 my-1 rounded border border-slate-200 dark:border-slate-700 bg-card shadow-sm p-2 text-xs">
       <div className="font-medium mb-1">Move to…</div>
       {err && <div className="text-red-600 mb-1">{err}</div>}
       <div className="max-h-48 overflow-auto space-y-0.5">

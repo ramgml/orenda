@@ -104,7 +104,7 @@ export function TimerWidget(): JSX.Element {
   return (
     <div className="fixed bottom-4 right-4 z-40">
       {active ? (
-        <div className="rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 w-72">
+        <div className="rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 bg-card p-3 w-72">
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
               <p className="text-xs text-slate-500 mb-1">Timer on</p>
@@ -123,7 +123,7 @@ export function TimerWidget(): JSX.Element {
           </div>
         </div>
       ) : (
-        <div className="rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-sm text-slate-500">
+        <div className="rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 bg-card p-3 text-sm text-slate-500">
           No active timer — start one from a task.
         </div>
       )}

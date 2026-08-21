@@ -62,7 +62,7 @@ describe('EmptyState', () => {
   it('carries dark variants', () => {
     const { container } = render(<EmptyState message="Nothing here." />);
     const el = container.firstElementChild;
-    expect(el?.className).toContain('dark:border-slate-800');
+    expect(el?.className).toContain('border-border');
     expect(el?.className).toContain('dark:text-slate-500');
   });
 });

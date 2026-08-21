@@ -157,7 +157,7 @@ export function AgentsPage(): JSX.Element {
       {creating && (
         <form
           onSubmit={onCreate}
-          className="mb-4 p-4 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 grid gap-2"
+          className="mb-4 p-4 rounded border border-border bg-white dark:bg-slate-950 grid gap-2"
         >
           <Input
             type="text"
@@ -212,7 +212,7 @@ export function AgentsPage(): JSX.Element {
       ) : (
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-slate-500 border-b border-slate-200 dark:border-slate-800">
+            <tr className="text-left text-slate-500 border-b border-border">
               <th className="py-2">Name</th>
               <th>Labels</th>
               <th>Status</th>

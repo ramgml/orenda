@@ -79,7 +79,7 @@ export function CoursesPage(): JSX.Element {
 
       <form
         onSubmit={(e) => void onCreate(e)}
-        className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950 space-y-2"
+        className="rounded border border-border p-4 bg-white dark:bg-slate-950 space-y-2"
       >
         <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
           Create a course
@@ -134,7 +134,7 @@ export function CoursesPage(): JSX.Element {
             <li
               key={c.id}
               data-testid="course-row"
-              className="rounded border border-slate-200 dark:border-slate-800 p-3 bg-white dark:bg-slate-950"
+              className="rounded border border-border p-3 bg-white dark:bg-slate-950"
             >
               <Link
                 to={`/courses/${c.id}`}
