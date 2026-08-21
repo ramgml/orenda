@@ -18,7 +18,7 @@
 2. Бампнуть `VERSION`.
 3. Локальные гейты (те же, что в pre-push hook, но с базой `main`):
    - `make lint-new BASE_REF=origin/main`
-   - `make test`
+   - `make test-full`
 4. Поздние фиксы из `dev` влить в релизную подготовку до PR (прецедент: merge-коммит `9c3d06b` в v0.3.0).
 
 ### 2. Промоушн `dev` → `main` через PR

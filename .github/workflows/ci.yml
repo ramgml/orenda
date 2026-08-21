@@ -10,7 +10,7 @@
 #     waiting on this runner
 #   - `workflow_dispatch` runs the full pipeline on demand
 #
-# Jobs (release gate only — push-to-dev backstop runs only `test`):
+# Jobs (release gate only — push-to-dev backstop runs only `test-full`):
 #   lint     — golangci-lint (new-vs-main on release-gate runs; full lint
 #              stays local as `make lint` debt inventory, Phase 30.16)
 #   test     — go test -race + vitest
@@ -157,12 +157,12 @@ jobs:
         working-directory: web
         run: npm ci
 
-      - name: "make test (full uncached run: go test -race -count=1 + vitest)"
-        # The CI backstop deliberately runs the FULL `make test` target
+      - name: "make test-full (full uncached run: go test -race -count=1 + vitest)"
+        # The CI backstop deliberately runs the full `make test-full` target
         # (-count=1 disables the Go test cache) — single source of truth
         # for the from-scratch suite. The local pre-push hook uses the
-        # cached `make test-gate` instead (wiki:ci-local-gates-hooks).
-        run: make test
+        # cached `make test` instead (wiki:ci-local-gates-hooks).
+        run: make test-full
 
   build:
     name: Build (binary with embedded SPA)
