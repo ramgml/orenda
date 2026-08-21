@@ -11,6 +11,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
 	"github.com/ramgml/orenda/internal/domain/wiki"
+	eventservice "github.com/ramgml/orenda/internal/service/event"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
 )
@@ -45,7 +46,8 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, user.ErrNotFound),
 		errors.Is(err, project.ErrNotFound),
 		errors.Is(err, task.ErrNotFound),
-		errors.Is(err, wiki.ErrNotFound):
+		errors.Is(err, wiki.ErrNotFound),
+		errors.Is(err, eventservice.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 	case errors.Is(err, user.ErrEmailTaken),
 		errors.Is(err, wiki.ErrSlugTaken),
@@ -56,7 +58,8 @@ func writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, task.ErrInvalidInput),
 		errors.Is(err, taskservice.ErrInvalidInput),
 		errors.Is(err, wiki.ErrInvalidInput),
-		errors.Is(err, wikiservice.ErrInvalidInput):
+		errors.Is(err, wikiservice.ErrInvalidInput),
+		errors.Is(err, eventservice.ErrInvalidInput):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
 	default:
 		if apiLogger != nil {
