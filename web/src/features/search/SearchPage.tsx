@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 
 import { TaskLink } from '@/features/tasks/TaskModal';
 import { api, type SearchHit } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 
 /**
  * /search — full-text search results across pages, tasks, comments.
@@ -56,21 +58,17 @@ export function SearchPage(): JSX.Element {
         }}
         className="flex gap-2 mb-4"
       >
-        <input
+        <Input
           name="search"
           type="text"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search pages, tasks, comments…"
-          className="flex-1 px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+          className="flex-1"
         />
-        <button
-          type="submit"
-          disabled={busy || !q.trim()}
-          className="px-4 py-2 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white"
-        >
+        <Button type="submit" disabled={busy || !q.trim()}>
           {busy ? 'Searching…' : 'Search'}
-        </button>
+        </Button>
       </form>
 
       {error && (

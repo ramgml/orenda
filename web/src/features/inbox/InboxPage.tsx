@@ -4,8 +4,11 @@ import { api, type Project, type Task } from '@/shared/api/client';
 import { TaskCard } from '@/features/projects/TaskCard';
 import { openTaskModal } from '@/features/tasks/TaskModal';
 import { queueUpdateTask } from '@/shared/offline/outbox';
+import { Button } from '@/shared/ui/button';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
+import { Textarea } from '@/shared/ui/textarea';
 
 /**
  * Inbox — flat list of unfiled tasks.
@@ -112,13 +115,13 @@ export function InboxPage(): JSX.Element {
       </header>
 
       <form onSubmit={(e) => void onQuickAdd(e)} className="flex gap-2 items-start">
-        <textarea
+        <Textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           rows={2}
           placeholder="What's on your mind?"
           disabled={busy}
-          className="flex-1 px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
+          className="flex-1 text-sm"
           onKeyDown={(e) => {
             // Cmd/Ctrl+Enter submits without a trailing newline.
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -127,13 +130,14 @@ export function InboxPage(): JSX.Element {
             }
           }}
         />
-        <button
+        <Button
           type="submit"
           disabled={busy || !draft.trim()}
-          className="px-3 py-2 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
+          size="sm"
+          className="px-3 py-2 h-auto text-sm"
         >
           Add
-        </button>
+        </Button>
       </form>
 
       {error && <ErrorBanner message={error} />}
@@ -191,28 +195,31 @@ function InboxRow({
       </div>
       <div className="flex flex-col gap-1 items-end shrink-0 pt-2">
         <label className="text-[10px] text-slate-500">File under</label>
-        <select
+        <Select
           value=""
-          onChange={(e) => {
-            const v = e.target.value;
+          onValueChange={(v) => {
             if (v) void onFile(task.id, v);
           }}
-          className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-xs"
         >
-          <option value="">— pick project —</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
+          <SelectTrigger className="h-7 w-auto min-w-[100px] text-xs px-2 py-0.5">
+            <SelectValue placeholder="— pick project —" />
+          </SelectTrigger>
+          <SelectContent>
+            {projects.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => void onDelete(task.id)}
-          className="text-[10px] text-red-600 hover:text-red-700"
+          className="text-[10px] text-red-600 hover:text-red-700 h-auto px-1 py-0"
         >
           delete
-        </button>
+        </Button>
       </div>
     </li>
   );

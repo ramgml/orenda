@@ -19,6 +19,8 @@
 import { Link } from 'react-router-dom';
 
 import type { Project } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { cn } from '@/shared/util/cn';
 
 interface SidebarProjectItemProps {
   project: Project;
@@ -129,8 +131,9 @@ export function SidebarProjectItem({
       </span>
 
       {showPin && (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={(e) => {
             // The link above is the more likely click target; suppress
             // navigation when the user explicitly pins/unpins.
@@ -141,14 +144,15 @@ export function SidebarProjectItem({
           title={pinned ? 'Unpin from sidebar' : 'Pin to top of sidebar'}
           aria-label={pinned ? 'Unpin project' : 'Pin project'}
           aria-pressed={pinned}
-          className={`shrink-0 h-5 w-5 flex items-center justify-center rounded text-xs transition ${
+          className={cn(
+            'shrink-0 h-5 w-5 text-xs transition p-0',
             pinned
               ? 'text-orenda-600 dark:text-orenda-400 opacity-100'
-              : 'text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-slate-500'
-          }`}
+              : 'text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-slate-500',
+          )}
         >
           ★
-        </button>
+        </Button>
       )}
     </div>
   );

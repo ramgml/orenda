@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { api, type TimeReport } from '@/shared/api/client';
+import { Input } from '@/shared/ui/input';
 
 /**
  * /reports — time aggregation per task over a window.
@@ -59,20 +60,20 @@ export function ReportsPage(): JSX.Element {
       <div className="flex items-end gap-2 text-sm">
         <label className="block">
           <span className="block text-slate-500 text-xs">From</span>
-          <input
+          <Input
             type="date"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
-            className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+            className="h-9 text-sm"
           />
         </label>
         <label className="block">
           <span className="block text-slate-500 text-xs">To</span>
-          <input
+          <Input
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+            className="h-9 text-sm"
           />
         </label>
         <div className="ml-auto text-xs text-slate-500">
