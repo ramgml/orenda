@@ -65,7 +65,8 @@ make dev
 Validate the codebase before opening a PR:
 
 ```bash
-make test              # Go + vitest (246 tests, ~5s)
+make test              # Go + vitest (cached, fast)
+make test-full         # Full uncached run (CI backstop / release gate)
 make lint-new          # golangci-lint on NEW code only (what pre-push gates)
 make lint              # full lint (golangci-lint + eslint) — surfaces pre-existing debt
 make test-e2e          # Playwright against a fresh embedded build on :21371 (18 tests / 13 specs)
