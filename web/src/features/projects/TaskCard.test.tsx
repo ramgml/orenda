@@ -328,6 +328,7 @@ describe('TaskCard', () => {
     // Visible label uses the first 6 chars of the id, like before.
     expect(chip.textContent).toContain('agent-');
   });
+
   // Task #31: cards overflowed their column on narrow viewports /
   // long unbroken titles. The fix pins two classes on the card:
   // `w-full min-w-0` on the root (a flex item of the row <li>, so it
@@ -368,5 +369,133 @@ describe('TaskCard', () => {
     expect(chip).toBeTruthy();
     expect(chip.className).toMatch(/\bmin-w-0\b/);
     expect(chip.className).toMatch(/\bmax-w-full\b/);
+  });
+
+  // Task #34: the assignee chip used to live in the title row, where
+  // a long agent name (Phase 28.19's labels) compressed the title
+  // into a narrow column. The chip now sits at the bottom of the card
+  // so the title gets the full width. These tests pin the new layout.
+
+  /**
+   * Walk up from the title text node to the row that used to host the
+   * assignee chip (`<div className="flex items-start gap-1">`). We
+   * anchor on the title text rather than a Tailwind class selector so
+   * the test fails loudly if the row's structure ever changes — a class
+   * query would silently keep matching whatever happens to carry those
+   * classes, masking real regressions.
+   */
+  function getTitleRow(container: HTMLElement): HTMLElement {
+    const iter = document.createNodeIterator(container, NodeFilter.SHOW_TEXT);
+    let node: Node | null;
+    while ((node = iter.nextNode())) {
+      if (node.textContent === 'Sample task') {
+        // text → <div className="text-slate-800 …"> → <div className="flex-1 min-w-0">
+        //     → <div className="flex items-start gap-1">   ← title row
+        let el: HTMLElement | null = node.parentElement;
+        for (let i = 0; i < 3 && el; i++) el = el.parentElement;
+        if (!el) throw new Error('TaskCard title row not found');
+        return el;
+      }
+    }
+    throw new Error('Sample task text not found in DOM');
+  }
+
+  /**
+   * The detailed badge row carries the class signature
+   * `flex items-center gap-2 mt-1.5 flex-wrap text-[10px]`. We anchor
+   * on it directly because it has a single, unambiguous role in the
+   * card, so a class query is safe (and the assertion that follows
+   * fails noisily if the class set ever drifts).
+   */
+  function getDetailedBadgesRow(container: HTMLElement): HTMLElement {
+    const row = container.querySelector(
+      '.flex.items-center.gap-2.mt-1\\.5.flex-wrap.text-\\[10px\\]',
+    );
+    if (!row) throw new Error('TaskCard detailed badges row not found');
+    return row as HTMLElement;
+  }
+
+  it('does not place the assignee chip in the title row (Task #34)', () => {
+    const { container } = render(
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard
+              task={{
+                ...makeTask(),
+                assignee_type: 'agent',
+                assignee_id: 'agent-qwen-alpha',
+              }}
+            />
+          </DndContext>
+        </MemoryRouter>,
+      ),
+    );
+    const chip = container.querySelector('[data-testid="assignee-agent"]') as HTMLElement;
+    expect(chip).toBeTruthy();
+    // The chip must NOT be a descendant of the title row — a long
+    // agent name used to live there and squeezed the title.
+    expect(getTitleRow(container).contains(chip)).toBe(false);
+    // And it MUST be a descendant of the detailed badges row.
+    expect(getDetailedBadgesRow(container).contains(chip)).toBe(true);
+  });
+
+  it('keeps the assignee chip visible in compact mode (Task #34)', () => {
+    // Compact mode is persisted in localStorage; seed it before render.
+    window.localStorage.setItem('orenda.kanban.cardDensity', 'compact');
+    try {
+      const { container } = render(
+        withQuery(
+          <MemoryRouter>
+            <DndContext>
+              <TaskCard
+                task={{
+                  ...makeTask(),
+                  assignee_type: 'agent',
+                  assignee_id: 'agent-qwen-alpha',
+                }}
+              />
+            </DndContext>
+          </MemoryRouter>,
+        ),
+      );
+      // In compact mode the detailed badges row is hidden — the
+      // assignee chip re-mounts on its own line so the assignee
+      // signal stays visible.
+      expect(container.querySelector('.flex.items-center.gap-2.mt-1\\.5.flex-wrap')).toBeNull();
+      const chip = container.querySelector('[data-testid="assignee-agent"]') as HTMLElement;
+      expect(chip).toBeTruthy();
+      // And it must NOT be inside the title row either — that was
+      // the old layout we explicitly moved away from.
+      expect(getTitleRow(container).contains(chip)).toBe(false);
+    } finally {
+      window.localStorage.removeItem('orenda.kanban.cardDensity');
+    }
+  });
+
+  it('renders the user assignee chip alongside the agent chip placement (Task #34)', () => {
+    // Same structural contract for the user-avatar branch: it must
+    // move out of the title row too, so the avatar is consistent with
+    // where the agent chip now lives (and doesn't add a stray
+    // fixed-size circle to the title row at compact density).
+    const { container } = render(
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard
+              task={{
+                ...makeTask(),
+                assignee_type: 'user',
+                assignee_id: 'abc-def-ghi',
+              }}
+            />
+          </DndContext>
+        </MemoryRouter>,
+      ),
+    );
+    const chip = container.querySelector('[data-testid="assignee-user"]') as HTMLElement;
+    expect(chip).toBeTruthy();
+    expect(getTitleRow(container).contains(chip)).toBe(false);
+    expect(getDetailedBadgesRow(container).contains(chip)).toBe(true);
   });
 });
