@@ -89,16 +89,14 @@ func savePageHandler(deps *Dependencies) http.HandlerFunc {
 			if existing, err := deps.WikiService.GetBySlug(r.Context(), resolved); err == nil && existing != nil {
 				p.ID = existing.ID
 			}
-		} else {
+		} else if wiki.IsWRefFormat(p.Slug) {
 			// POST /pages: reject W<digits> as a slug — W-refs are
 			// resolution-only, slugs remain the canonical identifier
 			// for [[links]].
-			if wiki.IsWRefFormat(p.Slug) {
-				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
-					"error": "slug_conflicts_with_w_ref",
-				})
-				return
-			}
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+				"error": "slug_conflicts_with_w_ref",
+			})
+			return
 		}
 		got, err := deps.WikiService.Save(r.Context(), p)
 		if err != nil {
