@@ -272,7 +272,7 @@ function WikiSidebar({
 
 function EmptyState(): JSX.Element {
   return (
-    <div className="rounded border border-dashed border dark:border-border p-8 text-center text-slate-500">
+    <div className="rounded border border-dashed border-border p-8 text-center text-slate-500">
       <p className="text-lg mb-1">No page selected</p>
       <p className="text-sm">
         Pick a page from the tree, or type a slug in <em>New page</em> on the left to create one.
@@ -363,7 +363,7 @@ function PageEditor({
           pages={pagesTree}
         />
       ) : tab === 'preview' ? (
-        <div className="rounded border border-border bg-background dark:bg-background px-6 py-5 min-h-[300px]">
+        <div className="rounded border border-border bg-background px-6 py-5 min-h-[300px]">
           {page.content_md ? (
             <article className="prose dark:prose-invert max-w-none text-sm">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{page.content_md}</ReactMarkdown>
@@ -582,7 +582,7 @@ function TreeNode({
       )}
 
       {menuOpen && (
-        <div className="ml-6 my-1 rounded border border dark:border-border bg-card shadow-sm p-2 text-xs space-y-1">
+        <div className="ml-6 my-1 rounded border border-border bg-card shadow-sm p-2 text-xs space-y-1">
           <Button
             type="button"
             onClick={() => {
@@ -753,7 +753,7 @@ function MoveTargetPicker({
   }, [currentNodeId]);
 
   return (
-    <div className="ml-6 my-1 rounded border border dark:border-border bg-card shadow-sm p-2 text-xs">
+    <div className="ml-6 my-1 rounded border border-border bg-card shadow-sm p-2 text-xs">
       <div className="font-medium mb-1">Move to…</div>
       {err && <div className="text-red-600 mb-1">{err}</div>}
       <div className="max-h-48 overflow-auto space-y-0.5">

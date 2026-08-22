@@ -97,20 +97,14 @@ export function ProjectAttachmentsTab(): JSX.Element {
         className={`rounded border-2 border-dashed p-6 text-center text-sm cursor-pointer transition ${
           dragOver
             ? 'border-orenda-500 bg-orenda-50 dark:bg-orenda-900/20'
-            : 'border dark:border-border hover:border-orenda-400'
+            : 'border-border hover:border-orenda-400'
         }`}
       >
         {busy ? 'Uploading…' : 'Drop files here or click to upload'}
         <div className="mt-1 text-xs text-slate-500">
           You can also paste a screenshot from the clipboard with{' '}
-          <kbd className="px-1 py-0.5 rounded border border dark:border-border font-mono text-[10px]">
-            Ctrl
-          </kbd>
-          +
-          <kbd className="px-1 py-0.5 rounded border border dark:border-border font-mono text-[10px]">
-            V
-          </kbd>
-          .
+          <kbd className="px-1 py-0.5 rounded border border-border font-mono text-[10px]">Ctrl</kbd>
+          +<kbd className="px-1 py-0.5 rounded border border-border font-mono text-[10px]">V</kbd>.
         </div>
         <input
           ref={fileInputRef}
@@ -127,7 +121,7 @@ export function ProjectAttachmentsTab(): JSX.Element {
       {items && items.length === 0 ? (
         <p className="text-sm text-slate-500">No attachments yet.</p>
       ) : (
-        <ul className="divide-y divide-border dark:divide-border rounded border border-border bg-background dark:bg-background">
+        <ul className="divide-y divide-border rounded border border-border bg-background">
           {(items ?? []).map((a) => (
             <li key={a.id} className="px-3 py-2 flex items-center gap-3 text-sm">
               <span className="font-medium truncate flex-1">
@@ -145,7 +139,7 @@ export function ProjectAttachmentsTab(): JSX.Element {
                 download
                 target="_blank"
                 rel="noopener"
-                className="text-xs px-2 py-1 rounded border border dark:border-border hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="text-xs px-2 py-1 rounded border border-border hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 Download
               </a>

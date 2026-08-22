@@ -289,7 +289,7 @@ export function BackupsSettingsPage(): JSX.Element {
         </div>
       )}
 
-      <div className="rounded border border-border p-4 bg-background dark:bg-background space-y-3">
+      <div className="rounded border border-border p-4 bg-background space-y-3">
         <h2 className="font-semibold">Settings</h2>
         {settings ? (
           <div className="space-y-3 text-sm">
@@ -412,7 +412,7 @@ export function BackupsSettingsPage(): JSX.Element {
         </Button>
       </div>
 
-      <div className="rounded border border-border p-4 bg-background dark:bg-background">
+      <div className="rounded border border-border p-4 bg-background">
         <h2 className="font-semibold mb-2">Snapshots ({snapshots.length})</h2>
         {/* Phase 30.9: status line — count + latest snapshot timestamp
             without having to scroll the snapshot list. Pulled from
@@ -460,7 +460,7 @@ export function BackupsSettingsPage(): JSX.Element {
         )}
       </div>
 
-      <div className="rounded border border-border p-4 bg-background dark:bg-background">
+      <div className="rounded border border-border p-4 bg-background">
         <h2 className="font-semibold mb-2">Log</h2>
         {log.length === 0 ? (
           <p className="text-slate-500 text-sm">No log entries yet.</p>

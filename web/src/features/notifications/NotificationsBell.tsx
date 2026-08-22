@@ -99,8 +99,8 @@ export function NotificationsBell(): JSX.Element {
       </Button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-80 rounded-lg border border dark:border-border bg-card shadow-xl z-50">
-          <div className="px-3 py-2 border-b border-border dark:border-border text-xs text-slate-500">
+        <div className="absolute right-0 mt-2 w-80 rounded-lg border border-border bg-card shadow-xl z-50">
+          <div className="px-3 py-2 border-b border-border text-xs text-slate-500">
             {unread} unread
           </div>
           {error && <p className="px-3 py-2 text-xs text-red-600">{error}</p>}

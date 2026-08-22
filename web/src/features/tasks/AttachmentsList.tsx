@@ -78,14 +78,9 @@ export function AttachmentsList({
       </h2>
       <p className="text-xs text-slate-400 mb-2">
         Drop a file, click <span className="font-medium">+ Upload</span>, or press{' '}
-        <kbd className="px-1 py-0.5 rounded border border dark:border-border font-mono text-[10px]">
-          Ctrl
-        </kbd>
-        +
-        <kbd className="px-1 py-0.5 rounded border border dark:border-border font-mono text-[10px]">
-          V
-        </kbd>{' '}
-        to paste a screenshot from the clipboard.
+        <kbd className="px-1 py-0.5 rounded border border-border font-mono text-[10px]">Ctrl</kbd>+
+        <kbd className="px-1 py-0.5 rounded border border-border font-mono text-[10px]">V</kbd> to
+        paste a screenshot from the clipboard.
       </p>
       <Input ref={inputRef} type="file" className="hidden" onChange={onPick} disabled={busy} />
       {err && <p className="text-xs text-red-600 mb-2">{err}</p>}

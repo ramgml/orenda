@@ -99,7 +99,7 @@ export function TaskCard({
       {...listeners}
       style={stripeStyle}
       data-testid="task-card"
-      className={`w-full min-w-0 rounded border border-l-4 border dark:border-border bg-background dark:bg-background p-2 text-sm cursor-grab select-none ${priorityBorder} ${
+      className={`w-full min-w-0 rounded border border-l-4 border-border bg-background p-2 text-sm cursor-grab select-none ${priorityBorder} ${
         isDragging ? 'opacity-40 border-orenda-500' : ''
       }`}
     >
@@ -114,7 +114,7 @@ export function TaskCard({
               child
             </span>
           )}
-          <div className="text-foreground dark:text-foreground">
+          <div className="text-foreground">
             <TaskNumberChip number={task.number} />{' '}
             <span className="break-words">{task.title}</span>
           </div>

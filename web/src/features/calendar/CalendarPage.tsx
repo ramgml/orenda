@@ -311,7 +311,7 @@ export function CalendarPage(): JSX.Element {
 
         {error && <ErrorBanner message={error} />}
 
-        <div className="rounded border border-border bg-background dark:bg-background p-2 h-[75vh] calendar-shell">
+        <div className="rounded border border-border bg-background p-2 h-[75vh] calendar-shell">
           <CalendarErrorBoundary>
             <DnDCalendar
               localizer={localizer}
@@ -504,15 +504,13 @@ function Toolbar({
       </div>
 
       <div className="flex items-center gap-2">
-        <div className="hidden sm:flex rounded border border dark:border-border overflow-hidden text-sm">
+        <div className="hidden sm:flex rounded border border-border overflow-hidden text-sm">
           {(['day', 'week', 'month'] as View[]).map((v, i) => (
             <button
               key={v}
               type="button"
               onClick={() => onView(v)}
-              className={`px-3 py-1.5 capitalize ${
-                i > 0 ? 'border-l border dark:border-border' : ''
-              } ${
+              className={`px-3 py-1.5 capitalize ${i > 0 ? 'border-l border-border' : ''} ${
                 view === v
                   ? 'bg-orenda-100 dark:bg-orenda-900/30 text-orenda-700 dark:text-orenda-300'
                   : 'hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -602,7 +600,7 @@ function MiniCalendar({
   const today = new Date();
 
   return (
-    <div className="rounded border border-border bg-background dark:bg-background p-2 text-sm">
+    <div className="rounded border border-border bg-background p-2 text-sm">
       <div className="flex items-center justify-between mb-2">
         <Button
           type="button"
@@ -654,7 +652,7 @@ function MiniCalendar({
                   : isToday
                     ? 'bg-orenda-100 dark:bg-orenda-900/30 text-orenda-700 dark:text-orenda-300'
                     : inMonth
-                      ? 'hover:bg-slate-100 dark:hover:bg-slate-800 text-foreground dark:text-foreground'
+                      ? 'hover:bg-slate-100 dark:hover:bg-slate-800 text-foreground'
                       : 'text-slate-300 dark:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >

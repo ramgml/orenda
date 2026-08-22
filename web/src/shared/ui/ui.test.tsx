@@ -27,7 +27,8 @@ describe('Loading', () => {
     render(<Loading label="Fetching tasks…" />);
     const el = screen.getByText('Fetching tasks…');
     expect(el.className).toContain('italic');
-    expect(el.className).toContain('dark:text-muted-foreground');
+    // dark:text-muted-foreground is a no-op twin (token is CSS-var-aware)
+    expect(el.className).toContain('text-muted-foreground');
   });
 });
 
@@ -63,6 +64,7 @@ describe('EmptyState', () => {
     const { container } = render(<EmptyState message="Nothing here." />);
     const el = container.firstElementChild;
     expect(el?.className).toContain('border-border');
-    expect(el?.className).toContain('dark:text-muted-foreground');
+    // dark:text-muted-foreground is a no-op twin (token is CSS-var-aware)
+    expect(el?.className).toContain('text-muted-foreground');
   });
 });

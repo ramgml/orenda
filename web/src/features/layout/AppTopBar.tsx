@@ -25,7 +25,7 @@ function HamburgerButton({ onClick }: { onClick: () => void }): JSX.Element {
       size="icon"
       onClick={onClick}
       aria-label="Open navigation"
-      className="md:hidden h-8 w-8 text-muted-foreground dark:text-muted-foreground"
+      className="md:hidden h-8 w-8 text-muted-foreground"
     >
       <span
         aria-hidden
@@ -43,7 +43,7 @@ interface AppTopBarProps {
 export function AppTopBar({ onMobileMenuClick }: AppTopBarProps): JSX.Element {
   const { user, logout } = useAuth();
   return (
-    <header className="h-12 border-b border-border bg-background dark:bg-background flex items-center justify-between gap-3 px-4">
+    <header className="h-12 border-b border-border bg-background flex items-center justify-between gap-3 px-4">
       <div className="flex items-center gap-2">
         {onMobileMenuClick && <HamburgerButton onClick={onMobileMenuClick} />}
         <Link to="/" className="flex items-center gap-2 font-semibold md:hidden">
@@ -51,7 +51,7 @@ export function AppTopBar({ onMobileMenuClick }: AppTopBarProps): JSX.Element {
           Orenda
         </Link>
       </div>
-      <div className="flex items-center gap-3 text-sm text-muted-foreground dark:text-muted-foreground">
+      <div className="flex items-center gap-3 text-sm text-muted-foreground">
         <NotificationsBell />
         <HealthBadge />
         <ThemeToggle />

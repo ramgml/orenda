@@ -151,7 +151,7 @@ export function QuickCapture() {
           {created ? (
             <div className="space-y-3" data-testid="quick-capture-toast">
               <p className="text-sm text-emerald-700">✓ Captured to Inbox</p>
-              <p className="text-foreground dark:text-foreground">{created.title}</p>
+              <p className="text-foreground">{created.title}</p>
               <div className="flex gap-2">
                 <Button size="sm" onClick={openTaskAndClose} className="px-3 py-1.5 h-auto text-sm">
                   Open task

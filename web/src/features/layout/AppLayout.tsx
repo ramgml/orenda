@@ -101,7 +101,7 @@ function AppLayoutInner(): JSX.Element {
  */
 function MobileSidebar({ onClose }: { onClose: () => void }): JSX.Element {
   return (
-    <div className="relative h-screen w-72 bg-muted dark:bg-muted border-r border-border flex flex-col">
+    <div className="relative h-screen w-72 bg-muted border-r border-border flex flex-col">
       <div className="h-12 border-b border-border flex items-center justify-between px-4">
         <span className="font-semibold">Navigation</span>
         <Button

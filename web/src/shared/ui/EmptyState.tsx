@@ -21,7 +21,7 @@ export function EmptyState({
 }): JSX.Element {
   return (
     <div
-      className={`rounded border border-border p-6 text-center text-muted-foreground dark:text-muted-foreground ${className}`.trim()}
+      className={`rounded border border-border p-6 text-center text-muted-foreground ${className}`.trim()}
     >
       {icon && <p className="text-2xl mb-2">{icon}</p>}
       <p className="text-sm">{message}</p>

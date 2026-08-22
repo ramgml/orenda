@@ -11,11 +11,5 @@ export function Loading({
   label?: string;
   className?: string;
 }): JSX.Element {
-  return (
-    <p
-      className={`text-sm text-muted-foreground dark:text-muted-foreground italic ${className}`.trim()}
-    >
-      {label}
-    </p>
-  );
+  return <p className={`text-sm text-muted-foreground italic ${className}`.trim()}>{label}</p>;
 }

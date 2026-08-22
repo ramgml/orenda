@@ -34,7 +34,7 @@ export function ThemeToggle(): JSX.Element {
     <button
       type="button"
       onClick={() => setDark((v) => !v)}
-      className="px-2 py-1 rounded text-xs border border dark:border-border"
+      className="px-2 py-1 rounded text-xs border border-border"
       aria-label="Toggle theme"
       title="Toggle dark/light theme"
     >
