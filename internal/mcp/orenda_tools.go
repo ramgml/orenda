@@ -300,7 +300,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_pages_get",
-		Description: "Fetch a wiki page by slug (title + markdown content).",
+		Description: "Fetch a wiki page by slug or W-ref (e.g. 'W15'). Title + markdown content.",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"slug"},
@@ -319,7 +319,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_pages_save",
-		Description: "Create or update a wiki page (upsert by slug). Markdown content; [[slug]] links are indexed automatically.",
+		Description: "Create or update a wiki page (upsert by slug). W<digits> slugs are rejected (use the real slug). Markdown content; [[slug]] links are indexed automatically.",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"slug", "title"},
@@ -350,7 +350,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_pages_delete",
-		Description: "Delete a wiki page by slug (children cascade).",
+		Description: "Delete a wiki page by slug or W-ref (e.g. 'W15'). Children cascade.",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"slug"},
@@ -369,7 +369,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_pages_move",
-		Description: "Move a wiki page under a new parent (empty parent_id = root).",
+		Description: "Move a wiki page by slug or W-ref (e.g. 'W15') under a new parent (empty parent_id = root).",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"slug", "parent_id"},
