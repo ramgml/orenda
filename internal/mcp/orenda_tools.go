@@ -151,7 +151,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 					body[k] = v
 				}
 			}
-			return agentPatch(ctx, httpc, cfg, "/api/v1/agent/tasks/"+id, body)
+			return agentPatch(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id), body)
 		},
 	})
 
@@ -170,7 +170,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			if id == "" {
 				return nil, fmt.Errorf("orenda_task_retract: task_id is required")
 			}
-			return agentDelete(ctx, httpc, cfg, "/api/v1/agent/tasks/"+id)
+			return agentDelete(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id))
 		},
 	})
 
@@ -189,7 +189,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			if id == "" {
 				return nil, fmt.Errorf("orenda_claim: task_id is required")
 			}
-			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+id+"/claim", nil)
+			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/claim", nil)
 		},
 	})
 
@@ -208,7 +208,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			if id == "" {
 				return nil, fmt.Errorf("orenda_release: task_id is required")
 			}
-			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+id+"/release", nil)
+			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/release", nil)
 		},
 	})
 
@@ -232,7 +232,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			if n, _ := params["note"].(string); n != "" {
 				body["note"] = n
 			}
-			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+id+"/submit", body)
+			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/submit", body)
 		},
 	})
 
@@ -251,7 +251,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			if id == "" {
 				return nil, fmt.Errorf("orenda_context: task_id is required")
 			}
-			return agentGet(ctx, httpc, cfg, "/api/v1/agent/tasks/"+id+"/context")
+			return agentGet(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/context")
 		},
 	})
 
