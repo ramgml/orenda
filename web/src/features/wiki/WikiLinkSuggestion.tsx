@@ -227,7 +227,7 @@ const SuggestionList = forwardRef<SuggestionListHandle, SuggestionRenderProps>(
       return createPortal(
         <div
           data-testid="wiki-link-suggestion"
-          className="rounded border border-slate-200 dark:border-slate-700 bg-card shadow-lg px-3 py-2 text-xs text-slate-500"
+          className="rounded border border-border bg-card shadow-lg px-3 py-2 text-xs text-slate-500"
         >
           No matching pages.
         </div>,
@@ -238,7 +238,7 @@ const SuggestionList = forwardRef<SuggestionListHandle, SuggestionRenderProps>(
     return createPortal(
       <div
         data-testid="wiki-link-suggestion"
-        className="rounded border border-slate-200 dark:border-slate-700 bg-card shadow-lg py-1 text-sm min-w-[180px] max-w-[320px]"
+        className="rounded border border-border bg-card shadow-lg py-1 text-sm min-w-[180px] max-w-[320px]"
         role="listbox"
       >
         {items.map((item, idx) => (

@@ -100,7 +100,7 @@ export function SearchPage(): JSX.Element {
                 </span>
               </div>
               <p
-                className="text-sm text-slate-700 dark:text-slate-300"
+                className="text-sm text-foreground"
                 dangerouslySetInnerHTML={{ __html: h.snippet }}
               />
             </li>

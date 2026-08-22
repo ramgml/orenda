@@ -154,9 +154,7 @@ export function CourseDetailPage(): JSX.Element {
           <span className="font-mono">{course.pace}</span>
         </p>
         {course.intent_md && (
-          <p className="text-sm text-slate-600 dark:text-slate-300 mt-3 italic">
-            "{course.intent_md}"
-          </p>
+          <p className="text-sm text-muted-foreground mt-3 italic">"{course.intent_md}"</p>
         )}
       </header>
 
@@ -169,12 +167,12 @@ export function CourseDetailPage(): JSX.Element {
       {course.pace_notes_md && (
         <details
           data-testid="course-pace-notes"
-          className="rounded border border-border p-3 text-sm bg-white dark:bg-slate-950"
+          className="rounded border border-border p-3 text-sm bg-background"
         >
-          <summary className="cursor-pointer text-slate-700 dark:text-slate-200 font-medium">
+          <summary className="cursor-pointer text-foreground font-medium">
             Pace notes (from the planner)
           </summary>
-          <pre className="mt-2 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-400 font-sans">
+          <pre className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground font-sans">
             {course.pace_notes_md}
           </pre>
         </details>
@@ -267,13 +265,8 @@ export function CourseDetailPage(): JSX.Element {
           {modules.map((m) => {
             const ls = lessonsByModule.get(m.id) ?? [];
             return (
-              <li
-                key={m.id}
-                className="rounded border border-border p-3 bg-white dark:bg-slate-950"
-              >
-                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  {m.title}
-                </h3>
+              <li key={m.id} className="rounded border border-border p-3 bg-background">
+                <h3 className="text-sm font-semibold text-foreground">{m.title}</h3>
                 {m.description && <p className="text-xs text-slate-500 mt-1">{m.description}</p>}
                 <ul className="mt-2 space-y-1">
                   {ls.map((l) => {
@@ -289,7 +282,7 @@ export function CourseDetailPage(): JSX.Element {
                           className={
                             l.status === 'locked'
                               ? 'text-slate-400'
-                              : 'text-slate-800 dark:text-slate-100 hover:underline'
+                              : 'text-foreground hover:underline'
                           }
                         >
                           {l.status === 'locked' && '🔒 '}

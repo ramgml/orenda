@@ -157,7 +157,7 @@ export function AgentsPage(): JSX.Element {
       {creating && (
         <form
           onSubmit={onCreate}
-          className="mb-4 p-4 rounded border border-border bg-white dark:bg-slate-950 grid gap-2"
+          className="mb-4 p-4 rounded border border-border bg-background grid gap-2"
         >
           <Input
             type="text"
@@ -223,7 +223,7 @@ export function AgentsPage(): JSX.Element {
           </thead>
           <tbody>
             {agents.map((a) => (
-              <tr key={a.id} className="border-b border-slate-100 dark:border-slate-800">
+              <tr key={a.id} className="border-b border-border">
                 <td className="py-2 font-mono">{a.name}</td>
                 <td>
                   {a.type.length === 0 ? (
@@ -294,7 +294,7 @@ interface ChipsInputProps {
  */
 function ChipsInput(props: ChipsInputProps): JSX.Element {
   return (
-    <div className="flex flex-wrap items-center gap-1 px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent focus-within:border-orenda-500">
+    <div className="flex flex-wrap items-center gap-1 px-2 py-1.5 rounded border border-border bg-transparent focus-within:border-orenda-500">
       {props.chips.map((label) => (
         <span
           key={label}

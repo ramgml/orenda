@@ -386,7 +386,7 @@ function SortableLessonRow(props: {
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       data-testid="editor-lesson"
-      className={`space-y-1 rounded bg-slate-50 dark:bg-slate-900 p-2 ${isDragging ? 'opacity-50' : ''}`}
+      className={`space-y-1 rounded bg-muted p-2 ${isDragging ? 'opacity-50' : ''}`}
     >
       <div className="flex gap-2">
         <button
@@ -425,7 +425,7 @@ function SortableLessonRow(props: {
         rows={2}
         className="text-xs"
       />
-      <div className="pl-2 border-l border-slate-200 dark:border-slate-700">
+      <div className="pl-2 border-l border-border">
         <ul className="space-y-1">
           {l.quizzes.map((q) => (
             <li key={q.id} className="space-y-1" data-testid="editor-quiz">
@@ -502,7 +502,7 @@ function SortableModuleRow(props: { m: EditorModule; h: RowHandlers }): JSX.Elem
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       data-testid="editor-module"
-      className={`rounded border border-border p-3 bg-white dark:bg-slate-950 space-y-2 ${isDragging ? 'opacity-50' : ''}`}
+      className={`rounded border border-border p-3 bg-background space-y-2 ${isDragging ? 'opacity-50' : ''}`}
     >
       <div className="flex gap-2">
         <button

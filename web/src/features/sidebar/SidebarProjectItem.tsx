@@ -91,7 +91,7 @@ export function SidebarProjectItem({
       className={`group relative flex items-center gap-2 rounded px-2 py-1.5 text-sm ${
         active
           ? 'bg-muted text-slate-900 dark:text-slate-50'
-          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          : 'text-foreground hover:bg-slate-100 dark:hover:bg-slate-800'
       }`}
     >
       {/* Left accent strip — projects feel like a navigation rail. */}
@@ -114,7 +114,7 @@ export function SidebarProjectItem({
         <span className="truncate">{project.name}</span>
         {isSystem && (
           <span
-            className="text-[9px] uppercase tracking-wide px-1 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 shrink-0"
+            className="text-[9px] uppercase tracking-wide px-1 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-muted-foreground shrink-0"
             title="System project — always present"
           >
             System
@@ -123,7 +123,7 @@ export function SidebarProjectItem({
       </Link>
 
       <span
-        className="text-[11px] tabular-nums text-slate-400 dark:text-slate-500 min-w-[1.25rem] text-right shrink-0"
+        className="text-[11px] tabular-nums text-muted-foreground min-w-[1.25rem] text-right shrink-0"
         title={`${openTaskCount ?? 0} open ${inboxLink ? 'inbox tasks' : 'tasks'}`}
         aria-label={`${openTaskCount ?? 0} open ${inboxLink ? 'inbox tasks' : 'tasks'}`}
       >

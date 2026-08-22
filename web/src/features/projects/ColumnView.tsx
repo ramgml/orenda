@@ -108,7 +108,7 @@ export function ColumnView({
   return (
     <div
       ref={setNodeRef}
-      className={`rounded-lg border bg-slate-50 dark:bg-slate-900 p-3 flex flex-col min-h-[200px] transition-colors ${
+      className={`rounded-lg border bg-muted p-3 flex flex-col min-h-[200px] transition-colors ${
         isOver
           ? 'border-orenda-500 bg-orenda-50 dark:bg-orenda-900/20'
           : atLimit
@@ -137,10 +137,10 @@ export function ColumnView({
             aria-hidden="true"
             data-testid="column-color-dot"
             data-column-color={color ?? ''}
-            className="inline-block w-2.5 h-2.5 rounded-full border border-slate-300/60 dark:border-slate-700/60"
+            className="inline-block w-2.5 h-2.5 rounded-full border border-border/60"
             style={{ backgroundColor: color || '#94a3b8' }}
           />
-          <h2 className="font-medium text-sm uppercase tracking-wide text-slate-600 dark:text-slate-300">
+          <h2 className="font-medium text-sm uppercase tracking-wide text-muted-foreground">
             {name}
           </h2>
         </div>
@@ -417,7 +417,7 @@ function EditColumnModal({
               type="color"
               value={color}
               onChange={(e) => setColor(e.target.value)}
-              className="mt-1 block w-12 h-8 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+              className="mt-1 block w-12 h-8 rounded border border-border bg-transparent"
             />
           </label>
           <label className="block text-sm">

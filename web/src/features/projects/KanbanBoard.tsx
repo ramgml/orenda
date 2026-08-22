@@ -564,7 +564,7 @@ function AddColumnTile({
         type="button"
         onClick={() => setOpen(true)}
         data-testid="add-column-tile"
-        className="rounded-lg border border-dashed border-slate-300 dark:border-slate-700 bg-transparent hover:bg-slate-50 dark:hover:bg-slate-900 text-xs text-slate-500 hover:text-orenda-600 min-h-[200px] flex items-center justify-center"
+        className="rounded-lg border border-dashed border-border bg-transparent hover:bg-slate-50 dark:hover:bg-slate-900 text-xs text-slate-500 hover:text-orenda-600 min-h-[200px] flex items-center justify-center"
       >
         + Add column
       </button>
@@ -575,7 +575,7 @@ function AddColumnTile({
     <form
       onSubmit={submit}
       data-testid="add-column-form"
-      className="rounded-lg border border-border bg-slate-50 dark:bg-slate-900 p-3 flex flex-col gap-2 min-h-[200px]"
+      className="rounded-lg border border-border bg-muted p-3 flex flex-col gap-2 min-h-[200px]"
     >
       <Input
         autoFocus
@@ -590,7 +590,7 @@ function AddColumnTile({
           type="color"
           value={color}
           onChange={(e) => setColor(e.target.value)}
-          className="w-10 h-6 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+          className="w-10 h-6 rounded border border-border bg-transparent"
         />
       </label>
       <label className="text-xs text-slate-500">

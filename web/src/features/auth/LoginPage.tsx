@@ -47,7 +47,7 @@ export function LoginPage(): JSX.Element {
     <div className="min-h-[60vh] flex items-center justify-center">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-sm rounded-lg border border-border bg-white dark:bg-slate-950 p-6 shadow-sm"
+        className="w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-sm"
       >
         <h1 className="text-xl font-semibold mb-1">Sign in to Orenda</h1>
         <p className="text-sm text-slate-500 mb-4">

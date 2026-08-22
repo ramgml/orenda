@@ -105,17 +105,17 @@ export function MarkdownEditor({
 
   if (!editor) {
     return (
-      <div className="rounded border border-border bg-slate-50 dark:bg-slate-900 p-6 text-sm text-slate-500">
+      <div className="rounded border border-border bg-muted p-6 text-sm text-slate-500">
         Loading editor…
       </div>
     );
   }
 
   return (
-    <div className="rounded border border-border bg-white dark:bg-slate-950 overflow-hidden">
+    <div className="rounded border border-border bg-background overflow-hidden">
       <BubbleMenu
         editor={editor}
-        className="flex items-center gap-0.5 rounded-md border border-slate-200 dark:border-slate-700 bg-card shadow-lg px-1 py-0.5 text-xs"
+        className="flex items-center gap-0.5 rounded-md border border-border bg-card shadow-lg px-1 py-0.5 text-xs"
       >
         <Btn
           active={editor.isActive('bold')}

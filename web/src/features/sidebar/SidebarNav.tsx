@@ -105,7 +105,7 @@ function SidebarNavItem({
           'relative flex items-center gap-3 px-3 py-1.5 text-sm rounded mx-2',
           active
             ? 'bg-muted text-orenda-600 dark:text-orenda-400'
-            : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800',
+            : 'text-muted-foreground hover:bg-slate-100 dark:hover:bg-slate-800',
         ].join(' ');
       }}
     >

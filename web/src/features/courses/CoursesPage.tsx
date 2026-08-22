@@ -80,11 +80,9 @@ export function CoursesPage(): JSX.Element {
 
       <form
         onSubmit={(e) => void onCreate(e)}
-        className="rounded border border-border p-4 bg-white dark:bg-slate-950 space-y-2"
+        className="rounded border border-border p-4 bg-background space-y-2"
       >
-        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Create a course
-        </h2>
+        <h2 className="text-sm font-semibold text-foreground">Create a course</h2>
         <Input
           type="text"
           value={title}
@@ -101,7 +99,7 @@ export function CoursesPage(): JSX.Element {
           data-testid="course-intent"
           className="text-sm"
         />
-        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+        <label className="flex items-center gap-2 text-sm text-foreground">
           <Checkbox
             checked={skipGenerator}
             onCheckedChange={(v) => setSkipGenerator(v === true)}
@@ -133,12 +131,9 @@ export function CoursesPage(): JSX.Element {
             <li
               key={c.id}
               data-testid="course-row"
-              className="rounded border border-border p-3 bg-white dark:bg-slate-950"
+              className="rounded border border-border p-3 bg-background"
             >
-              <Link
-                to={`/courses/${c.id}`}
-                className="text-slate-800 dark:text-slate-100 hover:underline"
-              >
+              <Link to={`/courses/${c.id}`} className="text-foreground hover:underline">
                 {c.title}
               </Link>
               <span className="ml-2 text-[10px] text-slate-400 font-mono">{c.status}</span>

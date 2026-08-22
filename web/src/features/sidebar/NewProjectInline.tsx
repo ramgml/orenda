@@ -66,7 +66,7 @@ export function NewProjectInline({ collapsed = false }: NewProjectInlineProps): 
         {open && (
           <form
             onSubmit={submit}
-            className="absolute left-12 ml-1 z-20 flex gap-1 p-1.5 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 shadow"
+            className="absolute left-12 ml-1 z-20 flex gap-1 p-1.5 rounded border border-border bg-background shadow"
           >
             <Input
               autoFocus
@@ -98,7 +98,7 @@ export function NewProjectInline({ collapsed = false }: NewProjectInlineProps): 
       <Button
         variant="outline"
         onClick={() => setOpen(true)}
-        className="mx-2 mb-2 mt-1 w-[calc(100%-1rem)] justify-start gap-2 px-2 py-1.5 h-auto text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 border-dashed border-slate-300 dark:border-slate-700"
+        className="mx-2 mb-2 mt-1 w-[calc(100%-1rem)] justify-start gap-2 px-2 py-1.5 h-auto text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 border-dashed border-border"
       >
         <span aria-hidden>+</span>
         <span>New project</span>
@@ -109,7 +109,7 @@ export function NewProjectInline({ collapsed = false }: NewProjectInlineProps): 
   return (
     <form
       onSubmit={submit}
-      className="mx-2 mb-2 mt-1 p-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950"
+      className="mx-2 mb-2 mt-1 p-2 rounded border border-border bg-background"
     >
       <Input
         autoFocus
