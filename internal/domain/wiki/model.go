@@ -21,6 +21,7 @@ type Page struct {
 	Title     string    `json:"title"`
 	ContentMD string    `json:"content_md"`
 	Position  int       `json:"position"`
+	Number    int       `json:"number"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

@@ -27,18 +27,42 @@ func (r *wikiRepo) Create(ctx context.Context, p *wiki.Page) (*wiki.Page, error)
 	if p.ID == "" {
 		p.ID = newUUID()
 	}
+
+	// number comes from the wiki_page_number_seq high-watermark, not from
+	// MAX(wiki_pages.number): a MAX+1 would re-issue the newest page's
+	// number after that page is deleted, and a "W42" reference in a
+	// commit message, branch name or PR title must keep pointing at
+	// the same page forever. The watermark UPDATE...RETURNING and the
+	// INSERT share one transaction, so the draw is atomic and the
+	// sequence can never run backwards.
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("wiki.Create: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var number int
+	if err := tx.QueryRowContext(ctx,
+		`UPDATE wiki_page_number_seq SET next = next + 1 WHERE id = 1 RETURNING next - 1`,
+	).Scan(&number); err != nil {
+		return nil, fmt.Errorf("wiki.Create: draw number: %w", err)
+	}
+
 	const q = `
-		INSERT INTO wiki_pages (id, parent_id, slug, title, content_md, position, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+		INSERT INTO wiki_pages (id, parent_id, slug, title, content_md, position, number, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
 	`
-	_, err := r.db.ExecContext(ctx, q,
-		p.ID, nullString(p.ParentID), p.Slug, p.Title, p.ContentMD, p.Position,
+	_, err = tx.ExecContext(ctx, q,
+		p.ID, nullString(p.ParentID), p.Slug, p.Title, p.ContentMD, p.Position, number,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return nil, wiki.ErrSlugTaken
 		}
 		return nil, fmt.Errorf("wiki.Create: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("wiki.Create: commit: %w", err)
 	}
 	return r.GetByID(ctx, p.ID)
 }
@@ -51,6 +75,14 @@ func (r *wikiRepo) GetByID(ctx context.Context, id string) (*wiki.Page, error) {
 func (r *wikiRepo) GetBySlug(ctx context.Context, slug string) (*wiki.Page, error) {
 	const q = wikiSelectColumns + " WHERE slug = ?"
 	return scanWikiPage(r.db.QueryRowContext(ctx, q, slug))
+}
+
+// GetByNumber resolves the human-readable "W<N>" reference to a page.
+// The UNIQUE index idx_wiki_pages_number (migration 037) makes this an
+// index point lookup.
+func (r *wikiRepo) GetByNumber(ctx context.Context, number int) (*wiki.Page, error) {
+	const q = wikiSelectColumns + " WHERE number = ?"
+	return scanWikiPage(r.db.QueryRowContext(ctx, q, number))
 }
 
 func (r *wikiRepo) List(ctx context.Context) ([]*wiki.Page, error) {
@@ -194,7 +226,7 @@ func (r *wikiRepo) SetLinks(ctx context.Context, fromPageID string, toPageIDs []
 func (r *wikiRepo) Backlinks(ctx context.Context, pageID string) ([]*wiki.Page, error) {
 	const q = `
 		SELECT p.id, p.parent_id, p.slug, p.title, p.content_md, p.position,
-		       p.created_at, p.updated_at
+		       p.number, p.created_at, p.updated_at
 		FROM wiki_links l
 		JOIN wiki_pages p ON p.id = l.from_page_id
 		WHERE l.to_page_id = ?
@@ -217,7 +249,7 @@ func (r *wikiRepo) Backlinks(ctx context.Context, pageID string) ([]*wiki.Page, 
 }
 
 const wikiSelectColumns = `
-SELECT id, parent_id, slug, title, content_md, position, created_at, updated_at
+SELECT id, parent_id, slug, title, content_md, position, number, created_at, updated_at
 FROM wiki_pages
 `
 
@@ -228,7 +260,7 @@ func scanWikiPage(row *sql.Row) (*wiki.Page, error) {
 		cAt    string
 		uAt    string
 	)
-	err := row.Scan(&p.ID, &parent, &p.Slug, &p.Title, &p.ContentMD, &p.Position, &cAt, &uAt)
+	err := row.Scan(&p.ID, &parent, &p.Slug, &p.Title, &p.ContentMD, &p.Position, &p.Number, &cAt, &uAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, wiki.ErrNotFound
 	}
@@ -248,7 +280,7 @@ func scanWikiPageRows(rows *sql.Rows) (*wiki.Page, error) {
 		cAt    string
 		uAt    string
 	)
-	if err := rows.Scan(&p.ID, &parent, &p.Slug, &p.Title, &p.ContentMD, &p.Position, &cAt, &uAt); err != nil {
+	if err := rows.Scan(&p.ID, &parent, &p.Slug, &p.Title, &p.ContentMD, &p.Position, &p.Number, &cAt, &uAt); err != nil {
 		return nil, fmt.Errorf("wiki.ScanRows: %w", err)
 	}
 	p.ParentID = parent.String

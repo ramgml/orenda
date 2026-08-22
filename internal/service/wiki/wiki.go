@@ -111,6 +111,18 @@ func (s *Service) GetBySlug(ctx context.Context, slug string) (*wiki.Page, error
 	return s.Repo.GetBySlug(ctx, slug)
 }
 
+// Resolve returns the page identified by ref, where ref may be a page
+// UUID, a slug, or a W-prefixed number ("W42" / "w42").
+//
+// This is the seam every page-id-taking entry point should funnel
+// through (agent REST /agent/pages/{slug}, MCP orenda_pages_get,
+// user REST pages) so the "W<N>" convention resolves identically
+// everywhere. Unknown W-refs surface as *wiki.RefNotFoundError
+// ("page W42 not found"); unknown slugs as wiki.ErrNotFound.
+func (s *Service) Resolve(ctx context.Context, ref string) (*wiki.Page, error) {
+	return wiki.ResolveRef(ctx, s.Repo, ref)
+}
+
 // Move re-parents a page under a new parent (or the root when
 // newParentID is empty). Returns ErrInvalidInput when the move would
 // create a cycle (parent is the page itself or one of its descendants).
