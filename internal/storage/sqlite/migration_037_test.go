@@ -11,7 +11,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/wiki"
 )
 
-// Phase 36: human-readable wiki page numbers (036_wiki_page_numbers).
+// Phase 37: human-readable wiki page numbers (037_wiki_page_numbers).
 //
 // We pin four contracts:
 //  1. Up adds wiki_pages.number, backfills existing rows in
@@ -24,7 +24,7 @@ import (
 //  3. The UNIQUE index rejects a hand-crafted duplicate number.
 //  4. Down drops the index, the seq table, and the column, so a
 //     down/up round-trip is clean.
-func TestMigrate_036WikiPageNumbers(t *testing.T) {
+func TestMigrate_037WikiPageNumbers(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "orenda.db")
 	db, err := Open(context.Background(), dbPath, OpenConfig{
@@ -51,7 +51,7 @@ func TestMigrate_036WikiPageNumbers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Apply the migration under test.
-	body, err := MigrationsFS.ReadFile("migrations/036_wiki_page_numbers.sql")
+	body, err := MigrationsFS.ReadFile("migrations/037_wiki_page_numbers.sql")
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, string(body))
 	require.NoError(t, err)
@@ -87,7 +87,7 @@ func TestMigrate_036WikiPageNumbers(t *testing.T) {
 	require.Error(t, err, "duplicate number must violate idx_wiki_pages_number")
 
 	// Contract 4: down drops index + seq table + column.
-	downBody, err := MigrationsFS.ReadFile("migrations/036_wiki_page_numbers.down.sql")
+	downBody, err := MigrationsFS.ReadFile("migrations/037_wiki_page_numbers.down.sql")
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, string(downBody))
 	require.NoError(t, err)

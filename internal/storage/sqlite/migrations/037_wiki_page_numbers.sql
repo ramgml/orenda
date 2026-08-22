@@ -1,5 +1,5 @@
 -- ============================================================================
--- 036_wiki_page_numbers.sql — human-readable sequential wiki page numbers
+-- 037_wiki_page_numbers.sql — human-readable sequential wiki page numbers
 -- ============================================================================
 -- Every wiki page gets a small monotonically-increasing integer (`number`)
 -- alongside its UUID. Agents and humans reference pages as "W42" in

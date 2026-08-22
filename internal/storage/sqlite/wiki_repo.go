@@ -78,7 +78,7 @@ func (r *wikiRepo) GetBySlug(ctx context.Context, slug string) (*wiki.Page, erro
 }
 
 // GetByNumber resolves the human-readable "W<N>" reference to a page.
-// The UNIQUE index idx_wiki_pages_number (migration 036) makes this an
+// The UNIQUE index idx_wiki_pages_number (migration 037) makes this an
 // index point lookup.
 func (r *wikiRepo) GetByNumber(ctx context.Context, number int) (*wiki.Page, error) {
 	const q = wikiSelectColumns + " WHERE number = ?"
