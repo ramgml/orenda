@@ -65,8 +65,13 @@ type taskInput struct {
 // kanban board and the inbox list.
 func listProjectTasksHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeProjectResolveError(w, err)
+			return
+		}
 		f := task.Filter{
-			ProjectID: chi.URLParam(r, "id"),
+			ProjectID: projectID,
 		}
 		if s := r.URL.Query().Get("status"); s != "" {
 			f.Status = task.Status(s)
@@ -100,6 +105,13 @@ func createTaskHandler(deps *Dependencies) http.HandlerFunc {
 		if in.ProjectID != nil {
 			projectID = *in.ProjectID
 		}
+		// Resolve project ref (P<N> or UUID) to UUID.
+		resolvedID, err := resolveProjectRef(r.Context(), deps, projectID)
+		if err != nil {
+			writeProjectResolveError(w, err)
+			return
+		}
+		projectID = resolvedID
 		tr := &task.Task{
 			ProjectID:     projectID,
 			ColumnID:      in.ColumnID,
@@ -432,6 +444,14 @@ func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in t
 	// column_id so the task lands on a real column instead of dangling.
 	if in.ProjectID != nil && *in.ProjectID != tr.ProjectID {
 		newProject := *in.ProjectID
+		// Resolve project ref (P<N> or UUID) to UUID when non-empty.
+		if newProject != "" {
+			resolved, err := resolveProjectRef(ctx, deps, newProject)
+			if err != nil {
+				return // will surface as not_found via writeError
+			}
+			newProject = resolved
+		}
 		tr.ProjectID = newProject
 		if in.ColumnID == "" {
 			// No explicit column in this PATCH — derive from the

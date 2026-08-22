@@ -78,7 +78,12 @@ func createProjectHandler(deps *Dependencies) http.HandlerFunc {
 // getProjectHandler returns one project.
 func getProjectHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		p, err := deps.Projects.GetProject(r.Context(), chi.URLParam(r, "id"))
+		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeProjectResolveError(w, err)
+			return
+		}
+		p, err := deps.Projects.GetProject(r.Context(), projectID)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -104,7 +109,12 @@ func getProjectHandler(deps *Dependencies) http.HandlerFunc {
 //   - archived: nil → leave alone; bool → set.
 func patchProjectHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		p, err := deps.Projects.GetProject(r.Context(), chi.URLParam(r, "id"))
+		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeProjectResolveError(w, err)
+			return
+		}
+		p, err := deps.Projects.GetProject(r.Context(), projectID)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -166,7 +176,12 @@ func patchProjectHandler(deps *Dependencies) http.HandlerFunc {
 // deleteProjectHandler removes a project.
 func deleteProjectHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := deps.Projects.DeleteProject(r.Context(), chi.URLParam(r, "id")); err != nil {
+		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeProjectResolveError(w, err)
+			return
+		}
+		if err := deps.Projects.DeleteProject(r.Context(), projectID); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -177,7 +192,12 @@ func deleteProjectHandler(deps *Dependencies) http.HandlerFunc {
 // getProjectBoardHandler returns the (single) board + its columns.
 func getProjectBoardHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		board, cols, err := deps.Projects.GetBoard(r.Context(), chi.URLParam(r, "id"))
+		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeProjectResolveError(w, err)
+			return
+		}
+		board, cols, err := deps.Projects.GetBoard(r.Context(), projectID)
 		if err != nil {
 			writeError(w, err)
 			return

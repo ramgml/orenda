@@ -129,6 +129,13 @@ export interface CourseTree {
 
 export interface Project {
   id: string;
+  /**
+   * Human-readable sequential project number (`P1`). Assigned by the
+   * server on creation and stable for the project's lifetime — agents and
+   * humans reference projects by it in conversation. `0` means the row
+   * predates numbering; the UI hides the chip in that case.
+   */
+  number: number;
   name: string;
   color: string;
   description?: string;

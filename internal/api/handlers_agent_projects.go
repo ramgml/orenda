@@ -52,7 +52,12 @@ func agentGetProjectHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		p, err := deps.Projects.GetProject(r.Context(), chi.URLParam(r, "id"))
+		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeProjectResolveError(w, err)
+			return
+		}
+		p, err := deps.Projects.GetProject(r.Context(), projectID)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -95,7 +100,11 @@ func agentPatchProjectHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		projectID := chi.URLParam(r, "id")
+		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeProjectResolveError(w, err)
+			return
+		}
 		p, err := deps.Projects.GetProject(r.Context(), projectID)
 		if err != nil {
 			writeError(w, err)

@@ -30,7 +30,11 @@ func listProjectActivityHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "activity service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		projectID := chi.URLParam(r, "id")
+		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeProjectResolveError(w, err)
+			return
+		}
 		limit := 200
 		if raw := r.URL.Query().Get("limit"); raw != "" {
 			if n, err := strconv.Atoi(raw); err == nil && n > 0 {
@@ -61,7 +65,11 @@ func listProjectAttachmentsHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "attachment service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		projectID := chi.URLParam(r, "id")
+		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeProjectResolveError(w, err)
+			return
+		}
 		got, err := deps.Attachments.ListByProject(r.Context(), projectID)
 		if err != nil {
 			writeError(w, err)
@@ -82,6 +90,11 @@ func addProjectAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Attachments == nil {
 			http.Error(w, "attachment service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeProjectResolveError(w, err)
 			return
 		}
 		const maxMem = 32 << 20
@@ -114,7 +127,7 @@ func addProjectAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 		res, err := deps.Attachments.StoreFromBytes(
 			r.Context(),
 			attachment.TargetProject,
-			chi.URLParam(r, "id"),
+			projectID,
 			filename, mimeType,
 			attachment.UploaderUser, uploaderID,
 			file,
