@@ -36,19 +36,18 @@ Fifth pre-alpha release. Focus: shadcn/ui component migration (dialog, buttons, 
 - **Task 27 (PR #35):** LMS pace adaptation — rolling velocity + drift calculation. Course pace notes now track a rolling velocity (lessons completed per day) and drift (deviation from target pace), enabling adaptive scheduling of study reminders.
 - **Task 32 (PR #40):** Upload directory auto-creation on first attachment store. The uploads directory is created automatically when the first file attachment is stored, preventing errors on fresh installations.
 - **Task 34 (PR #43):** Kanban agent label moved to bottom of task card, improving card readability by freeing the top area for title and status.
-- **Task 38 (PR #49):** Nil dereference guard in event create/update handlers, preventing potential panics on malformed event payloads.
-- **Task 39 (PR #51):** Synthetic occurrence ID resolution to master in GET/PATCH/DELETE handlers, ensuring correct behavior for recurring events with synthetic occurrences.
-
 ### Changed
-- **Task 40 (PRs #28 + #50):** Test semantics swap — `make test` now runs the cached fast gate (vitest), `make test-full` runs the uncached CI backstop. The former `test-gate` target was removed; `make test` serves as the local pre-push gate while `make test-full` is the CI/release backstop. Files touched: `Makefile`, git hooks, `ci.yml`, `AGENTS.md`, `README`, `ARCHITECTURE`, `RELEASE`.
+- **Task 40 (PR #50):** Test semantics swap — `make test` now runs the cached fast gate (vitest), `make test-full` runs the uncached CI backstop. The former `test-gate` target was removed; `make test` serves as the local pre-push gate while `make test-full` is the CI/release backstop. Files touched: `Makefile`, git hooks, `ci.yml`, `AGENTS.md`, `README`, `ARCHITECTURE`, `RELEASE`.
 - **Task 12 (PRs #42–#48):** Complete shadcn/ui migration across all major UI slices — modals → Dialog, buttons → shadcn Button, checkboxes → shadcn Checkbox, raw `dark:` classes → semantic tokens. The self-made component library is now replaced by the standard shadcn/ui primitives.
 - **Task 37 (PR #53):** Dark palette normalization to shadcn tokens — `dark:` class count reduced from 242 to 115; remaining legitimate exceptions (e.g., border color overrides) documented in `wiki:frontend-shadcn-primitives`. Owner decision: variant B (normalize where token mapping exists, keep exceptions where it doesn't).
 
 ### Fixed
-- **Task 28 (PR #28):** `test_scripts.sh` hermeticity — the test script now runs in isolation without depending on external state. `uninstall.sh` now rejects unknown flags with a usage message (previously `-purge` typo silently did nothing).
-- **Task 29 (PR #28):** Flaky `TestHub_PublishDropsOnFullSubscriber` — removed scheduling dependency, eliminating CI flakiness.
+- **Task 28 (PR #36):** `test_scripts.sh` hermeticity — the test script now runs in isolation without depending on external state. `uninstall.sh` now rejects unknown flags with a usage message (previously `-purge` typo silently did nothing).
+- **Task 29 (PR #37):** Flaky `TestHub_PublishDropsOnFullSubscriber` — removed scheduling dependency, eliminating CI flakiness.
 - **Task 31 (PR #41):** Kanban cards overflowing right column boundary — fixed CSS containment so task cards stay within their assigned column.
 - **Task 35 (PR #52):** Config tests isolated from `ORENDA_*` process environment — `clearORENDAEnv` helper sanitises the test env so config-reading tests don't inherit the running process's `ORENDA_*` variables, eliminating false positives.
+- **Task 38 (PR #49):** Nil dereference guard in event create/update handlers — fixes potential panic on nil pointer when processing create/update events.
+- **Task 39 (PR #51):** Synthetic occurrence ID resolution to master in GET/PATCH/DELETE handlers — fixes 500 on calendar event edit by correctly resolving synthetic occurrence IDs to their master events.
 
 ### Docs
 - **PR #30:** `dev` branch workflow documented — `origin/dev` is the base for all feature branches; local `dev` is an ff-only mirror to prevent remote drift.
