@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { api } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
 import { Textarea } from '@/shared/ui/textarea';
+import { LessonNumberChip } from './LessonNumberChip';
 
 /**
  * /lessons/:id — single lesson view (Phase 27.4).
@@ -147,7 +148,10 @@ export function LessonPage(): JSX.Element {
           ← {course.title}
         </Link>
         <div className="flex items-baseline gap-2">
-          <h1 className="text-2xl font-semibold">{lesson.title}</h1>
+          <h1 className="text-2xl font-semibold">
+            {lesson.title}
+            <LessonNumberChip number={lesson.number} />
+          </h1>
           <span
             className={
               'text-[10px] uppercase tracking-wide font-mono px-2 py-0.5 rounded ' +
@@ -350,6 +354,7 @@ interface LessonLoad {
     id: string;
     title: string;
     status: string;
+    number: number;
     content_md: string;
     task_id?: string;
   };
@@ -391,6 +396,7 @@ async function loadLesson(lessonId: string): Promise<LessonLoad> {
         id: found.id,
         title: found.title,
         status: found.status,
+        number: found.number,
         content_md: found.content_md ?? '',
         task_id: found.task_id,
       },

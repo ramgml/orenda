@@ -81,7 +81,12 @@ func approveCourseCore(w http.ResponseWriter, r *http.Request, deps *Dependencie
 		http.Error(w, "course service not wired", http.StatusServiceUnavailable)
 		return
 	}
-	c, err := deps.CourseService.ApproveCurriculum(r.Context(), chi.URLParam(r, "id"))
+	cr, err := resolveCourseRef(r.Context(), deps, chi.URLParam(r, "id"))
+	if err != nil {
+		writeCourseResolveError(w, err)
+		return
+	}
+	c, err := deps.CourseService.ApproveCurriculum(r.Context(), cr.ID)
 	if err != nil {
 		if errors.Is(err, coursesvc.ErrTransition) {
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_transition"})
@@ -108,7 +113,12 @@ func activateCourseHandlerAgent(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		c, err := deps.CourseService.ActivateCourse(r.Context(), chi.URLParam(r, "id"))
+		cr, err := resolveCourseRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeCourseResolveError(w, err)
+			return
+		}
+		c, err := deps.CourseService.ActivateCourse(r.Context(), cr.ID)
 		if err != nil {
 			if errors.Is(err, coursesvc.ErrTransition) {
 				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_transition"})
