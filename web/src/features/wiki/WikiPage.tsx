@@ -11,6 +11,7 @@ import { Input } from '@/shared/ui/input';
 import { Textarea } from '@/shared/ui/textarea';
 
 import { MarkdownEditor } from './MarkdownEditor';
+import { WikiNumberChip } from './WikiNumberChip';
 
 /**
  * /wiki — sidebar tree + markdown editor + preview.
@@ -62,6 +63,7 @@ export function WikiPage(): JSX.Element {
           title: slugVal,
           content_md: '',
           position: 0,
+          number: 0,
           created_at: '',
           updated_at: '',
         });
@@ -320,6 +322,7 @@ function PageEditor({
           className="text-2xl font-semibold bg-transparent border-0 focus-visible:ring-0 px-0 flex-1 min-w-0"
           placeholder="Untitled"
         />
+        {page.number > 0 && <WikiNumberChip number={page.number} />}
         <div className="flex items-center gap-2 text-xs shrink-0">
           {dirty && <span className="text-amber-600">unsaved</span>}
           <Button type="button" onClick={onSave} disabled={saving || !dirty} size="sm">

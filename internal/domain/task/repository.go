@@ -58,7 +58,7 @@ type Repository interface {
 	GetByID(ctx context.Context, id string) (*Task, error)
 
 	// GetByNumber returns the task with the given human-readable
-	// number (the "#42" reference) or ErrNotFound. Numbers are
+	// number (the "T42" reference) or ErrNotFound. Numbers are
 	// assigned sequentially at Create and never reused.
 	GetByNumber(ctx context.Context, number int) (*Task, error)
 

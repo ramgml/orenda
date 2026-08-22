@@ -30,7 +30,7 @@ func TestTaskRepo_NumberAssignedSequentially(t *testing.T) {
 }
 
 // TestTaskRepo_NumberNeverReused: deleting a task must NOT free its
-// number — a "#42" reference in a commit message or branch name has
+// number — a "T42" reference in a commit message or branch name has
 // to keep pointing at the same (now deleted) task forever.
 func TestTaskRepo_NumberNeverReused(t *testing.T) {
 	db := setupUserDB(t)
@@ -66,7 +66,7 @@ func TestTaskRepo_NumberNeverReused(t *testing.T) {
 	})
 }
 
-// TestTaskRepo_GetByNumber: the "#N" lookup — hit and miss.
+// TestTaskRepo_GetByNumber: the "T<N>" lookup — hit and miss.
 func TestTaskRepo_GetByNumber(t *testing.T) {
 	db := setupUserDB(t)
 	p, col := setupTaskProject(t, db)

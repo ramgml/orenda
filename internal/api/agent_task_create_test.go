@@ -235,6 +235,24 @@ func TestAgent_ProposeTask_Created(t *testing.T) {
 	}
 }
 
+// TestAgent_ProposeTask_PRefResolution verifies that the agent
+// propose endpoint accepts a P-prefixed project reference ("P1")
+// in the project_id body field and resolves it to the correct
+// project. This is the primary agent-facing path for P-refs.
+func TestAgent_ProposeTask_PRefResolution(t *testing.T) {
+	f := newProposeFixture(t)
+
+	// The fixture creates one project; after migration 036 it gets
+	// number 1. Propose with "P1" instead of the UUID.
+	rr := f.proposeAsAgent(t, validProposeBody("P1"))
+	require.Equal(t, http.StatusCreated, rr.Code, "body=%s", rr.Body.String())
+
+	var got task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+	assert.Equal(t, f.projectID, got.ProjectID,
+		"P1 should resolve to the same project as the UUID")
+}
+
 func TestAgent_ProposeTask_OptionalFields(t *testing.T) {
 	f := newProposeFixture(t)
 

@@ -269,7 +269,7 @@ func TestAgent_ContextAnyAgent_OK(t *testing.T) {
 }
 
 func TestAgent_PatchTask_ByNumber_OK(t *testing.T) {
-	// Phase 33.2.1: PATCH accepts the human number "#42" / "42".
+	// Phase 33.2.1 → Task 48: PATCH accepts the T-prefixed ref "T<N>".
 	f := newProposeFixture(t)
 	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
 	require.Equal(t, http.StatusCreated, rr.Code)
@@ -277,10 +277,10 @@ func TestAgent_PatchTask_ByNumber_OK(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
 	require.Greater(t, proposed.Number, 0, "number assigned")
 	number := proposed.Number
-	numberStr := fmt.Sprintf("%d", number)
+	numberStr := fmt.Sprintf("T%d", number)
 	_ = numberStr
 
-	// PATCH via the bare number.
+	// PATCH via the T-prefixed number.
 	rr = f.patchAsAgent(t, numberStr, map[string]any{"title": "by number"})
 	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
 	var updated task.Task
@@ -294,7 +294,7 @@ func TestAgent_DeleteTask_ByNumber_OK(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 	var proposed task.Task
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
-	numberStr := fmt.Sprintf("%d", proposed.Number)
+	numberStr := fmt.Sprintf("T%d", proposed.Number)
 
 	rr = f.deleteAsAgent(t, numberStr)
 	require.Equal(t, http.StatusNoContent, rr.Code, "body=%s", rr.Body.String())

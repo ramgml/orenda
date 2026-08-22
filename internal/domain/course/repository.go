@@ -15,6 +15,9 @@ type Repository interface {
 	// ---- Courses ----
 	CreateCourse(ctx context.Context, c *Course) error
 	GetCourse(ctx context.Context, id string) (*Course, error)
+	// GetCourseByNumber resolves a course by its sequential number (C<N> ref).
+	// Returns ErrNotFound when no course has that number.
+	GetCourseByNumber(ctx context.Context, number int) (*Course, error)
 	ListCourses(ctx context.Context, ownerID string) ([]*Course, error)
 	UpdateCourse(ctx context.Context, c *Course) error
 	DeleteCourse(ctx context.Context, id string) error
@@ -49,6 +52,9 @@ type Repository interface {
 	// GetLesson fetches a single lesson by id. Used by the
 	// CompleteLesson path which has to walk to the next sibling.
 	GetLesson(ctx context.Context, id string) (*Lesson, error)
+	// GetLessonByNumber resolves a lesson by its sequential number (L<N> ref).
+	// Returns ErrNotFound when no lesson has that number.
+	GetLessonByNumber(ctx context.Context, number int) (*Lesson, error)
 	UpdateLesson(ctx context.Context, l *Lesson) error
 	// VelocityStatsByCourse returns the rolling-window lesson
 	// completion stats for the course (Phase 32.12). The window is

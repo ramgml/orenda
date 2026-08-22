@@ -56,7 +56,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_list_tasks",
-		Description: "List claimable tasks. ?ready=true filters to unblocked, unclaimed, open tasks (the agent's ready-list). Each task carries a human `number` ('#42') alongside its UUID — both forms are accepted wherever a task_id is taken.",
+		Description: "List claimable tasks. ?ready=true filters to unblocked, unclaimed, open tasks (the agent's ready-list). Each task carries a human `number` ('T42') alongside its UUID — use the T-prefixed form wherever a task_id is taken.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -131,7 +131,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
-				"task_id":        map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
+				"task_id":        map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
 				"title":          map[string]any{"type": "string"},
 				"description_md": map[string]any{"type": "string"},
 				"priority":       map[string]any{"type": "string", "description": "low|medium|high|urgent"},
@@ -151,7 +151,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 					body[k] = v
 				}
 			}
-			return agentPatch(ctx, httpc, cfg, "/api/v1/agent/tasks/"+id, body)
+			return agentPatch(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id), body)
 		},
 	})
 
@@ -162,7 +162,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
@@ -170,7 +170,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			if id == "" {
 				return nil, fmt.Errorf("orenda_task_retract: task_id is required")
 			}
-			return agentDelete(ctx, httpc, cfg, "/api/v1/agent/tasks/"+id)
+			return agentDelete(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id))
 		},
 	})
 
@@ -181,7 +181,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
@@ -189,7 +189,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			if id == "" {
 				return nil, fmt.Errorf("orenda_claim: task_id is required")
 			}
-			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+id+"/claim", nil)
+			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/claim", nil)
 		},
 	})
 
@@ -200,7 +200,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
@@ -208,7 +208,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			if id == "" {
 				return nil, fmt.Errorf("orenda_release: task_id is required")
 			}
-			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+id+"/release", nil)
+			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/release", nil)
 		},
 	})
 
@@ -219,7 +219,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
 				"note":    map[string]any{"type": "string", "description": "Optional note for the human reviewer"},
 			},
 		},
@@ -232,7 +232,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			if n, _ := params["note"].(string); n != "" {
 				body["note"] = n
 			}
-			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+id+"/submit", body)
+			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/submit", body)
 		},
 	})
 
@@ -243,7 +243,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
-				"task_id": map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
@@ -251,7 +251,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			if id == "" {
 				return nil, fmt.Errorf("orenda_context: task_id is required")
 			}
-			return agentGet(ctx, httpc, cfg, "/api/v1/agent/tasks/"+id+"/context")
+			return agentGet(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/context")
 		},
 	})
 
@@ -300,7 +300,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_pages_get",
-		Description: "Fetch a wiki page by slug (title + markdown content).",
+		Description: "Fetch a wiki page by slug or W-ref (e.g. 'W15'). Title + markdown content.",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"slug"},
@@ -319,12 +319,12 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_pages_save",
-		Description: "Create or update a wiki page (upsert by slug). Markdown content; [[slug]] links are indexed automatically.",
+		Description: "Create or update a wiki page (upsert by slug). W<digits> slugs are rejected (use the real slug). Markdown content; [[slug]] links are indexed automatically.",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"slug", "title"},
 			"properties": map[string]any{
-				"slug":       map[string]any{"type": "string"},
+				"slug":       map[string]any{"type": "string", "description": "Page slug (not a W-ref; W<digits> rejected on create)"},
 				"title":      map[string]any{"type": "string"},
 				"content_md": map[string]any{"type": "string", "description": "Markdown body"},
 				"parent_id":  map[string]any{"type": "string", "description": "Parent page id (omit = root)"},
@@ -350,7 +350,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_pages_delete",
-		Description: "Delete a wiki page by slug (children cascade).",
+		Description: "Delete a wiki page by slug or W-ref (e.g. 'W15'). Children cascade.",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"slug"},
@@ -369,7 +369,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_pages_move",
-		Description: "Move a wiki page under a new parent (empty parent_id = root).",
+		Description: "Move a wiki page by slug or W-ref (e.g. 'W15') under a new parent (empty parent_id = root).",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"slug", "parent_id"},

@@ -15,6 +15,10 @@ type Repository interface {
 	// GetProject returns the project with the given id or ErrNotFound.
 	GetProject(ctx context.Context, id string) (*Project, error)
 
+	// GetByNumber resolves a project by its sequential number (P<N> ref).
+	// Returns ErrNotFound when no project has that number.
+	GetByNumber(ctx context.Context, number int) (*Project, error)
+
 	// ListProjects returns all projects owned by ownerID (including
 	// archived, unless we add an option in Phase 2).
 	ListProjects(ctx context.Context, ownerID string) ([]*Project, error)

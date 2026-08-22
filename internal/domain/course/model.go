@@ -96,6 +96,10 @@ type Course struct {
 	Status          Status `json:"status"`
 	OwnerID         string `json:"owner_id"`
 	GeneratorTaskID string `json:"generator_task_id,omitempty"`
+	// Number is the human-readable sequential id ("C7"). Assigned by
+	// the storage layer on CreateCourse from the course_number_seq
+	// high-watermark — see ParseCourseRef and Repository.GetCourseByNumber.
+	Number int `json:"number"`
 	// Phase 31: free-form pace notes. The agent-planner reads this
 	// alongside Pace to propose study tasks; the user can also edit
 	// it through the UI. Markdown allowed; size capped to keep the
@@ -188,6 +192,10 @@ type Lesson struct {
 	Status    LessonStatus `json:"status"`
 	Position  int          `json:"position"`
 	TaskID    string       `json:"task_id,omitempty"`
+	// Number is the human-readable sequential id ("L10"). Assigned by
+	// the storage layer on CreateLesson from the lesson_number_seq
+	// high-watermark — see ParseLessonRef and Repository.GetLessonByNumber.
+	Number int `json:"number"`
 	// CompletedAt is set when Status flips to Done (Phase 32.12).
 	// Nil for legacy done-lessons (pre-migration 025) or any
 	// future writes that don't represent completion. Feeds the

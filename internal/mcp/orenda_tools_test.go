@@ -335,6 +335,72 @@ func TestOrendaTools_TaskProposeRequiresFields(t *testing.T) {
 	assert.Empty(t, rec.path, "validation should happen before the network call")
 }
 
+// ------------------------------------------------------------------
+// Task 48: URL-escape path parameters. Every task-id-bearing tool
+// must use url.PathEscape so special characters arrive intact.
+// With the T-prefix form ("T42") the path is clean; the test pins
+// that the tool forwards the ref without mangling.
+// ------------------------------------------------------------------
+
+func TestOrendaTools_ContextSendsGET(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_context", map[string]any{"task_id": "T42"})
+	assert.Equal(t, http.MethodGet, rec.method)
+	assert.Equal(t, "/api/v1/agent/tasks/T42/context", rec.escapedPath)
+}
+
+func TestOrendaTools_ClaimSendsPOST(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_claim", map[string]any{"task_id": "T42"})
+	assert.Equal(t, http.MethodPost, rec.method)
+	assert.Equal(t, "/api/v1/agent/tasks/T42/claim", rec.escapedPath)
+}
+
+func TestOrendaTools_ReleaseSendsPOST(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_release", map[string]any{"task_id": "T42"})
+	assert.Equal(t, http.MethodPost, rec.method)
+	assert.Equal(t, "/api/v1/agent/tasks/T42/release", rec.escapedPath)
+}
+
+func TestOrendaTools_SubmitSendsPOST(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_submit", map[string]any{"task_id": "T42"})
+	assert.Equal(t, http.MethodPost, rec.method)
+	assert.Equal(t, "/api/v1/agent/tasks/T42/submit", rec.escapedPath)
+}
+
+func TestOrendaTools_TaskUpdateSendsPATCH(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_task_update", map[string]any{
+		"task_id": "T42", "title": "new title",
+	})
+	assert.Equal(t, http.MethodPatch, rec.method)
+	assert.Equal(t, "/api/v1/agent/tasks/T42", rec.escapedPath)
+}
+
+func TestOrendaTools_TaskRetractSendsDELETE(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_task_retract", map[string]any{"task_id": "T42"})
+	assert.Equal(t, http.MethodDelete, rec.method)
+	assert.Equal(t, "/api/v1/agent/tasks/T42", rec.escapedPath)
+}
+
+// Regression: a bare UUID must not be double-escaped.
+func TestOrendaTools_ContextUUIDUnchanged(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	uuid := "01a02791-45d6-7984-b770-0ba9204f74a5"
+	callTool(t, srv, "orenda_context", map[string]any{"task_id": uuid})
+	assert.Equal(t, "/api/v1/agent/tasks/"+uuid+"/context", rec.escapedPath)
+}
+
+// Regression: a numeric id must not be touched.
+func TestOrendaTools_ContextNumericID(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_context", map[string]any{"task_id": "35"})
+	assert.Equal(t, "/api/v1/agent/tasks/35/context", rec.escapedPath)
+}
+
 // mustMarshal is a tiny test helper that fails fast on JSON errors.
 func mustMarshal(t *testing.T, v any) string {
 	t.Helper()

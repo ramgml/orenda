@@ -19,6 +19,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-08-22
+
+Sixth pre-alpha release. Focus: human-readable ref formats across all surfaces (tasks T-refs, projects P-refs, wiki W-refs, courses C-refs, lessons L-refs), URL path-parameter escaping in MCP/CLI, and breaking cutover from legacy task ref forms.
+
+### Added
+- **Task 48 (PR #59):** T<N> ref format for tasks. Tasks now carry a T-prefixed human-readable reference (`T42`) in REST paths, CLI args, MCP `task_id` arguments, and a copyable `TaskNumberChip` in the UI. The legacy `#N` and bare `N` forms are retired (see Changed).
+- **Task 49 (PR #61):** W<N> ref format for wiki pages. Wiki pages now carry a W-prefixed reference (`W7`) in REST paths, MCP `slug` arguments, and a copyable `WikiNumberChip` in the UI. Migration `037` adds the `number` column to `wiki_pages` and the `wiki_page_number_seq` sequence. Slugs matching the pattern `W<digits>` are rejected with 422 `slug_conflicts_with_w_ref`.
+- **Task 50 (PR #60):** P<N> ref format for projects. Projects now carry a P-prefixed reference (`P3`) in REST paths, CLI args, MCP `project_id` arguments, and a copyable `ProjectNumberChip` in the UI. Migration `036` adds the `number` column to `projects` and the `project_number_seq` sequence.
+- **Task 51 (PR #62):** C<N> and L<N> ref formats for courses and lessons. Courses carry a C-prefixed reference (`C5`), lessons carry a globally-numbered L-prefixed reference (`L12`) across all courses. Migrations `038`/`039` add the `number` column to `courses`/`course_lessons` and the `course_number_seq`/`lesson_number_seq` sequences. Copyable chips in the UI.
+
+### Changed
+- **Breaking (Task 48, PR #59):** Task ref format cutover — `#N` and bare `N` no longer resolve as task references. Use the T-prefixed form (`T42`) in REST paths, CLI args, MCP `task_id` arguments, and the UI chip. Legacy forms that don't match `T<N>` fall through to UUID lookup and return a generic `not_found` 404. Git-branch/commit/PR conventions remain bare numeric (`task-123-slug`, `task(123):`, `[Task 123]`).
+
+### Fixed
+- **Task 42 (PR #58):** MCP/CLI URL path-parameter escaping — all 14 URL-building sites now use `url.PathEscape` for path parameters, preventing silent response corruption when a ref value contains `#`, `/`, or other reserved URI characters.
+- **Task 50 (PR #60):** `applyTaskPatch` error propagation — PATCH with a non-existent P-ref now correctly returns 404 instead of a silent 200 with no changes.
+
 ## [0.5.0] — 2026-08-22
 
 Fifth pre-alpha release. Focus: shadcn/ui component migration (dialog, buttons, checkboxes, semantic tokens), LMS pace adaptation, agent task management (proposals/context/agent_notes), markdown rendering in task descriptions, build-system semantics swap (`make test` = cached fast gate, `make test-full` = CI backstop), Kanban fixes, and process documentation.

@@ -65,8 +65,9 @@ func savePageHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
+		slug := strings.TrimSpace(in.Slug)
 		p := &wiki.Page{
-			Slug:      strings.TrimSpace(in.Slug),
+			Slug:      slug,
 			Title:     in.Title,
 			ContentMD: in.ContentMD,
 			ParentID:  in.ParentID,
@@ -78,10 +79,24 @@ func savePageHandler(deps *Dependencies) http.HandlerFunc {
 		// reject it with wiki.ErrInvalidInput, and writeError would
 		// (before the recent fix) surface it as 500.
 		if urlSlug := chi.URLParam(r, "slug"); urlSlug != "" {
-			p.Slug = urlSlug
-			if existing, err := deps.WikiService.GetBySlug(r.Context(), urlSlug); err == nil && existing != nil {
+			// Resolve W-refs in the URL to the actual slug.
+			resolved, err := resolveWikiRef(r.Context(), deps, urlSlug)
+			if err != nil {
+				writeWikiResolveError(w, err)
+				return
+			}
+			p.Slug = resolved
+			if existing, err := deps.WikiService.GetBySlug(r.Context(), resolved); err == nil && existing != nil {
 				p.ID = existing.ID
 			}
+		} else if wiki.IsWRefFormat(p.Slug) {
+			// POST /pages: reject W<digits> as a slug — W-refs are
+			// resolution-only, slugs remain the canonical identifier
+			// for [[links]].
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{
+				"error": "slug_conflicts_with_w_ref",
+			})
+			return
 		}
 		got, err := deps.WikiService.Save(r.Context(), p)
 		if err != nil {
@@ -96,14 +111,19 @@ func savePageHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
-// getPageHandler returns one page by slug.
+// getPageHandler returns one page by slug or W-ref.
 func getPageHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.WikiService == nil {
 			http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		p, err := deps.WikiService.GetBySlug(r.Context(), chi.URLParam(r, "slug"))
+		slug, err := resolveWikiRef(r.Context(), deps, chi.URLParam(r, "slug"))
+		if err != nil {
+			writeWikiResolveError(w, err)
+			return
+		}
+		p, err := deps.WikiService.GetBySlug(r.Context(), slug)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -112,14 +132,19 @@ func getPageHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
-// getPageBacklinksHandler returns every page that links to the given slug.
+// getPageBacklinksHandler returns every page that links to the given slug or W-ref.
 func getPageBacklinksHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.WikiService == nil {
 			http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		p, err := deps.WikiService.GetBySlug(r.Context(), chi.URLParam(r, "slug"))
+		slug, err := resolveWikiRef(r.Context(), deps, chi.URLParam(r, "slug"))
+		if err != nil {
+			writeWikiResolveError(w, err)
+			return
+		}
+		p, err := deps.WikiService.GetBySlug(r.Context(), slug)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -133,7 +158,7 @@ func getPageBacklinksHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
-// deletePageHandler removes a page by slug.
+// deletePageHandler removes a page by slug or W-ref.
 //
 // Cascades to wiki_links via FK; the markdown mirror file is also removed
 // (best-effort). 404 when the slug doesn't exist.
@@ -143,9 +168,9 @@ func deletePageHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		slug := chi.URLParam(r, "slug")
-		if slug == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_slug"})
+		slug, err := resolveWikiRef(r.Context(), deps, chi.URLParam(r, "slug"))
+		if err != nil {
+			writeWikiResolveError(w, err)
 			return
 		}
 		if err := deps.WikiService.Delete(r.Context(), slug); err != nil {
@@ -171,9 +196,9 @@ func movePageHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		slug := chi.URLParam(r, "slug")
-		if slug == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_slug"})
+		slug, err := resolveWikiRef(r.Context(), deps, chi.URLParam(r, "slug"))
+		if err != nil {
+			writeWikiResolveError(w, err)
 			return
 		}
 		var in movePageRequest

@@ -535,7 +535,7 @@ func listTaskActivityHandler(deps *Dependencies) http.HandlerFunc {
 func getTaskContextHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		// Accepts the UUID or the human reference ("#42"/"42"); the
+		// Accepts the UUID or the T-prefixed ref ("T42"); the
 		// snapshot below keys comments/activity/children off the UUID.
 		taskID, rerr := resolveTaskRef(ctx, deps, chi.URLParam(r, "id"))
 		if rerr != nil {

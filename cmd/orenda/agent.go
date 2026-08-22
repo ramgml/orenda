@@ -479,7 +479,7 @@ func newAgentContextCmd() *cobra.Command {
 				return err
 			}
 			raw, code, err := ctx.agentGet(cmd.Context(),
-				"/api/v1/agent/tasks/"+args[0]+"/context")
+				"/api/v1/agent/tasks/"+url.PathEscape(args[0])+"/context")
 			if err != nil {
 				return err
 			}
@@ -518,7 +518,7 @@ func newAgentClaimCmd() *cobra.Command {
 				return err
 			}
 			raw, code, err := ctx.agentPost(cmd.Context(),
-				"/api/v1/agent/tasks/"+args[0]+"/claim", nil)
+				"/api/v1/agent/tasks/"+url.PathEscape(args[0])+"/claim", nil)
 			if err != nil {
 				return err
 			}
@@ -545,7 +545,7 @@ func newAgentReleaseCmd() *cobra.Command {
 				return err
 			}
 			raw, code, err := ctx.agentPost(cmd.Context(),
-				"/api/v1/agent/tasks/"+args[0]+"/release", nil)
+				"/api/v1/agent/tasks/"+url.PathEscape(args[0])+"/release", nil)
 			if err != nil {
 				return err
 			}
@@ -577,7 +577,7 @@ func newAgentSubmitCmd() *cobra.Command {
 				body["note"] = note
 			}
 			raw, code, err := ctx.agentPost(cmd.Context(),
-				"/api/v1/agent/tasks/"+args[0]+"/submit", body)
+				"/api/v1/agent/tasks/"+url.PathEscape(args[0])+"/submit", body)
 			if err != nil {
 				return err
 			}
@@ -611,7 +611,7 @@ func newAgentCommentCmd() *cobra.Command {
 			// route only accepts cookie/JWT sessions and would
 			// 401 otherwise).
 			raw, code, err := ctx.agentPost(cmd.Context(),
-				"/api/v1/agent/tasks/"+args[0]+"/comments",
+				"/api/v1/agent/tasks/"+url.PathEscape(args[0])+"/comments",
 				map[string]any{"body_md": args[1]})
 			if err != nil {
 				return err
@@ -676,7 +676,7 @@ func newAgentUpdateCmd() *cobra.Command {
 				return fmt.Errorf("agent update: no fields supplied (--title / --description / --priority / --due-at / --parent-task-id / --agent-notes)")
 			}
 			raw, code, err := ctx.agentPatch(cmd.Context(),
-				"/api/v1/agent/tasks/"+args[0], body)
+				"/api/v1/agent/tasks/"+url.PathEscape(args[0]), body)
 			if err != nil {
 				return err
 			}
@@ -715,7 +715,7 @@ func newAgentRetractCmd() *cobra.Command {
 				return err
 			}
 			raw, code, err := ctx.agentDelete(cmd.Context(),
-				"/api/v1/agent/tasks/"+args[0])
+				"/api/v1/agent/tasks/"+url.PathEscape(args[0]))
 			if err != nil {
 				return err
 			}
@@ -1157,7 +1157,7 @@ state changes; orenda itself doesn't run a daemon.`,
 
 			// Step 1: fetch the task so we can read the description.
 			raw, code, err := ctx.agentGet(cmd.Context(),
-				"/api/v1/agent/tasks/"+taskID+"/context")
+				"/api/v1/agent/tasks/"+url.PathEscape(taskID)+"/context")
 			if err != nil {
 				return fmt.Errorf("pr-watch: get task: %w", err)
 			}

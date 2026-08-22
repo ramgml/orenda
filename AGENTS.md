@@ -185,7 +185,7 @@ A task is done or not done — "almost done" is not done. Phases here have been 
 ## Communication
 
 - Comments in code: **English**.
-- Commit messages: `task(123): short description` — the task's human number (every task carries a sequential `#N` alongside its UUID; see `docs/DOGFOOD.md` «Именование по номеру задачи»).
+- Commit messages: `task(123): short description` — the task's human number (every task carries a sequential `T<N>` alongside its UUID; see `docs/DOGFOOD.md` «Именование по номеру задачи»). Note: git-branch/commit/PR conventions use bare numeric forms (`task-123-slug`, `task(123):`, `[Task 123]`) — only the resolver (REST/CLI/MCP/UI) uses the T-prefixed form.
 - PR titles: `[Task 123] short description`.
 - Issue references: `closes #N` or `refs PRD#section`.
 - Archive scheme for phases ≤ 32 (historical branches/commits only, never rewritten): `phase(X.Y): ...` commits, `[Phase X.Y] ...` PR titles, `phase-X-Y-<name>` branches.

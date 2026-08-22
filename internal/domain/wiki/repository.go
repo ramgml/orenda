@@ -13,6 +13,11 @@ type Repository interface {
 	// GetBySlug returns the page with the given slug.
 	GetBySlug(ctx context.Context, slug string) (*Page, error)
 
+	// GetByNumber returns the page with the given human-readable
+	// number (the "W42" reference) or ErrNotFound. Numbers are
+	// assigned sequentially at Create and never reused.
+	GetByNumber(ctx context.Context, number int) (*Page, error)
+
 	// List returns all pages ordered by parent_id, position.
 	List(ctx context.Context) ([]*Page, error)
 

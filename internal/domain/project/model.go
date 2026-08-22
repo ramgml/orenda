@@ -32,6 +32,7 @@ var (
 // the right outcome — the page is gone, the project still exists).
 type Project struct {
 	ID          string    `json:"id"`
+	Number      int       `json:"number"`
 	Name        string    `json:"name"`
 	Color       string    `json:"color"`
 	Description string    `json:"description,omitempty"`

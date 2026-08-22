@@ -110,9 +110,14 @@ func getCourseHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "course repo not wired", http.StatusServiceUnavailable)
 			return
 		}
+		c, err := resolveCourseRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeCourseResolveError(w, err)
+			return
+		}
 		// Phase 30.13: the loader is shared with the structure
 		// reorder endpoint (handlers_course_structure.go).
-		tree, err := loadCourseTree(r, deps, chi.URLParam(r, "id"))
+		tree, err := loadCourseTree(r, deps, c.ID)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -127,7 +132,12 @@ func deleteCourseHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "course repo not wired", http.StatusServiceUnavailable)
 			return
 		}
-		if err := deps.Courses.DeleteCourse(r.Context(), chi.URLParam(r, "id")); err != nil {
+		c, err := resolveCourseRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeCourseResolveError(w, err)
+			return
+		}
+		if err := deps.Courses.DeleteCourse(r.Context(), c.ID); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -149,7 +159,12 @@ func requestChangesCourseHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		c, err := deps.CourseService.RequestChanges(r.Context(), chi.URLParam(r, "id"))
+		c, err := resolveCourseRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeCourseResolveError(w, err)
+			return
+		}
+		c2, err := deps.CourseService.RequestChanges(r.Context(), c.ID)
 		if err != nil {
 			if errors.Is(err, coursesvc.ErrTransition) {
 				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_transition"})
@@ -158,7 +173,7 @@ func requestChangesCourseHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, c)
+		writeJSON(w, http.StatusOK, c2)
 	}
 }
 
@@ -168,7 +183,12 @@ func completeLessonHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		l, err := deps.CourseService.CompleteLesson(r.Context(), chi.URLParam(r, "id"))
+		l, err := resolveLessonRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeLessonResolveError(w, err)
+			return
+		}
+		l2, err := deps.CourseService.CompleteLesson(r.Context(), l.ID)
 		if err != nil {
 			if errors.Is(err, coursesvc.ErrTransition) {
 				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "lesson_not_open"})
@@ -177,7 +197,7 @@ func completeLessonHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, l)
+		writeJSON(w, http.StatusOK, l2)
 	}
 }
 
@@ -278,14 +298,18 @@ func submitCurriculumCore(w http.ResponseWriter, r *http.Request, deps *Dependen
 		http.Error(w, "course deps not wired", http.StatusServiceUnavailable)
 		return
 	}
+	cr, err := resolveCourseRef(r.Context(), deps, chi.URLParam(r, "id"))
+	if err != nil {
+		writeCourseResolveError(w, err)
+		return
+	}
 	var req curriculumRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
-	courseID := chi.URLParam(r, "id")
-	modules, lessons, quizzes := decodeCurriculumSwap(req, courseID)
-	if err := deps.CourseService.SubmitCurriculum(r.Context(), courseID, modules, lessons, quizzes); err != nil {
+	modules, lessons, quizzes := decodeCurriculumSwap(req, cr.ID)
+	if err := deps.CourseService.SubmitCurriculum(r.Context(), cr.ID, modules, lessons, quizzes); err != nil {
 		if errors.Is(err, coursesvc.ErrTransition) {
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_transition"})
 			return
@@ -567,6 +591,11 @@ func materializeLessonHandlerAgent(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
 			return
 		}
+		l, err := resolveLessonRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeLessonResolveError(w, err)
+			return
+		}
 		var req materializeLessonRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
@@ -578,7 +607,7 @@ func materializeLessonHandlerAgent(deps *Dependencies) http.HandlerFunc {
 		}
 		lesson, err := deps.CourseService.MaterializeLesson(
 			r.Context(),
-			chi.URLParam(r, "id"),
+			l.ID,
 			req.ContentMD,
 			req.TaskID,
 		)
@@ -674,6 +703,11 @@ func addQuizCore(w http.ResponseWriter, r *http.Request, deps *Dependencies) {
 		http.Error(w, "course service not wired", http.StatusServiceUnavailable)
 		return
 	}
+	l, err := resolveLessonRef(r.Context(), deps, chi.URLParam(r, "id"))
+	if err != nil {
+		writeLessonResolveError(w, err)
+		return
+	}
 	var req addQuizRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
@@ -688,7 +722,7 @@ func addQuizCore(w http.ResponseWriter, r *http.Request, deps *Dependencies) {
 	}
 	q, err := deps.CourseService.AddQuiz(
 		r.Context(),
-		chi.URLParam(r, "id"),
+		l.ID,
 		req.QuestionMD,
 		req.ExpectedMD,
 		course.QuizKind(req.Kind),
@@ -740,6 +774,11 @@ func updateLessonContentHandlerUser(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "course service not wired", http.StatusServiceUnavailable)
 			return
 		}
+		l, err := resolveLessonRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeLessonResolveError(w, err)
+			return
+		}
 		var req materializeLessonRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
@@ -749,9 +788,9 @@ func updateLessonContentHandlerUser(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_content_md"})
 			return
 		}
-		l, err := deps.CourseService.UpdateLessonContent(
+		l2, err := deps.CourseService.UpdateLessonContent(
 			r.Context(),
-			chi.URLParam(r, "id"),
+			l.ID,
 			req.ContentMD,
 		)
 		if err != nil {
@@ -765,6 +804,6 @@ func updateLessonContentHandlerUser(deps *Dependencies) http.HandlerFunc {
 			}
 			return
 		}
-		writeJSON(w, http.StatusOK, l)
+		writeJSON(w, http.StatusOK, l2)
 	}
 }

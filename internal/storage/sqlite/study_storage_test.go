@@ -28,9 +28,16 @@ func TestTaskRepo_StudyCourseIDRoundTrip(t *testing.T) {
 		`INSERT INTO users (id, email, password_hash, display_name) VALUES (?, ?, ?, ?)`,
 		"u-study", "study@031.local", "x", "U")
 	require.NoError(t, err)
+	// Use course_number_seq to assign a unique number (migration 038
+	// makes courses.number NOT NULL DEFAULT 0 with UNIQUE index).
+	var cNum int
+	err = db.QueryRowContext(ctx,
+		`UPDATE course_number_seq SET next = next + 1 WHERE id = 1 RETURNING next - 1`,
+	).Scan(&cNum)
+	require.NoError(t, err)
 	_, err = db.ExecContext(ctx,
-		`INSERT INTO courses (id, title, owner_id, status) VALUES (?, ?, ?, 'active')`,
-		"c-study", "Rust", "u-study")
+		`INSERT INTO courses (id, number, title, owner_id, status) VALUES (?, ?, ?, ?, 'active')`,
+		"c-study", cNum, "Rust", "u-study")
 	require.NoError(t, err)
 
 	repo := NewTaskRepository(db)
@@ -85,9 +92,14 @@ func TestTaskRepo_StudyCourseIDRoundTrip(t *testing.T) {
 	t.Run("course delete clears the link on remaining tasks", func(t *testing.T) {
 		// Use a separate course + task so the previous tests don't
 		// observe this FK action.
-		_, err := db.ExecContext(ctx,
-			`INSERT INTO courses (id, title, owner_id, status) VALUES (?, ?, ?, 'active')`,
-			"c-temp", "Tmp", "u-study")
+		var cNum int
+		err = db.QueryRowContext(ctx,
+			`UPDATE course_number_seq SET next = next + 1 WHERE id = 1 RETURNING next - 1`,
+		).Scan(&cNum)
+		require.NoError(t, err)
+		_, err = db.ExecContext(ctx,
+			`INSERT INTO courses (id, number, title, owner_id, status) VALUES (?, ?, ?, ?, 'active')`,
+			"c-temp", cNum, "Tmp", "u-study")
 		require.NoError(t, err)
 		tr := &task.Task{
 			Title:         "Reminder",

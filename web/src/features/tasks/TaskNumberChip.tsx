@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
 /**
- * Human-readable task number chip (`#123`).
+ * Human-readable task number chip (`T123`).
  *
- * Click copies `#123` to the clipboard and briefly swaps the label to
+ * Click copies `T123` to the clipboard and briefly swaps the label to
  * a confirmation. The project has no global toast library (no sonner /
  * shadcn toast in dependencies), so the confirmation follows the
  * existing copy-to-clipboard pattern from `settings/Backups.tsx`:
@@ -35,7 +35,7 @@ export function TaskNumberChip({ number }: { number: number }): JSX.Element | nu
 
   if (!number || number <= 0) return null;
 
-  const label = `#${number}`;
+  const label = `T${number}`;
 
   function copy(): void {
     navigator.clipboard
