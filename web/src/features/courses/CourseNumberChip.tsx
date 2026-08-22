@@ -18,7 +18,7 @@ export function CourseNumberChip({ number }: { number: number }): JSX.Element | 
 
   useEffect(
     () => () => {
-      clearTimeout(timer.current);
+      if (timer.current !== null) clearTimeout(timer.current);
     },
     [],
   );

@@ -29,6 +29,7 @@ describe('ProjectDetailPage — inline rename', () => {
     description: '',
     owner_id: 'u-1',
     archived: false,
+    number: 1,
     created_at: '2026-08-10T12:00:00Z',
     updated_at: '2026-08-10T12:00:00Z',
   };

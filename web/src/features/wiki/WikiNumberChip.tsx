@@ -24,7 +24,7 @@ export function WikiNumberChip({ number }: { number: number }): JSX.Element | nu
 
   useEffect(
     () => () => {
-      clearTimeout(timer.current);
+      if (timer.current !== null) clearTimeout(timer.current);
     },
     [],
   );
