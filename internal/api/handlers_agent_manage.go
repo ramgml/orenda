@@ -82,10 +82,10 @@ func agentPatchTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		// "#42"/"42" resolve to the UUID (Phase 33.2.1 parity with
-		// /claim/release/submit/context). A bare numeric path that
-		// doesn't match any task returns 404 with the friendly body
-		// {"error":"task #N not found"}.
+		// "T42" resolves to the UUID (Phase 33.2.1 parity with
+		// /claim/release/submit/context). A T-ref that doesn't match
+		// any task returns 404 with the friendly body
+		// {"error":"task T42 not found"}.
 		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
 		if rerr != nil {
 			writeResolveError(w, rerr)

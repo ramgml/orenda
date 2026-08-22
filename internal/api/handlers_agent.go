@@ -81,7 +81,7 @@ func agentClaimTaskHandler(deps *Dependencies) http.HandlerFunc {
 		var req agentClaimRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 
-		// Task numbers ("#42"/"42") resolve to the UUID here; every
+		// Task numbers ("T42") resolve to the UUID here; every
 		// downstream call (claim, lock-holder lookup) works on ids.
 		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
 		if rerr != nil {
@@ -193,7 +193,7 @@ func agentTaskContextHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 		ctx := r.Context()
-		// "#42"/"42" resolve to the UUID; the snapshot below then keys
+		// "T42" resolves to the UUID; the snapshot below then keys
 		// everything (comments, activity, children, locks) off the id.
 		taskID, rerr := resolveTaskRef(ctx, deps, chi.URLParam(r, "id"))
 		if rerr != nil {

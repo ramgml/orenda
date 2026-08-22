@@ -336,53 +336,54 @@ func TestOrendaTools_TaskProposeRequiresFields(t *testing.T) {
 }
 
 // ------------------------------------------------------------------
-// Task #42: URL-escape path parameters so "#" doesn't become a
-// fragment separator. Every task-id-bearing tool must percent-encode
-// the id so "/api/v1/agent/tasks/%2342/context" arrives intact.
+// Task 48: URL-escape path parameters. Every task-id-bearing tool
+// must use url.PathEscape so special characters arrive intact.
+// With the T-prefix form ("T42") the path is clean; the test pins
+// that the tool forwards the ref without mangling.
 // ------------------------------------------------------------------
 
-func TestOrendaTools_ContextEscapesHashTaskID(t *testing.T) {
+func TestOrendaTools_ContextSendsGET(t *testing.T) {
 	srv, rec := newToolServer(t, nil)
-	callTool(t, srv, "orenda_context", map[string]any{"task_id": "#42"})
+	callTool(t, srv, "orenda_context", map[string]any{"task_id": "T42"})
 	assert.Equal(t, http.MethodGet, rec.method)
-	assert.Equal(t, "/api/v1/agent/tasks/%2342/context", rec.escapedPath)
+	assert.Equal(t, "/api/v1/agent/tasks/T42/context", rec.escapedPath)
 }
 
-func TestOrendaTools_ClaimEscapesHashTaskID(t *testing.T) {
+func TestOrendaTools_ClaimSendsPOST(t *testing.T) {
 	srv, rec := newToolServer(t, nil)
-	callTool(t, srv, "orenda_claim", map[string]any{"task_id": "#42"})
+	callTool(t, srv, "orenda_claim", map[string]any{"task_id": "T42"})
 	assert.Equal(t, http.MethodPost, rec.method)
-	assert.Equal(t, "/api/v1/agent/tasks/%2342/claim", rec.escapedPath)
+	assert.Equal(t, "/api/v1/agent/tasks/T42/claim", rec.escapedPath)
 }
 
-func TestOrendaTools_ReleaseEscapesHashTaskID(t *testing.T) {
+func TestOrendaTools_ReleaseSendsPOST(t *testing.T) {
 	srv, rec := newToolServer(t, nil)
-	callTool(t, srv, "orenda_release", map[string]any{"task_id": "#42"})
+	callTool(t, srv, "orenda_release", map[string]any{"task_id": "T42"})
 	assert.Equal(t, http.MethodPost, rec.method)
-	assert.Equal(t, "/api/v1/agent/tasks/%2342/release", rec.escapedPath)
+	assert.Equal(t, "/api/v1/agent/tasks/T42/release", rec.escapedPath)
 }
 
-func TestOrendaTools_SubmitEscapesHashTaskID(t *testing.T) {
+func TestOrendaTools_SubmitSendsPOST(t *testing.T) {
 	srv, rec := newToolServer(t, nil)
-	callTool(t, srv, "orenda_submit", map[string]any{"task_id": "#42"})
+	callTool(t, srv, "orenda_submit", map[string]any{"task_id": "T42"})
 	assert.Equal(t, http.MethodPost, rec.method)
-	assert.Equal(t, "/api/v1/agent/tasks/%2342/submit", rec.escapedPath)
+	assert.Equal(t, "/api/v1/agent/tasks/T42/submit", rec.escapedPath)
 }
 
-func TestOrendaTools_TaskUpdateEscapesHashTaskID(t *testing.T) {
+func TestOrendaTools_TaskUpdateSendsPATCH(t *testing.T) {
 	srv, rec := newToolServer(t, nil)
 	callTool(t, srv, "orenda_task_update", map[string]any{
-		"task_id": "#42", "title": "new title",
+		"task_id": "T42", "title": "new title",
 	})
 	assert.Equal(t, http.MethodPatch, rec.method)
-	assert.Equal(t, "/api/v1/agent/tasks/%2342", rec.escapedPath)
+	assert.Equal(t, "/api/v1/agent/tasks/T42", rec.escapedPath)
 }
 
-func TestOrendaTools_TaskRetractEscapesHashTaskID(t *testing.T) {
+func TestOrendaTools_TaskRetractSendsDELETE(t *testing.T) {
 	srv, rec := newToolServer(t, nil)
-	callTool(t, srv, "orenda_task_retract", map[string]any{"task_id": "#42"})
+	callTool(t, srv, "orenda_task_retract", map[string]any{"task_id": "T42"})
 	assert.Equal(t, http.MethodDelete, rec.method)
-	assert.Equal(t, "/api/v1/agent/tasks/%2342", rec.escapedPath)
+	assert.Equal(t, "/api/v1/agent/tasks/T42", rec.escapedPath)
 }
 
 // Regression: a bare UUID must not be double-escaped.

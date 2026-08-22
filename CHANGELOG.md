@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Breaking:** Task ref format cutover (Task 48): `#N` and bare `N` no longer resolve as task references. Use the T-prefixed form (`T42`) in REST paths, CLI args, MCP `task_id` arguments, and the UI chip. Legacy forms that don't match `T<N>` fall through to UUID lookup and return a generic `not_found` 404. Git-branch/commit/PR conventions remain bare numeric (`task-123-slug`, `task(123):`, `[Task 123]`).
+
 ## [0.5.0] — 2026-08-22
 
 Fifth pre-alpha release. Focus: shadcn/ui component migration (dialog, buttons, checkboxes, semantic tokens), LMS pace adaptation, agent task management (proposals/context/agent_notes), markdown rendering in task descriptions, build-system semantics swap (`make test` = cached fast gate, `make test-full` = CI backstop), Kanban fixes, and process documentation.
