@@ -14,15 +14,15 @@ import (
 )
 
 // resolveProjectRef resolves a project reference from the URL/body to the
-// project's UUID. "P7" resolves through projects.number; anything else
-// is a UUID lookup. Unknown P-refs surface as *project.RefNotFoundError
-// ("project P7 not found"); unknown ids as project.ErrNotFound.
-func resolveProjectRef(ctx context.Context, deps *Dependencies, ref string) (string, error) {
-	p, err := project.ResolveProjectRef(ctx, deps.Projects, ref)
-	if err != nil {
-		return "", err
-	}
-	return p.ID, nil
+// full project. "P7" resolves through projects.number; anything else is a
+// UUID lookup. Returns the loaded *Project so callers that also need the
+// full row (get, patch, agent-get) avoid a second GetProject round-trip.
+// Callers that only need the ID access .ID on the returned project.
+//
+// Unknown P-refs surface as *project.RefNotFoundError ("project P7 not
+// found"); unknown ids as project.ErrNotFound.
+func resolveProjectRef(ctx context.Context, deps *Dependencies, ref string) (*project.Project, error) {
+	return project.ResolveProjectRef(ctx, deps.Projects, ref)
 }
 
 // writeProjectResolveError translates a resolveProjectRef failure: 404

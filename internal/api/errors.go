@@ -43,6 +43,8 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, project.ErrColumnNotEmpty):
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "column_not_empty"})
+	case isProjectRefNotFound(err):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 	case errors.Is(err, user.ErrNotFound),
 		errors.Is(err, project.ErrNotFound),
 		errors.Is(err, task.ErrNotFound),
@@ -67,4 +69,13 @@ func writeError(w http.ResponseWriter, err error) {
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 	}
+}
+
+// isProjectRefNotFound reports whether err is a *project.RefNotFoundError.
+// The check is placed before the generic project.ErrNotFound case in
+// writeError so the explicit "project P7 not found" message surfaces
+// instead of the bare "not_found".
+func isProjectRefNotFound(err error) bool {
+	var refErr *project.RefNotFoundError
+	return errors.As(err, &refErr)
 }

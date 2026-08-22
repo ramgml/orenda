@@ -52,14 +52,9 @@ func agentGetProjectHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		p, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
 		if err != nil {
 			writeProjectResolveError(w, err)
-			return
-		}
-		p, err := deps.Projects.GetProject(r.Context(), projectID)
-		if err != nil {
-			writeError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, p)
@@ -100,14 +95,9 @@ func agentPatchProjectHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		p, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
 		if err != nil {
 			writeProjectResolveError(w, err)
-			return
-		}
-		p, err := deps.Projects.GetProject(r.Context(), projectID)
-		if err != nil {
-			writeError(w, err)
 			return
 		}
 		var in agentPatchProjectRequest
@@ -162,11 +152,11 @@ func agentPatchProjectHandler(deps *Dependencies) http.HandlerFunc {
 					"after":  p.Description,
 				})
 				if rerr := deps.ProjectActivityRecorder.RecordProjectAuto(
-					r.Context(), projectID,
+					r.Context(), p.ID,
 					project.ActivityDescriptionChanged, string(payload),
 				); rerr != nil && deps.Logger != nil {
 					deps.Logger.Warn("project activity record failed",
-						zap.String("project_id", projectID),
+						zap.String("project_id", p.ID),
 						zap.String("kind", "description_changed"),
 						zap.Error(rerr),
 					)
@@ -178,11 +168,11 @@ func agentPatchProjectHandler(deps *Dependencies) http.HandlerFunc {
 					"after":  p.WikiSlug,
 				})
 				if rerr := deps.ProjectActivityRecorder.RecordProjectAuto(
-					r.Context(), projectID,
+					r.Context(), p.ID,
 					project.ActivityWikiSlugChanged, string(payload),
 				); rerr != nil && deps.Logger != nil {
 					deps.Logger.Warn("project activity record failed",
-						zap.String("project_id", projectID),
+						zap.String("project_id", p.ID),
 						zap.String("kind", "wiki_slug_changed"),
 						zap.Error(rerr),
 					)

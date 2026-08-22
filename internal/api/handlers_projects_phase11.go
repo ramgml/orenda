@@ -30,11 +30,12 @@ func listProjectActivityHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "activity service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		p, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
 		if err != nil {
 			writeProjectResolveError(w, err)
 			return
 		}
+		projectID := p.ID
 		limit := 200
 		if raw := r.URL.Query().Get("limit"); raw != "" {
 			if n, err := strconv.Atoi(raw); err == nil && n > 0 {
@@ -65,12 +66,12 @@ func listProjectAttachmentsHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "attachment service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		p, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
 		if err != nil {
 			writeProjectResolveError(w, err)
 			return
 		}
-		got, err := deps.Attachments.ListByProject(r.Context(), projectID)
+		got, err := deps.Attachments.ListByProject(r.Context(), p.ID)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -92,11 +93,12 @@ func addProjectAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "attachment service not wired", http.StatusServiceUnavailable)
 			return
 		}
-		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		p, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
 		if err != nil {
 			writeProjectResolveError(w, err)
 			return
 		}
+		projectID := p.ID
 		const maxMem = 32 << 20
 		if err := r.ParseMultipartForm(maxMem); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_multipart"})

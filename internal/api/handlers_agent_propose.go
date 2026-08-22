@@ -77,12 +77,12 @@ func agentCreateTaskHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 		// Resolve project ref (P<N> or UUID) to UUID.
-		resolvedProjectID, err := resolveProjectRef(r.Context(), deps, in.ProjectID)
+		resolved, err := resolveProjectRef(r.Context(), deps, in.ProjectID)
 		if err != nil {
 			writeProjectResolveError(w, err)
 			return
 		}
-		in.ProjectID = resolvedProjectID
+		in.ProjectID = resolved.ID
 		prio := task.PriorityMedium
 		if in.Priority != "" {
 			switch task.Priority(in.Priority) {

@@ -65,13 +65,13 @@ type taskInput struct {
 // kanban board and the inbox list.
 func listProjectTasksHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		p, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
 		if err != nil {
 			writeProjectResolveError(w, err)
 			return
 		}
 		f := task.Filter{
-			ProjectID: projectID,
+			ProjectID: p.ID,
 		}
 		if s := r.URL.Query().Get("status"); s != "" {
 			f.Status = task.Status(s)
@@ -106,12 +106,12 @@ func createTaskHandler(deps *Dependencies) http.HandlerFunc {
 			projectID = *in.ProjectID
 		}
 		// Resolve project ref (P<N> or UUID) to UUID.
-		resolvedID, err := resolveProjectRef(r.Context(), deps, projectID)
+		resolved, err := resolveProjectRef(r.Context(), deps, projectID)
 		if err != nil {
 			writeProjectResolveError(w, err)
 			return
 		}
-		projectID = resolvedID
+		projectID = resolved.ID
 		tr := &task.Task{
 			ProjectID:     projectID,
 			ColumnID:      in.ColumnID,
@@ -275,7 +275,9 @@ func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.
 	prevAssigneeType := tr.AssigneeType
 	prevAssigneeID := tr.AssigneeID
 
-	applyTaskPatch(ctx, deps, tr, in)
+	if err := applyTaskPatch(ctx, deps, tr, in); err != nil {
+		return err
+	}
 	statusChanged := in.Status != "" && tr.Status != prevStatus
 	if statusChanged && tr.Status == task.StatusDone && in.CompletedAt == nil {
 		now := time.Now().UTC()
@@ -409,7 +411,7 @@ func bulkPatchTasksHandler(deps *Dependencies) http.HandlerFunc {
 // The column-resolution policy mirrors the create handler so the
 // UX is consistent: dropping an inbox card onto a board always
 // lands it in the first column.
-func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput) {
+func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput) error {
 	if in.Title != "" {
 		tr.Title = in.Title
 	}
@@ -448,9 +450,9 @@ func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in t
 		if newProject != "" {
 			resolved, err := resolveProjectRef(ctx, deps, newProject)
 			if err != nil {
-				return // will surface as not_found via writeError
+				return err
 			}
-			newProject = resolved
+			newProject = resolved.ID
 		}
 		tr.ProjectID = newProject
 		if in.ColumnID == "" {
@@ -517,9 +519,8 @@ func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in t
 	if in.Position != nil {
 		tr.Position = *in.Position
 	}
+	return nil
 }
-
-// deleteTaskHandler removes a task.
 func deleteTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := deps.Tasks.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {

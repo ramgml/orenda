@@ -78,14 +78,9 @@ func createProjectHandler(deps *Dependencies) http.HandlerFunc {
 // getProjectHandler returns one project.
 func getProjectHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		p, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
 		if err != nil {
 			writeProjectResolveError(w, err)
-			return
-		}
-		p, err := deps.Projects.GetProject(r.Context(), projectID)
-		if err != nil {
-			writeError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, p)
@@ -109,14 +104,9 @@ func getProjectHandler(deps *Dependencies) http.HandlerFunc {
 //   - archived: nil → leave alone; bool → set.
 func patchProjectHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		p, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
 		if err != nil {
 			writeProjectResolveError(w, err)
-			return
-		}
-		p, err := deps.Projects.GetProject(r.Context(), projectID)
-		if err != nil {
-			writeError(w, err)
 			return
 		}
 		var in projectInput
@@ -176,12 +166,12 @@ func patchProjectHandler(deps *Dependencies) http.HandlerFunc {
 // deleteProjectHandler removes a project.
 func deleteProjectHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		p, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
 		if err != nil {
 			writeProjectResolveError(w, err)
 			return
 		}
-		if err := deps.Projects.DeleteProject(r.Context(), projectID); err != nil {
+		if err := deps.Projects.DeleteProject(r.Context(), p.ID); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -192,12 +182,12 @@ func deleteProjectHandler(deps *Dependencies) http.HandlerFunc {
 // getProjectBoardHandler returns the (single) board + its columns.
 func getProjectBoardHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		projectID, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		p, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
 		if err != nil {
 			writeProjectResolveError(w, err)
 			return
 		}
-		board, cols, err := deps.Projects.GetBoard(r.Context(), projectID)
+		board, cols, err := deps.Projects.GetBoard(r.Context(), p.ID)
 		if err != nil {
 			writeError(w, err)
 			return
