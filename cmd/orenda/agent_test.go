@@ -339,6 +339,108 @@ func TestAgentPropose_Non201IsAnError(t *testing.T) {
 	assert.Contains(t, err.Error(), "404")
 }
 
+// ---------------------------------------------------------------------------
+// Task #42: CLI must percent-escape "#" in task IDs so it doesn't
+// become a URL fragment separator.
+// ---------------------------------------------------------------------------
+
+func TestAgentContext_EscapesHashTaskID(t *testing.T) {
+	var gotEscapedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotEscapedPath = r.URL.EscapedPath()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"task":{"id":"t-42","number":42,"title":"Test"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := runAgentCLI(t, srv, "context", "#42")
+	require.NoError(t, err)
+	assert.Equal(t, "/api/v1/agent/tasks/%2342/context", gotEscapedPath)
+}
+
+func TestAgentClaim_EscapesHashTaskID(t *testing.T) {
+	var gotEscapedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotEscapedPath = r.URL.EscapedPath()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"t-42","status":"in_progress"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := runAgentCLI(t, srv, "claim", "#42")
+	require.NoError(t, err)
+	assert.Equal(t, "/api/v1/agent/tasks/%2342/claim", gotEscapedPath)
+}
+
+func TestAgentSubmit_EscapesHashTaskID(t *testing.T) {
+	var gotEscapedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotEscapedPath = r.URL.EscapedPath()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"t-42","status":"review"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := runAgentCLI(t, srv, "submit", "#42")
+	require.NoError(t, err)
+	assert.Equal(t, "/api/v1/agent/tasks/%2342/submit", gotEscapedPath)
+}
+
+func TestAgentRelease_EscapesHashTaskID(t *testing.T) {
+	var gotEscapedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotEscapedPath = r.URL.EscapedPath()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"t-42","status":"todo"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := runAgentCLI(t, srv, "release", "#42")
+	require.NoError(t, err)
+	assert.Equal(t, "/api/v1/agent/tasks/%2342/release", gotEscapedPath)
+}
+
+func TestAgentUpdate_EscapesHashTaskID(t *testing.T) {
+	var gotEscapedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotEscapedPath = r.URL.EscapedPath()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"t-42"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := runAgentCLI(t, srv, "update", "#42", "--title", "new")
+	require.NoError(t, err)
+	assert.Equal(t, "/api/v1/agent/tasks/%2342", gotEscapedPath)
+}
+
+func TestAgentRetract_EscapesHashTaskID(t *testing.T) {
+	var gotEscapedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotEscapedPath = r.URL.EscapedPath()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := runAgentCLI(t, srv, "retract", "#42")
+	require.NoError(t, err)
+	assert.Equal(t, "/api/v1/agent/tasks/%2342", gotEscapedPath)
+}
+
+func TestAgentComment_EscapesHashTaskID(t *testing.T) {
+	var gotEscapedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotEscapedPath = r.URL.EscapedPath()
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"c-1"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := runAgentCLI(t, srv, "comment", "#42", "looks good")
+	require.NoError(t, err)
+	assert.Equal(t, "/api/v1/agent/tasks/%2342/comments", gotEscapedPath)
+}
+
 // TestPRNumberFromDescription pins the Phase 32.10 pr-watch
 // regex: the CLI extracts the first PR-like reference from the
 // task description. Supported forms: "PR #N", "closes #N",
