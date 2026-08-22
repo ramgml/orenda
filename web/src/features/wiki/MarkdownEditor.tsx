@@ -4,6 +4,8 @@ import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import { Markdown } from 'tiptap-markdown';
 import { useEffect, useMemo } from 'react';
+import { Button } from '@/shared/ui/button';
+import { cn } from '@/shared/util/cn';
 import {
   flattenWikiTree,
   WikiLinkSuggestion,
@@ -103,17 +105,17 @@ export function MarkdownEditor({
 
   if (!editor) {
     return (
-      <div className="rounded border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-6 text-sm text-slate-500">
+      <div className="rounded border border-border bg-muted p-6 text-sm text-slate-500">
         Loading editor…
       </div>
     );
   }
 
   return (
-    <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden">
+    <div className="rounded border border-border bg-background overflow-hidden">
       <BubbleMenu
         editor={editor}
-        className="flex items-center gap-0.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg px-1 py-0.5 text-xs"
+        className="flex items-center gap-0.5 rounded-md border border-border bg-card shadow-lg px-1 py-0.5 text-xs"
       >
         <Btn
           active={editor.isActive('bold')}
@@ -208,16 +210,19 @@ function Btn({
   children?: React.ReactNode;
 }): JSX.Element {
   return (
-    <button
+    <Button
       type="button"
       onClick={onClick}
       title={title}
-      className={`px-2 py-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 ${
-        active ? 'bg-orenda-100 dark:bg-orenda-900/40 text-orenda-700 dark:text-orenda-300' : ''
-      }`}
+      variant="ghost"
+      size="sm"
+      className={cn(
+        'h-7 px-2 py-1',
+        active && 'bg-orenda-100 dark:bg-orenda-900/40 text-orenda-700 dark:text-orenda-300',
+      )}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -228,9 +233,15 @@ function Sep(): JSX.Element {
 function LinkBtn({ editor }: { editor: ReturnType<typeof useEditor> }): JSX.Element {
   if (!editor) return <></>;
   return (
-    <button
+    <Button
       type="button"
       title="Link"
+      variant="ghost"
+      size="sm"
+      className={cn(
+        'h-7 px-2 py-1',
+        editor.isActive('link') && 'bg-orenda-100 dark:bg-orenda-900/40 text-orenda-700',
+      )}
       onClick={() => {
         const prev = editor.getAttributes('link').href as string | undefined;
         const url = window.prompt('URL', prev ?? 'https://');
@@ -241,11 +252,8 @@ function LinkBtn({ editor }: { editor: ReturnType<typeof useEditor> }): JSX.Elem
         }
         editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
       }}
-      className={`px-2 py-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 ${
-        editor.isActive('link') ? 'bg-orenda-100 dark:bg-orenda-900/40 text-orenda-700' : ''
-      }`}
     >
       🔗
-    </button>
+    </Button>
   );
 }

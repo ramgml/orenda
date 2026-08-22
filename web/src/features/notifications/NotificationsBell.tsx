@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 
 import { api, type Notification } from '@/shared/api/client';
 import { useWebSocketTopic } from '@/shared/ws';
+import { Button } from '@/shared/ui/button';
 
 interface Payload {
   title?: string;
@@ -71,10 +72,10 @@ export function NotificationsBell(): JSX.Element {
 
   return (
     <div className="relative" ref={ref}>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
         onClick={() => setOpen((v) => !v)}
-        className="relative px-2 py-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+        className="relative px-2 py-1 h-auto"
         aria-label="Notifications"
       >
         <svg
@@ -95,11 +96,11 @@ export function NotificationsBell(): JSX.Element {
             {unread > 99 ? '99+' : unread}
           </span>
         )}
-      </button>
+      </Button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-80 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl z-50">
-          <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 text-xs text-slate-500">
+        <div className="absolute right-0 mt-2 w-80 rounded-lg border border-border bg-card shadow-xl z-50">
+          <div className="px-3 py-2 border-b border-border text-xs text-slate-500">
             {unread} unread
           </div>
           {error && <p className="px-3 py-2 text-xs text-red-600">{error}</p>}
@@ -133,13 +134,14 @@ export function NotificationsBell(): JSX.Element {
                           </Link>
                         )}
                         {n.read_at == null && (
-                          <button
-                            type="button"
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => markRead(n.id)}
-                            className="text-xs text-slate-500 hover:underline"
+                            className="text-xs text-slate-500 hover:underline h-auto px-1 py-0.5"
                           >
                             mark read
-                          </button>
+                          </Button>
                         )}
                       </div>
                     </div>

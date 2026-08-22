@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { api, type Course } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
+import { Input } from '@/shared/ui/input';
+import { Textarea } from '@/shared/ui/textarea';
 
 /**
  * Phase 18.7: Courses list + create wizard.
@@ -76,46 +80,42 @@ export function CoursesPage(): JSX.Element {
 
       <form
         onSubmit={(e) => void onCreate(e)}
-        className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950 space-y-2"
+        className="rounded border border-border p-4 bg-background space-y-2"
       >
-        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Create a course
-        </h2>
-        <input
+        <h2 className="text-sm font-semibold text-foreground">Create a course</h2>
+        <Input
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="e.g. Learn Rust in a month"
           data-testid="course-title"
-          className="w-full px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
+          className="text-sm"
         />
-        <textarea
+        <Textarea
           value={intent}
           onChange={(e) => setIntent(e.target.value)}
           rows={3}
           placeholder="What do you want to learn? What level? How much time per week?"
           data-testid="course-intent"
-          className="w-full px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
+          className="text-sm"
         />
-        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-          <input
-            type="checkbox"
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <Checkbox
             checked={skipGenerator}
-            onChange={(e) => setSkipGenerator(e.target.checked)}
+            onCheckedChange={(v) => setSkipGenerator(v === true)}
             data-testid="course-skip-generator"
-            className="h-4 w-4 rounded border-slate-300"
           />
           <span>I'll build the curriculum myself (skip tutor agent)</span>
         </label>
         <div className="flex justify-end">
-          <button
+          <Button
             type="submit"
             disabled={busy || !title.trim()}
             data-testid="course-create"
-            className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
+            size="sm"
           >
             Create
-          </button>
+          </Button>
         </div>
       </form>
 
@@ -131,12 +131,9 @@ export function CoursesPage(): JSX.Element {
             <li
               key={c.id}
               data-testid="course-row"
-              className="rounded border border-slate-200 dark:border-slate-800 p-3 bg-white dark:bg-slate-950"
+              className="rounded border border-border p-3 bg-background"
             >
-              <Link
-                to={`/courses/${c.id}`}
-                className="text-slate-800 dark:text-slate-100 hover:underline"
-              >
+              <Link to={`/courses/${c.id}`} className="text-foreground hover:underline">
                 {c.title}
               </Link>
               <span className="ml-2 text-[10px] text-slate-400 font-mono">{c.status}</span>

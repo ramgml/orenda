@@ -235,7 +235,7 @@ test.describe('Kanban', () => {
     await page.waitForLoadState('networkidle');
     // The select must have loaded the board's columns (Phase 27.8.4).
     const status = page.getByTestId('task-status');
-    await expect(status).toHaveValue('todo', { timeout: 10_000 });
+    await expect(status).toContainText('todo', { timeout: 10_000 });
 
     // Drag (simulated via API, since the dnd-kit pointer sequence
     // is unreliable in jsdom/Chromium — see top-of-file comment):
@@ -256,7 +256,7 @@ test.describe('Kanban', () => {
     // A reload is the deterministic way to drive the read.
     await page.reload();
     await page.waitForLoadState('networkidle');
-    await expect(status).toHaveValue('done', { timeout: 10_000 });
+    await expect(status).toContainText('done', { timeout: 10_000 });
 
     await ctx.dispose();
   });

@@ -38,7 +38,7 @@ export function ProjectActivityTab(): JSX.Element {
 
   if (items.length === 0) {
     return (
-      <div className="rounded border border-slate-200 dark:border-slate-800 p-6 text-center text-sm text-slate-500">
+      <div className="rounded border border-border p-6 text-center text-sm text-slate-500">
         No activity yet. Move a task, comment, or submit it for review to see entries here.
       </div>
     );
@@ -49,12 +49,12 @@ export function ProjectActivityTab(): JSX.Element {
       {items.map((it) => (
         <li
           key={it.id}
-          className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-3 py-2 text-sm flex items-center gap-3"
+          className="rounded border border-border bg-background px-3 py-2 text-sm flex items-center gap-3"
         >
           <span className="font-mono text-xs text-slate-400 w-32 flex-shrink-0">
             {formatRelative(it.created_at)}
           </span>
-          <span className="px-1.5 py-0.5 rounded text-xs uppercase tracking-wide bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+          <span className="px-1.5 py-0.5 rounded text-xs uppercase tracking-wide bg-muted text-muted-foreground">
             {it.action}
           </span>
           <TaskLink taskId={it.task_id} className="truncate hover:text-orenda-600 hover:underline">

@@ -125,6 +125,56 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 	})
 
 	s.Register(Tool{
+		Name:        "orenda_task_update",
+		Description: "Edit own un-triaged task proposal (status=backlog + awaiting=human) or update agent_notes as the lock holder. Two paths: {agent_notes: ...} only goes through the holder gate; any other field goes through the proposal gate. Returns 403 not_your_proposal / not_lock_holder on permission failure.",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"task_id"},
+			"properties": map[string]any{
+				"task_id":        map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
+				"title":          map[string]any{"type": "string"},
+				"description_md": map[string]any{"type": "string"},
+				"priority":       map[string]any{"type": "string", "description": "low|medium|high|urgent"},
+				"due_at":         map[string]any{"type": "string", "description": "RFC3339 or null to clear"},
+				"parent_task_id": map[string]any{"type": "string"},
+				"agent_notes":    map[string]any{"type": "string"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			id, _ := params["task_id"].(string)
+			if id == "" {
+				return nil, fmt.Errorf("orenda_task_update: task_id is required")
+			}
+			body := map[string]any{}
+			for _, k := range []string{"title", "description_md", "priority", "due_at", "parent_task_id", "agent_notes"} {
+				if v, _ := params[k].(string); v != "" {
+					body[k] = v
+				}
+			}
+			return agentPatch(ctx, httpc, cfg, "/api/v1/agent/tasks/"+id, body)
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_task_retract",
+		Description: "Hard-delete own un-triaged task proposal (status=backlog + awaiting=human). Returns 403 not_your_proposal if the task is triaged or created by another agent.",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"task_id"},
+			"properties": map[string]any{
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or human number ('42' / '#42')"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			id, _ := params["task_id"].(string)
+			if id == "" {
+				return nil, fmt.Errorf("orenda_task_retract: task_id is required")
+			}
+			return agentDelete(ctx, httpc, cfg, "/api/v1/agent/tasks/"+id)
+		},
+	})
+
+	s.Register(Tool{
 		Name:        "orenda_claim",
 		Description: "Claim a task for the agent. 409 lock_taken if held by another agent; 422 task_blocked with unfinished_blockers list if Phase 15 deps are open.",
 		InputSchema: map[string]any{

@@ -13,6 +13,8 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ramgml/orenda/internal/api/ws"
+
+	activity "github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/task"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 )
@@ -203,18 +205,14 @@ func agentTaskContextHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		// Verify the agent holds the task — agents should only see context
-		// for tasks they've claimed.
-		if tr.AssigneeID != id.AgentID {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
+		scrubTaskForNonHolder(tr, id.AgentID)
 		out := &TaskContext{Task: tr}
 		if deps.Comments != nil {
 			out.Comments, _ = deps.Comments.ListByTarget(ctx, "task", taskID)
 		}
 		if deps.Activities != nil {
-			out.Activity, _ = deps.Activities.ListByTask(ctx, taskID)
+			acts, _ := deps.Activities.ListByTask(ctx, taskID)
+			out.Activity = filterActivityForAgent(acts, id.AgentID, *tr)
 		}
 		if children, err := deps.Tasks.ListChildren(ctx, taskID); err == nil {
 			out.Children = children
@@ -236,4 +234,29 @@ func agentTaskContextHandler(deps *Dependencies) http.HandlerFunc {
 		populateContextLockHolder(deps, ctx, taskID, out)
 		writeJSON(w, http.StatusOK, out)
 	}
+}
+
+// scrubTaskForNonHolder clears per-claim private fields when the
+// caller is not the task's current assignee. Task is a value type —
+// the mutation lands on the caller's copy, not the cache.
+func scrubTaskForNonHolder(tr *task.Task, agentID string) {
+	if tr.AssigneeType == task.AssigneeAgent && tr.AssigneeID == agentID {
+		return // holder reads everything
+	}
+	tr.AgentNotes = ""
+	tr.ContextMD = ""
+}
+
+// filterActivityForAgent strips rows that leak holder-private content
+// from the activity feed of a non-holder reader.
+func filterActivityForAgent(acts []*activity.Activity, agentID string, tr task.Task) []*activity.Activity {
+	holder := tr.AssigneeType == task.AssigneeAgent && tr.AssigneeID == agentID
+	out := make([]*activity.Activity, 0, len(acts))
+	for _, a := range acts {
+		if a.Action == activity.ActionAgentNotes && !holder {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }

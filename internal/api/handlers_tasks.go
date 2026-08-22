@@ -101,17 +101,18 @@ func createTaskHandler(deps *Dependencies) http.HandlerFunc {
 			projectID = *in.ProjectID
 		}
 		tr := &task.Task{
-			ProjectID:    projectID,
-			ColumnID:     in.ColumnID,
-			ParentTaskID: in.ParentTaskID,
-			Title:        in.Title,
-			Description:  in.Description,
-			Status:       in.Status,
-			Priority:     in.Priority,
-			AssigneeType: in.AssigneeType,
-			AssigneeID:   in.AssigneeID,
-			ContextMD:    in.ContextMD,
-			AgentNotes:   in.AgentNotes,
+			ProjectID:     projectID,
+			ColumnID:      in.ColumnID,
+			ParentTaskID:  in.ParentTaskID,
+			Title:         in.Title,
+			Description:   in.Description,
+			Status:        in.Status,
+			Priority:      in.Priority,
+			AssigneeType:  in.AssigneeType,
+			AssigneeID:    in.AssigneeID,
+			ContextMD:     in.ContextMD,
+			AgentNotes:    in.AgentNotes,
+			CreatedByType: task.CreatorUser,
 		}
 		if in.DueAt != nil {
 			tr.DueAt = parseOptionalTime(*in.DueAt)

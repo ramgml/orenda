@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
 
 import { api, type Project } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 
 /**
  * /projects/:id — header + tab nav. The actual tab content is rendered
@@ -56,7 +58,7 @@ export function ProjectDetailPage(): JSX.Element {
         <h1 className="text-2xl font-semibold flex items-center gap-2 min-w-0">
           <InlineProjectName project={project} onRename={(updated) => setProject(updated)} />
           {project?.archived && (
-            <span className="text-xs uppercase tracking-wide text-slate-500 border border-slate-300 dark:border-slate-700 rounded px-2 py-1 flex-shrink-0">
+            <span className="text-xs uppercase tracking-wide text-slate-500 border border-border rounded px-2 py-1 flex-shrink-0">
               archived
             </span>
           )}
@@ -64,7 +66,7 @@ export function ProjectDetailPage(): JSX.Element {
         {project?.wiki_slug && (
           <a
             href={`/pages/${encodeURIComponent(project.wiki_slug)}`}
-            className="text-xs px-2 py-1 rounded border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 flex-shrink-0"
+            className="text-xs px-2 py-1 rounded border border-border hover:bg-slate-100 dark:hover:bg-slate-800 flex-shrink-0"
             title="Open the linked wiki page"
           >
             Wiki page ↗
@@ -84,13 +86,15 @@ export function ProjectDetailPage(): JSX.Element {
       {!project && !error && (
         <p className="text-slate-500 mt-4">
           Loading…
-          <button
+          <Button
             type="button"
             onClick={() => navigate('/projects')}
+            variant="ghost"
+            size="sm"
             className="ml-3 text-xs underline"
           >
             Back to projects
-          </button>
+          </Button>
         </p>
       )}
     </section>
@@ -117,7 +121,7 @@ function ProjectTabs({ projectId }: { projectId: string }): JSX.Element | null {
     </NavLink>
   );
   return (
-    <nav className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-800">
+    <nav className="flex items-center gap-1 border-b border-border">
       {tab(base, 'Kanban')}
       {tab(`${base}/activity`, 'Activity')}
       {tab(`${base}/attachments`, 'Attachments')}
@@ -198,7 +202,7 @@ function InlineProjectName({
   if (editing) {
     return (
       <span className="inline-flex flex-col gap-1 min-w-0 flex-1">
-        <input
+        <Input
           ref={inputRef}
           type="text"
           value={draft}
@@ -222,7 +226,7 @@ function InlineProjectName({
             }
           }}
           aria-label="Project name"
-          className="text-2xl font-semibold px-2 py-1 rounded border border-orenda-500 bg-white dark:bg-slate-950 outline-none min-w-0"
+          className="text-2xl font-semibold px-2 py-1 rounded border border-orenda-500 bg-background outline-none min-w-0"
         />
         {localError && <span className="text-xs text-red-700">{localError}</span>}
       </span>

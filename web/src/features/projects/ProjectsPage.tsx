@@ -3,6 +3,9 @@ import { Link } from 'react-router-dom';
 
 import { useAuth } from '@/features/auth/AuthContext';
 import { api, type Project } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
+import { Input } from '@/shared/ui/input';
 
 /**
  * /projects — list of projects owned by the authenticated user.
@@ -52,13 +55,9 @@ export function ProjectsPage(): JSX.Element {
             Signed in as <span className="font-mono">{user?.email ?? '…'}</span>
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setCreating((v) => !v)}
-          className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-sm"
-        >
+        <Button type="button" onClick={() => setCreating((v) => !v)} variant="default" size="sm">
           {creating ? 'Cancel' : 'New project'}
-        </button>
+        </Button>
       </header>
 
       {error && (
@@ -70,22 +69,19 @@ export function ProjectsPage(): JSX.Element {
       {creating && (
         <form
           onSubmit={onCreate}
-          className="mb-4 p-4 rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex gap-2"
+          className="mb-4 p-4 rounded border border-border bg-background flex gap-2"
         >
-          <input
+          <Input
             type="text"
             placeholder="Project name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="flex-1 px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+            className="flex-1"
             autoFocus
           />
-          <button
-            type="submit"
-            className="px-3 py-2 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-sm"
-          >
+          <Button type="submit" variant="default" size="sm">
             Create
-          </button>
+          </Button>
         </form>
       )}
 
@@ -97,10 +93,9 @@ export function ProjectsPage(): JSX.Element {
         <>
           <div className="mb-3 text-xs text-slate-500 flex items-center gap-2">
             <label className="flex items-center gap-1">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={showArchived}
-                onChange={(e) => setShowArchived(e.target.checked)}
+                onCheckedChange={(v) => setShowArchived(v === true)}
               />
               Show archived
             </label>
@@ -118,8 +113,8 @@ export function ProjectsPage(): JSX.Element {
                     to={`/projects/${p.id}`}
                     className={`block rounded-lg border p-4 transition ${
                       p.archived
-                        ? 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 opacity-70 hover:opacity-100'
-                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:border-orenda-500'
+                        ? 'border-border bg-muted opacity-70 hover:opacity-100'
+                        : 'border-border bg-background hover:border-orenda-500'
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
@@ -130,13 +125,13 @@ export function ProjectsPage(): JSX.Element {
                       />
                       <span className="font-medium">{p.name}</span>
                       {p.archived && (
-                        <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-500 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5">
+                        <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-500 border border-border rounded px-1.5 py-0.5">
                           archived
                         </span>
                       )}
                     </div>
                     {p.description && (
-                      <p className="text-sm text-slate-600 dark:text-slate-300">{p.description}</p>
+                      <p className="text-sm text-muted-foreground">{p.description}</p>
                     )}
                     <p className="text-xs text-slate-400 mt-2 font-mono">{p.id.slice(0, 8)}</p>
                   </Link>

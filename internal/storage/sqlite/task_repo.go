@@ -29,6 +29,9 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 	if t.ID == "" {
 		t.ID = newUUID()
 	}
+	if t.CreatedByType == "" {
+		t.CreatedByType = task.CreatorUser
+	}
 
 	// number comes from the task_number_seq high-watermark, not from
 	// MAX(tasks.number): a MAX+1 would re-issue the newest task's
@@ -59,6 +62,7 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 			start_at, end_at, all_day, color, recurrence,
 			study_course_id,
 			number,
+			created_by_type, created_by_id,
 			created_at, updated_at
 		) VALUES (
 			?, ?, ?, ?, ?, ?,
@@ -68,6 +72,7 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 			?, ?, ?, ?, ?,
 			?,
 			?,
+			?, ?,
 			datetime('now'), datetime('now')
 		)
 	`
@@ -85,6 +90,7 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 		nullString(t.Recurrence),
 		nullString(t.StudyCourseID),
 		number,
+		nullString(string(t.CreatedByType)), nullString(t.CreatedByID),
 	)
 	if err != nil {
 		return fmt.Errorf("task.Create: %w", err)
@@ -466,6 +472,106 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) error {
 	return nil
 }
 
+// UpdateProposalFields writes only the listed columns and asserts
+// the proposal-gate (created_by_type='agent' AND
+// created_by_id=? AND status='backlog') in the WHERE. Phase 33.2.1:
+// this is the TOCTOU fix for the agent-side EditProposal path. A
+// concurrent owner triage that flips status out of 'backlog'
+// returns RowsAffected()==0, and the caller surfaces
+// ErrConcurrentTriage.
+func (r *taskRepo) UpdateProposalFields(ctx context.Context, p task.ProposalPatchParams) error {
+	sets := []string{}
+	args := []any{}
+	if p.Title != nil {
+		sets = append(sets, "title = ?")
+		args = append(args, *p.Title)
+	}
+	if p.Description != nil {
+		sets = append(sets, "description = ?")
+		args = append(args, *p.Description)
+	}
+	if p.Priority != nil {
+		sets = append(sets, "priority = ?")
+		args = append(args, string(*p.Priority))
+	}
+	if p.DueAt != nil {
+		sets = append(sets, "due_at = ?")
+		if p.DueAt.IsZero() {
+			args = append(args, nil)
+		} else {
+			args = append(args, p.DueAt.Format("2006-01-02 15:04:05"))
+		}
+	}
+	if p.ParentID != nil {
+		sets = append(sets, "parent_task_id = ?")
+		args = append(args, nullString(*p.ParentID))
+	}
+	if len(sets) == 0 {
+		return task.ErrInvalidInput
+	}
+	sets = append(sets, "updated_at = datetime('now')")
+	q := "UPDATE tasks SET " + strings.Join(sets, ", ") +
+		" WHERE id = ? AND created_by_type = 'agent' AND created_by_id = ? AND status = 'backlog'"
+	args = append(args, p.TaskID, p.Gate.CreatedByID)
+	res, err := r.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return fmt.Errorf("task.UpdateProposalFields: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return task.ErrNotFound
+	}
+	return nil
+}
+
+// UpdateAgentNotesField writes ONLY agent_notes and asserts the
+// holder gate (assignee_type='agent' AND assignee_id=?) in the
+// WHERE. Phase 33.2.1: this avoids the pre-33.2.1 full-row Update
+// that resurrected the assignee snapshot after a concurrent
+// Release cleared it.
+func (r *taskRepo) UpdateAgentNotesField(ctx context.Context, taskID, agentID, notes string) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE tasks SET agent_notes = ?, updated_at = datetime('now')
+		WHERE id = ? AND assignee_type = 'agent' AND assignee_id = ?
+	`, nullString(notes), taskID, agentID)
+	if err != nil {
+		return fmt.Errorf("task.UpdateAgentNotesField: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return task.ErrNotFound
+	}
+	return nil
+}
+
+// DeleteWithProposalGate hard-deletes only when the proposal-gate
+// still holds. Phase 33.2.1: paired with the tombstone write in
+// the retract path so the audit survives even when the row is
+// gone.
+func (r *taskRepo) DeleteWithProposalGate(ctx context.Context, taskID, agentID string) error {
+	res, err := r.db.ExecContext(ctx, `
+		DELETE FROM tasks
+		WHERE id = ? AND created_by_type = 'agent' AND created_by_id = ? AND status = 'backlog'
+	`, taskID, agentID)
+	if err != nil {
+		return fmt.Errorf("task.DeleteWithProposalGate: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return task.ErrNotFound
+	}
+	return nil
+}
+
 func (r *taskRepo) Delete(ctx context.Context, id string) error {
 	res, err := r.db.ExecContext(ctx, `DELETE FROM tasks WHERE id = ?`, id)
 	if err != nil {
@@ -756,7 +862,8 @@ func (r *taskRepo) ListByDueBetween(ctx context.Context, from, to time.Time) ([]
 		       completed_at, time_estimate_s, time_spent_s, position,
 		       start_at, end_at, all_day, color, recurrence,
 		       study_course_id,
-		       created_at, updated_at
+		       created_by_type, created_by_id,
+	       created_at, updated_at
 		FROM tasks
 		WHERE due_at IS NOT NULL
 		  AND due_at >= ?
@@ -1278,6 +1385,7 @@ SELECT id, number, project_id, parent_task_id, column_id, title, description,
        time_estimate_s, time_spent_s, position,
        start_at, end_at, all_day, color, recurrence,
        study_course_id,
+       created_by_type, created_by_id,
        created_at, updated_at
 FROM tasks
 `
@@ -1299,6 +1407,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 		due, started, claimed, compl   sql.NullString
 		calStart, calEnd, color        sql.NullString
 		recurrence, studyCourse        sql.NullString
+		createdByType, createdByID     sql.NullString
 		allDay                         int
 		estS                           sql.NullInt64
 		status, priority, awaiting     string
@@ -1312,6 +1421,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 		&estS, &t.TimeSpentS, &t.Position,
 		&calStart, &calEnd, &allDay, &color, &recurrence,
 		&studyCourse,
+		&createdByType, &createdByID,
 		&created, &updated,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1341,6 +1451,8 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	t.Color = color.String
 	t.Recurrence = recurrence.String
 	t.StudyCourseID = studyCourse.String
+	t.CreatedByType = task.CreatorType(createdByType.String)
+	t.CreatedByID = createdByID.String
 	if estS.Valid {
 		v := int(estS.Int64)
 		t.TimeEstimateS = &v
@@ -1364,7 +1476,8 @@ func (r *taskRepo) ListInRange(ctx context.Context, from, to time.Time, projectI
 		       time_estimate_s, time_spent_s, position,
 		       start_at, end_at, all_day, color, recurrence,
 		       study_course_id,
-		       created_at, updated_at
+		       created_by_type, created_by_id,
+	       created_at, updated_at
 		FROM tasks
 		WHERE start_at IS NOT NULL AND end_at IS NOT NULL
 		  AND start_at < ? AND end_at > ?`
@@ -1404,6 +1517,7 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 		due, started, claimed, compl   sql.NullString
 		calStart, calEnd, color        sql.NullString
 		recurrence, studyCourse        sql.NullString
+		createdByType, createdByID     sql.NullString
 		allDay                         int
 		estS                           sql.NullInt64
 		status, priority, awaiting     string
@@ -1417,6 +1531,7 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 		&estS, &t.TimeSpentS, &t.Position,
 		&calStart, &calEnd, &allDay, &color, &recurrence,
 		&studyCourse,
+		&createdByType, &createdByID,
 		&created, &updated,
 	)
 	if err != nil {
@@ -1442,6 +1557,8 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 	t.Color = color.String
 	t.Recurrence = recurrence.String
 	t.StudyCourseID = studyCourse.String
+	t.CreatedByType = task.CreatorType(createdByType.String)
+	t.CreatedByID = createdByID.String
 	if estS.Valid {
 		v := int(estS.Int64)
 		t.TimeEstimateS = &v

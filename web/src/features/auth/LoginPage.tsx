@@ -3,6 +3,8 @@ import { Navigate, useLocation } from 'react-router-dom';
 
 import { AxiosError } from '@/shared/api/client';
 import { useAuth } from '@/features/auth/AuthContext';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 
 /**
  * /login page — email + password form. Submits to POST /api/v1/auth/login.
@@ -45,7 +47,7 @@ export function LoginPage(): JSX.Element {
     <div className="min-h-[60vh] flex items-center justify-center">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-6 shadow-sm"
+        className="w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-sm"
       >
         <h1 className="text-xl font-semibold mb-1">Sign in to Orenda</h1>
         <p className="text-sm text-slate-500 mb-4">
@@ -61,7 +63,7 @@ export function LoginPage(): JSX.Element {
         <label className="block text-sm font-medium mb-1" htmlFor="email">
           Email
         </label>
-        <input
+        <Input
           id="email"
           type="email"
           required
@@ -69,33 +71,33 @@ export function LoginPage(): JSX.Element {
           autoComplete="username"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full mb-3 px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+          className="mb-3"
         />
 
         <label className="block text-sm font-medium mb-1" htmlFor="password">
           Password
         </label>
-        <input
+        <Input
           id="password"
           type="password"
           required
           autoComplete="current-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full mb-4 px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+          className="mb-4"
         />
 
-        <button
+        <Button
           type="submit"
           disabled={submitting || !email || !password}
-          className="w-full py-2 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white font-medium"
+          className="w-full font-medium"
         >
           {submitting ? 'Signing in…' : 'Sign in'}
-        </button>
+        </Button>
 
         <p className="mt-4 text-xs text-slate-500">
           No account? Bootstrap one from the CLI:{' '}
-          <code className="px-1 py-0.5 bg-slate-100 dark:bg-slate-800 rounded">
+          <code className="px-1 py-0.5 bg-muted rounded">
             orenda user create --email … --display-name …
           </code>
         </p>

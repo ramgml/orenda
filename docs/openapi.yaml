@@ -223,6 +223,26 @@ components:
           type: string
           format: date-time
           nullable: true
+        # Phase 32.12: rolling velocity + drift over a 14-day window.
+        # Planner scales its proposal cadence based on drift:
+        # ahead → fewer proposals, behind → more, on_track → as usual.
+        pace:
+          $ref: '#/components/schemas/ActiveCoursePace'
+
+    ActiveCoursePace:
+      type: object
+      description: Per-course pace metrics for the agent-planner (Phase 32.12).
+      properties:
+        since:
+          type: string
+          format: date-time
+        window_days: { type: integer }
+        lessons_done_in_window: { type: integer }
+        actual_velocity_per_week: { type: number, format: float }
+        target_velocity_per_week: { type: number, format: float }
+        drift:
+          type: string
+          enum: [ahead, on_track, behind]
 
     OpenLesson:
       type: object
@@ -1998,6 +2018,40 @@ paths:
   # /api/v1/tasks/{id}/comments POST but writes the comment as
   # author_type=agent with the agent's id. Pre-27.11 the agent CLI
   # posted to the user-cookie route which 401'd under RequireUser.
+
+  # Phase 33.2: agent-side task management — PATCH + DELETE.
+  /api/v1/agent/tasks/{id}:
+    patch:
+      tags: [agent]
+      summary: Edit own un-triaged proposal, or update agent_notes as the lock holder.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                description_md: { type: string }
+                priority: { type: string, enum: [low, medium, high, urgent] }
+                due_at: { type: string, format: date-time, nullable: true }
+                parent_task_id: { type: string }
+                agent_notes: { type: string }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_json / no_patch_fields }
+        '403': { description: not_your_proposal / not_lock_holder }
+        '404': { description: not_found }
+    delete:
+      tags: [agent]
+      summary: Retract own un-triaged proposal (hard delete).
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '204': { description: deleted }
+        '403': { description: not_your_proposal }
+        '404': { description: not_found }
+
   /api/v1/agent/tasks/{id}/comments:
     post:
       tags: [agent]

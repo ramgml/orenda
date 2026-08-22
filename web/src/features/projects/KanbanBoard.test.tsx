@@ -20,6 +20,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Column, Task } from '@/shared/api/client';
 import { KanbanBoard } from '@/features/projects/KanbanBoard';
 
+// jsdom doesn't implement scrollIntoView or scrolling APIs that Radix
+// Select needs. Stub them globally before any component renders.
+Element.prototype.scrollIntoView = vi.fn();
+Element.prototype.scrollTo = vi.fn();
+Object.defineProperty(Element.prototype, 'scrollTop', { value: 0, writable: true });
+Object.defineProperty(Element.prototype, 'scrollHeight', { value: 0, writable: true });
+
+// Radix UI components (Checkbox, Dialog, Select) use
+// @radix-ui/react-use-size which needs ResizeObserver in jsdom.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}
+
 const { stubHttp } = vi.hoisted(() => ({
   stubHttp: {
     get: vi.fn(),
@@ -131,10 +148,9 @@ describe('KanbanBoard — card density toggle', () => {
     // Card renders (title present) but the detailed badge row is hidden.
     expect(await screen.findByText('Dense task')).toBeTruthy();
     expect(screen.queryByTestId('due-badge')).toBeNull();
-    expect(screen.getByRole('checkbox', { name: /compact cards/i })).toHaveProperty(
-      'checked',
-      true,
-    );
+    expect(
+      screen.getByRole('checkbox', { name: /compact cards/i }).getAttribute('data-state'),
+    ).toBe('checked');
   });
 
   it('selects a task and applies a bulk priority update', async () => {
@@ -143,9 +159,16 @@ describe('KanbanBoard — card density toggle', () => {
     mountBoard([task]);
 
     fireEvent.click(await screen.findByRole('checkbox', { name: /select dense task/i }));
-    fireEvent.change(screen.getByRole('combobox', { name: /bulk priority/i }), {
-      target: { value: 'urgent' },
+    // Radix Select: click trigger to open, then click the option.
+    // The bulk action bar renders after selection — wait for the combobox.
+    const trigger = await screen.findByRole('combobox', { name: /bulk priority/i });
+    fireEvent.click(trigger);
+    // Radix Select renders options in a portal after the trigger click.
+    // Wait for the option to appear in the DOM.
+    await waitFor(() => {
+      expect(screen.getAllByRole('option').length).toBeGreaterThan(0);
     });
+    fireEvent.click(screen.getByRole('option', { name: 'Urgent' }));
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
     await waitFor(() => {

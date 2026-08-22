@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -340,6 +341,17 @@ func (r *stubRepo) ApplyStructure(ctx context.Context, courseID string, modules 
 		}
 	}
 	return nil
+}
+
+// VelocityStatsByCourse is the Phase 32.12 read-side helper used by
+// enrichActiveCourse. The stub returns zero values so tests don't
+// have to seed completions; tests that need a specific value
+// shadow this with a wrapper.
+func (r *stubRepo) VelocityStatsByCourse(ctx context.Context, courseID string, since time.Time) (course.VelocityStats, error) {
+	return course.VelocityStats{
+		Since:  since,
+		Window: 14 * 24 * time.Hour,
+	}, nil
 }
 
 // stubTaskCreator records what the service asks for. Phase 27.4 uses
@@ -707,4 +719,44 @@ func TestCreateWithIntent_SkipGenerator(t *testing.T) {
 	assert.Equal(t, course.StatusDraft, c.Status)
 	assert.Empty(t, c.GeneratorTaskID)
 	assert.Empty(t, tasks.genCalls, "SkipGenerator must suppress the generator task")
+}
+
+// TestCompleteLesson_StampsCompletedAt — Phase 32.12: when a lesson
+// flips open → done, the service must stamp lesson.CompletedAt with
+// time.Now().UTC() so the rolling-velocity classifier (VelocityStats
+// in the API enrichment) sees the flip. Without the stamp the
+// classifier would treat every done-lesson as legacy and never see
+// pace — the planner would drift indefinitely.
+//
+// We assert:
+//   - lesson.Status flips to Done
+//   - lesson.CompletedAt is non-nil
+//   - the stamp is within ±1 minute of "now" (the service uses
+//     time.Now() and we don't want to flake on slow CI).
+func TestCompleteLesson_StampsCompletedAt(t *testing.T) {
+	repo := newStubRepo()
+	repo.lessons["l1"] = &course.Lesson{
+		ID: "l1", ModuleID: "m1", Title: "Intro", Status: course.LessonOpen,
+	}
+	svc := coursesvc.New(repo)
+
+	before := time.Now().UTC().Add(-1 * time.Minute)
+	updated, err := svc.CompleteLesson(context.Background(), "l1")
+	require.NoError(t, err)
+	after := time.Now().UTC().Add(1 * time.Minute)
+
+	assert.Equal(t, course.LessonDone, updated.Status, "open → done on complete")
+	require.NotNil(t, updated.CompletedAt,
+		"Phase 32.12: CompleteLesson must stamp CompletedAt so velocity stats see the flip")
+	assert.True(t, !updated.CompletedAt.Before(before) && !updated.CompletedAt.After(after),
+		"CompletedAt must be within ±1 minute of now; got %v (window [%v, %v])",
+		updated.CompletedAt, before, after)
+
+	// Repo must see the stamp too — UpdateLesson writes status +
+	// completed_at together.
+	stored := repo.lessons["l1"]
+	assert.Equal(t, course.LessonDone, stored.Status)
+	require.NotNil(t, stored.CompletedAt)
+	assert.Equal(t, updated.CompletedAt.UTC(), stored.CompletedAt.UTC(),
+		"repo must persist the same stamp the service returned")
 }

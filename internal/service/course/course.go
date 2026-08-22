@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/ramgml/orenda/internal/domain/course"
@@ -344,6 +345,15 @@ func (s *Service) CompleteLesson(ctx context.Context, lessonID string) (*course.
 		return nil, ErrTransition
 	}
 	lesson.Status = course.LessonDone
+	// Phase 32.12: stamp completion timestamp on the lesson row so
+	// the velocity classifier (VelocityStatsByCourse) sees the
+	// flip. UpdateLesson writes status + completed_at in one
+	// statement (per migration 025). Pre-migration lessons have NULL
+	// completed_at — the velocity classifier treats those as "before
+	// the window" so legacy data contributes 0, which is conservative
+	// (planner sees slower pace than reality, never faster).
+	now := time.Now().UTC()
+	lesson.CompletedAt = &now
 	if err := s.Repo.UpdateLesson(ctx, lesson); err != nil {
 		return nil, err
 	}

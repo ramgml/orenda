@@ -45,7 +45,7 @@ test.describe('Task field controls (Phase 27.7)', () => {
     const statusSelect = page.getByTestId('task-status');
     const prioritySelect = page.getByTestId('task-priority');
     const assigneeBlock = page.getByTestId('task-assignee');
-    const assigneeSelect = assigneeBlock.locator('select');
+    const assigneeSelect = assigneeBlock.getByTestId('task-assignee-trigger');
     await expect(statusSelect).toBeVisible();
     await expect(prioritySelect).toBeVisible();
     await expect(assigneeSelect).toBeVisible();
@@ -54,11 +54,12 @@ test.describe('Task field controls (Phase 27.7)', () => {
     const priorityPatch = page.waitForResponse(
       (r) => r.url().includes(`/api/v1/tasks/${task.id}`) && r.request().method() === 'PATCH',
     );
-    await prioritySelect.selectOption('urgent');
+    await prioritySelect.click();
+    await page.getByRole('option', { name: 'Urgent' }).click();
     await priorityPatch;
     // Wait for PATCH round-trip; reload and confirm the value stuck.
     await page.reload();
-    await expect(page.getByTestId('task-priority')).toHaveValue('urgent');
+    await expect(page.getByTestId('task-priority')).toContainText('Urgent');
 
     // Change status to done. Backend fills completed_at and clears
     // awaiting. The kanban card's column must NOT change — that
@@ -66,7 +67,8 @@ test.describe('Task field controls (Phase 27.7)', () => {
     const statusPatch = page.waitForResponse(
       (r) => r.url().includes(`/api/v1/tasks/${task.id}`) && r.request().method() === 'PATCH',
     );
-    await page.getByTestId('task-status').selectOption('done');
+    await page.getByTestId('task-status').click();
+    await page.getByRole('option', { name: 'done' }).click();
     await statusPatch;
     const after = await patchTask(userCtx, task.id, {}); // server truth
     expect(after.status).toBe('done');
@@ -83,7 +85,8 @@ test.describe('Task field controls (Phase 27.7)', () => {
     const assigneePatch = page.waitForResponse(
       (r) => r.url().includes(`/api/v1/tasks/${task.id}`) && r.request().method() === 'PATCH',
     );
-    await page.getByTestId('task-assignee').locator('select').selectOption('me');
+    await page.getByTestId('task-assignee-trigger').click();
+    await page.getByRole('option', { name: 'Me' }).click();
     await assigneePatch;
     const afterAssignee = await patchTask(userCtx, task.id, {});
     expect(afterAssignee.assignee_type).toBe('user');

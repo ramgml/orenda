@@ -198,3 +198,42 @@ describe('ColumnView — Phase 27.10 colour wiring', () => {
     expect(payload.color).toBe('#ef4444');
   });
 });
+
+describe('ColumnView — task #31 card overflow', () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  function renderColumn(tasks: Task[]) {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    return render(
+      <QueryClientProvider client={qc}>
+        <DndContext>
+          <MemoryRouter>
+            <ColumnView
+              columnId="col-1"
+              projectId="p1"
+              name="Done"
+              tasks={tasks}
+              onCreate={async () => {}}
+            />
+          </MemoryRouter>
+        </DndContext>
+      </QueryClientProvider>,
+    );
+  }
+
+  it('task row <li> carries min-w-0 so cards can shrink inside the column (task #31)', () => {
+    const { getByTestId } = renderColumn([makeTask()]);
+    // The card is a flex item of the row <li>; without min-w-0 the
+    // li's min-content (long unbroken titles) refuses to shrink and
+    // the card overflows the column border.
+    const card = getByTestId('task-card');
+    const li = card.closest('li') as HTMLElement;
+    expect(li).toBeTruthy();
+    expect(li.className).toMatch(/\bmin-w-0\b/);
+  });
+});

@@ -114,13 +114,26 @@ func TestHub_PublishDropsOnFullSubscriber(t *testing.T) {
 	ch, unsub := h.Subscribe("u1", "tasks")
 	defer unsub()
 
-	// Fill the buffer (size 32) + one extra; the extra must be dropped.
-	for i := 0; i < 64; i++ {
+	// Publish well above the total in-flight capacity of the two-hop pipeline
+	// (raw buffer 32 + out buffer 32 + 1 event owned by the filter goroutine
+	// between its read of raw and its write to out = 65). At 128 ≥ ~2×65 the
+	// drop-on-full behaviour is arithmetically guaranteed regardless of
+	// scheduler timing: the publisher uses a non-blocking send into raw, so
+	// when raw fills (and the goroutine is blocked behind a full out), the
+	// remaining publishes are dropped at the publisher. We assert only the
+	// scheduling-independent bounds: at least one event was delivered (the
+	// pipeline is not silently dropping everything), and we never delivered
+	// more than the in-flight capacity of 65. The exact drop count is NOT
+	// asserted — delivery interleaving during the drain loop keeps it
+	// non-constant.
+	const publishN = 128
+	for i := range publishN {
 		h.Publish(context.Background(), ws.Event{Topic: "tasks", Body: i})
 	}
 
 	// Drain what we can; we don't care if some are dropped, only that the
 	// channel doesn't deadlock.
+	const inFlightCap = 65
 	drained := 0
 	timeout := time.After(200 * time.Millisecond)
 loop:
@@ -135,15 +148,8 @@ loop:
 			break loop
 		}
 	}
-	require.Greater(t, drained, 0)
-	// We don't assert `drained <= 32` because a buffered channel does not cap
-	// the total delivered — it only caps the in-flight queue. As long as the
-	// filter goroutine keeps draining raw into out and the consumer keeps
-	// reading, drained can approach 64 (all publishes). What we DO assert is
-	// that some events were dropped (i.e. drained < 64). The buffer-full drop
-	// itself is exercised by the Publish path (raw is non-blocking); here we
-	// just guarantee no deadlock and that not everything is silently dropped.
-	assert.Less(t, drained, 64, "expected drop-on-full to take effect under load")
+	require.Greater(t, drained, 0, "pipeline must deliver at least one event under drop-on-full load")
+	assert.LessOrEqual(t, drained, inFlightCap, "delivered events must not exceed total in-flight pipeline capacity")
 }
 
 func TestHub_MultipleSubscribersFanout(t *testing.T) {

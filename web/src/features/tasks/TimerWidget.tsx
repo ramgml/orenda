@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { useAuth } from '@/features/auth/AuthContext';
 import { api, type Task } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
 import { useWebSocketTopic } from '@/shared/ws';
 
 /**
@@ -103,24 +104,26 @@ export function TimerWidget(): JSX.Element {
   return (
     <div className="fixed bottom-4 right-4 z-40">
       {active ? (
-        <div className="rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 w-72">
+        <div className="rounded-lg shadow-lg border border-border bg-card p-3 w-72">
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
               <p className="text-xs text-slate-500 mb-1">Timer on</p>
               <p className="text-sm font-medium truncate">{active.taskTitle}</p>
               <p className="text-lg font-mono tabular-nums mt-1">{fmt(elapsed)}</p>
             </div>
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="sm"
               onClick={stop}
-              className="px-2 py-1 rounded bg-red-600 hover:bg-red-700 text-white text-xs"
+              className="bg-red-600 hover:bg-red-700 text-white text-xs"
             >
               Stop
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
-        <div className="rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-sm text-slate-500">
+        <div className="rounded-lg shadow-lg border border-border bg-card p-3 text-sm text-slate-500">
           No active timer — start one from a task.
         </div>
       )}
@@ -156,7 +159,7 @@ function TimerLauncher({ startOn }: LauncherProps): JSX.Element {
 /**
  * StartTimer is the public API for starting a timer from any component.
  *
- *   <button onClick={() => StartTimer(task)}>Start</button>
+ *   <Button onClick={() => StartTimer(task)}>Start</Button>
  */
 export function StartTimer(task: Task): void {
   if (!launcherRef) {

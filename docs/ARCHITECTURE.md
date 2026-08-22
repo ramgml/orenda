@@ -429,7 +429,10 @@ make build          npm run build → web/dist/* (Vite production)
                     CGO_ENABLED=0 go build -ldflags "-X main.version=$(git describe --tags ...)"
                     → ./bin/orenda   (SPA embedded via //go:embed all:dist)
 
-make test           go test ./...
+make test           go test ./... -race  (cached, pre-push gate + everyday test)
+                    npx vitest run
+
+make test-full      go test ./... -race -count=1  (full, uncached — CI backstop / release gate)
                     npx vitest run
 
 make test-e2e       make build && playwright test  (test on port 21371)

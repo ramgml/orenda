@@ -1,4 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 import { useAuth } from '@/features/auth/AuthContext';
 import {
@@ -26,6 +28,9 @@ import { BlockedByList } from './BlockedByList';
 import { TaskLink } from './TaskModal';
 import { TaskNumberChip } from './TaskNumberChip';
 import { TaskFieldControls } from './TaskFieldControls';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
+import { Textarea } from '@/shared/ui/textarea';
 
 /**
  * Shared task-detail content.
@@ -293,7 +298,7 @@ export function TaskViewBody({
         <DescriptionEditor value={task.description ?? ''} onSave={onSaveDescription} busy={busy} />
 
         {task.context_md && (
-          <details className="rounded border border-slate-200 dark:border-slate-800 p-3">
+          <details className="rounded border border-border p-3">
             <summary className="cursor-pointer text-sm text-slate-500">Agent context (md)</summary>
             <pre className="mt-2 text-xs whitespace-pre-wrap font-mono">{task.context_md}</pre>
           </details>
@@ -307,32 +312,36 @@ export function TaskViewBody({
         )}
 
         {canReview && (
-          <div className="rounded border border-slate-200 dark:border-slate-800 p-3 space-y-2">
+          <div className="rounded border border-border p-3 space-y-2">
             <p className="text-sm font-semibold">Review</p>
-            <textarea
+            <Textarea
               value={reviewComment}
               onChange={(e) => setReviewComment(e.target.value)}
               placeholder="Optional feedback for the agent"
               rows={2}
-              className="w-full px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
+              className="w-full text-sm"
             />
             <div className="flex gap-2">
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                size="sm"
                 onClick={() => onReview('approve')}
                 disabled={busy}
-                className="px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm"
+                className="bg-green-600 hover:bg-green-700 text-white"
               >
                 Approve
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="secondary"
+                size="sm"
                 onClick={() => onReview('reject')}
                 disabled={busy}
-                className="px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm"
+                className="bg-amber-600 hover:bg-amber-700 text-white"
               >
                 Reject
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -354,35 +363,33 @@ export function TaskViewBody({
           </h2>
           <CommentsList comments={comments} />
           <form onSubmit={onPostComment} className="mt-2 flex gap-2">
-            <input
+            <Input
               type="text"
               value={composer}
               onChange={(e) => setComposer(e.target.value)}
               placeholder="Add a comment (supports @user:<id> / @agent:<id>)"
-              className="flex-1 px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
+              className="flex-1"
             />
-            <button
-              type="submit"
-              disabled={busy || !composer.trim()}
-              className="px-3 py-2 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
-            >
+            <Button type="submit" size="sm" disabled={busy || !composer.trim()}>
               Post
-            </button>
+            </Button>
           </form>
         </div>
 
         <ActivityLog items={activity} />
 
         {onClose && (
-          <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
-            <button
+          <div className="pt-2 border-t border-border">
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={onDelete}
               disabled={busy}
-              className="px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50 text-sm"
+              className="border-red-300 text-red-700 hover:bg-red-50 hover:text-red-700"
             >
               Delete task
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -408,16 +415,17 @@ export function TaskViewBody({
         <ColorPicker value={task.color} onSave={onSaveColor} busy={busy} />
         <TagsList taskId={taskId} initial={tags} />
         <BlockedByList taskId={taskId} projectId={task.project_id || ''} />
-        <div className="rounded border border-slate-200 dark:border-slate-800 p-3">
+        <div className="rounded border border-border p-3">
           <p className="text-xs text-slate-500 mb-1">Time tracking</p>
           <p className="font-mono mb-2">{(task.time_spent_s / 60).toFixed(1)} min</p>
-          <button
+          <Button
             type="button"
+            size="sm"
             onClick={() => StartTimer(task)}
-            className="w-full px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-xs"
+            className="w-full text-xs"
           >
             Start timer
-          </button>
+          </Button>
         </div>
       </aside>
     </section>
@@ -466,7 +474,7 @@ function EditableTitle({
       }}
       className="flex gap-2"
     >
-      <input
+      <Input
         autoFocus
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -476,30 +484,33 @@ function EditableTitle({
             setEditing(false);
           }
         }}
-        className="text-2xl font-semibold bg-transparent border-b border-orenda-500 focus:outline-none flex-1"
+        className="text-2xl font-semibold h-auto bg-transparent border-0 border-b border-orenda-500 rounded-none focus-visible:ring-0 focus-visible:ring-offset-0 px-0 flex-1"
       />
-      <button
+      <Button
         type="submit"
+        size="sm"
         disabled={busy || !draft.trim() || draft === value}
-        className="px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-xs"
+        className="text-xs"
       >
         Save
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
+        variant="outline"
+        size="sm"
         onClick={() => {
           setDraft(value);
           setEditing(false);
         }}
-        className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 text-xs"
+        className="text-xs"
       >
         Cancel
-      </button>
+      </Button>
     </form>
   );
 }
 
-function DescriptionEditor({
+export function DescriptionEditor({
   value,
   onSave,
   busy,
@@ -518,23 +529,34 @@ function DescriptionEditor({
   if (!editing) {
     if (!value) {
       return (
-        <button
+        <Button
           type="button"
+          variant="link"
           onClick={() => setEditing(true)}
-          className="block text-slate-400 text-sm italic hover:text-slate-700"
+          className="block h-auto p-0 text-slate-400 text-sm italic hover:text-slate-700"
         >
           + Add description
-        </button>
+        </Button>
       );
     }
     return (
-      <button
-        type="button"
+      <div
         onClick={() => setEditing(true)}
-        className="block text-left text-slate-700 dark:text-slate-300 whitespace-pre-wrap hover:bg-slate-50 dark:hover:bg-slate-900 rounded px-2 py-1 w-full"
+        className="cursor-pointer rounded px-2 py-1 w-full hover:bg-slate-50 dark:hover:bg-slate-900"
       >
-        {value}
-      </button>
+        <article className="prose dark:prose-invert max-w-none text-sm">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              // A click on a link inside the description must follow
+              // the link, not flip the editor into edit mode.
+              a: ({ node, ...props }) => <a {...props} onClick={(e) => e.stopPropagation()} />,
+            }}
+          >
+            {value}
+          </ReactMarkdown>
+        </article>
+      </div>
     );
   }
   return (
@@ -548,7 +570,7 @@ function DescriptionEditor({
       }}
       className="space-y-2"
     >
-      <textarea
+      <Textarea
         autoFocus
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -564,26 +586,24 @@ function DescriptionEditor({
         }}
         rows={4}
         placeholder="What's this task about? Markdown is supported."
-        className="w-full px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm font-mono"
+        className="w-full text-sm font-mono"
       />
       <div className="flex gap-2">
-        <button
-          type="submit"
-          disabled={busy || draft === value}
-          className="px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-xs"
-        >
+        <Button type="submit" size="sm" disabled={busy || draft === value} className="text-xs">
           Save
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => {
             setDraft(value);
             setEditing(false);
           }}
-          className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 text-xs"
+          className="text-xs"
         >
           Cancel
-        </button>
+        </Button>
         <span className="text-xs text-slate-400 self-center">
           Ctrl+Enter to save · Esc to cancel
         </span>
@@ -594,7 +614,7 @@ function DescriptionEditor({
 
 function SidebarField({ label, value }: { label: string; value: string }): JSX.Element {
   return (
-    <div className="rounded border border-slate-200 dark:border-slate-800 p-3">
+    <div className="rounded border border-border p-3">
       <p className="text-xs text-slate-500">{label}</p>
       <p className="font-mono">{value}</p>
     </div>
@@ -639,7 +659,7 @@ function ColorPicker({
   }
 
   return (
-    <div className="rounded border border-slate-200 dark:border-slate-800 p-3 space-y-2">
+    <div className="rounded border border-border p-3 space-y-2">
       <p className="text-xs text-slate-500">Colour label</p>
       <div className="flex items-center gap-2">
         <input
@@ -648,22 +668,22 @@ function ColorPicker({
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => commit(draft)}
           disabled={busy}
-          className="h-7 w-9 rounded border border-slate-300 dark:border-slate-700 bg-transparent cursor-pointer"
+          className="h-7 w-9 rounded border border-border bg-transparent cursor-pointer"
           title="Pick a colour"
         />
-        <span className="font-mono text-xs text-slate-600 dark:text-slate-300 flex-1">
-          {draft || 'none'}
-        </span>
+        <span className="font-mono text-xs text-muted-foreground flex-1">{draft || 'none'}</span>
         {draft && (
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             disabled={busy}
             onClick={() => commit('')}
-            className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 text-xs disabled:opacity-50"
+            className="h-6 px-2 text-xs"
             title="Remove the colour label"
           >
             clear
-          </button>
+          </Button>
         )}
       </div>
     </div>

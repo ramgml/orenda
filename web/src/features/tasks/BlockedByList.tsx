@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { api, type BlockerRow } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
 import { useWebSocketTopic } from '@/shared/ws';
 
 /**
@@ -62,14 +64,15 @@ export function BlockedByList({
           Blocked by{open.length > 0 ? ` (${open.length} open)` : ''}
         </h2>
         {!editing && (
-          <button
+          <Button
             type="button"
+            variant="link"
             onClick={() => setEditing(true)}
-            className="text-[10px] text-slate-500 hover:text-orenda-600"
+            className="h-auto p-0 text-[10px] text-slate-500 hover:text-orenda-600"
             data-testid="deps-edit-toggle"
           >
             edit
-          </button>
+          </Button>
         )}
       </div>
 
@@ -94,9 +97,7 @@ export function BlockedByList({
             <li
               key={b.blocker_id}
               data-testid="blocker-row"
-              className={`text-xs ${
-                b.done ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200'
-              }`}
+              className={`text-xs ${b.done ? 'line-through text-slate-400' : 'text-foreground'}`}
             >
               <Link to={`/tasks/${b.blocker_id}`} className="hover:underline">
                 {b.title}
@@ -180,7 +181,7 @@ function DependencyEditor({
   }
 
   return (
-    <div className="rounded border border-slate-200 dark:border-slate-800 p-2 bg-slate-50 dark:bg-slate-900/40 space-y-2">
+    <div className="rounded border border-border p-2 bg-muted/40 space-y-2">
       {!projectId ? (
         <p className="text-xs text-slate-500 italic">
           File the task under a project to add blockers.
@@ -191,17 +192,12 @@ function DependencyEditor({
         <ul className="max-h-48 overflow-y-auto space-y-1">
           {taskChoices.map((t) => (
             <li key={t.id} className="flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
+              <Checkbox
                 id={`dep-${t.id}`}
                 checked={selected.has(t.id)}
-                onChange={() => toggle(t.id)}
-                className="rounded"
+                onCheckedChange={() => toggle(t.id)}
               />
-              <label
-                htmlFor={`dep-${t.id}`}
-                className="text-slate-700 dark:text-slate-200 truncate"
-              >
+              <label htmlFor={`dep-${t.id}`} className="text-foreground truncate">
                 {t.title}
               </label>
             </li>
@@ -210,22 +206,25 @@ function DependencyEditor({
       )}
       {error && <p className="text-xs text-red-600">{error}</p>}
       <div className="flex gap-2">
-        <button
+        <Button
           type="button"
+          size="sm"
           onClick={() => void onSubmit()}
           disabled={busy || !projectId}
-          className="px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-xs"
+          className="text-xs"
         >
           Save
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={onCancel}
           disabled={busy}
-          className="px-2 py-1 rounded border border-slate-300 text-slate-700 text-xs"
+          className="text-xs"
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );

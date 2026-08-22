@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { api, type StudyProposalView, type Task } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 import { Loading } from '@/shared/ui/Loading';
 import { useWebSocketTopic } from '@/shared/ws';
@@ -194,7 +195,7 @@ function ProposalTray({
     <div data-testid="proposal-tray">
       <div className="flex items-center gap-2 mb-2">
         <span aria-hidden className="inline-block h-2 w-2 rounded-full bg-indigo-500" />
-        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+        <h2 className="text-sm font-semibold text-foreground">
           Proposed for today ({proposals.length})
         </h2>
       </div>
@@ -210,7 +211,7 @@ function ProposalTray({
               <div className="flex-1 min-w-0">
                 <Link
                   to={p.course_id ? `/courses/${p.course_id}` : '#'}
-                  className="text-slate-800 dark:text-slate-100 hover:underline font-medium"
+                  className="text-foreground hover:underline font-medium"
                 >
                   📖 {p.title}
                 </Link>
@@ -223,33 +224,34 @@ function ProposalTray({
                   </Link>
                 )}
                 {p.body_md && (
-                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-400 line-clamp-2">
-                    {p.body_md}
-                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{p.body_md}</p>
                 )}
                 <p className="mt-1 text-[10px] text-slate-500 font-mono">
                   target: {p.target_date} · from agent {p.agent_id.slice(0, 8)}
                 </p>
               </div>
               <div className="flex gap-1 shrink-0">
-                <button
+                <Button
                   type="button"
+                  size="sm"
                   data-testid="proposal-accept"
                   disabled={busy !== null}
                   onClick={() => void accept(p.id)}
-                  className="rounded bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-3 py-1 text-xs"
+                  className="bg-indigo-600 hover:bg-indigo-700 px-3 py-1 text-xs"
                 >
                   {busy === p.id ? '…' : 'Accept'}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="secondary"
+                  size="sm"
                   data-testid="proposal-dismiss"
                   disabled={busy !== null}
                   onClick={() => void dismiss(p.id)}
-                  className="rounded bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-700 dark:text-slate-200 px-3 py-1 text-xs"
+                  className="px-3 py-1 text-xs"
                 >
                   Dismiss
-                </button>
+                </Button>
               </div>
             </div>
           </li>
@@ -289,7 +291,7 @@ function TodaySection({
     <div>
       <div className="flex items-center gap-2 mb-2">
         <span aria-hidden className={`inline-block h-2 w-2 rounded-full ${dotColor}`} />
-        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+        <h2 className="text-sm font-semibold text-foreground">
           {title} ({tasks.length})
         </h2>
       </div>
@@ -308,12 +310,9 @@ function TodaySection({
               <li
                 key={t.id}
                 data-testid={studyLink ? 'today-study-task' : 'today-task'}
-                className="rounded border border-slate-200 dark:border-slate-800 p-2 text-sm bg-white dark:bg-slate-950"
+                className="rounded border border-border p-2 text-sm bg-background"
               >
-                <Link
-                  to={`/tasks/${t.id}`}
-                  className="text-slate-800 dark:text-slate-100 hover:underline"
-                >
+                <Link to={`/tasks/${t.id}`} className="text-foreground hover:underline">
                   {studyLink ? '📖 ' : ''}
                   {t.title}
                 </Link>
@@ -400,7 +399,7 @@ function UpcomingWeek({ days }: { days: { date: string; count: number }[] }): JS
   if (days.length === 0) return <></>;
   return (
     <div>
-      <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Next 7 days</h2>
+      <h2 className="text-sm font-semibold text-foreground mb-2">Next 7 days</h2>
       <ul className="space-y-1">
         {days.map((d) => {
           const date = new Date(d.date + 'T00:00:00');
@@ -413,9 +412,9 @@ function UpcomingWeek({ days }: { days: { date: string; count: number }[] }): JS
             <li
               key={d.date}
               data-testid="upcoming-day-row"
-              className="flex justify-between items-center rounded border border-slate-200 dark:border-slate-800 px-3 py-1 text-sm bg-white dark:bg-slate-950"
+              className="flex justify-between items-center rounded border border-border px-3 py-1 text-sm bg-background"
             >
-              <span className="text-slate-700 dark:text-slate-200">{label}</span>
+              <span className="text-foreground">{label}</span>
               <span className="text-slate-500 font-mono">{d.count} due</span>
             </li>
           );

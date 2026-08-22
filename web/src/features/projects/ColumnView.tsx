@@ -5,6 +5,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { TaskCard } from './TaskCard';
 import { openTaskModal } from '@/features/tasks/TaskModal';
 import { api, type Column, type Task } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
+import { Dialog, DialogContent } from '@/shared/ui/dialog';
+import { Input } from '@/shared/ui/input';
+import { cn } from '@/shared/util/cn';
 import { queueCreateTask } from '@/shared/offline/outbox';
 
 /**
@@ -103,12 +108,12 @@ export function ColumnView({
   return (
     <div
       ref={setNodeRef}
-      className={`rounded-lg border bg-slate-50 dark:bg-slate-900 p-3 flex flex-col min-h-[200px] transition-colors ${
+      className={`rounded-lg border bg-muted p-3 flex flex-col min-h-[200px] transition-colors ${
         isOver
           ? 'border-orenda-500 bg-orenda-50 dark:bg-orenda-900/20'
           : atLimit
             ? 'border-amber-400 dark:border-amber-500 ring-1 ring-amber-300/40 dark:ring-amber-500/30'
-            : 'border-slate-200 dark:border-slate-800'
+            : 'border-border'
       }`}
     >
       <div
@@ -132,10 +137,10 @@ export function ColumnView({
             aria-hidden="true"
             data-testid="column-color-dot"
             data-column-color={color ?? ''}
-            className="inline-block w-2.5 h-2.5 rounded-full border border-slate-300/60 dark:border-slate-700/60"
+            className="inline-block w-2.5 h-2.5 rounded-full border border-border/60"
             style={{ backgroundColor: color || '#94a3b8' }}
           />
-          <h2 className="font-medium text-sm uppercase tracking-wide text-slate-600 dark:text-slate-300">
+          <h2 className="font-medium text-sm uppercase tracking-wide text-muted-foreground">
             {name}
           </h2>
         </div>
@@ -158,15 +163,14 @@ export function ColumnView({
 
       <ul className="space-y-2 flex-1">
         {tasks.map((t) => (
-          <li key={t.id} className="flex items-start gap-1">
+          <li key={t.id} className="flex items-start gap-1 min-w-0">
             {onToggleTask && (
-              <input
-                type="checkbox"
+              <Checkbox
                 aria-label={`Select ${t.title}`}
                 checked={selectedTaskIds?.has(t.id) ?? false}
-                onChange={() => onToggleTask(t.id)}
+                onCheckedChange={() => onToggleTask(t.id)}
                 onClick={(e) => e.stopPropagation()}
-                className="mt-3 ml-1 rounded border-slate-300"
+                className="mt-3 ml-1"
               />
             )}
             <TaskCard task={t} onOpen={openTask} />
@@ -176,26 +180,28 @@ export function ColumnView({
 
       {creating ? (
         <form onSubmit={submit} className="mt-2 flex gap-1">
-          <input
+          <Input
             autoFocus
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="New task"
-            className="flex-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm"
+            className="flex-1 text-sm"
           />
-          <button type="submit" className="px-2 py-1 rounded bg-orenda-600 text-white text-xs">
+          <Button type="submit" variant="default" size="sm" className="px-2 py-1 text-xs">
             Add
-          </button>
+          </Button>
           {error && <span className="text-xs text-red-600">{error}</span>}
         </form>
       ) : (
-        <button
+        <Button
           type="button"
           onClick={() => setCreating(true)}
+          variant="ghost"
+          size="sm"
           className="mt-2 text-xs text-slate-500 hover:text-orenda-600 self-start"
         >
           + Add task
-        </button>
+        </Button>
       )}
 
       {editing && (
@@ -361,31 +367,45 @@ function EditColumnModal({
     }
   }
 
+  // Phase 32.13 (shadcn/ui migration): the modal overlay is now a
+  // Dialog primitive. Esc / click-outside / focus return are
+  // handled by @radix-ui/react-dialog; we only wire `onOpenChange`
+  // to the existing `onClose` callback. The two-step delete
+  // confirm stays as in-component state because it has to
+  // survive an Esc/click-outside — opening the Dialog in
+  // `controlled` mode means Esc / click-outside invoke `onClose`
+  // without losing the column from the board.
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-sm w-full p-5 space-y-3">
+    <Dialog
+      open
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+    >
+      <DialogContent aria-label="Edit column" className="max-w-sm gap-3 p-5 sm:rounded-lg">
         <h3 className="font-semibold">Edit column</h3>
         <form onSubmit={submit} className="space-y-2">
           <label className="block text-sm">
             Name
-            <input
+            <Input
+              name="column-name"
               autoFocus
               value={name}
               onChange={(e) => {
                 setName(e.target.value);
                 setConfirmDelete(false);
               }}
-              className="mt-1 block w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+              className="mt-1"
             />
           </label>
           <label className="block text-sm">
             Machine key
-            <input
+            <Input
               value={machineKey}
               onChange={(e) => setMachineKey(e.target.value)}
               data-testid="column-status"
               placeholder="e.g. in_review"
-              className="mt-1 block w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent font-mono"
+              className="mt-1 font-mono"
             />
             <span className="mt-1 block text-xs text-slate-500">
               Lowercase machine key; changing it updates tasks in this column.
@@ -397,39 +417,31 @@ function EditColumnModal({
               type="color"
               value={color}
               onChange={(e) => setColor(e.target.value)}
-              className="mt-1 block w-12 h-8 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+              className="mt-1 block w-12 h-8 rounded border border-border bg-transparent"
             />
           </label>
           <label className="block text-sm">
             WIP limit (empty = no limit)
-            <input
+            <Input
               type="number"
               min="0"
               value={wip}
               onChange={(e) => setWip(e.target.value)}
               placeholder="unlimited"
-              className="mt-1 block w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+              className="mt-1"
             />
           </label>
           {error && <p className="text-xs text-red-600">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-sm"
-            >
+            <Button type="button" onClick={onClose} variant="outline" size="sm">
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={busy}
-              className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
-            >
+            </Button>
+            <Button type="submit" disabled={busy} variant="default" size="sm">
               {busy ? 'Saving…' : 'Save'}
-            </button>
+            </Button>
           </div>
         </form>
-        <div className="border-t border-slate-200 dark:border-slate-800 pt-3 space-y-1">
+        <div className="border-t border-border pt-3 space-y-1">
           <p className="text-xs text-slate-500">
             {currentTaskCount === 0
               ? 'This column is empty — safe to delete.'
@@ -437,21 +449,23 @@ function EditColumnModal({
                   currentTaskCount === 1 ? '' : 's'
                 }. Move them out first.`}
           </p>
-          <button
+          <Button
             type="button"
             onClick={onDelete}
             disabled={busy}
             data-testid="delete-column-button"
-            className={
-              confirmDelete
-                ? 'w-full px-3 py-1.5 rounded bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-semibold'
-                : 'w-full px-3 py-1.5 rounded border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30 disabled:opacity-50 text-sm'
-            }
+            variant={confirmDelete ? 'destructive' : 'outline'}
+            size="sm"
+            className={cn(
+              'w-full',
+              !confirmDelete &&
+                'border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30',
+            )}
           >
             {confirmDelete ? `Click again to delete "${initialName}"` : 'Delete column'}
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

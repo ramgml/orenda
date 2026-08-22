@@ -44,6 +44,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/chat"
 	"github.com/ramgml/orenda/internal/domain/course"
 	"github.com/ramgml/orenda/internal/domain/project"
+	"github.com/ramgml/orenda/internal/domain/study"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
@@ -169,6 +170,12 @@ type Dependencies struct {
 	// Phase 18: course repository + service.
 	Courses       course.Repository
 	CourseService *coursesvc.Service
+	// StudyProposals (Phase 32.12): used by enrichActiveCourse to
+	// compute target_velocity (count of accepted proposals in the
+	// pace window). nil-safe — handler falls back to target=0 when
+	// not wired (drift classifier then defaults to on_track per the
+	// wiki "don't panic without data" rule).
+	StudyProposals study.Repository
 	// Phase 32.5: course activity repo (read side for /courses/{id}/activity).
 	// nil-safe — handler returns 503 when not wired.
 	CourseActivityRepo CourseActivityRepo
@@ -640,6 +647,8 @@ func NewRouter(deps *Dependencies) http.Handler {
 					// triages it through the existing review queue.
 					r.Post("/", agentCreateTaskHandler(deps))
 					r.Route("/{id}", func(r chi.Router) {
+						r.Patch("/", agentPatchTaskHandler(deps))
+						r.Delete("/", agentDeleteTaskHandler(deps))
 						r.Post("/claim", agentClaimTaskHandler(deps))
 						r.Post("/release", agentReleaseTaskHandler(deps))
 						r.Post("/submit", agentSubmitTaskHandler(deps))

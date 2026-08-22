@@ -17,6 +17,8 @@ import { Suspense, useCallback, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
+import { Button } from '@/shared/ui/button';
+
 import { ProjectSidebar } from '@/features/sidebar/ProjectSidebar';
 import { SidebarProvider, useSidebar } from '@/features/sidebar/SidebarContext';
 import { agentsQueryKey } from '@/shared/hooks/useAgents';
@@ -99,17 +101,18 @@ function AppLayoutInner(): JSX.Element {
  */
 function MobileSidebar({ onClose }: { onClose: () => void }): JSX.Element {
   return (
-    <div className="relative h-screen w-72 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col">
-      <div className="h-12 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4">
+    <div className="relative h-screen w-72 bg-muted border-r border-border flex flex-col">
+      <div className="h-12 border-b border-border flex items-center justify-between px-4">
         <span className="font-semibold">Navigation</span>
-        <button
+        <Button
           type="button"
           onClick={onClose}
           aria-label="Close navigation"
-          className="h-7 w-7 rounded flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800"
+          variant="ghost"
+          size="icon"
         >
           ×
-        </button>
+        </Button>
       </div>
       <div className="flex-1 overflow-y-auto">
         <ProjectSidebar />

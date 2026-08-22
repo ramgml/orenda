@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 
 import { api } from '@/shared/api/client';
 import { useWebSocketTopic } from '@/shared/ws';
+import { Button } from '@/shared/ui/button';
 import {
   CourseCurriculumEditor,
   type EditorModule,
@@ -153,9 +154,7 @@ export function CourseDetailPage(): JSX.Element {
           <span className="font-mono">{course.pace}</span>
         </p>
         {course.intent_md && (
-          <p className="text-sm text-slate-600 dark:text-slate-300 mt-3 italic">
-            "{course.intent_md}"
-          </p>
+          <p className="text-sm text-muted-foreground mt-3 italic">"{course.intent_md}"</p>
         )}
       </header>
 
@@ -168,12 +167,12 @@ export function CourseDetailPage(): JSX.Element {
       {course.pace_notes_md && (
         <details
           data-testid="course-pace-notes"
-          className="rounded border border-slate-200 dark:border-slate-800 p-3 text-sm bg-white dark:bg-slate-950"
+          className="rounded border border-border p-3 text-sm bg-background"
         >
-          <summary className="cursor-pointer text-slate-700 dark:text-slate-200 font-medium">
+          <summary className="cursor-pointer text-foreground font-medium">
             Pace notes (from the planner)
           </summary>
-          <pre className="mt-2 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-400 font-sans">
+          <pre className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground font-sans">
             {course.pace_notes_md}
           </pre>
         </details>
@@ -182,23 +181,26 @@ export function CourseDetailPage(): JSX.Element {
       {/* Lifecycle actions */}
       {course.status === 'review' && (
         <div className="flex gap-2">
-          <button
+          <Button
             type="button"
             onClick={() => void onApprove()}
             disabled={busy}
             data-testid="course-approve"
-            className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm"
+            size="sm"
+            className="bg-emerald-600 hover:bg-emerald-700"
           >
             Approve curriculum
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={() => void onRequestChanges()}
             disabled={busy}
-            className="px-3 py-1.5 rounded border border-amber-300 text-amber-700 hover:bg-amber-50 text-sm"
+            variant="outline"
+            size="sm"
+            className="border-amber-300 text-amber-700 hover:bg-amber-50"
           >
             Request changes
-          </button>
+          </Button>
         </div>
       )}
 
@@ -225,14 +227,15 @@ export function CourseDetailPage(): JSX.Element {
 
       {editable && (
         <div className="flex gap-2 items-center">
-          <button
+          <Button
             type="button"
             onClick={() => setEditing((v) => !v)}
             data-testid="course-edit-toggle"
-            className="px-3 py-1.5 rounded border border-slate-300 hover:bg-slate-50 text-sm"
+            variant="outline"
+            size="sm"
           >
             {editing ? 'Done editing' : 'Edit curriculum'}
-          </button>
+          </Button>
           <span className="text-xs text-slate-500">
             {course.status === 'active'
               ? 'Granular edits — student progress is preserved.'
@@ -262,13 +265,8 @@ export function CourseDetailPage(): JSX.Element {
           {modules.map((m) => {
             const ls = lessonsByModule.get(m.id) ?? [];
             return (
-              <li
-                key={m.id}
-                className="rounded border border-slate-200 dark:border-slate-800 p-3 bg-white dark:bg-slate-950"
-              >
-                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  {m.title}
-                </h3>
+              <li key={m.id} className="rounded border border-border p-3 bg-background">
+                <h3 className="text-sm font-semibold text-foreground">{m.title}</h3>
                 {m.description && <p className="text-xs text-slate-500 mt-1">{m.description}</p>}
                 <ul className="mt-2 space-y-1">
                   {ls.map((l) => {
@@ -284,7 +282,7 @@ export function CourseDetailPage(): JSX.Element {
                           className={
                             l.status === 'locked'
                               ? 'text-slate-400'
-                              : 'text-slate-800 dark:text-slate-100 hover:underline'
+                              : 'text-foreground hover:underline'
                           }
                         >
                           {l.status === 'locked' && '🔒 '}

@@ -172,6 +172,15 @@ func RequireAgent(cfg AuthConfig) func(http.Handler) http.Handler {
 			// is the synthetic "agent-owner" user; the real agent id lives
 			// in agents.token_id).
 			id := &Identity{
+				// Phase 32.12 follow-on (closes Phase 31.5 debt): the
+				// agent's API token is owned by the system user who
+				// minted it (api_tokens.user_id). Surface that on the
+				// identity so listCoursesHandlerAgent (and any other
+				// handler that needs to scope by owner) sees the right
+				// id instead of an empty string. The agent's own id
+				// (agents.id) stays on AgentID — handlers should pick
+				// the one they need.
+				UserID:  tok.UserID,
 				AgentID: "",
 				Scopes:  parseScopesJSON(tok.ScopesJSON),
 			}

@@ -285,7 +285,33 @@ anything on its own.
 curl -s "$ORENDA_URL/api/v1/agent/courses?status=active" \
   -H "Authorization: Bearer $ORENDA_AGENT_TOKEN" | jq '.courses[] | {id, title, pace, pace_notes_md, progress}'
 # → e.g. {"id":"c-rust","pace":"regular","pace_notes_md":"3 times a week, mornings",
-#         "progress":{"lessons_total":12,"lessons_done":7,"open_lessons":[...]}}
+#         "progress":{"lessons_total":12,"lessons_done":7,"open_lessons":[...],
+#                     "last_completed_at":"2026-08-18T...",
+#                     "pace":{"since":"...","window_days":14,
+#                             "lessons_done_in_window":3,
+#                             "actual_velocity_per_week":1.5,
+#                             "target_velocity_per_week":1.0,
+#                             "drift":"ahead"}}}
+
+# 2a. Phase 32.12 (LMS pace adaptation): scale your proposal cadence
+#     by `progress.pace.drift`. The classifier compares the user's
+#     actual lesson-completion velocity against their own accepted
+#     proposal rate over a 14-day rolling window:
+#       - drift="ahead"    → user is moving faster than their accepted
+#                            proposal rate. File FEWER proposals this
+#                            run (or none); they're not the bottleneck.
+#       - drift="behind"   → user accepted proposals but hasn't finished
+#                            the lessons. File MORE proposals (or break
+#                            the backlog into smaller next-action-sized
+#                            chunks) to nudge them back on pace.
+#       - drift="on_track" → file proposals as usual. The classifier
+#                            only escalates when the gap is ≥ ±30%
+#                            over the window. Both-zero (no proposals,
+#                            no completions yet) is also on_track —
+#                            don't panic without evidence.
+#     This is the load-bearing planner behaviour the SKILL describes;
+#     the `progress.pace.drift` value is the only signal that drives
+#     how many study-reminders to file per "Plan my day" run.
 
 # 2. Read pace_notes_md + progress. Pick a subset of open_lessons
 #    that fits the user's stated cadence (e.g. "study 1 lesson/day").

@@ -25,7 +25,7 @@ EMBED_DIST := internal/embed/web/dist
 VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.1.0")
 LDFLAGS    := -ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: all dev build test lint lint-new clean migrate-up migrate-down \
+.PHONY: all dev build test test-full lint lint-new clean migrate-up migrate-down \
         backup backup-push backup-snapshot backup-status \
         web-install web-dev web-build web-test test-e2e \
         embed-dists run version help govulncheck hooks \
@@ -84,11 +84,27 @@ embed-dists:
 run: build
 	./$(BINARY) serve --config $(CONFIG)
 
-## test: Run all tests (Go + vitest)
+## test: Run all tests (Go + vitest) — fast cached everyday run + pre-push gate.
 ## Phase 26.F: vitest is part of the pre-commit / pre-push gate now
 ## (no longer a separate "wave rule"). E2E stays separate — it requires
 ## Chromium and a built binary; see test-e2e.
+##
+## Go test cache is ENABLED (no `-count=1`): an unchanged tree re-runs
+## in seconds; a push touching one package re-runs only that package and
+## its dependents (the cache keys on file contents of the package and its
+## dependency graph, plus env and flags — a real code change can never be
+## served stale from cache). This is the local pre-push gate and the
+## everyday developer test.
 test:
+	$(GO) test ./... -race
+	cd $(WEB_DIR) && $(NPM) run test
+
+## test-full: full uncached run — the CI backstop on push to dev and the
+## release gate. Identical coverage to `test` (go test -race over ./...
+## + vitest), but WITH `-count=1` to deliberately disable the Go test
+## cache. This is the safety net for exotica the cache cannot see
+## (ports, clocks).
+test-full:
 	$(GO) test ./... -race -count=1
 	cd $(WEB_DIR) && $(NPM) run test
 
@@ -197,8 +213,14 @@ web-install:
 web-dev:
 	cd $(WEB_DIR) && $(NPM) run dev
 
-## web-build: Build React SPA
+## web-build: Install npm dependencies (strict, lockfile-pinned) and build the SPA.
+## `npm ci` is idempotent and fast when package-lock.json is unchanged;
+## it guarantees that tsc/Vite see exactly the dependencies committed in
+## package-lock.json, so a release that adds a new npm package can no
+## longer break install.sh / update-dogfood.sh with "Cannot find module"
+## (Task #26).
 web-build:
+	cd $(WEB_DIR) && $(NPM) ci
 	cd $(WEB_DIR) && $(NPM) run build
 
 ## web-test: Run the vitest suite (component / unit / hook tests)

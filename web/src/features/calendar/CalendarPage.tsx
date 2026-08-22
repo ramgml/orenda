@@ -26,7 +26,13 @@ import { enUS } from 'date-fns/locale';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 
 import { api, type CalendarEvent } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
+import { Dialog, DialogContent } from '@/shared/ui/dialog';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
+import { Input } from '@/shared/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
+import { Textarea } from '@/shared/ui/textarea';
 import { useWebSocketTopic } from '@/shared/ws';
 
 const localizer = dateFnsLocalizer({
@@ -305,7 +311,7 @@ export function CalendarPage(): JSX.Element {
 
         {error && <ErrorBanner message={error} />}
 
-        <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2 h-[75vh] calendar-shell">
+        <div className="rounded border border-border bg-background p-2 h-[75vh] calendar-shell">
           <CalendarErrorBoundary>
             <DnDCalendar
               localizer={localizer}
@@ -469,44 +475,42 @@ function Toolbar({
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onToday}
-          className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
-        >
+        <Button type="button" onClick={onToday} variant="outline" size="sm">
           Today
-        </button>
+        </Button>
         <div className="flex">
-          <button
+          <Button
             type="button"
             onClick={() => onCursor(shiftCursor(cursor, view, -1))}
-            className="px-2 py-1.5 rounded-l border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+            variant="outline"
+            size="sm"
+            className="rounded-r-none"
             title="Previous"
           >
             ‹
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={() => onCursor(shiftCursor(cursor, view, 1))}
-            className="px-2 py-1.5 rounded-r border-t border-r border-b border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+            variant="outline"
+            size="sm"
+            className="rounded-l-none border-l-0"
             title="Next"
           >
             ›
-          </button>
+          </Button>
         </div>
         <h2 className="text-xl font-semibold ml-2">{titleFor(cursor, view)}</h2>
       </div>
 
       <div className="flex items-center gap-2">
-        <div className="hidden sm:flex rounded border border-slate-300 dark:border-slate-700 overflow-hidden text-sm">
+        <div className="hidden sm:flex rounded border border-border overflow-hidden text-sm">
           {(['day', 'week', 'month'] as View[]).map((v, i) => (
             <button
               key={v}
               type="button"
               onClick={() => onView(v)}
-              className={`px-3 py-1.5 capitalize ${
-                i > 0 ? 'border-l border-slate-300 dark:border-slate-700' : ''
-              } ${
+              className={`px-3 py-1.5 capitalize ${i > 0 ? 'border-l border-border' : ''} ${
                 view === v
                   ? 'bg-orenda-100 dark:bg-orenda-900/30 text-orenda-700 dark:text-orenda-300'
                   : 'hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -516,13 +520,9 @@ function Toolbar({
             </button>
           ))}
         </div>
-        <button
-          type="button"
-          onClick={onCreate}
-          className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-sm"
-        >
+        <Button type="button" onClick={onCreate} size="sm">
           + Create
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -573,13 +573,9 @@ function CalendarSidebar({
 }): JSX.Element {
   return (
     <aside className="space-y-3">
-      <button
-        type="button"
-        onClick={onCreate}
-        className="w-full px-3 py-2 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-sm shadow"
-      >
+      <Button type="button" onClick={onCreate} className="w-full">
         + Create event
-      </button>
+      </Button>
       <MiniCalendar cursor={cursor} onPick={onPick} />
     </aside>
   );
@@ -604,30 +600,34 @@ function MiniCalendar({
   const today = new Date();
 
   return (
-    <div className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 p-2 text-sm">
+    <div className="rounded border border-border bg-background p-2 text-sm">
       <div className="flex items-center justify-between mb-2">
-        <button
+        <Button
           type="button"
           onClick={() => onPick(subMonths(cursor, 1))}
-          className="px-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+          variant="ghost"
+          size="sm"
+          className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
           title="Previous month"
         >
           ‹
-        </button>
+        </Button>
         <div className="text-xs font-semibold">
           {new Intl.DateTimeFormat('en-US', {
             month: 'long',
             year: 'numeric',
           }).format(cursor)}
         </div>
-        <button
+        <Button
           type="button"
           onClick={() => onPick(addMonths(cursor, 1))}
-          className="px-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+          variant="ghost"
+          size="sm"
+          className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
           title="Next month"
         >
           ›
-        </button>
+        </Button>
       </div>
       <div className="grid grid-cols-7 text-[10px] uppercase text-slate-400 mb-1">
         {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
@@ -652,7 +652,7 @@ function MiniCalendar({
                   : isToday
                     ? 'bg-orenda-100 dark:bg-orenda-900/30 text-orenda-700 dark:text-orenda-300'
                     : inMonth
-                      ? 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'
+                      ? 'hover:bg-slate-100 dark:hover:bg-slate-800 text-foreground'
                       : 'text-slate-300 dark:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
@@ -707,144 +707,149 @@ function EventModal({
       setBusy(false);
     }
   }
-
+  // Phase 32.13 (shadcn/ui migration): the overlay is now a
+  // Dialog primitive. Esc / click-outside / focus return are
+  // handled by `@radix-ui/react-dialog`; we wire `onOpenChange`
+  // to the existing `onCancel` callback. Form state and submit
+  // semantics stay local — Radix never owns the form.
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <form
-        onSubmit={submit}
-        className="bg-white dark:bg-slate-900 rounded-lg shadow-xl w-full max-w-md p-5 space-y-3"
-      >
-        <h3 className="font-semibold text-lg">{title}</h3>
+    <Dialog
+      open
+      onOpenChange={(o) => {
+        if (!o) onCancel();
+      }}
+    >
+      <DialogContent aria-label={title} className="max-w-md gap-3 p-5 sm:rounded-lg">
+        <form onSubmit={submit} className="space-y-3">
+          <h3 className="font-semibold text-lg">{title}</h3>
 
-        <label className="block text-sm">
-          <span className="text-xs text-slate-500">Title</span>
-          <input
-            autoFocus
-            value={form.title}
-            onChange={(e) => setForm({ ...form, title: e.target.value })}
-            className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
-            required
-          />
-        </label>
-
-        <label className="block text-sm">
-          <span className="text-xs text-slate-500">Description</span>
-          <textarea
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-            rows={2}
-            className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent text-sm"
-          />
-        </label>
-
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <label className="block">
-            <span className="text-xs text-slate-500">Start</span>
-            <input
-              type={form.all_day ? 'date' : 'datetime-local'}
-              value={toLocalInput(form.start_at, form.all_day)}
-              onChange={(e) =>
-                setForm({ ...form, start_at: fromLocalInput(e.target.value, form.all_day) })
-              }
-              className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+          <label className="block text-sm">
+            <span className="text-xs text-slate-500">Title</span>
+            <Input
+              autoFocus
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              className="mt-1"
+              required
             />
           </label>
-          <label className="block">
-            <span className="text-xs text-slate-500">End</span>
-            <input
-              type={form.all_day ? 'date' : 'datetime-local'}
-              value={toLocalInput(form.end_at, form.all_day)}
-              onChange={(e) =>
-                setForm({ ...form, end_at: fromLocalInput(e.target.value, form.all_day) })
-              }
-              className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+
+          <label className="block text-sm">
+            <span className="text-xs text-slate-500">Description</span>
+            <Textarea
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              rows={2}
+              className="mt-1 text-sm"
             />
           </label>
-        </div>
 
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={form.all_day}
-            onChange={(e) => setForm({ ...form, all_day: e.target.checked })}
-          />
-          All day
-        </label>
-
-        <label className="block text-sm">
-          <span className="text-xs text-slate-500">Project</span>
-          <select
-            value={form.project_id}
-            onChange={(e) => setForm({ ...form, project_id: e.target.value })}
-            className="mt-1 w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
-          >
-            {/* Phase 16: empty string = Inbox (no project). The
-                server stores project_id IS NULL for these events. */}
-            <option value="">Inbox (no project)</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <div>
-          <div className="text-xs text-slate-500 mb-1">Color</div>
-          <div className="flex flex-wrap gap-1.5">
-            {PRESET_COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setForm({ ...form, color: c })}
-                className={`w-6 h-6 rounded-full ring-2 ${
-                  form.color === c ? 'ring-orenda-500' : 'ring-transparent hover:ring-slate-300'
-                }`}
-                style={{ backgroundColor: c }}
-                aria-label={`Color ${c}`}
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <label className="block">
+              <span className="text-xs text-slate-500">Start</span>
+              <Input
+                type={form.all_day ? 'date' : 'datetime-local'}
+                value={toLocalInput(form.start_at, form.all_day)}
+                onChange={(e) =>
+                  setForm({ ...form, start_at: fromLocalInput(e.target.value, form.all_day) })
+                }
+                className="mt-1"
               />
-            ))}
+            </label>
+            <label className="block">
+              <span className="text-xs text-slate-500">End</span>
+              <Input
+                type={form.all_day ? 'date' : 'datetime-local'}
+                value={toLocalInput(form.end_at, form.all_day)}
+                onChange={(e) =>
+                  setForm({ ...form, end_at: fromLocalInput(e.target.value, form.all_day) })
+                }
+                className="mt-1"
+              />
+            </label>
           </div>
-        </div>
 
-        {err && <div className="text-sm text-red-600">{err}</div>}
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={form.all_day}
+              onCheckedChange={(v) => setForm({ ...form, all_day: v === true })}
+            />
+            All day
+          </label>
 
-        <div className="flex items-center justify-between pt-2">
+          <label className="block text-sm">
+            <span className="text-xs text-slate-500">Project</span>
+            <Select
+              value={form.project_id || '__inbox__'}
+              onValueChange={(v) => setForm({ ...form, project_id: v === '__inbox__' ? '' : v })}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {/* Phase 16: empty string = Inbox (no project). The
+                    server stores project_id IS NULL for these events. */}
+                <SelectItem value="__inbox__">Inbox (no project)</SelectItem>
+                {projects.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+
           <div>
-            {onDelete && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (window.confirm('Delete this event?')) {
-                    onDelete().catch((e) => setErr(e instanceof Error ? e.message : String(e)));
-                  }
-                }}
-                disabled={busy}
-                className="px-3 py-1.5 rounded border border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20 text-sm disabled:opacity-50"
-              >
-                Delete
-              </button>
-            )}
+            <div className="text-xs text-slate-500 mb-1">Color</div>
+            <div className="flex flex-wrap gap-1.5">
+              {PRESET_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setForm({ ...form, color: c })}
+                  className={`w-6 h-6 rounded-full ring-2 ${
+                    form.color === c ? 'ring-orenda-500' : 'ring-transparent hover:ring-slate-300'
+                  }`}
+                  style={{ backgroundColor: c }}
+                  aria-label={`Color ${c}`}
+                />
+              ))}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 text-sm"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={busy}
-              className="px-3 py-1.5 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
-            >
-              {busy ? 'Saving…' : 'Save'}
-            </button>
+
+          {err && <div className="text-sm text-red-600">{err}</div>}
+
+          <div className="flex items-center justify-between pt-2">
+            <div>
+              {onDelete && (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm('Delete this event?')) {
+                      onDelete().catch((e) => setErr(e instanceof Error ? e.message : String(e)));
+                    }
+                  }}
+                  disabled={busy}
+                  variant="outline"
+                  size="sm"
+                  className="border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/20"
+                >
+                  Delete
+                </Button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="button" onClick={onCancel} variant="outline" size="sm">
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busy} size="sm">
+                {busy ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
           </div>
-        </div>
-      </form>
-    </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

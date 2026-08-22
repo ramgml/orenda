@@ -6,6 +6,8 @@ import {
   type BackupSettings,
   type BackupSnapshot,
 } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -14,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/shared/ui/dialog';
+import { Input } from '@/shared/ui/input';
 
 /**
  * /settings/backups — backup configuration + manual actions + history.
@@ -286,33 +289,32 @@ export function BackupsSettingsPage(): JSX.Element {
         </div>
       )}
 
-      <div className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950 space-y-3">
+      <div className="rounded border border-border p-4 bg-background space-y-3">
         <h2 className="font-semibold">Settings</h2>
         {settings ? (
           <div className="space-y-3 text-sm">
             <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
+              <Checkbox
                 data-testid="settings-enabled"
                 checked={formEnabled}
-                onChange={(e) => setFormEnabled(e.target.checked)}
+                onCheckedChange={(v) => setFormEnabled(v === true)}
               />
               <span>Backup enabled</span>
             </label>
             <label className="block">
               <span className="text-xs text-slate-500">Remote URL</span>
-              <input
+              <Input
                 type="url"
                 data-testid="settings-remote-url"
                 value={formRemoteUrl}
                 onChange={(e) => setFormRemoteUrl(e.target.value)}
                 placeholder="https://github.com/me/orenda.git"
-                className="w-full mt-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono"
+                className="mt-1 text-sm font-mono"
               />
             </label>
             <label className="block">
               <span className="text-xs text-slate-500">Remote auth (token)</span>
-              <input
+              <Input
                 type="password"
                 data-testid="settings-remote-auth"
                 value={formRemoteAuth}
@@ -321,7 +323,7 @@ export function BackupsSettingsPage(): JSX.Element {
                   settings.has_auth ? '•••• (configured — leave blank to keep)' : 'optional'
                 }
                 autoComplete="off"
-                className="w-full mt-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono"
+                className="mt-1 text-sm font-mono"
               />
             </label>
             {/* Phase 32.7: snapshot schedule + rotation. The cron
@@ -339,40 +341,41 @@ export function BackupsSettingsPage(): JSX.Element {
                 for daily at 03:00, <code className="font-mono">*/15 * * * *</code> for every 15
                 minutes
               </span>
-              <input
+              <Input
                 type="text"
                 data-testid="settings-snapshot-cron"
                 value={formSnapshotCron}
                 onChange={(e) => setFormSnapshotCron(e.target.value)}
                 placeholder="0 3 * * *"
                 spellCheck={false}
-                className="w-full mt-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono"
+                className="mt-1 text-sm font-mono"
               />
             </label>
             <label className="block">
               <span className="text-xs text-slate-500">
                 Snapshot rotation (days) — 0 = keep forever
               </span>
-              <input
+              <Input
                 type="number"
                 min={0}
                 step={1}
                 data-testid="settings-rotation-days"
                 value={formRotationDays}
                 onChange={(e) => setFormRotationDays(parseInt(e.target.value, 10) || 0)}
-                className="w-full mt-1 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-mono"
+                className="mt-1 text-sm font-mono"
               />
             </label>
             <div className="flex gap-2 items-center">
-              <button
+              <Button
                 type="button"
                 data-testid="settings-save"
                 onClick={onSaveSettings}
                 disabled={savingSettings}
-                className="px-3 py-2 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
+                variant="default"
+                size="sm"
               >
                 {savingSettings ? 'Saving…' : 'Save settings'}
-              </button>
+              </Button>
               {/* Phase 28.9: removed the historic restart banner —
                   the live service mirrors the new settings via
                   atomic.Pointer[Config] without a process restart.
@@ -389,25 +392,27 @@ export function BackupsSettingsPage(): JSX.Element {
       </div>
 
       <div className="flex gap-2">
-        <button
+        <Button
           type="button"
           onClick={onTestPush}
           disabled={busy !== null}
-          className="px-3 py-2 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white text-sm"
+          variant="default"
+          size="sm"
         >
           {busy === 'push' ? 'Pushing…' : 'Test push now'}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           onClick={onSnapshot}
           disabled={busy !== null}
-          className="px-3 py-2 rounded border border-slate-300 dark:border-slate-700 text-sm"
+          variant="outline"
+          size="sm"
         >
           {busy === 'snapshot' ? 'Snapshotting…' : 'Snapshot now'}
-        </button>
+        </Button>
       </div>
 
-      <div className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950">
+      <div className="rounded border border-border p-4 bg-background">
         <h2 className="font-semibold mb-2">Snapshots ({snapshots.length})</h2>
         {/* Phase 30.9: status line — count + latest snapshot timestamp
             without having to scroll the snapshot list. Pulled from
@@ -440,20 +445,22 @@ export function BackupsSettingsPage(): JSX.Element {
                 <span>{(s.size / 1024).toFixed(1)} KiB</span>
                 <span className="text-slate-400">·</span>
                 <span className="break-all flex-1">{s.path}</span>
-                <button
+                <Button
                   type="button"
                   onClick={() => onRestore(s)}
-                  className="ml-2 px-2 py-1 rounded border border-slate-300 dark:border-slate-700 text-xs hover:bg-slate-100 dark:hover:bg-slate-800"
+                  variant="outline"
+                  size="sm"
+                  className="ml-2 text-xs"
                 >
                   Restore…
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
         )}
       </div>
 
-      <div className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950">
+      <div className="rounded border border-border p-4 bg-background">
         <h2 className="font-semibold mb-2">Log</h2>
         {log.length === 0 ? (
           <p className="text-slate-500 text-sm">No log entries yet.</p>
@@ -482,7 +489,7 @@ export function BackupsSettingsPage(): JSX.Element {
               <DialogTitle>Restore from snapshot</DialogTitle>
               <DialogDescription>
                 Snapshot:{' '}
-                <code className="px-1 bg-slate-100 dark:bg-slate-800 rounded text-xs break-all">
+                <code className="px-1 bg-muted rounded text-xs break-all">
                   {restoreTarget.path}
                 </code>
               </DialogDescription>
@@ -501,36 +508,41 @@ export function BackupsSettingsPage(): JSX.Element {
             <div className="relative">
               <pre
                 data-testid="restore-cli-hint"
-                className="bg-slate-100 dark:bg-slate-800 rounded p-3 text-xs overflow-x-auto whitespace-pre-wrap break-all"
+                className="bg-muted rounded p-3 text-xs overflow-x-auto whitespace-pre-wrap break-all"
               >
                 {restoreHint ?? '…'}
               </pre>
-              <button
+              <Button
                 type="button"
                 onClick={copyHint}
-                className="absolute top-2 right-2 px-2 py-1 rounded bg-orenda-600 hover:bg-orenda-700 text-white text-xs"
+                variant="default"
+                size="sm"
+                className="absolute top-2 right-2 text-xs"
               >
                 {copied ? 'Copied' : 'Copy'}
-              </button>
+              </Button>
             </div>
             <DialogFooter>
-              <button
+              <Button
                 type="button"
                 onClick={closeRestore}
                 disabled={busy === 'restore'}
-                className="px-3 py-2 rounded border border-slate-300 dark:border-slate-700 text-sm disabled:opacity-50"
+                variant="outline"
+                size="sm"
               >
                 Close
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 data-testid="restore-inline"
                 onClick={() => void onRestoreInline(restoreTarget)}
                 disabled={busy === 'restore'}
-                className="px-3 py-2 rounded bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm"
+                variant="default"
+                size="sm"
+                className="bg-amber-600 hover:bg-amber-700"
               >
                 {busy === 'restore' ? 'Restoring…' : 'Restore in this window'}
-              </button>
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { api, type TimeReport } from '@/shared/api/client';
+import { Input } from '@/shared/ui/input';
 
 /**
  * /reports — time aggregation per task over a window.
@@ -59,20 +60,20 @@ export function ReportsPage(): JSX.Element {
       <div className="flex items-end gap-2 text-sm">
         <label className="block">
           <span className="block text-slate-500 text-xs">From</span>
-          <input
+          <Input
             type="date"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
-            className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+            className="h-9 text-sm"
           />
         </label>
         <label className="block">
           <span className="block text-slate-500 text-xs">To</span>
-          <input
+          <Input
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+            className="h-9 text-sm"
           />
         </label>
         <div className="ml-auto text-xs text-slate-500">
@@ -80,14 +81,14 @@ export function ReportsPage(): JSX.Element {
         </div>
       </div>
 
-      <div className="rounded border border-slate-200 dark:border-slate-800 p-4 bg-white dark:bg-slate-950">
+      <div className="rounded border border-border p-4 bg-background">
         <h2 className="font-semibold mb-2">Tasks</h2>
         {tasks.length === 0 ? (
           <p className="text-slate-500 text-sm">No time logged in this window.</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-slate-500 border-b border-slate-200 dark:border-slate-800">
+              <tr className="text-left text-slate-500 border-b border-border">
                 <th className="py-2">Task</th>
                 <th>Total</th>
                 <th className="w-1/2">Distribution</th>
@@ -95,7 +96,7 @@ export function ReportsPage(): JSX.Element {
             </thead>
             <tbody>
               {tasks.map((t) => (
-                <tr key={t.task_id} className="border-b border-slate-100 dark:border-slate-800">
+                <tr key={t.task_id} className="border-b border-border">
                   <td className="py-2">
                     {t.title ?? (
                       <span className="text-slate-400 font-mono text-xs">
@@ -105,7 +106,7 @@ export function ReportsPage(): JSX.Element {
                   </td>
                   <td className="font-mono">{formatHM(t.total_sec)}</td>
                   <td>
-                    <div className="h-3 bg-slate-100 dark:bg-slate-800 rounded overflow-hidden">
+                    <div className="h-3 bg-muted rounded overflow-hidden">
                       <div
                         className="h-full bg-orenda-500"
                         style={{ width: `${max ? Math.round((t.total_sec / max) * 100) : 0}%` }}

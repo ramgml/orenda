@@ -23,7 +23,7 @@
 1. **Постановка** — wiki-страница в инстансе: мотивация, дизайн-решения, evidence, DoD. Агенты пишут через MCP (`orenda_pages_save`) или REST `PUT /api/v1/agent/pages/{slug}`.
 2. **Задача** — в проекте «Orenda dev», в описании ссылка на постановку. Критерий готовности — в самой задаче (CONTEXT.md: «задача без критерия тлеет»).
 3. **Claim** — `orenda agent next` (готовая к работе задача) → `orenda agent claim <id>`. Вместо UUID везде принимается человекочитаемый номер: `orenda agent claim 42` или `orenda agent claim '#42'` (REST `/api/v1/agent/tasks/{id}/*`, CLI и MCP резолвят `#N`/`N` через `tasks.number`; неизвестный номер → 404 `task #N not found`). 409 `lock_taken` несёт holder-поля — спроси holder'а или возьми следующую.
-4. **Работа** — код в git по правилам `AGENTS.md` (worktree per task, тесты, минимальные диффы). Контекст задачи: `orenda agent context <id>` — блокеры, комментарии, дети, lock holder.
+4. **Работа** — код в git по правилам `AGENTS.md`: `git fetch origin`, затем worktree per task **от `origin/dev`** (не от локального `dev` — он может молча отставать), тесты, минимальные диффы. Контекст задачи: `orenda agent context <id>` — блокеры, комментарии, дети, lock holder.
 
 ### Именование по номеру задачи (task numbers)
 
@@ -34,8 +34,8 @@
 - **PR:** `[Task 123] short description`.
 
 Архивная схема `phase-X-Y-*` / `phase(X.Y):` остаётся только для фаз ≤ 32 (исторические ветки и коммиты не переписываем).
-5. **PR** — по шаблону `.github/PULL_REQUEST_TEMPLATE.md`; merge в `dev` после ревью.
-6. **Review в Orenda** — `orenda agent submit <id>` → человек принимает/возвращает на `/review`. Возврат всегда с комментарием — это обратная связь, а не сбой.
+5. **PR** — по шаблону `.github/PULL_REQUEST_TEMPLATE.md`. Merge в `dev` — **владелец**, после approve-ревью PM (шаг 6); агент свой PR не мержит. После merge: `git worktree remove` + prune ветки (следит PM, гигиена дерева); локальный `dev` догоняется до `origin/dev` только fast-forward (ритуал — AGENTS.md «Worktree per task»).
+6. **Review в Orenda** — `orenda agent submit <id>`. С 2026-08-20 ревью PR делает **PM (omp)**: DoD по доказательствам (прогоны/выводы, не «implemented»), чтение диффа целиком (скоуп, конвенции, аддитивные миграции, без стабов), mergeable-проверка против свежего `origin/dev`; рискованные диффы (auth/security/миграции, >~400 строк) — дополнительно через reviewer-сабагента. Вердикт — формальное GitHub-ревью: `approve` (готово) или `request-changes` с конкретикой (воркер дорабатывает, цикл повторяется). **Мерж — владелец**; карточку на `/review` он же закрывает — это подтверждение мержа и аудит. Возврат всегда с комментарием — это обратная связь, а не сбой.
 7. **Принятые решения** — короткая запись на wiki-странице «Decision log» (что решили и почему, одна запись на решение).
 
 ## Правило новой работы

@@ -45,6 +45,9 @@ vi.mock('axios', async (importOriginal) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Radix Select calls scrollIntoView on the selected item; jsdom
+  // doesn't implement it — stub it to avoid "not a function" errors.
+  Element.prototype.scrollIntoView = vi.fn();
 });
 
 afterEach(() => {
@@ -230,9 +233,11 @@ describe('InboxPage', () => {
     mount();
     await screen.findByText('Alpha');
 
-    // The first <select> in the row is the file-under picker.
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: 'p-1' } });
+    // Radix Select: click the trigger to open the popover, then click the item.
+    const trigger = screen.getByRole('combobox');
+    fireEvent.click(trigger);
+    const option = await screen.findByText('Demo');
+    fireEvent.click(option);
 
     await waitFor(() => {
       expect(stubHttp.patch).toHaveBeenCalledWith('/api/v1/tasks/a', { project_id: 'p-1' });
@@ -256,12 +261,13 @@ describe('InboxPage', () => {
     mount();
     await screen.findByText('Alpha');
 
-    // The picker is per-row; with one task we expect 3 options
-    // (placeholder + Live + Dead-not-archived).
-    const options = screen.getAllByRole('option') as HTMLOptionElement[];
-    const labels = options.map((o) => o.textContent);
-    expect(labels).toContain('Live');
-    expect(labels).not.toContain('Dead');
+    // Radix Select: open the popover and check which items are present.
+    const trigger = screen.getByRole('combobox');
+    fireEvent.click(trigger);
+    await waitFor(() => {
+      expect(screen.queryByText('Live')).toBeTruthy();
+    });
+    expect(screen.queryByText('Dead')).toBeNull();
   });
 
   it('delete asks window.confirm and removes the row on accept', async () => {

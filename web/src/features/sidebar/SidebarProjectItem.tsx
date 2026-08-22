@@ -19,6 +19,8 @@
 import { Link } from 'react-router-dom';
 
 import type { Project } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { cn } from '@/shared/util/cn';
 
 interface SidebarProjectItemProps {
   project: Project;
@@ -88,8 +90,8 @@ export function SidebarProjectItem({
     <div
       className={`group relative flex items-center gap-2 rounded px-2 py-1.5 text-sm ${
         active
-          ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-50'
-          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          ? 'bg-muted text-slate-900 dark:text-slate-50'
+          : 'text-foreground hover:bg-slate-100 dark:hover:bg-slate-800'
       }`}
     >
       {/* Left accent strip — projects feel like a navigation rail. */}
@@ -112,7 +114,7 @@ export function SidebarProjectItem({
         <span className="truncate">{project.name}</span>
         {isSystem && (
           <span
-            className="text-[9px] uppercase tracking-wide px-1 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 shrink-0"
+            className="text-[9px] uppercase tracking-wide px-1 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-muted-foreground shrink-0"
             title="System project — always present"
           >
             System
@@ -121,7 +123,7 @@ export function SidebarProjectItem({
       </Link>
 
       <span
-        className="text-[11px] tabular-nums text-slate-400 dark:text-slate-500 min-w-[1.25rem] text-right shrink-0"
+        className="text-[11px] tabular-nums text-muted-foreground min-w-[1.25rem] text-right shrink-0"
         title={`${openTaskCount ?? 0} open ${inboxLink ? 'inbox tasks' : 'tasks'}`}
         aria-label={`${openTaskCount ?? 0} open ${inboxLink ? 'inbox tasks' : 'tasks'}`}
       >
@@ -129,8 +131,9 @@ export function SidebarProjectItem({
       </span>
 
       {showPin && (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={(e) => {
             // The link above is the more likely click target; suppress
             // navigation when the user explicitly pins/unpins.
@@ -141,14 +144,15 @@ export function SidebarProjectItem({
           title={pinned ? 'Unpin from sidebar' : 'Pin to top of sidebar'}
           aria-label={pinned ? 'Unpin project' : 'Pin project'}
           aria-pressed={pinned}
-          className={`shrink-0 h-5 w-5 flex items-center justify-center rounded text-xs transition ${
+          className={cn(
+            'shrink-0 h-5 w-5 text-xs transition p-0',
             pinned
               ? 'text-orenda-600 dark:text-orenda-400 opacity-100'
-              : 'text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-slate-500'
-          }`}
+              : 'text-slate-300 dark:text-slate-600 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-slate-500',
+          )}
         >
           ★
-        </button>
+        </Button>
       )}
     </div>
   );

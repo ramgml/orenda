@@ -126,9 +126,9 @@ describe('BotsSettingsPage', () => {
     // Change bot type to telegram so the placeholder makes sense.
     // Use a testid because the page now has two bot-type selects
     // (add-subscription form + Test send UI).
-    fireEvent.change(screen.getByTestId('add-subscription-bot-type'), {
-      target: { value: 'telegram' },
-    });
+    // Radix Select: click trigger to open, then click the option.
+    fireEvent.click(screen.getByTestId('add-subscription-bot-type'));
+    fireEvent.click(screen.getByRole('option', { name: 'telegram' }));
     fireEvent.change(screen.getByPlaceholderText(/chat id/i), { target: { value: '123' } });
     // Add mention.created.
     fireEvent.click(screen.getByRole('checkbox', { name: /mention\.created/ }));
@@ -154,9 +154,9 @@ describe('BotsSettingsPage', () => {
     render(<BotsSettingsPage />);
     fireEvent.click(await screen.findByRole('button', { name: /add subscription/i }));
     // Switch to telegram so the target placeholder is "chat id".
-    fireEvent.change(screen.getByTestId('add-subscription-bot-type'), {
-      target: { value: 'telegram' },
-    });
+    // Radix Select: click trigger to open, then click the option.
+    fireEvent.click(screen.getByTestId('add-subscription-bot-type'));
+    fireEvent.click(screen.getByRole('option', { name: 'telegram' }));
     fireEvent.change(screen.getByPlaceholderText(/chat id/i), { target: { value: 'x' } });
 
     const formButton = screen.getAllByRole('button', { name: /add subscription/i })[0];
@@ -289,8 +289,9 @@ describe('BotsSettingsPage', () => {
 
     render(<BotsSettingsPage />);
 
-    const select = (await screen.findByTestId('bot-test-type')) as HTMLSelectElement;
-    const options = Array.from(select.options).map((o) => o.value);
+    // Radix Select: click trigger to open, then check available options.
+    fireEvent.click(await screen.findByTestId('bot-test-type'));
+    const options = screen.getAllByRole('option').map((o) => o.textContent?.trim());
     expect(options).toEqual(['webhook', 'email', 'telegram', 'vk']);
     expect(options).not.toContain('console');
   });
@@ -331,9 +332,9 @@ describe('BotsSettingsPage', () => {
     );
 
     render(<BotsSettingsPage />);
-    fireEvent.change(await screen.findByTestId('bot-test-type'), {
-      target: { value: 'telegram' },
-    });
+    // Radix Select: click trigger to open, then click the option.
+    fireEvent.click(await screen.findByTestId('bot-test-type'));
+    fireEvent.click(screen.getByRole('option', { name: 'telegram' }));
     fireEvent.change(screen.getByTestId('bot-test-target'), {
       target: { value: '123456' },
     });
@@ -350,9 +351,9 @@ describe('BotsSettingsPage', () => {
     );
 
     render(<BotsSettingsPage />);
-    fireEvent.change(await screen.findByTestId('bot-test-type'), {
-      target: { value: 'email' },
-    });
+    // Radix Select: click trigger to open, then click the option.
+    fireEvent.click(await screen.findByTestId('bot-test-type'));
+    fireEvent.click(screen.getByRole('option', { name: 'email' }));
     fireEvent.change(screen.getByTestId('bot-test-target'), {
       target: { value: 'me@example.com' },
     });

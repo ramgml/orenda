@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 
 import { TaskLink } from '@/features/tasks/TaskModal';
 import { api, type SearchHit } from '@/shared/api/client';
+import { Button } from '@/shared/ui/button';
+import { Input } from '@/shared/ui/input';
 
 /**
  * /search — full-text search results across pages, tasks, comments.
@@ -56,21 +58,17 @@ export function SearchPage(): JSX.Element {
         }}
         className="flex gap-2 mb-4"
       >
-        <input
+        <Input
           name="search"
           type="text"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search pages, tasks, comments…"
-          className="flex-1 px-3 py-2 rounded border border-slate-300 dark:border-slate-700 bg-transparent"
+          className="flex-1"
         />
-        <button
-          type="submit"
-          disabled={busy || !q.trim()}
-          className="px-4 py-2 rounded bg-orenda-600 hover:bg-orenda-700 disabled:opacity-50 text-white"
-        >
+        <Button type="submit" disabled={busy || !q.trim()}>
           {busy ? 'Searching…' : 'Search'}
-        </button>
+        </Button>
       </form>
 
       {error && (
@@ -86,10 +84,7 @@ export function SearchPage(): JSX.Element {
       ) : (
         <ul className="space-y-3">
           {hits.map((h) => (
-            <li
-              key={`${h.type}:${h.id}`}
-              className="rounded border border-slate-200 dark:border-slate-800 p-3"
-            >
+            <li key={`${h.type}:${h.id}`} className="rounded border border-border p-3">
               <div className="flex items-center justify-between mb-1">
                 {h.type === 'page' ? (
                   <Link to={hitHref(h)} className="font-medium text-orenda-600 hover:underline">
@@ -105,7 +100,7 @@ export function SearchPage(): JSX.Element {
                 </span>
               </div>
               <p
-                className="text-sm text-slate-700 dark:text-slate-300"
+                className="text-sm text-foreground"
                 dangerouslySetInnerHTML={{ __html: h.snippet }}
               />
             </li>

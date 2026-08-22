@@ -55,8 +55,8 @@ type Service struct {
 	Hub    ws.Hub
 }
 
-// New returns a Service. UploadDir must be writable; the service does
-// not create it on first run (cmd/orenda ensures it exists at startup).
+// New returns a Service. The service lazily creates UploadDir on the
+// first store if it does not exist (cmd/orenda only resolves the path).
 func New(repo Repository, cfg Config, hub ws.Hub) *Service {
 	return &Service{Repo: repo, Config: cfg, Hub: hub}
 }
@@ -89,6 +89,12 @@ func (s *Service) StoreFromBytes(
 	}
 	if s.Config.MaxSizeBytes <= 0 {
 		s.Config.MaxSizeBytes = 50 * 1024 * 1024 // 50 MiB default
+	}
+
+	// Make sure the upload dir exists: nothing else on the production
+	// path creates it, so the service is self-sufficient here.
+	if err := os.MkdirAll(s.Config.UploadDir, 0o755); err != nil {
+		return nil, fmt.Errorf("attachment store: mkdir upload dir: %w", err)
 	}
 
 	// Stream to a temp file while hashing + counting.

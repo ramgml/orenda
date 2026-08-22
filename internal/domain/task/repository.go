@@ -103,6 +103,30 @@ type Repository interface {
 	// Update saves changes to an existing task.
 	Update(ctx context.Context, t *Task) error
 
+	// UpdateProposalFields is the gate-protected partial UPDATE for
+	// the agent-side EditProposal flow (Phase 33.2.1). It writes
+	// ONLY the patch fields and asserts the (created_by_type,
+	// created_by_id, status) gate directly in the WHERE clause —
+	// a concurrent owner triage that flips status out of 'backlog'
+	// makes RowsAffected()==0 and the caller surfaces
+	// ErrConcurrentTriage. This is the TOCTOU fix for the
+	// pre-33.2.1 GetByID → Update path.
+	UpdateProposalFields(ctx context.Context, params ProposalPatchParams) error
+
+	// UpdateAgentNotesField is the gate-protected partial UPDATE
+	// for the agent-side UpdateAgentNotes flow (Phase 33.2.1).
+	// Writes ONLY agent_notes and asserts the holder gate
+	// (assignee_type='agent' AND assignee_id=?) directly in the
+	// WHERE clause. A concurrent Release that clears the
+	// assignee makes RowsAffected()==0.
+	UpdateAgentNotesField(ctx context.Context, taskID, agentID, notes string) error
+
+	// DeleteWithProposalGate is the gate-protected DELETE for the
+	// retract flow (Phase 33.2.1). Same gate as
+	// UpdateProposalFields. The tombstone row is written BEFORE
+	// this returns (see service.RetractProposal).
+	DeleteWithProposalGate(ctx context.Context, taskID, agentID string) error
+
 	// Delete removes the task. ON DELETE CASCADE on parent_task_id
 	// makes sure children disappear with the parent.
 	Delete(ctx context.Context, id string) error
@@ -212,6 +236,26 @@ type Repository interface {
 	// Used by the time-entry report to render task titles next to
 	// the aggregated seconds.
 	TitlesByIDs(ctx context.Context, ids []string) (map[string]string, error)
+}
+
+// ProposalPatchParams is the patch shape accepted by
+// UpdateProposalFields. Pointer fields use nil to mean "leave
+// alone" and a non-nil pointer to mean "set to this value",
+// matching the wire shape of PATCH /agent/tasks/{id}.
+type ProposalPatchParams struct {
+	TaskID      string
+	Gate        ProposalGate
+	Title       *string
+	Description *string
+	Priority    *Priority
+	DueAt       *time.Time
+	ParentID    *string
+}
+
+// ProposalGate carries the (created_by_type='agent' AND
+// created_by_id=me) gate the manager asserts in the WHERE clause.
+type ProposalGate struct {
+	CreatedByID string
 }
 
 // ReviewQueueItem is a task awaiting review, denormalised with its

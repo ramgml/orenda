@@ -22,6 +22,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CalendarPage } from '@/features/calendar/CalendarPage';
 import { wsClient } from '@/shared/ws';
 
+// Radix UI components (Checkbox, Dialog, Select) use
+// @radix-ui/react-use-size which needs ResizeObserver in jsdom.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}
+
 const { stubHttp } = vi.hoisted(() => ({
   stubHttp: {
     get: vi.fn(),
