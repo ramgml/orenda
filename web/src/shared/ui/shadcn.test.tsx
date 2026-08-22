@@ -21,6 +21,7 @@ import { resolve } from 'node:path';
 import { cleanup, render, screen } from '@testing-library/react';
 import postcss from 'postcss';
 import tailwindcss from 'tailwindcss';
+import type { Config } from 'tailwindcss';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { Badge } from '@/shared/ui/badge';
@@ -210,7 +211,8 @@ describe('theme tokens', () => {
 
   it('compiles token utilities against the CSS variables', async () => {
     const config = {
-      presets: [(await import('../../../tailwind.config.js')).default],
+      // @ts-expect-error — tailwind.config.js is plain JS, types provided by cast below
+      presets: [(await import('../../../tailwind.config.js')).default as Config],
       content: [
         {
           raw: 'bg-primary text-primary-foreground bg-popover border-input ring-ring bg-card text-muted-foreground bg-background rounded-md',
