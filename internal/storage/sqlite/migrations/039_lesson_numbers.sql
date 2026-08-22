@@ -13,7 +13,7 @@
 -- the watermark never moves backwards. Numbers are NEVER reused after a
 -- delete.
 --
--- Why the three-step shape for the column: same rationale as 036 and 038 —
+-- Why the three-step shape for the column: same rationale as 037 and 038 —
 -- SQLite's ALTER TABLE ... ADD COLUMN ... NOT NULL requires a CONSTANT
 -- default, so the column lands as DEFAULT 0; the backfill rewrites in
 -- (created_at, rowid) order via ROW_NUMBER(); the UNIQUE index is created
