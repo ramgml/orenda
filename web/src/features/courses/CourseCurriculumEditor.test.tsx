@@ -27,6 +27,7 @@ function makeCourse(over: Partial<Course> = {}): Course {
     pace: 'casual',
     status: 'draft',
     owner_id: 'u-1',
+    number: 1,
     created_at: '',
     updated_at: '',
     ...over,

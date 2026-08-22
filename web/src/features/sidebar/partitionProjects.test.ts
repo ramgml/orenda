@@ -19,6 +19,7 @@ function p(id: string, name: string, opts: Partial<Project> = {}): Project {
     color: '#000',
     owner_id: 'u1',
     archived: false,
+    number: 0,
     created_at: '',
     updated_at: '',
     ...opts,

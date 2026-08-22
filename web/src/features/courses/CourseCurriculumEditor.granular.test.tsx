@@ -47,6 +47,7 @@ function makeCourse(over: Partial<Course> = {}): Course {
     pace: 'casual',
     status: 'active',
     owner_id: 'u-1',
+    number: 1,
     created_at: '',
     updated_at: '',
     ...over,
@@ -77,7 +78,15 @@ function makeServerModule(over: Partial<CourseModule> = {}): CourseModule {
 }
 
 function makeServerLesson(over: Partial<CourseLesson> = {}): CourseLesson {
-  return { id: 'srv-l', module_id: 'srv-m', title: 'x', position: 0, status: 'locked', ...over };
+  return {
+    id: 'srv-l',
+    module_id: 'srv-m',
+    title: 'x',
+    position: 0,
+    status: 'locked',
+    number: 1,
+    ...over,
+  };
 }
 
 function makeServerQuiz(over: Partial<CourseQuiz> = {}): CourseQuiz {

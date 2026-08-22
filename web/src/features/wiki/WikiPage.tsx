@@ -63,6 +63,7 @@ export function WikiPage(): JSX.Element {
           title: slugVal,
           content_md: '',
           position: 0,
+          number: 0,
           created_at: '',
           updated_at: '',
         });

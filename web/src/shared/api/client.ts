@@ -1515,6 +1515,11 @@ export interface WikiPage {
   title: string;
   content_md?: string;
   position: number;
+  /**
+   * Human-readable sequential wiki page number ("W5"). Assigned by the
+   * storage layer on CreatePage from the wiki_number_seq high-watermark.
+   */
+  number: number;
   created_at: string;
   updated_at: string;
 }
