@@ -169,14 +169,12 @@ func TestWikiRef_UpsertByWRef(t *testing.T) {
 	assert.Equal(t, "Alpha Updated", got.Title)
 }
 
-// TestWikiRef_SlugConflict422: POST with slug "W42" is rejected.
+// TestWikiRef_SlugConflict422: POST with slug "W42" is rejected, but
+// PUT with URL W42 + body slug=W42 succeeds (URL is authoritative).
 func TestWikiRef_SlugConflict422(t *testing.T) {
-	fx := newAgentWikiFixture(t)
+	fx := newWikiRefFixture(t)
 
-	// W42 in the URL resolves — if the page exists it's an update,
-	// if not it's a 404. But slug "W42" in the body must be rejected.
-	// The test for slug rejection is on POST /pages (user side) with
-	// body slug "W42".
+	// POST body slug "W42" must be rejected — W-refs are resolution-only.
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/pages", mustMarshal(t, map[string]any{
 		"slug":  "W42",
 		"title": "Conflicting",
@@ -186,10 +184,35 @@ func TestWikiRef_SlugConflict422(t *testing.T) {
 	rr := httptest.NewRecorder()
 	fx.router.ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusUnprocessableEntity, rr.Code,
-		"W<digits> slug must be rejected with 422")
-	var body map[string]string
-	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
-	assert.Equal(t, "slug_conflicts_with_w_ref", body["error"])
+		"W<digits> slug in POST body must be rejected with 422")
+	var errBody map[string]string
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&errBody))
+	assert.Equal(t, "slug_conflicts_with_w_ref", errBody["error"])
+
+	// PUT with URL W42 + body slug=W42 must succeed — URL slug is
+	// authoritative, body slug is ignored. This is the MCP scenario:
+	// orenda_pages_save sends slug in both body and URL.
+	ref := fmt.Sprintf("W%d", fx.page1Number)
+	rr = fx.agentReq(http.MethodPut, "/api/v1/agent/pages/"+ref, map[string]any{
+		"slug":  ref,
+		"title": "MCP Update",
+	})
+	require.Equal(t, http.StatusOK, rr.Code,
+		"PUT URL W-ref + body slug W-ref must succeed (URL authoritative): %s", rr.Body.String())
+	var got wiki.Page
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&got))
+	assert.Equal(t, fx.page1ID, got.ID, "must update the existing page")
+	assert.Equal(t, "MCP Update", got.Title)
+
+	// PUT with URL W42 + empty body slug must also succeed.
+	rr = fx.agentReq(http.MethodPut, "/api/v1/agent/pages/"+ref, map[string]any{
+		"title": "Empty Slug Body",
+	})
+	require.Equal(t, http.StatusOK, rr.Code,
+		"PUT URL W-ref + empty body slug must succeed: %s", rr.Body.String())
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&got))
+	assert.Equal(t, fx.page1ID, got.ID)
+	assert.Equal(t, "Empty Slug Body", got.Title)
 }
 
 // TestWikiRef_Unknown404: unknown W-ref returns "page W999 not found".

@@ -324,7 +324,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"slug", "title"},
 			"properties": map[string]any{
-				"slug":       map[string]any{"type": "string"},
+				"slug":       map[string]any{"type": "string", "description": "Page slug (not a W-ref; W<digits> rejected on create)"},
 				"title":      map[string]any{"type": "string"},
 				"content_md": map[string]any{"type": "string", "description": "Markdown body"},
 				"parent_id":  map[string]any{"type": "string", "description": "Parent page id (omit = root)"},

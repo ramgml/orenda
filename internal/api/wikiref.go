@@ -16,19 +16,16 @@ import (
 )
 
 // resolveWikiRef resolves a page reference from the URL to the page's
-// slug. "W42" resolves through wiki_pages.number; anything else is
-// returned as-is (treated as a slug).
+// slug. "W42" resolves through wiki_pages.number via WikiService.Resolve;
+// anything else is returned as-is (treated as a slug).
 //
 // Unknown W-refs surface as *wiki.RefNotFoundError ("page W42 not
 // found"). Regular slugs pass through unchanged — the caller is
 // responsible for 404 handling when the slug doesn't exist.
 func resolveWikiRef(ctx context.Context, deps *Dependencies, ref string) (string, error) {
-	if n, ok := wiki.ParseRefNumber(ref); ok {
-		p, err := deps.WikiService.Repo.GetByNumber(ctx, n)
+	if _, ok := wiki.ParseRefNumber(ref); ok {
+		p, err := deps.WikiService.Resolve(ctx, ref)
 		if err != nil {
-			if err == wiki.ErrNotFound {
-				return "", &wiki.RefNotFoundError{Ref: ref}
-			}
 			return "", err
 		}
 		return p.Slug, nil
