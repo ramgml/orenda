@@ -81,7 +81,7 @@ export function ReportsPage(): JSX.Element {
         </div>
       </div>
 
-      <div className="rounded border border-border p-4 bg-white dark:bg-slate-950">
+      <div className="rounded border border-border p-4 bg-background dark:bg-background">
         <h2 className="font-semibold mb-2">Tasks</h2>
         {tasks.length === 0 ? (
           <p className="text-slate-500 text-sm">No time logged in this window.</p>
@@ -96,7 +96,7 @@ export function ReportsPage(): JSX.Element {
             </thead>
             <tbody>
               {tasks.map((t) => (
-                <tr key={t.task_id} className="border-b border-slate-100 dark:border-slate-800">
+                <tr key={t.task_id} className="border-b border-border dark:border-border">
                   <td className="py-2">
                     {t.title ?? (
                       <span className="text-slate-400 font-mono text-xs">

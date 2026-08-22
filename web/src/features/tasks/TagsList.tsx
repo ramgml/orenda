@@ -172,7 +172,7 @@ export function TagsList({ taskId, initial }: { taskId: string; initial: Tag[] }
           e.preventDefault();
           void createAndAttach();
         }}
-        className="flex gap-1 items-center pt-1 border-t border-slate-100 dark:border-slate-800"
+        className="flex gap-1 items-center pt-1 border-t border-border dark:border-border"
       >
         <Input
           value={newName}
@@ -187,7 +187,7 @@ export function TagsList({ taskId, initial }: { taskId: string; initial: Tag[] }
           value={newColor}
           onChange={(e) => setNewColor(e.target.value)}
           disabled={creating || saving}
-          className="h-6 w-7 rounded border border-slate-300 dark:border-slate-700 bg-transparent cursor-pointer"
+          className="h-6 w-7 rounded border border dark:border-border bg-transparent cursor-pointer"
           title="Pick a colour"
         />
         <Button

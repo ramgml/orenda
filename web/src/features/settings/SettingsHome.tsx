@@ -153,14 +153,14 @@ export function SettingsHome(): JSX.Element {
             key={card.to}
             to={card.to}
             data-testid={card.testId}
-            className="block rounded-lg border border-border p-4 bg-white dark:bg-slate-950 hover:border-orenda-500 hover:shadow-sm transition-colors"
+            className="block rounded-lg border border-border p-4 bg-background dark:bg-background hover:border-orenda-500 hover:shadow-sm transition-colors"
           >
             <div className="flex items-start gap-3">
               <span aria-hidden className="text-orenda-500 text-xl leading-none mt-0.5">
                 {card.glyph}
               </span>
               <div className="flex-1 min-w-0">
-                <h2 className="font-semibold text-slate-800 dark:text-slate-100">{card.title}</h2>
+                <h2 className="font-semibold text-foreground dark:text-foreground">{card.title}</h2>
                 <p className="text-sm text-slate-500 mt-1">{card.description}</p>
               </div>
             </div>
@@ -169,7 +169,7 @@ export function SettingsHome(): JSX.Element {
       </div>
 
       <div
-        className="rounded-lg border border-border p-4 bg-white dark:bg-slate-950"
+        className="rounded-lg border border-border p-4 bg-background dark:bg-background"
         data-testid="settings-about"
       >
         <h2 className="font-semibold mb-2">About</h2>

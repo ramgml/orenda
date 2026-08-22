@@ -166,7 +166,7 @@ export function LessonPage(): JSX.Element {
       {isLocked && (
         <div
           data-testid="lesson-locked"
-          className="rounded border border-border p-4 bg-slate-50 dark:bg-slate-900 text-sm text-slate-600"
+          className="rounded border border-border p-4 bg-muted dark:bg-muted text-sm text-slate-600"
         >
           🔒 This lesson is locked. The tutor hasn't written the content yet — check back once the
           agent has materialised it.
@@ -211,7 +211,7 @@ export function LessonPage(): JSX.Element {
           <>
             <article
               data-testid="lesson-content"
-              className="rounded border border-border bg-white dark:bg-slate-950 px-6 py-5 prose dark:prose-invert max-w-none text-sm"
+              className="rounded border border-border bg-background dark:bg-background px-6 py-5 prose dark:prose-invert max-w-none text-sm"
             >
               {lesson.content_md ? (
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{lesson.content_md}</ReactMarkdown>
@@ -239,7 +239,7 @@ export function LessonPage(): JSX.Element {
           Exercise:{' '}
           <Link
             to={`/tasks/${lesson.task_id}`}
-            className="text-slate-700 dark:text-slate-200 hover:underline"
+            className="text-foreground dark:text-foreground hover:underline"
           >
             Open task
           </Link>
@@ -248,14 +248,14 @@ export function LessonPage(): JSX.Element {
 
       {!isLocked && quizzes.length > 0 && (
         <div className="space-y-4">
-          <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Quizzes</h2>
+          <h2 className="text-sm font-semibold text-foreground dark:text-foreground">Quizzes</h2>
           {quizzes.map((q) => {
             const result = results[q.id];
             return (
               <div
                 key={q.id}
                 data-testid="quiz-row"
-                className="rounded border border-border p-4 bg-white dark:bg-slate-950 space-y-2"
+                className="rounded border border-border p-4 bg-background dark:bg-background space-y-2"
               >
                 <div className="prose dark:prose-invert max-w-none text-sm">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{q.question_md}</ReactMarkdown>

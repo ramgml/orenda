@@ -668,10 +668,10 @@ function ColorPicker({
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => commit(draft)}
           disabled={busy}
-          className="h-7 w-9 rounded border border-slate-300 dark:border-slate-700 bg-transparent cursor-pointer"
+          className="h-7 w-9 rounded border border dark:border-border bg-transparent cursor-pointer"
           title="Pick a colour"
         />
-        <span className="font-mono text-xs text-slate-600 dark:text-slate-300 flex-1">
+        <span className="font-mono text-xs text-muted-foreground dark:text-muted-foreground flex-1">
           {draft || 'none'}
         </span>
         {draft && (

@@ -215,7 +215,7 @@ export function BotsSettingsPage(): JSX.Element {
        * they're about to subscribe to. */}
       <section
         data-testid="bot-test-send"
-        className="rounded border border-border p-4 bg-white dark:bg-slate-950 space-y-3"
+        className="rounded border border-border p-4 bg-background dark:bg-background space-y-3"
       >
         <div>
           <h2 className="font-semibold">Test send</h2>
@@ -288,7 +288,7 @@ export function BotsSettingsPage(): JSX.Element {
        * and the server resolves it to a chat id. */}
       <section
         data-testid="telegram-bind"
-        className="rounded border border-border p-4 bg-white dark:bg-slate-950 space-y-2"
+        className="rounded border border-border p-4 bg-background dark:bg-background space-y-2"
       >
         <h2 className="font-semibold">Telegram</h2>
         <p className="text-sm text-slate-500">
@@ -333,7 +333,7 @@ export function BotsSettingsPage(): JSX.Element {
       {creating && (
         <form
           onSubmit={onCreate}
-          className="rounded border border-border bg-white dark:bg-slate-950 p-4 grid gap-3"
+          className="rounded border border-border bg-background dark:bg-background p-4 grid gap-3"
         >
           <div className="grid sm:grid-cols-2 gap-3">
             <label className="grid gap-1 text-sm">
@@ -371,7 +371,7 @@ export function BotsSettingsPage(): JSX.Element {
                   className={`px-2 py-1 rounded border text-xs cursor-pointer ${
                     selectedEvents.includes(ev)
                       ? 'border-orenda-500 bg-orenda-50 dark:bg-orenda-900/20'
-                      : 'border-slate-300 dark:border-slate-700'
+                      : 'border dark:border-border'
                   }`}
                 >
                   <input

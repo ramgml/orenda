@@ -174,7 +174,7 @@ function Placeholder({ title }: { title: string }): JSX.Element {
   return (
     <section>
       <h1 className="text-2xl font-semibold mb-2">{title}</h1>
-      <p className="text-slate-600 dark:text-slate-300">Coming in a later phase.</p>
+      <p className="text-muted-foreground dark:text-muted-foreground">Coming in a later phase.</p>
     </section>
   );
 }

@@ -98,7 +98,7 @@ export function BlockedByList({
               key={b.blocker_id}
               data-testid="blocker-row"
               className={`text-xs ${
-                b.done ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200'
+                b.done ? 'line-through text-slate-400' : 'text-foreground dark:text-foreground'
               }`}
             >
               <Link to={`/tasks/${b.blocker_id}`} className="hover:underline">
@@ -183,7 +183,7 @@ function DependencyEditor({
   }
 
   return (
-    <div className="rounded border border-border p-2 bg-slate-50 dark:bg-slate-900/40 space-y-2">
+    <div className="rounded border border-border p-2 bg-muted dark:bg-muted/40 space-y-2">
       {!projectId ? (
         <p className="text-xs text-slate-500 italic">
           File the task under a project to add blockers.
@@ -201,7 +201,7 @@ function DependencyEditor({
               />
               <label
                 htmlFor={`dep-${t.id}`}
-                className="text-slate-700 dark:text-slate-200 truncate"
+                className="text-foreground dark:text-foreground truncate"
               >
                 {t.title}
               </label>

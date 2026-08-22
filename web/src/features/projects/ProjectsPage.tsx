@@ -69,7 +69,7 @@ export function ProjectsPage(): JSX.Element {
       {creating && (
         <form
           onSubmit={onCreate}
-          className="mb-4 p-4 rounded border border-border bg-white dark:bg-slate-950 flex gap-2"
+          className="mb-4 p-4 rounded border border-border bg-background dark:bg-background flex gap-2"
         >
           <Input
             type="text"
@@ -113,8 +113,8 @@ export function ProjectsPage(): JSX.Element {
                     to={`/projects/${p.id}`}
                     className={`block rounded-lg border p-4 transition ${
                       p.archived
-                        ? 'border-border bg-slate-50 dark:bg-slate-900 opacity-70 hover:opacity-100'
-                        : 'border-border bg-white dark:bg-slate-950 hover:border-orenda-500'
+                        ? 'border-border bg-muted dark:bg-muted opacity-70 hover:opacity-100'
+                        : 'border-border bg-background dark:bg-background hover:border-orenda-500'
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1">
@@ -125,13 +125,15 @@ export function ProjectsPage(): JSX.Element {
                       />
                       <span className="font-medium">{p.name}</span>
                       {p.archived && (
-                        <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-500 border border-slate-300 dark:border-slate-700 rounded px-1.5 py-0.5">
+                        <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-500 border border dark:border-border rounded px-1.5 py-0.5">
                           archived
                         </span>
                       )}
                     </div>
                     {p.description && (
-                      <p className="text-sm text-slate-600 dark:text-slate-300">{p.description}</p>
+                      <p className="text-sm text-muted-foreground dark:text-muted-foreground">
+                        {p.description}
+                      </p>
                     )}
                     <p className="text-xs text-slate-400 mt-2 font-mono">{p.id.slice(0, 8)}</p>
                   </Link>

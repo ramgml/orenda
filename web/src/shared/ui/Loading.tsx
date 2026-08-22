@@ -12,7 +12,9 @@ export function Loading({
   className?: string;
 }): JSX.Element {
   return (
-    <p className={`text-sm text-slate-400 dark:text-slate-500 italic ${className}`.trim()}>
+    <p
+      className={`text-sm text-muted-foreground dark:text-muted-foreground italic ${className}`.trim()}
+    >
       {label}
     </p>
   );

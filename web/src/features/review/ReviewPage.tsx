@@ -139,7 +139,7 @@ function ReviewRow({
   return (
     <li
       data-testid="review-row"
-      className="rounded border border-border bg-white dark:bg-slate-950 p-3 flex gap-3 items-start"
+      className="rounded border border-border bg-background dark:bg-background p-3 flex gap-3 items-start"
     >
       <Button
         type="button"
@@ -157,7 +157,7 @@ function ReviewRow({
           <span>·</span>
           <span>{new Date(item.task.updated_at).toLocaleString()}</span>
         </div>
-        <p className="text-slate-800 dark:text-slate-100 mt-1">
+        <p className="text-foreground dark:text-foreground mt-1">
           <TaskNumberChip number={item.task.number} /> <span>{item.task.title}</span>
         </p>
         {item.task.description && (

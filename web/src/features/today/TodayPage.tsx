@@ -195,7 +195,7 @@ function ProposalTray({
     <div data-testid="proposal-tray">
       <div className="flex items-center gap-2 mb-2">
         <span aria-hidden className="inline-block h-2 w-2 rounded-full bg-indigo-500" />
-        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+        <h2 className="text-sm font-semibold text-foreground dark:text-foreground">
           Proposed for today ({proposals.length})
         </h2>
       </div>
@@ -211,7 +211,7 @@ function ProposalTray({
               <div className="flex-1 min-w-0">
                 <Link
                   to={p.course_id ? `/courses/${p.course_id}` : '#'}
-                  className="text-slate-800 dark:text-slate-100 hover:underline font-medium"
+                  className="text-foreground dark:text-foreground hover:underline font-medium"
                 >
                   📖 {p.title}
                 </Link>
@@ -224,7 +224,7 @@ function ProposalTray({
                   </Link>
                 )}
                 {p.body_md && (
-                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-400 line-clamp-2">
+                  <p className="mt-1 text-xs text-muted-foreground dark:text-muted-foreground line-clamp-2">
                     {p.body_md}
                   </p>
                 )}
@@ -293,7 +293,7 @@ function TodaySection({
     <div>
       <div className="flex items-center gap-2 mb-2">
         <span aria-hidden className={`inline-block h-2 w-2 rounded-full ${dotColor}`} />
-        <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+        <h2 className="text-sm font-semibold text-foreground dark:text-foreground">
           {title} ({tasks.length})
         </h2>
       </div>
@@ -312,11 +312,11 @@ function TodaySection({
               <li
                 key={t.id}
                 data-testid={studyLink ? 'today-study-task' : 'today-task'}
-                className="rounded border border-border p-2 text-sm bg-white dark:bg-slate-950"
+                className="rounded border border-border p-2 text-sm bg-background dark:bg-background"
               >
                 <Link
                   to={`/tasks/${t.id}`}
-                  className="text-slate-800 dark:text-slate-100 hover:underline"
+                  className="text-foreground dark:text-foreground hover:underline"
                 >
                   {studyLink ? '📖 ' : ''}
                   {t.title}
@@ -404,7 +404,9 @@ function UpcomingWeek({ days }: { days: { date: string; count: number }[] }): JS
   if (days.length === 0) return <></>;
   return (
     <div>
-      <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Next 7 days</h2>
+      <h2 className="text-sm font-semibold text-foreground dark:text-foreground mb-2">
+        Next 7 days
+      </h2>
       <ul className="space-y-1">
         {days.map((d) => {
           const date = new Date(d.date + 'T00:00:00');
@@ -417,9 +419,9 @@ function UpcomingWeek({ days }: { days: { date: string; count: number }[] }): JS
             <li
               key={d.date}
               data-testid="upcoming-day-row"
-              className="flex justify-between items-center rounded border border-border px-3 py-1 text-sm bg-white dark:bg-slate-950"
+              className="flex justify-between items-center rounded border border-border px-3 py-1 text-sm bg-background dark:bg-background"
             >
-              <span className="text-slate-700 dark:text-slate-200">{label}</span>
+              <span className="text-foreground dark:text-foreground">{label}</span>
               <span className="text-slate-500 font-mono">{d.count} due</span>
             </li>
           );
