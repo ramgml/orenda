@@ -1,6 +1,8 @@
 # RELEASE.md — релизный процесс Orenda
 
 > Живая копия — wiki:release-process в dogfood-инстансе (конвенция `docs/DOGFOOD.md`). Этот файл — снапшот процесса в репо; при расхождении правит wiki, а расхождение устраняется при ближайшем релизе.
+>
+> **Снапшот обновлён 2026-08-22 по wiki (v0.6.0).**
 
 ## Модель веток и тегов
 
@@ -16,16 +18,17 @@
 
 1. Свернуть `## [Unreleased]` в `CHANGELOG.md` в `## [X.Y.Z] — YYYY-MM-DD` (Keep a Changelog: Added / Changed / Fixed / Security / Docs / Known gaps; образец — секции 0.2.0 и 0.3.0).
 2. Бампнуть `VERSION`.
-3. Локальные гейты (те же, что в pre-push hook, но с базой `main`):
+3. Локальные гейты (с базой main):
    - `make lint-new BASE_REF=origin/main`
-   - `make test-full`
+   - `make test-full` (uncached — релизный контракт; `make test` кэшированный и для релиза ничего не доказывает — task 40)
 4. Поздние фиксы из `dev` влить в релизную подготовку до PR (прецедент: merge-коммит `9c3d06b` в v0.3.0).
 
 ### 2. Промоушн `dev` → `main` через PR
 
-- PR с названием `Release vX.Y.Z: промоушн dev → main` (прецеденты: PR #4 → v0.2.0, PR #10 → v0.3.0).
+- PR с названием `Release vX.Y.Z: промоушн dev → main` (прецеденты: PR #4 → v0.2.0, PR #10 → v0.3.0, PR #55 → v0.5.0, PR #64 → v0.6.0).
 - Это единственная точка полного CI: **release gate** на PR/push в `main` и теги `v*` (lint new-vs-main → test → build → e2e, `.github/workflows/ci.yml`). PR-to-dev CI молчит — by design, per-PR гейт живёт в локальных хуках (wiki:ci-local-gates-hooks, `make hooks`).
-- Merge в `main` — только по явной команде владельца.
+- Опыт v0.5.0/v0.6.0: build и e2e джобы существуют только здесь — именно они ловят tsc/e2e-регрессии, невидимые на dev (#43, #45, #54). До закрытия #44 жди красного build/e2e и чини отдельными urgent-задачами.
+- Merge в `main` — по явной команде владельца.
 
 ### 3. Тег и обратная синхронизация
 
@@ -58,6 +61,8 @@ cd ~/opt/orenda && scripts/update-dogfood.sh
 ```
 
 Скрипт требует `main` + чистое дерево → `git pull --ff-only origin main` → `scripts/install.sh --systemd` → restart user-unit. Channel guard в `install.sh` отказывается ставить не-main/грязную сборку без `--force` (Phase 28.20: usage-канал никогда не видит unreleased-код случайно).
+
+Проверка после рестарта: `curl -s http://127.0.0.1:2137/api/v1/info` — поле `version` должно быть ровно `vX.Y.Z`; если вида `vX.Y.Z-N-g<sha>` — в клоне ~/opt/orenda не было свежих тегов на момент сборки: `git fetch origin --tags` и перезапустить update (инцидент v0.5.0).
 
 ## Запреты
 
