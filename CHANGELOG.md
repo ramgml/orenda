@@ -19,8 +19,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-08-22
+
+Fifth pre-alpha release. Focus: shadcn/ui component migration (dialog, buttons, checkboxes, semantic tokens), LMS pace adaptation, agent task management (proposals/context/agent_notes), markdown rendering in task descriptions, build-system semantics swap (`make test` = cached fast gate, `make test-full` = CI backstop), Kanban fixes, and process documentation.
+
+### Added
+- **Task 11 (PR #39):** Task description view now renders Markdown. Descriptions written in markdown are rendered as formatted HTML in view mode, improving readability for long-form content.
+- **Task 12 — shadcn/ui foundation (PR #42):** Added shadcn/ui base primitives (`Button`, `Badge`, `Card`, etc.) to `shared/ui` as the foundation for the component migration.
+- **Task 12 — shadcn/ui dialog (PR #44):** Migrated feature modals to the shadcn `Dialog` primitive (`@radix-ui/react-dialog`), replacing self-made modals with proper focus trap, ESC handling, and ARIA semantics.
+- **Task 12 — shadcn/ui slices (PR #45):** Migrated tasks/today/review slices to shadcn primitives, replacing custom components with the shared UI library.
+- **Task 12 — shadcn/ui buttons (PR #46):** Migrated `ButtonsFeatures` slice to shadcn button primitives.
+- **Task 12 — shadcn/ui checkboxes (PR #47):** Migrated raw HTML checkboxes to the shadcn checkbox primitive.
+- **Task 12 — dark tokens (PR #48):** Replaced exact-1:1 `dark:` CSS classes with semantic tokens across the UI, enabling theme-consistent dark mode.
+- **Task 15 (PR #38):** Agent API task management — agents can now edit proposed tasks, withdraw proposals, view task context, and write `agent_notes` (agent-only scratchpad field).
+- **Task 26 (PR #33):** Web build now runs `npm ci` before `npm run build`, ensuring deterministic dependency installation for CI and release builds.
+- **Task 27 (PR #35):** LMS pace adaptation — rolling velocity + drift calculation. Course pace notes now track a rolling velocity (lessons completed per day) and drift (deviation from target pace), enabling adaptive scheduling of study reminders.
+- **Task 32 (PR #40):** Upload directory auto-creation on first attachment store. The uploads directory is created automatically when the first file attachment is stored, preventing errors on fresh installations.
+- **Task 34 (PR #43):** Kanban agent label moved to bottom of task card, improving card readability by freeing the top area for title and status.
+### Changed
+- **Task 40 (PR #50):** Test semantics swap — `make test` now runs the cached fast gate (vitest), `make test-full` runs the uncached CI backstop. The former `test-gate` target was removed; `make test` serves as the local pre-push gate while `make test-full` is the CI/release backstop. Files touched: `Makefile`, git hooks, `ci.yml`, `AGENTS.md`, `README`, `ARCHITECTURE`, `RELEASE`.
+- **Task 12 (PRs #42–#48):** Complete shadcn/ui migration across all major UI slices — modals → Dialog, buttons → shadcn Button, checkboxes → shadcn Checkbox, raw `dark:` classes → semantic tokens. The self-made component library is now replaced by the standard shadcn/ui primitives.
+- **Task 37 (PR #53):** Dark palette normalization to shadcn tokens — `dark:` class count reduced from 242 to 115; remaining legitimate exceptions (e.g., border color overrides) documented in `wiki:frontend-shadcn-primitives`. Owner decision: variant B (normalize where token mapping exists, keep exceptions where it doesn't).
+
+### Fixed
+- **Task 28 (PR #36):** `test_scripts.sh` hermeticity — the test script now runs in isolation without depending on external state. `uninstall.sh` now rejects unknown flags with a usage message (previously `-purge` typo silently did nothing).
+- **Task 29 (PR #37):** Flaky `TestHub_PublishDropsOnFullSubscriber` — removed scheduling dependency, eliminating CI flakiness.
+- **Task 31 (PR #41):** Kanban cards overflowing right column boundary — fixed CSS containment so task cards stay within their assigned column.
+- **Task 35 (PR #52):** Config tests isolated from `ORENDA_*` process environment — `clearORENDAEnv` helper sanitises the test env so config-reading tests don't inherit the running process's `ORENDA_*` variables, eliminating false positives.
+- **Task 38 (PR #49):** Nil dereference guard in event create/update handlers — fixes potential panic on nil pointer when processing create/update events.
+- **Task 39 (PR #51):** Synthetic occurrence ID resolution to master in GET/PATCH/DELETE handlers — fixes 500 on calendar event edit by correctly resolving synthetic occurrence IDs to their master events.
+
 ### Docs
-- Review loop updated (2026-08-20): PR review is assigned to the PM agent (omp, variant-B subagent dispatch) with a formal GitHub approve / request-changes verdict; merge to `dev` stays with the owner, who also closes the dogfood review-queue card as the merge audit. The PM additionally watches git-tree/worktree hygiene (drift, stale branches, stranded WIP). Updated `docs/DOGFOOD.md` steps 5–6 and `AGENTS.md` git workflow.
+- **PR #30:** `dev` branch workflow documented — `origin/dev` is the base for all feature branches; local `dev` is an ff-only mirror to prevent remote drift.
+- **PR #31:** Review loop updated — PR review is assigned to the PM agent (omp, variant-B subagent dispatch) with a formal GitHub approve / request-changes verdict; merge to `dev` stays with the owner, who also closes the dogfood review-queue card as the merge audit. The PM additionally watches git-tree/worktree hygiene (drift, stale branches, stranded WIP). Updated `docs/DOGFOOD.md` steps 5–6 and `AGENTS.md` git workflow.
+- **PR #32:** Owner merge protocol documented — merge to `dev` is the owner's responsibility after PM approval; PM monitors git-tree and worktree hygiene.
+- **PR #34:** Added manual GitHub Release step to `docs/RELEASE.md` — the v0.4.0 release shipped without a GitHub Release (only a tag), now documented as a required step.
 
 ## [0.4.0] — 2026-08-19
 
