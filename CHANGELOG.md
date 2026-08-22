@@ -42,20 +42,19 @@ Fifth pre-alpha release. Focus: shadcn/ui component migration (dialog, buttons, 
 ### Changed
 - **Task 40 (PRs #28 + #50):** Test semantics swap — `make test` now runs the cached fast gate (vitest), `make test-full` runs the uncached CI backstop. The former `test-gate` target was removed; `make test` serves as the local pre-push gate while `make test-full` is the CI/release backstop. Files touched: `Makefile`, git hooks, `ci.yml`, `AGENTS.md`, `README`, `ARCHITECTURE`, `RELEASE`.
 - **Task 12 (PRs #42–#48):** Complete shadcn/ui migration across all major UI slices — modals → Dialog, buttons → shadcn Button, checkboxes → shadcn Checkbox, raw `dark:` classes → semantic tokens. The self-made component library is now replaced by the standard shadcn/ui primitives.
+- **Task 37 (PR #53):** Dark palette normalization to shadcn tokens — `dark:` class count reduced from 242 to 115; remaining legitimate exceptions (e.g., border color overrides) documented in `wiki:frontend-shadcn-primitives`. Owner decision: variant B (normalize where token mapping exists, keep exceptions where it doesn't).
 
 ### Fixed
 - **Task 28 (PR #28):** `test_scripts.sh` hermeticity — the test script now runs in isolation without depending on external state. `uninstall.sh` now rejects unknown flags with a usage message (previously `-purge` typo silently did nothing).
 - **Task 29 (PR #28):** Flaky `TestHub_PublishDropsOnFullSubscriber` — removed scheduling dependency, eliminating CI flakiness.
 - **Task 31 (PR #41):** Kanban cards overflowing right column boundary — fixed CSS containment so task cards stay within their assigned column.
+- **Task 35 (PR #52):** Config tests isolated from `ORENDA_*` process environment — `clearORENDAEnv` helper sanitises the test env so config-reading tests don't inherit the running process's `ORENDA_*` variables, eliminating false positives.
 
 ### Docs
 - **PR #30:** `dev` branch workflow documented — `origin/dev` is the base for all feature branches; local `dev` is an ff-only mirror to prevent remote drift.
 - **PR #31:** Review loop updated — PR review is assigned to the PM agent (omp, variant-B subagent dispatch) with a formal GitHub approve / request-changes verdict; merge to `dev` stays with the owner, who also closes the dogfood review-queue card as the merge audit. The PM additionally watches git-tree/worktree hygiene (drift, stale branches, stranded WIP). Updated `docs/DOGFOOD.md` steps 5–6 and `AGENTS.md` git workflow.
 - **PR #32:** Owner merge protocol documented — merge to `dev` is the owner's responsibility after PM approval; PM monitors git-tree and worktree hygiene.
 - **PR #34:** Added manual GitHub Release step to `docs/RELEASE.md` — the v0.4.0 release shipped without a GitHub Release (only a tag), now documented as a required step.
-
-### Known gaps (not blockers, documented for next release)
-- Tasks #35 and #37 (PRs #52 and #53, respectively) were pending owner merge at time of release preparation. Their changelog entries will be included in the next release.
 
 ## [0.4.0] — 2026-08-19
 
