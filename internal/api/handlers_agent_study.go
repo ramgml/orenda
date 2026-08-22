@@ -61,6 +61,15 @@ func proposeStudyHandlerAgent(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_title_or_target_date"})
 			return
 		}
+		// Resolve C<N> course_id from body to UUID.
+		if in.CourseID != "" {
+			cr, err := resolveCourseRef(r.Context(), deps, in.CourseID)
+			if err != nil {
+				writeCourseResolveError(w, err)
+				return
+			}
+			in.CourseID = cr.ID
+		}
 		agentID := ""
 		if id, ok := IdentityFrom(r.Context()); ok && id != nil {
 			agentID = id.AgentID
@@ -110,13 +119,17 @@ func patchCoursePaceNotesHandlerAgent(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "course repo not wired", http.StatusServiceUnavailable)
 			return
 		}
+		cr, err := resolveCourseRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeCourseResolveError(w, err)
+			return
+		}
 		var req patchCoursePaceNotesRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		id := chi.URLParam(r, "id")
-		err := deps.Courses.UpdatePaceNotesMD(r.Context(), id, req.PaceNotesMD)
+		err = deps.Courses.UpdatePaceNotesMD(r.Context(), cr.ID, req.PaceNotesMD)
 		if err != nil {
 			if errors.Is(err, coursedomain.ErrNotFound) {
 				http.Error(w, "course not found", http.StatusNotFound)
@@ -130,7 +143,7 @@ func patchCoursePaceNotesHandlerAgent(deps *Dependencies) http.HandlerFunc {
 		}
 		// Read-back so the agent gets the trimmed, validated value
 		// (the validator in the repo applies the trim).
-		got, gerr := deps.Courses.GetCourse(r.Context(), id)
+		got, gerr := deps.Courses.GetCourse(r.Context(), cr.ID)
 		if gerr != nil {
 			writeError(w, gerr)
 			return

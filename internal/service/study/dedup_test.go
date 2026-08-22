@@ -109,9 +109,14 @@ func TestService_Propose_DedupDifferentCoursesAreNotDeduped(t *testing.T) {
 
 	// Seed a second course in the same fixture DB.
 	courseB := "c-svc-2"
-	_, err := fx.db.ExecContext(ctx,
-		`INSERT INTO courses (id, title, owner_id, status) VALUES (?, ?, ?, 'active')`,
-		courseB, "Other course", "u-svc")
+	var cNum int
+	err := fx.db.QueryRowContext(ctx,
+		`UPDATE course_number_seq SET next = next + 1 WHERE id = 1 RETURNING next - 1`,
+	).Scan(&cNum)
+	require.NoError(t, err)
+	_, err = fx.db.ExecContext(ctx,
+		`INSERT INTO courses (id, number, title, owner_id, status) VALUES (?, ?, ?, ?, 'active')`,
+		courseB, cNum, "Other course", "u-svc")
 	require.NoError(t, err)
 
 	a, err := fx.svc.Propose(ctx, agentID, ProposeInput{

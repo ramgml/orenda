@@ -63,9 +63,14 @@ func setupStudySvc(t *testing.T) (*studySvcFixture, string, string) {
 		`INSERT INTO agents (id, name, type, token_id, max_concurrent) VALUES (?, ?, ?, ?, 3)`,
 		agentID, "planner", "[]", "t-svc")
 	require.NoError(t, err)
+	var cNum int
+	err = db.QueryRowContext(ctx,
+		`UPDATE course_number_seq SET next = next + 1 WHERE id = 1 RETURNING next - 1`,
+	).Scan(&cNum)
+	require.NoError(t, err)
 	_, err = db.ExecContext(ctx,
-		`INSERT INTO courses (id, title, owner_id, status) VALUES (?, ?, ?, 'active')`,
-		courseID, "Rust", ownerID)
+		`INSERT INTO courses (id, number, title, owner_id, status) VALUES (?, ?, ?, ?, 'active')`,
+		courseID, cNum, "Rust", ownerID)
 	require.NoError(t, err)
 
 	return &studySvcFixture{svc: svc, hub: hub, recorder: rec, db: db}, courseID, agentID

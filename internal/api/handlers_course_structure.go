@@ -76,12 +76,17 @@ func createModuleHandler(deps *Dependencies) http.HandlerFunc {
 		if svc == nil {
 			return
 		}
+		c, err := resolveCourseRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeCourseResolveError(w, err)
+			return
+		}
 		var req moduleUpsertRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		m, err := svc.AddModule(r.Context(), chi.URLParam(r, "id"), req.Title, req.Description)
+		m, err := svc.AddModule(r.Context(), c.ID, req.Title, req.Description)
 		if err != nil {
 			writeCourseSvcError(w, err)
 			return
@@ -161,17 +166,22 @@ func renameLessonHandler(deps *Dependencies) http.HandlerFunc {
 		if svc == nil {
 			return
 		}
+		l, err := resolveLessonRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeLessonResolveError(w, err)
+			return
+		}
 		var req lessonUpsertRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		l, err := svc.RenameLesson(r.Context(), chi.URLParam(r, "id"), req.Title)
+		l2, err := svc.RenameLesson(r.Context(), l.ID, req.Title)
 		if err != nil {
 			writeCourseSvcError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, l)
+		writeJSON(w, http.StatusOK, l2)
 	}
 }
 
@@ -181,7 +191,12 @@ func deleteLessonHandler(deps *Dependencies) http.HandlerFunc {
 		if svc == nil {
 			return
 		}
-		if err := svc.DeleteLesson(r.Context(), chi.URLParam(r, "id")); err != nil {
+		l, err := resolveLessonRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeLessonResolveError(w, err)
+			return
+		}
+		if err := svc.DeleteLesson(r.Context(), l.ID); err != nil {
 			writeCourseSvcError(w, err)
 			return
 		}
@@ -256,19 +271,23 @@ func applyStructureHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "course deps not wired", http.StatusServiceUnavailable)
 			return
 		}
+		c, err := resolveCourseRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeCourseResolveError(w, err)
+			return
+		}
 		var req structureRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		courseID := chi.URLParam(r, "id")
-		if err := deps.CourseService.ApplyStructure(r.Context(), courseID, req.Modules); err != nil {
+		if err := deps.CourseService.ApplyStructure(r.Context(), c.ID, req.Modules); err != nil {
 			writeCourseSvcError(w, err)
 			return
 		}
 		// Return the refreshed tree so the UI lands the reorder in
 		// one round-trip (same shape as GET /courses/{id}).
-		tree, err := loadCourseTree(r, deps, courseID)
+		tree, err := loadCourseTree(r, deps, c.ID)
 		if err != nil {
 			writeError(w, err)
 			return

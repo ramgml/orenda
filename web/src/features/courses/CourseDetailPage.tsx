@@ -9,6 +9,7 @@ import {
   type EditorModule,
   type EditorQuiz,
 } from './CourseCurriculumEditor';
+import { CourseNumberChip } from './CourseNumberChip';
 
 /**
  * Phase 18.7: Course tree view.
@@ -147,7 +148,10 @@ export function CourseDetailPage(): JSX.Element {
   return (
     <section className="p-6 max-w-3xl mx-auto space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold">{course.title}</h1>
+        <h1 className="text-2xl font-semibold">
+          {course.title}
+          <CourseNumberChip number={course.number} />
+        </h1>
         <p className="text-sm text-slate-500 mt-1">
           Status: <span className="font-mono">{course.status}</span> · Level:{' '}
           <span className="font-mono">{course.level}</span> · Pace:{' '}

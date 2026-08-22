@@ -39,18 +39,42 @@ func (r *courseRepo) CreateCourse(ctx context.Context, c *course.Course) error {
 	if c.ID == "" {
 		c.ID = newUUID()
 	}
+
+	// number comes from the course_number_seq high-watermark, not from
+	// MAX(courses.number): a MAX+1 would re-issue the newest course's
+	// number after that course is deleted, and a "C7" reference in a
+	// commit message, branch name or PR title must keep pointing at
+	// the same course forever. The watermark UPDATE...RETURNING and the
+	// INSERT share one transaction, so the draw is atomic and the
+	// sequence can never run backwards.
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("course.CreateCourse: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var number int
+	if err := tx.QueryRowContext(ctx,
+		`UPDATE course_number_seq SET next = next + 1 WHERE id = 1 RETURNING next - 1`,
+	).Scan(&number); err != nil {
+		return fmt.Errorf("course.CreateCourse: draw number: %w", err)
+	}
+
 	const q = `INSERT INTO courses
-		(id, title, intent_md, level, pace, status, owner_id, generator_task_id,
+		(id, number, title, intent_md, level, pace, status, owner_id, generator_task_id,
 		 pace_notes_md, created_at, updated_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?,
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
 	        ?, datetime('now'), datetime('now'))`
-	_, err := r.db.ExecContext(ctx, q,
-		c.ID, c.Title, c.IntentMD, c.Level, c.Pace, string(c.Status),
+	_, err = tx.ExecContext(ctx, q,
+		c.ID, number, c.Title, c.IntentMD, c.Level, c.Pace, string(c.Status),
 		c.OwnerID, nullString(c.GeneratorTaskID),
 		c.PaceNotesMD,
 	)
 	if err != nil {
-		return fmt.Errorf("course.Create: %w", err)
+		return fmt.Errorf("course.CreateCourse: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("course.CreateCourse: commit: %w", err)
 	}
 	got, err := r.GetCourse(ctx, c.ID)
 	if err != nil {
@@ -61,19 +85,43 @@ func (r *courseRepo) CreateCourse(ctx context.Context, c *course.Course) error {
 }
 
 func (r *courseRepo) GetCourse(ctx context.Context, id string) (*course.Course, error) {
-	const q = `SELECT id, title, intent_md, level, pace, status, owner_id,
+	const q = `SELECT id, number, title, intent_md, level, pace, status, owner_id,
 		COALESCE(generator_task_id, ''), COALESCE(pace_notes_md, ''),
 		created_at, updated_at
 		FROM courses WHERE id = ?`
 	row := r.db.QueryRowContext(ctx, q, id)
 	var c course.Course
 	var status, created, updated string
-	if err := row.Scan(&c.ID, &c.Title, &c.IntentMD, &c.Level, &c.Pace,
+	if err := row.Scan(&c.ID, &c.Number, &c.Title, &c.IntentMD, &c.Level, &c.Pace,
 		&status, &c.OwnerID, &c.GeneratorTaskID, &c.PaceNotesMD, &created, &updated); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, course.ErrNotFound
 		}
 		return nil, fmt.Errorf("course.Get: %w", err)
+	}
+	c.Status = course.Status(status)
+	c.CreatedAt = parseTimeLite(created)
+	c.UpdatedAt = parseTimeLite(updated)
+	return &c, nil
+}
+
+// GetCourseByNumber resolves the human-readable "C<N>" reference to a course.
+// The UNIQUE index idx_courses_number (migration 038) makes this an
+// index point lookup.
+func (r *courseRepo) GetCourseByNumber(ctx context.Context, number int) (*course.Course, error) {
+	const q = `SELECT id, number, title, intent_md, level, pace, status, owner_id,
+		COALESCE(generator_task_id, ''), COALESCE(pace_notes_md, ''),
+		created_at, updated_at
+		FROM courses WHERE number = ?`
+	row := r.db.QueryRowContext(ctx, q, number)
+	var c course.Course
+	var status, created, updated string
+	if err := row.Scan(&c.ID, &c.Number, &c.Title, &c.IntentMD, &c.Level, &c.Pace,
+		&status, &c.OwnerID, &c.GeneratorTaskID, &c.PaceNotesMD, &created, &updated); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, course.ErrNotFound
+		}
+		return nil, fmt.Errorf("course.GetCourseByNumber: %w", err)
 	}
 	c.Status = course.Status(status)
 	c.CreatedAt = parseTimeLite(created)
@@ -94,12 +142,12 @@ func (r *courseRepo) ListCourses(ctx context.Context, ownerID string) ([]*course
 	var query string
 	var args []any
 	if ownerID == "" {
-		query = `SELECT id, title, intent_md, level, pace, status, owner_id,
+		query = `SELECT id, number, title, intent_md, level, pace, status, owner_id,
 		        COALESCE(generator_task_id, ''), COALESCE(pace_notes_md, ''),
 		        created_at, updated_at
 		 FROM courses ORDER BY updated_at DESC`
 	} else {
-		query = `SELECT id, title, intent_md, level, pace, status, owner_id,
+		query = `SELECT id, number, title, intent_md, level, pace, status, owner_id,
 		        COALESCE(generator_task_id, ''), COALESCE(pace_notes_md, ''),
 		        created_at, updated_at
 		 FROM courses WHERE owner_id = ? ORDER BY updated_at DESC`
@@ -114,7 +162,7 @@ func (r *courseRepo) ListCourses(ctx context.Context, ownerID string) ([]*course
 	for rows.Next() {
 		var c course.Course
 		var status, created, updated string
-		if err := rows.Scan(&c.ID, &c.Title, &c.IntentMD, &c.Level, &c.Pace,
+		if err := rows.Scan(&c.ID, &c.Number, &c.Title, &c.IntentMD, &c.Level, &c.Pace,
 			&status, &c.OwnerID, &c.GeneratorTaskID, &c.PaceNotesMD, &created, &updated); err != nil {
 			return nil, err
 		}
@@ -267,21 +315,42 @@ func (r *courseRepo) CreateLesson(ctx context.Context, l *course.Lesson) error {
 	if l.ID == "" {
 		l.ID = newUUID()
 	}
-	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO course_lessons (id, module_id, title, content_md, status, position, task_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+
+	// number comes from the lesson_number_seq high-watermark (same
+	// pattern as course_number_seq and task_number_seq — never reuse
+	// after delete).
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("course.CreateLesson: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var number int
+	if err := tx.QueryRowContext(ctx,
+		`UPDATE lesson_number_seq SET next = next + 1 WHERE id = 1 RETURNING next - 1`,
+	).Scan(&number); err != nil {
+		return fmt.Errorf("course.CreateLesson: draw number: %w", err)
+	}
+
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO course_lessons (id, module_id, title, content_md, status, position, task_id, number)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		l.ID, l.ModuleID, l.Title, l.ContentMD, string(l.Status),
-		l.Position, nullString(l.TaskID),
+		l.Position, nullString(l.TaskID), number,
 	)
 	if err != nil {
 		return fmt.Errorf("course.CreateLesson: %w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("course.CreateLesson: commit: %w", err)
+	}
+	l.Number = number
 	return nil
 }
 
 func (r *courseRepo) ListLessons(ctx context.Context, moduleID string) ([]*course.Lesson, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, module_id, title, content_md, status, position, COALESCE(task_id, '')
+		`SELECT id, module_id, title, content_md, status, position, COALESCE(task_id, ''), number
 		 FROM course_lessons WHERE module_id = ? ORDER BY position ASC, id ASC`,
 		moduleID)
 	if err != nil {
@@ -293,7 +362,7 @@ func (r *courseRepo) ListLessons(ctx context.Context, moduleID string) ([]*cours
 		var l course.Lesson
 		var status string
 		if err := rows.Scan(&l.ID, &l.ModuleID, &l.Title, &l.ContentMD,
-			&status, &l.Position, &l.TaskID); err != nil {
+			&status, &l.Position, &l.TaskID, &l.Number); err != nil {
 			return nil, err
 		}
 		l.Status = course.LessonStatus(status)
@@ -304,7 +373,7 @@ func (r *courseRepo) ListLessons(ctx context.Context, moduleID string) ([]*cours
 
 func (r *courseRepo) ListLessonsInCourse(ctx context.Context, courseID string) ([]*course.Lesson, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT l.id, l.module_id, l.title, l.content_md, l.status, l.position, COALESCE(l.task_id, '')
+		`SELECT l.id, l.module_id, l.title, l.content_md, l.status, l.position, COALESCE(l.task_id, ''), l.number
 		 FROM course_lessons l
 		 JOIN course_modules m ON m.id = l.module_id
 		 WHERE m.course_id = ?
@@ -319,7 +388,7 @@ func (r *courseRepo) ListLessonsInCourse(ctx context.Context, courseID string) (
 		var l course.Lesson
 		var status string
 		if err := rows.Scan(&l.ID, &l.ModuleID, &l.Title, &l.ContentMD,
-			&status, &l.Position, &l.TaskID); err != nil {
+			&status, &l.Position, &l.TaskID, &l.Number); err != nil {
 			return nil, err
 		}
 		l.Status = course.LessonStatus(status)
@@ -329,17 +398,37 @@ func (r *courseRepo) ListLessonsInCourse(ctx context.Context, courseID string) (
 }
 
 func (r *courseRepo) GetLesson(ctx context.Context, id string) (*course.Lesson, error) {
-	const q = `SELECT id, module_id, title, content_md, status, position, COALESCE(task_id, '')
+	const q = `SELECT id, module_id, title, content_md, status, position, COALESCE(task_id, ''), number
 		FROM course_lessons WHERE id = ?`
 	row := r.db.QueryRowContext(ctx, q, id)
 	var l course.Lesson
 	var status string
 	if err := row.Scan(&l.ID, &l.ModuleID, &l.Title, &l.ContentMD,
-		&status, &l.Position, &l.TaskID); err != nil {
+		&status, &l.Position, &l.TaskID, &l.Number); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, course.ErrNotFound
 		}
 		return nil, fmt.Errorf("course.GetLesson: %w", err)
+	}
+	l.Status = course.LessonStatus(status)
+	return &l, nil
+}
+
+// GetLessonByNumber resolves the human-readable "L<N>" reference to a lesson.
+// The UNIQUE index idx_lessons_number (migration 039) makes this an
+// index point lookup.
+func (r *courseRepo) GetLessonByNumber(ctx context.Context, number int) (*course.Lesson, error) {
+	const q = `SELECT id, module_id, title, content_md, status, position, COALESCE(task_id, ''), number
+		FROM course_lessons WHERE number = ?`
+	row := r.db.QueryRowContext(ctx, q, number)
+	var l course.Lesson
+	var status string
+	if err := row.Scan(&l.ID, &l.ModuleID, &l.Title, &l.ContentMD,
+		&status, &l.Position, &l.TaskID, &l.Number); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, course.ErrNotFound
+		}
+		return nil, fmt.Errorf("course.GetLessonByNumber: %w", err)
 	}
 	l.Status = course.LessonStatus(status)
 	return &l, nil
@@ -682,14 +771,21 @@ func (r *courseRepo) SubmitCurriculum(
 			if l.ID == "" {
 				l.ID = newUUID()
 			}
+			var lessonNum int
+			if err := tx.QueryRowContext(ctx,
+				`UPDATE lesson_number_seq SET next = next + 1 WHERE id = 1 RETURNING next - 1`,
+			).Scan(&lessonNum); err != nil {
+				return fmt.Errorf("course.SubmitCurriculum: draw lesson number: %w", err)
+			}
 			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO course_lessons (id, module_id, title, content_md, status, position, task_id)
-				 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO course_lessons (id, module_id, title, content_md, status, position, task_id, number)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 				l.ID, m.ID, l.Title, l.ContentMD, string(l.Status),
-				l.Position, nullString(l.TaskID),
+				l.Position, nullString(l.TaskID), lessonNum,
 			); err != nil {
 				return fmt.Errorf("course.SubmitCurriculum: lesson: %w", err)
 			}
+			l.Number = lessonNum
 		}
 	}
 	// Insert quizzes in the same tx. Each quiz's LessonID is

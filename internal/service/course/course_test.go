@@ -61,6 +61,14 @@ func (r *stubRepo) GetCourse(ctx context.Context, id string) (*course.Course, er
 	}
 	return c, nil
 }
+func (r *stubRepo) GetCourseByNumber(_ context.Context, number int) (*course.Course, error) {
+	for _, c := range r.courses {
+		if c.Number == number {
+			return c, nil
+		}
+	}
+	return nil, course.ErrNotFound
+}
 func (r *stubRepo) ListCourses(ctx context.Context, ownerID string) ([]*course.Course, error) {
 	out := make([]*course.Course, 0)
 	for _, c := range r.courses {
@@ -147,6 +155,14 @@ func (r *stubRepo) GetLesson(ctx context.Context, id string) (*course.Lesson, er
 		return nil, course.ErrNotFound
 	}
 	return l, nil
+}
+func (r *stubRepo) GetLessonByNumber(_ context.Context, number int) (*course.Lesson, error) {
+	for _, l := range r.lessons {
+		if l.Number == number {
+			return l, nil
+		}
+	}
+	return nil, course.ErrNotFound
 }
 func (r *stubRepo) UpdateLesson(ctx context.Context, l *course.Lesson) error {
 	if _, ok := r.lessons[l.ID]; !ok {

@@ -7,6 +7,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/ramgml/orenda/internal/domain/course"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
@@ -43,11 +44,14 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, project.ErrColumnNotEmpty):
 		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "column_not_empty"})
-	case isProjectRefNotFound(err):
+	case isProjectRefNotFound(err),
+		isCourseRefNotFound(err),
+		isLessonRefNotFound(err):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 	case errors.Is(err, user.ErrNotFound),
 		errors.Is(err, project.ErrNotFound),
 		errors.Is(err, task.ErrNotFound),
+		errors.Is(err, course.ErrNotFound),
 		errors.Is(err, wiki.ErrNotFound),
 		errors.Is(err, eventservice.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
@@ -77,5 +81,17 @@ func writeError(w http.ResponseWriter, err error) {
 // instead of the bare "not_found".
 func isProjectRefNotFound(err error) bool {
 	var refErr *project.RefNotFoundError
+	return errors.As(err, &refErr)
+}
+
+// isCourseRefNotFound reports whether err is a *course.RefNotFoundError.
+func isCourseRefNotFound(err error) bool {
+	var refErr *course.RefNotFoundError
+	return errors.As(err, &refErr)
+}
+
+// isLessonRefNotFound reports whether err is a *course.LessonRefNotFoundError.
+func isLessonRefNotFound(err error) bool {
+	var refErr *course.LessonRefNotFoundError
 	return errors.As(err, &refErr)
 }

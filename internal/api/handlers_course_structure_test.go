@@ -41,6 +41,9 @@ func (r *structureFake) GetCourse(_ context.Context, id string) (*course.Course,
 	if r.courseMissing {
 		return nil, course.ErrNotFound
 	}
+	if id == "" {
+		id = "course-00000001"
+	}
 	return &course.Course{ID: id, Title: "T", Status: r.status, OwnerID: "u"}, nil
 }
 
@@ -130,26 +133,26 @@ func driveCourseHandler(t *testing.T, method, pattern, url, body string, h http.
 // seedTree registers module m1 (with lesson l1 and quiz q1) so the
 // lesson/quiz walk in courseOfLesson/courseOfQuiz resolves.
 func seedTree(f *structureFake) {
-	f.modules["m1"] = &course.Module{ID: "m1", CourseID: "c1", Title: "Basics", Position: 1}
-	f.lessons["l1"] = &course.Lesson{ID: "l1", ModuleID: "m1", Title: "Hello", Status: course.LessonOpen, Position: 1}
-	f.quizzes["q1"] = &course.Quiz{ID: "q1", LessonID: "l1", QuestionMD: "?", ExpectedMD: "yes", Kind: course.QuizExact, Position: 1}
+	f.modules["m1"] = &course.Module{ID: "m1", CourseID: "course-00000001", Title: "Basics", Position: 1}
+	f.lessons["lesson-00000001"] = &course.Lesson{ID: "lesson-00000001", ModuleID: "m1", Title: "Hello", Status: course.LessonOpen, Position: 1}
+	f.quizzes["q1"] = &course.Quiz{ID: "q1", LessonID: "lesson-00000001", QuestionMD: "?", ExpectedMD: "yes", Kind: course.QuizExact, Position: 1}
 }
 
 func TestStructure_CreateModule_201(t *testing.T) {
 	f := newStructureFake()
 	deps := structureDeps(f)
-	w := driveCourseHandler(t, http.MethodPost, "/courses/{id}/modules", "/courses/c1/modules",
+	w := driveCourseHandler(t, http.MethodPost, "/courses/{id}/modules", "/courses/course-00000001/modules",
 		`{"title":"Advanced","description":"deep dive"}`, createModuleHandler(deps))
 	require.Equal(t, http.StatusCreated, w.Code)
 	var m course.Module
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &m))
 	assert.Equal(t, "Advanced", m.Title)
-	assert.Equal(t, "c1", m.CourseID)
+	assert.Equal(t, "course-00000001", m.CourseID)
 }
 
 func TestStructure_CreateModule_400_MissingTitle(t *testing.T) {
 	f := newStructureFake()
-	w := driveCourseHandler(t, http.MethodPost, "/courses/{id}/modules", "/courses/c1/modules",
+	w := driveCourseHandler(t, http.MethodPost, "/courses/{id}/modules", "/courses/course-00000001/modules",
 		`{"title":"  "}`, createModuleHandler(structureDeps(f)))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "invalid_input")
@@ -158,7 +161,7 @@ func TestStructure_CreateModule_400_MissingTitle(t *testing.T) {
 func TestStructure_CreateModule_404_UnknownCourse(t *testing.T) {
 	f := newStructureFake()
 	f.courseMissing = true
-	w := driveCourseHandler(t, http.MethodPost, "/courses/{id}/modules", "/courses/c1/modules",
+	w := driveCourseHandler(t, http.MethodPost, "/courses/{id}/modules", "/courses/course-00000001/modules",
 		`{"title":"X"}`, createModuleHandler(structureDeps(f)))
 	assert.Equal(t, http.StatusNotFound, w.Code)
 	assert.Contains(t, w.Body.String(), "not_found")
@@ -167,7 +170,7 @@ func TestStructure_CreateModule_404_UnknownCourse(t *testing.T) {
 func TestStructure_CreateModule_422_FrozenCourse(t *testing.T) {
 	f := newStructureFake()
 	f.status = course.StatusDone
-	w := driveCourseHandler(t, http.MethodPost, "/courses/{id}/modules", "/courses/c1/modules",
+	w := driveCourseHandler(t, http.MethodPost, "/courses/{id}/modules", "/courses/course-00000001/modules",
 		`{"title":"X"}`, createModuleHandler(structureDeps(f)))
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 	assert.Contains(t, w.Body.String(), "invalid_transition")
@@ -215,7 +218,7 @@ func TestStructure_CreateLesson_201_BornLocked(t *testing.T) {
 func TestStructure_RenameLesson_200_PreservesStatus(t *testing.T) {
 	f := newStructureFake()
 	seedTree(f)
-	w := driveCourseHandler(t, http.MethodPatch, "/lessons/{id}", "/lessons/l1",
+	w := driveCourseHandler(t, http.MethodPatch, "/lessons/{id}", "/lessons/lesson-00000001",
 		`{"title":"Hello v2"}`, renameLessonHandler(structureDeps(f)))
 	require.Equal(t, http.StatusOK, w.Code)
 	var l course.Lesson
@@ -228,7 +231,7 @@ func TestStructure_RenameLesson_422_Frozen(t *testing.T) {
 	f := newStructureFake()
 	seedTree(f)
 	f.status = course.StatusArchived
-	w := driveCourseHandler(t, http.MethodPatch, "/lessons/{id}", "/lessons/l1",
+	w := driveCourseHandler(t, http.MethodPatch, "/lessons/{id}", "/lessons/lesson-00000001",
 		`{"title":"X"}`, renameLessonHandler(structureDeps(f)))
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }
@@ -237,9 +240,9 @@ func TestStructure_DeleteLesson_204And404(t *testing.T) {
 	f := newStructureFake()
 	seedTree(f)
 	deps := structureDeps(f)
-	w := driveCourseHandler(t, http.MethodDelete, "/lessons/{id}", "/lessons/l1", "", deleteLessonHandler(deps))
+	w := driveCourseHandler(t, http.MethodDelete, "/lessons/{id}", "/lessons/lesson-00000001", "", deleteLessonHandler(deps))
 	assert.Equal(t, http.StatusNoContent, w.Code)
-	w = driveCourseHandler(t, http.MethodDelete, "/lessons/{id}", "/lessons/l1", "", deleteLessonHandler(deps))
+	w = driveCourseHandler(t, http.MethodDelete, "/lessons/{id}", "/lessons/lesson-00000001", "", deleteLessonHandler(deps))
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
@@ -278,12 +281,12 @@ func TestStructure_DeleteQuiz_204And404(t *testing.T) {
 func TestStructure_ApplyStructure_200_ReturnsTree(t *testing.T) {
 	f := newStructureFake()
 	seedTree(f)
-	w := driveCourseHandler(t, http.MethodPut, "/courses/{id}/structure", "/courses/c1/structure",
-		`{"modules":[{"module_id":"m1","lesson_ids":["l1"]}]}`, applyStructureHandler(structureDeps(f)))
+	w := driveCourseHandler(t, http.MethodPut, "/courses/{id}/structure", "/courses/course-00000001/structure",
+		`{"modules":[{"module_id":"m1","lesson_ids":["lesson-00000001"]}]}`, applyStructureHandler(structureDeps(f)))
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Len(t, f.structureCalls, 1)
 	assert.Equal(t, "m1", f.structureCalls[0][0].ModuleID)
-	assert.Equal(t, []string{"l1"}, f.structureCalls[0][0].LessonIDs)
+	assert.Equal(t, []string{"lesson-00000001"}, f.structureCalls[0][0].LessonIDs)
 	// The response is the refreshed course tree (same shape as GET).
 	assert.Contains(t, w.Body.String(), `"modules"`)
 }
@@ -291,7 +294,7 @@ func TestStructure_ApplyStructure_200_ReturnsTree(t *testing.T) {
 func TestStructure_ApplyStructure_400_InvalidCoverage(t *testing.T) {
 	f := newStructureFake()
 	f.structureErr = course.ErrInvalidInput
-	w := driveCourseHandler(t, http.MethodPut, "/courses/{id}/structure", "/courses/c1/structure",
+	w := driveCourseHandler(t, http.MethodPut, "/courses/{id}/structure", "/courses/course-00000001/structure",
 		`{"modules":[{"module_id":"unknown","lesson_ids":[]}]}`, applyStructureHandler(structureDeps(f)))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "invalid_input")
@@ -300,7 +303,7 @@ func TestStructure_ApplyStructure_400_InvalidCoverage(t *testing.T) {
 func TestStructure_ApplyStructure_422_Frozen(t *testing.T) {
 	f := newStructureFake()
 	f.status = course.StatusDone
-	w := driveCourseHandler(t, http.MethodPut, "/courses/{id}/structure", "/courses/c1/structure",
+	w := driveCourseHandler(t, http.MethodPut, "/courses/{id}/structure", "/courses/course-00000001/structure",
 		`{"modules":[]}`, applyStructureHandler(structureDeps(f)))
 	assert.Equal(t, http.StatusUnprocessableEntity, w.Code)
 }

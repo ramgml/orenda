@@ -70,6 +70,11 @@ export interface Course {
   status: 'draft' | 'review' | 'active' | 'done' | 'archived';
   owner_id: string;
   /**
+   * Human-readable sequential course number ("C7"). Assigned by the
+   * storage layer on CreateCourse from the course_number_seq high-watermark.
+   */
+  number: number;
+  /**
    * Phase 31: free-form pace notes. Set by the agent-planner
    * through PATCH /api/v1/agent/courses/{id} and read by the
    * Dashboard tray / Today suggestions. omitempty so the field
@@ -100,6 +105,11 @@ export interface CourseLesson {
   title: string;
   position: number;
   status: string;
+  /**
+   * Human-readable sequential lesson number ("L10"). Assigned by the
+   * storage layer on CreateLesson from the lesson_number_seq high-watermark.
+   */
+  number: number;
   // Phase 27.4: lesson body and exercise link. The backend emits
   // these on every tree response (listLessonsInCourse scans
   // `content_md` and `task_id`), so the frontend can resolve a
