@@ -10,23 +10,6 @@ import (
 	"github.com/ramgml/orenda/internal/domain/course"
 )
 
-// seedLessonCourse creates a course with a module for lesson tests.
-func seedLessonCourse(t *testing.T, db interface {
-	ExecContext(ctx context.Context, query string, args ...any) (interface{ RowsAffected() (int64, error) }, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) interface{ Scan(dest ...any) error }
-}, owner string) (courseID, moduleID string) {
-	t.Helper()
-	courseID = "c-lesson-seed"
-	moduleID = "m-lesson-seed"
-	_, _ = db.ExecContext(context.Background(),
-		`INSERT INTO courses (id, title, owner_id, status) VALUES (?, ?, ?, 'active')`,
-		courseID, "Seed Course", owner)
-	_, _ = db.ExecContext(context.Background(),
-		`INSERT INTO course_modules (id, course_id, title, position) VALUES (?, ?, ?, 0)`,
-		moduleID, courseID, "M1")
-	return courseID, moduleID
-}
-
 // TestLessonRepo_NumberAssignedSequentially pins the Phase-39 contract:
 // every CreateLesson draws COALESCE(MAX(number),0)+1, so numbers are
 // 1-based and monotonically increasing in creation order.
