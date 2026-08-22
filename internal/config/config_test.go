@@ -3,12 +3,37 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// clearORENDAEnv unsets every ORENDA_* variable for the duration of t,
+// restoring originals on cleanup. Tests that verify YAML/default values
+// (without intending to test env overrides) must call this to stay
+// hermetic against the calling shell's environment.
+func clearORENDAEnv(t *testing.T) {
+	t.Helper()
+	saved := make(map[string]string)
+	for _, kv := range os.Environ() {
+		if k, v, ok := strings.Cut(kv, "="); ok && strings.HasPrefix(k, "ORENDA_") {
+			saved[k] = v
+			t.Setenv(k, "") // t.Setenv sets but can't unset; we override then unset below
+			os.Unsetenv(k)
+		}
+	}
+	t.Cleanup(func() {
+		for k := range saved {
+			os.Unsetenv(k)
+		}
+		for k, v := range saved {
+			os.Setenv(k, v)
+		}
+	})
+}
 
 func TestDefaultConfig(t *testing.T) {
 	c := DefaultConfig()
@@ -43,12 +68,14 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestLoad_MissingFile_ReturnsDefaults(t *testing.T) {
+	clearORENDAEnv(t)
 	c, err := Load(filepath.Join(t.TempDir(), "absent.yaml"))
 	require.NoError(t, err)
 	assert.Equal(t, 2137, c.Server.Port)
 }
 
 func TestLoad_FromYAMLFile(t *testing.T) {
+	clearORENDAEnv(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	yaml := `
@@ -83,6 +110,7 @@ logging:
 // Operators who still want a longer cookie session can opt in
 // (the spec mentions 168h/7d historically) by setting the value.
 func TestLoad_JWTTTLFromYAML(t *testing.T) {
+	clearORENDAEnv(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	yaml := `
@@ -104,6 +132,7 @@ auth:
 // ("tighten auth to 60/10 for the cluster") bake it here rather
 // than relying on env vars at every boot.
 func TestLoad_RateLimitFromYAML(t *testing.T) {
+	clearORENDAEnv(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	yaml := `
@@ -146,6 +175,7 @@ ratelimit:
 }
 
 func TestLoad_MalformedYAML_ReturnsError(t *testing.T) {
+	clearORENDAEnv(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("server: : :"), 0o600))
