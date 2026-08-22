@@ -142,10 +142,10 @@ var (
 // calendar, on the kanban, or both.
 type Task struct {
 	ID string `json:"id"`
-	// Number is the human-readable sequential id ("#42"). Assigned by
+	// Number is the human-readable sequential id ("T42"). Assigned by
 	// the storage layer on Create from the task_number_seq high-
 	// watermark; never reused after a delete. The agent surface (REST
-	// /agent/tasks/{id}/*, CLI, MCP) resolves "#42"/"42" through this
+	// /agent/tasks/{id}/*, CLI, MCP) resolves "T42" through this
 	// column — see ParseRefNumber and Repository.GetByNumber.
 	Number       int          `json:"number"`
 	ProjectID    string       `json:"project_id"`

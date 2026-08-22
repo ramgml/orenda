@@ -4,21 +4,20 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 )
 
-// RefNotFoundError is returned when a numeric task reference ("#42" /
-// "42") matches no task. Is(ErrNotFound) reports true so the existing
-// 404 plumbing keeps working; the message names the number so an agent
-// reading the error sees "task #42 not found" instead of a bare
+// RefNotFoundError is returned when a T-prefixed task reference ("T42")
+// matches no task. Is(ErrNotFound) reports true so the existing 404
+// plumbing keeps working; the message names the ref so an agent
+// reading the error sees "task T42 not found" instead of a bare
 // "not found".
 type RefNotFoundError struct {
-	Number int
+	Ref string
 }
 
 // Error implements error.
 func (e *RefNotFoundError) Error() string {
-	return fmt.Sprintf("task #%d not found", e.Number)
+	return fmt.Sprintf("task %s not found", e.Ref)
 }
 
 // Is implements the errors.Is contract: a RefNotFoundError matches
@@ -27,15 +26,22 @@ func (e *RefNotFoundError) Is(target error) bool {
 	return target == ErrNotFound
 }
 
-// ParseRefNumber parses a human task reference: "#42" or "42" →
-// (42, true). Anything else — UUIDs, empty strings, mixed tokens,
-// non-positive numbers — returns (0, false).
+// ParseRefNumber parses a T-prefixed human task reference: "T42" or
+// "t42" → (42, true). The prefix is case-insensitive (T/t). The
+// digit sequence must be ≥1 digit and positive.
 //
-// UUIDv7 ids always contain '-' separators and hex letters, so a
-// pure-digit token can never collide with a real task id; the two
-// namespaces are disjoint by construction.
+// Legacy forms "#42" and bare "42" are intentionally rejected — this
+// is the breaking change from Task 48. UUIDs are never confused
+// because they contain '-' separators and hex letters.
 func ParseRefNumber(ref string) (int, bool) {
-	s := strings.TrimPrefix(ref, "#")
+	if len(ref) < 2 {
+		return 0, false
+	}
+	prefix := ref[0]
+	if prefix != 'T' && prefix != 't' {
+		return 0, false
+	}
+	s := ref[1:]
 	if s == "" {
 		return 0, false
 	}
@@ -52,21 +58,23 @@ func ParseRefNumber(ref string) (int, bool) {
 }
 
 // ResolveRef returns the task identified by ref. ref may be a task
-// UUID, a bare human number ("42"), or the display form ("#42").
-// Unknown numeric refs surface as *RefNotFoundError ("task #N not
+// UUID or a T-prefixed number ("T42" / "t42"). Legacy "#42" and bare
+// "42" are rejected (Task 48 cutover).
+//
+// Unknown T-refs surface as *RefNotFoundError ("task T42 not
 // found"); unknown ids as ErrNotFound. Both match ErrNotFound via
 // errors.Is.
 //
 // This is the single resolver every task-id-taking surface should
 // funnel through (agent REST, agent CLI via REST, MCP id arguments,
-// and the trivial user-REST lookups) so the "#N" convention behaves
-// identically everywhere.
+// and the trivial user-REST lookups) so the "T<N>" convention
+// behaves identically everywhere.
 func ResolveRef(ctx context.Context, repo Repository, ref string) (*Task, error) {
 	if n, ok := ParseRefNumber(ref); ok {
 		tr, err := repo.GetByNumber(ctx, n)
 		if err != nil {
 			if err == ErrNotFound {
-				return nil, &RefNotFoundError{Number: n}
+				return nil, &RefNotFoundError{Ref: ref}
 			}
 			return nil, err
 		}

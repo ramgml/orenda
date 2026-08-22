@@ -189,7 +189,7 @@ func createTaskHandler(deps *Dependencies) http.HandlerFunc {
 // (chips on the side panel stay consistent with chips on the card).
 func getTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Accepts the UUID or the human reference ("#42"/"42").
+		// Accepts the UUID or the T-prefixed ref ("T42").
 		tr, err := task.ResolveRef(r.Context(), deps.Tasks, chi.URLParam(r, "id"))
 		if err != nil {
 			writeResolveError(w, err)
@@ -210,7 +210,7 @@ func getTaskHandler(deps *Dependencies) http.HandlerFunc {
 // patchTaskHandler updates mutable task fields (PATCH and PUT both work).
 func patchTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Accepts the UUID or the human reference ("#42"/"42").
+		// Accepts the UUID or the T-prefixed ref ("T42").
 		tr, err := task.ResolveRef(r.Context(), deps.Tasks, chi.URLParam(r, "id"))
 		if err != nil {
 			writeResolveError(w, err)

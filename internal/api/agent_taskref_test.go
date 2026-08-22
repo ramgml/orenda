@@ -1,6 +1,6 @@
 package api_test
 
-// Task numbers (Phase 33): the agent surface resolves "#N" / "N" in
+// Task numbers (Phase 33): the agent surface resolves "T<N>" in
 // place of the task UUID on every task-id-taking route, and the task
 // JSON carries the number on both the agent and the user side.
 
@@ -56,24 +56,24 @@ func (f *refFixture) agentDo(t *testing.T, method, path string) *httptest.Respon
 	return rr
 }
 
-// TestAgentRef_ClaimContextByNumber: "#N" and "N" both resolve on the
-// claim and context routes; the responses carry the task's number.
+// TestAgentRef_ClaimContextByNumber: "T<N>" resolves on the claim and
+// context routes; the responses carry the task's number.
 func TestAgentRef_ClaimContextByNumber(t *testing.T) {
 	fx := newRefFixture(t)
-	ref := fmt.Sprintf("#%d", fx.taskNumber)
+	ref := fmt.Sprintf("T%d", fx.taskNumber)
 
-	// Claim by "#N".
+	// Claim by "T<N>".
 	rr := fx.agentDo(t, http.MethodPost, "/api/v1/agent/tasks/"+ref+"/claim")
 	require.Equal(t, http.StatusOK, rr.Code, "claim by %q: body=%s", ref, rr.Body.String())
 	var claimed task.Task
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &claimed))
-	assert.Equal(t, fx.taskID, claimed.ID, "#N must resolve to the same task")
+	assert.Equal(t, fx.taskID, claimed.ID, "T<N> must resolve to the same task")
 	assert.Equal(t, fx.taskNumber, claimed.Number, "task JSON must carry number")
 
-	// Context by bare "N".
+	// Context by "t<N>" (case-insensitive).
 	rr = fx.agentDo(t, http.MethodGet,
-		fmt.Sprintf("/api/v1/agent/tasks/%d/context", fx.taskNumber))
-	require.Equal(t, http.StatusOK, rr.Code, "context by number: body=%s", rr.Body.String())
+		fmt.Sprintf("/api/v1/agent/tasks/t%d/context", fx.taskNumber))
+	require.Equal(t, http.StatusOK, rr.Code, "context by T<N>: body=%s", rr.Body.String())
 	var snap struct {
 		Task task.Task `json:"task"`
 	}
@@ -82,27 +82,35 @@ func TestAgentRef_ClaimContextByNumber(t *testing.T) {
 	assert.Equal(t, fx.taskNumber, snap.Task.Number)
 }
 
-// TestAgentRef_UnknownNumber404: an unknown number is a 404 with the
-// explicit "task #N not found" message (not a bare not_found).
+// TestAgentRef_UnknownNumber404: an unknown T-ref is a 404 with the
+// explicit "task TN not found" message (not a bare not_found).
+// Legacy forms "#N" and bare "N" also 404 (cutover).
 func TestAgentRef_UnknownNumber404(t *testing.T) {
 	fx := newRefFixture(t)
 
 	cases := []struct{ name, ref string }{
-		{"hash form", "#999999"},
-		{"bare form", "999999"},
+		{"T form", "T999999"},
+		{"t form", "t999999"},
+		{"legacy hash", "#999999"},
+		{"legacy bare", "999999"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			rr := fx.agentDo(t, http.MethodPost, "/api/v1/agent/tasks/"+tc.ref+"/claim")
 			require.Equal(t, http.StatusNotFound, rr.Code, "body=%s", rr.Body.String())
-			assert.Contains(t, rr.Body.String(), "task #999999 not found")
+			// T-form error names the ref; legacy forms fall through to not_found
+			// (they don't match T/N parsing and go to UUID lookup, which returns
+			// generic not_found).
+			if tc.name == "T form" || tc.name == "t form" {
+				assert.Contains(t, rr.Body.String(), "task "+tc.ref+" not found")
+			}
 		})
 	}
 
-	// Context route too (it resolves through the same helper).
-	rr := fx.agentDo(t, http.MethodGet, "/api/v1/agent/tasks/999999/context")
+	// Context route too (resolves through the same helper).
+	rr := fx.agentDo(t, http.MethodGet, "/api/v1/agent/tasks/T999999/context")
 	require.Equal(t, http.StatusNotFound, rr.Code)
-	assert.Contains(t, rr.Body.String(), "task #999999 not found")
+	assert.Contains(t, rr.Body.String(), "task T999999 not found")
 }
 
 // TestAgentRef_UUIDStillWorks: the UUID path is untouched — claim by
@@ -116,11 +124,11 @@ func TestAgentRef_UUIDStillWorks(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &claimed))
 	assert.Equal(t, fx.taskID, claimed.ID)
 
-	// Unknown UUID → plain 404 (no "#N" message).
+	// Unknown UUID → plain 404 (no "task TN" message).
 	rr = fx.agentDo(t, http.MethodPost,
 		"/api/v1/agent/tasks/00000000-0000-0000-0000-000000000000/claim")
 	require.Equal(t, http.StatusNotFound, rr.Code)
-	assert.NotContains(t, rr.Body.String(), "task #")
+	assert.NotContains(t, rr.Body.String(), "task T")
 }
 
 // TestAgentRef_ListCarriesNumber: GET /api/v1/agent/tasks (the surface
@@ -147,22 +155,23 @@ func TestAgentRef_ListCarriesNumber(t *testing.T) {
 	assert.True(t, found, "seeded task must appear in the agent list")
 }
 
-// TestUserRef_GetTaskByNumber: the trivial user-side lookup accepts
-// the number too (GET /api/v1/tasks/{id}).
+// TestUserRef_GetTaskByNumber: the user-side lookup accepts T-prefixed
+// refs too (GET /api/v1/tasks/{id}).
 func TestUserRef_GetTaskByNumber(t *testing.T) {
 	fx := newRefFixture(t)
 
 	rr := fx.doWithCookie(t, http.MethodGet,
-		fmt.Sprintf("/api/v1/tasks/%d", fx.taskNumber), nil)
+		fmt.Sprintf("/api/v1/tasks/T%d", fx.taskNumber), nil)
 	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
 	var tr task.Task
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &tr))
 	assert.Equal(t, fx.taskID, tr.ID)
 	assert.Equal(t, fx.taskNumber, tr.Number)
 
+	// Bare number no longer resolves — falls through to UUID lookup.
 	rr = fx.doWithCookie(t, http.MethodGet, "/api/v1/tasks/424242", nil)
 	require.Equal(t, http.StatusNotFound, rr.Code)
-	assert.Contains(t, rr.Body.String(), "task #424242 not found")
+	assert.Contains(t, rr.Body.String(), "not_found")
 }
 
 // TestServiceResolve_RefShapes: the service-level resolver pins the
@@ -172,22 +181,30 @@ func TestServiceResolve_RefShapes(t *testing.T) {
 	svc := taskservice.New(sqlite.NewTaskRepository(fx.db), nil, nil, nil, nil)
 
 	ctx := context.Background()
-	byHash, err := svc.Resolve(ctx, fmt.Sprintf("#%d", fx.taskNumber))
+	byT, err := svc.Resolve(ctx, fmt.Sprintf("T%d", fx.taskNumber))
 	require.NoError(t, err)
-	assert.Equal(t, fx.taskID, byHash.ID)
+	assert.Equal(t, fx.taskID, byT.ID)
 
-	byBare, err := svc.Resolve(ctx, fmt.Sprintf("%d", fx.taskNumber))
+	byLowerT, err := svc.Resolve(ctx, fmt.Sprintf("t%d", fx.taskNumber))
 	require.NoError(t, err)
-	assert.Equal(t, fx.taskID, byBare.ID)
+	assert.Equal(t, fx.taskID, byLowerT.ID)
 
 	byID, err := svc.Resolve(ctx, fx.taskID)
 	require.NoError(t, err)
 	assert.Equal(t, fx.taskNumber, byID.Number)
 
-	_, err = svc.Resolve(ctx, "#424242")
+	_, err = svc.Resolve(ctx, "T424242")
 	require.Error(t, err)
 	var refErr *task.RefNotFoundError
 	require.ErrorAs(t, err, &refErr)
-	assert.Equal(t, "task #424242 not found", refErr.Error())
+	assert.Equal(t, "task T424242 not found", refErr.Error())
 	assert.ErrorIs(t, err, task.ErrNotFound, "RefNotFoundError must match ErrNotFound")
+
+	// Legacy forms are rejected (not T-prefixed).
+	_, err = svc.Resolve(ctx, "#424242")
+	require.Error(t, err)
+	assert.NotErrorAs(t, err, &refErr, "#N should not produce RefNotFoundError")
+
+	_, err = svc.Resolve(ctx, "424242")
+	require.Error(t, err)
 }
