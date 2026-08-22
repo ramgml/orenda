@@ -335,3 +335,18 @@ func TestBulkPatchTasks_AppliesSharedSideEffectsAndReportsMissingIDs(t *testing.
 		assert.Equal(t, task.AwaitingNone, got.Awaiting)
 	}
 }
+
+// Regression: PATCH with project_id="P999" (non-existent P-ref) must
+// return 404 "project P999 not found", NOT silently succeed with
+// an unresolved ref string as the project_id. Pre-fix, applyTaskPatch
+// had a void return and the resolve error was silently dropped.
+func TestPatchTask_BadProjectPRef_Returns404(t *testing.T) {
+	f := p27_7Deps(t)
+	tr := p27_7_makeTask(t, f, "Move me")
+
+	rr := doReq(f.router, "PATCH", "/api/v1/tasks/"+tr.ID, f.cookie, map[string]any{
+		"project_id": "P999",
+	})
+	require.Equal(t, http.StatusNotFound, rr.Code, "expected 404, got body=%s", rr.Body.String())
+	assert.Contains(t, rr.Body.String(), "project P999 not found")
+}

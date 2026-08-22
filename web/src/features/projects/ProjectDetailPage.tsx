@@ -4,6 +4,7 @@ import { NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
 import { api, type Project } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
 import { Input } from '@/shared/ui/input';
+import { ProjectNumberChip } from './ProjectNumberChip';
 
 /**
  * /projects/:id — header + tab nav. The actual tab content is rendered
@@ -57,6 +58,7 @@ export function ProjectDetailPage(): JSX.Element {
       <div className="flex items-center justify-between mb-4 gap-4">
         <h1 className="text-2xl font-semibold flex items-center gap-2 min-w-0">
           <InlineProjectName project={project} onRename={(updated) => setProject(updated)} />
+          <ProjectNumberChip number={project?.number ?? 0} />
           {project?.archived && (
             <span className="text-xs uppercase tracking-wide text-slate-500 border border-border rounded px-2 py-1 flex-shrink-0">
               archived

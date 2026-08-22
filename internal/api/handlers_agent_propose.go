@@ -76,10 +76,13 @@ func agentCreateTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
 			return
 		}
-		if _, err := deps.Projects.GetProject(r.Context(), in.ProjectID); err != nil {
-			writeError(w, err)
+		// Resolve project ref (P<N> or UUID) to UUID.
+		resolved, err := resolveProjectRef(r.Context(), deps, in.ProjectID)
+		if err != nil {
+			writeProjectResolveError(w, err)
 			return
 		}
+		in.ProjectID = resolved.ID
 		prio := task.PriorityMedium
 		if in.Priority != "" {
 			switch task.Priority(in.Priority) {

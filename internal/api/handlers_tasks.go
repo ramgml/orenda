@@ -65,8 +65,13 @@ type taskInput struct {
 // kanban board and the inbox list.
 func listProjectTasksHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		p, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeProjectResolveError(w, err)
+			return
+		}
 		f := task.Filter{
-			ProjectID: chi.URLParam(r, "id"),
+			ProjectID: p.ID,
 		}
 		if s := r.URL.Query().Get("status"); s != "" {
 			f.Status = task.Status(s)
@@ -100,6 +105,13 @@ func createTaskHandler(deps *Dependencies) http.HandlerFunc {
 		if in.ProjectID != nil {
 			projectID = *in.ProjectID
 		}
+		// Resolve project ref (P<N> or UUID) to UUID.
+		resolved, err := resolveProjectRef(r.Context(), deps, projectID)
+		if err != nil {
+			writeProjectResolveError(w, err)
+			return
+		}
+		projectID = resolved.ID
 		tr := &task.Task{
 			ProjectID:     projectID,
 			ColumnID:      in.ColumnID,
@@ -263,7 +275,9 @@ func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.
 	prevAssigneeType := tr.AssigneeType
 	prevAssigneeID := tr.AssigneeID
 
-	applyTaskPatch(ctx, deps, tr, in)
+	if err := applyTaskPatch(ctx, deps, tr, in); err != nil {
+		return err
+	}
 	statusChanged := in.Status != "" && tr.Status != prevStatus
 	if statusChanged && tr.Status == task.StatusDone && in.CompletedAt == nil {
 		now := time.Now().UTC()
@@ -397,7 +411,7 @@ func bulkPatchTasksHandler(deps *Dependencies) http.HandlerFunc {
 // The column-resolution policy mirrors the create handler so the
 // UX is consistent: dropping an inbox card onto a board always
 // lands it in the first column.
-func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput) {
+func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput) error {
 	if in.Title != "" {
 		tr.Title = in.Title
 	}
@@ -432,6 +446,14 @@ func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in t
 	// column_id so the task lands on a real column instead of dangling.
 	if in.ProjectID != nil && *in.ProjectID != tr.ProjectID {
 		newProject := *in.ProjectID
+		// Resolve project ref (P<N> or UUID) to UUID when non-empty.
+		if newProject != "" {
+			resolved, err := resolveProjectRef(ctx, deps, newProject)
+			if err != nil {
+				return err
+			}
+			newProject = resolved.ID
+		}
 		tr.ProjectID = newProject
 		if in.ColumnID == "" {
 			// No explicit column in this PATCH — derive from the
@@ -497,9 +519,8 @@ func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in t
 	if in.Position != nil {
 		tr.Position = *in.Position
 	}
+	return nil
 }
-
-// deleteTaskHandler removes a task.
 func deleteTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := deps.Tasks.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {

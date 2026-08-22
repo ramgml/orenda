@@ -37,15 +37,29 @@ func (r *projectRepo) CreateProject(ctx context.Context, p *project.Project) (*p
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// number comes from the project_number_seq high-watermark, not from
+	// MAX(projects.number): a MAX+1 would re-issue the newest project's
+	// number after that project is deleted, and a "P7" reference in a
+	// commit message, branch name or PR title must keep pointing at
+	// the same project forever. The watermark UPDATE...RETURNING and the
+	// INSERT share one transaction, so the draw is atomic and the
+	// sequence can never run backwards.
+	var number int
+	if err := tx.QueryRowContext(ctx,
+		`UPDATE project_number_seq SET next = next + 1 WHERE id = 1 RETURNING next - 1`,
+	).Scan(&number); err != nil {
+		return nil, nil, nil, fmt.Errorf("project.CreateProject: draw number: %w", err)
+	}
+
 	// wiki_slug is nullable; normalize "" to NULL on insert so the FK
 	// semantics line up with the rest of the codebase.
 	const insProject = `
-		INSERT INTO projects (id, name, color, description, wiki_slug, owner_id, archived,
+		INSERT INTO projects (id, number, name, color, description, wiki_slug, owner_id, archived,
 		                     created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
+		VALUES (?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
 	`
 	if _, err := tx.ExecContext(ctx, insProject,
-		p.ID, p.Name, p.Color, p.Description, nullString(p.WikiSlug), p.OwnerID,
+		p.ID, number, p.Name, p.Color, p.Description, nullString(p.WikiSlug), p.OwnerID,
 	); err != nil {
 		return nil, nil, nil, fmt.Errorf("project.CreateProject: insert project: %w", err)
 	}
@@ -91,11 +105,12 @@ func (r *projectRepo) CreateProject(ctx context.Context, p *project.Project) (*p
 		return nil, nil, nil, fmt.Errorf("project.CreateProject: commit: %w", err)
 	}
 
-	// Reload to populate timestamps.
+	// Reload to populate timestamps and number.
 	created, err := r.GetProject(ctx, p.ID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	*p = *created
 	boards := []*project.Board{{
 		ID: boardID, ProjectID: p.ID, Name: "Main", Position: 0,
 	}}
@@ -104,7 +119,7 @@ func (r *projectRepo) CreateProject(ctx context.Context, p *project.Project) (*p
 
 func (r *projectRepo) GetProject(ctx context.Context, id string) (*project.Project, error) {
 	const q = `
-		SELECT id, name, color, description, wiki_slug, owner_id, archived, created_at, updated_at
+		SELECT id, number, name, color, description, wiki_slug, owner_id, archived, created_at, updated_at
 		FROM projects WHERE id = ?
 	`
 	row := r.db.QueryRowContext(ctx, q, id)
@@ -116,12 +131,44 @@ func (r *projectRepo) GetProject(ctx context.Context, id string) (*project.Proje
 		cAt  string
 		uAt  string
 	)
-	err := row.Scan(&p.ID, &p.Name, &p.Color, &desc, &wiki, &p.OwnerID, &arch, &cAt, &uAt)
+	err := row.Scan(&p.ID, &p.Number, &p.Name, &p.Color, &desc, &wiki, &p.OwnerID, &arch, &cAt, &uAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, project.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("project.GetProject: %w", err)
+	}
+	p.Description = desc.String
+	p.WikiSlug = wiki.String
+	p.Archived = arch != 0
+	p.CreatedAt = parseTime(cAt)
+	p.UpdatedAt = parseTime(uAt)
+	return &p, nil
+}
+
+// GetByNumber resolves the human-readable "P<N>" reference to a project.
+// The UNIQUE index idx_projects_number (migration 036) makes this an
+// index point lookup.
+func (r *projectRepo) GetByNumber(ctx context.Context, number int) (*project.Project, error) {
+	const q = `
+		SELECT id, number, name, color, description, wiki_slug, owner_id, archived, created_at, updated_at
+		FROM projects WHERE number = ?
+	`
+	row := r.db.QueryRowContext(ctx, q, number)
+	var (
+		p    project.Project
+		desc sql.NullString
+		wiki sql.NullString
+		arch int
+		cAt  string
+		uAt  string
+	)
+	err := row.Scan(&p.ID, &p.Number, &p.Name, &p.Color, &desc, &wiki, &p.OwnerID, &arch, &cAt, &uAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, project.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("project.GetByNumber: %w", err)
 	}
 	p.Description = desc.String
 	p.WikiSlug = wiki.String
@@ -140,7 +187,7 @@ func (r *projectRepo) ListProjects(ctx context.Context, ownerID string) ([]*proj
 	// invisible to the frontend's project list.
 	_ = ownerID
 	const q = `
-		SELECT id, name, color, description, wiki_slug, owner_id, archived, created_at, updated_at
+		SELECT id, number, name, color, description, wiki_slug, owner_id, archived, created_at, updated_at
 		FROM projects
 		ORDER BY created_at DESC
 	`
@@ -160,7 +207,7 @@ func (r *projectRepo) ListProjects(ctx context.Context, ownerID string) ([]*proj
 			cAt  string
 			uAt  string
 		)
-		if err := rows.Scan(&p.ID, &p.Name, &p.Color, &desc, &wiki, &p.OwnerID, &arch, &cAt, &uAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Number, &p.Name, &p.Color, &desc, &wiki, &p.OwnerID, &arch, &cAt, &uAt); err != nil {
 			return nil, fmt.Errorf("project.ListProjects: scan: %w", err)
 		}
 		p.Description = desc.String

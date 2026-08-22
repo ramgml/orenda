@@ -127,11 +127,12 @@ type createColumnInput struct {
 // 201 — the newly created column, with computed position
 func createColumnHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		projectID := chi.URLParam(r, "id")
-		if projectID == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_project_id"})
+		p, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeProjectResolveError(w, err)
 			return
 		}
+		projectID := p.ID
 		var in createColumnInput
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
