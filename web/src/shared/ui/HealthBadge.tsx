@@ -37,21 +37,24 @@ export function HealthBadge(): JSX.Element {
 
   if (error) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs bg-red-100 text-red-800">
-        <span className="h-2 w-2 rounded-full bg-red-500" /> offline
+      <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-red-100 text-red-800">
+        <span className="h-2 w-2 rounded-full bg-red-500 shrink-0" /> offline
       </span>
     );
   }
   if (!health) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs bg-slate-100 text-slate-500">
-        <span className="h-2 w-2 rounded-full bg-slate-400 animate-pulse" /> checking…
+      <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-slate-100 text-slate-500">
+        <span className="h-2 w-2 rounded-full bg-slate-400 animate-pulse shrink-0" /> checking…
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs bg-green-100 text-green-800">
-      <span className="h-2 w-2 rounded-full bg-green-500" /> {health.status} · {health.version}
+    <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-green-100 text-green-800 min-w-0 max-w-[140px] sm:max-w-none">
+      <span className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
+      <span className="truncate">
+        {health.status} · {health.version}
+      </span>
     </span>
   );
 }
