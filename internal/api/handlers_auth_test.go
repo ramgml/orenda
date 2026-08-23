@@ -122,6 +122,7 @@ func seedOwner(t *testing.T, repo *pwUserRepo, password string) {
 }
 
 func TestLogin_CookieAttributes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		cookieSecure  bool
@@ -194,6 +195,7 @@ func TestLogin_CookieAttributes(t *testing.T) {
 }
 
 func TestLogin_InvalidCredentials_Returns401(t *testing.T) {
+	t.Parallel()
 	// A small sanity check that the cookie attribute refactor
 	// didn't break the existing error path. We don't want to
 	// regress a 500 → user-disclosing leak just to gain a
@@ -213,6 +215,7 @@ func TestLogin_InvalidCredentials_Returns401(t *testing.T) {
 }
 
 func TestLogout_CookieAttributes(t *testing.T) {
+	t.Parallel()
 	// logout doesn't need a user or signer; only the cookie
 	// attributes from deps matter. Phase 28.4 contract: the
 	// MaxAge=-1 cookie must carry the same Secure value as the

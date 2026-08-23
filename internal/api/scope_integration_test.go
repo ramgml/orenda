@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -23,13 +22,7 @@ import (
 // fullDeps wires the full Dependencies for scope integration tests.
 func fullDeps(t *testing.T) (api.Dependencies, string) {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "orenda.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
@@ -59,6 +52,7 @@ func mustHashFast(t *testing.T) string {
 }
 
 func TestOwnerScopesIncludeAllExpected(t *testing.T) {
+	t.Parallel()
 	// Just verifies the mapping in scopesForRole indirectly: the /me handler
 	// returns the scopes computed for the role, so after login we expect
 	// the full set.
@@ -89,6 +83,7 @@ func TestOwnerScopesIncludeAllExpected(t *testing.T) {
 }
 
 func TestIntegration_ChildTasksCRUD(t *testing.T) {
+	t.Parallel()
 	deps, _ := fullDeps(t)
 	router := api.NewRouter(&deps)
 
@@ -173,6 +168,7 @@ func TestIntegration_ChildTasksCRUD(t *testing.T) {
 }
 
 func TestIntegration_ProjectCRUD(t *testing.T) {
+	t.Parallel()
 	deps, _ := fullDeps(t)
 	router := api.NewRouter(&deps)
 
@@ -258,6 +254,7 @@ func TestIntegration_ProjectCRUD(t *testing.T) {
 }
 
 func TestIntegration_NotFoundReturns404(t *testing.T) {
+	t.Parallel()
 	deps, _ := fullDeps(t)
 	router := api.NewRouter(&deps)
 

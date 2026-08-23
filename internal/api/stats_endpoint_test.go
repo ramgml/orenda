@@ -18,6 +18,7 @@ import (
 // path (db_bytes=0, no panic). The fixture gives us a hub to read
 // the subscriber count from.
 func TestStats_Endpoint(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 
 	rr := doReq(f.router, http.MethodGet, "/api/v1/stats", f.cookie, nil)
@@ -44,6 +45,7 @@ func TestStats_Endpoint(t *testing.T) {
 
 // The stats endpoint is public — no cookie required.
 func TestStats_Public(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
 	rr := httptest.NewRecorder()
@@ -54,6 +56,7 @@ func TestStats_Public(t *testing.T) {
 // SubscriberCount returns the right number for a hub with two
 // subscribers on the same topic. (Stats endpoint picks this up.)
 func TestHub_SubscriberCount(t *testing.T) {
+	t.Parallel()
 	h := ws.NewHub()
 	if closer, ok := h.(interface{ Close() }); ok {
 		t.Cleanup(closer.Close)

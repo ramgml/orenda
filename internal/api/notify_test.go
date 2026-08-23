@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -31,13 +30,7 @@ import (
 // project owner.
 func notifRouter(t *testing.T) (http.Handler, string, *sqlLite) {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/nf.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
@@ -142,6 +135,7 @@ func seedProjectAndTask(t *testing.T, db *sqlLite, _ string) (taskID, agentID st
 // When an agent claims a task via /tasks/:id/claim the project owner
 // receives an in-app notification with type "task.assigned_to_me".
 func TestNotify_ClaimProducesInboxRow(t *testing.T) {
+	t.Parallel()
 	router, cookie, db := notifRouter(t)
 	taskID, agentID := seedProjectAndTask(t, db, cookie)
 
@@ -162,6 +156,7 @@ func TestNotify_ClaimProducesInboxRow(t *testing.T) {
 
 // claim twice with the same agent_id collapses via dedup_key.
 func TestNotify_ClaimDedupesAcrossCalls(t *testing.T) {
+	t.Parallel()
 	router, cookie, db := notifRouter(t)
 	taskID, agentID := seedProjectAndTask(t, db, cookie)
 
@@ -203,6 +198,7 @@ func TestNotify_ClaimDedupesAcrossCalls(t *testing.T) {
 // Submit produces a "task.review_needed" notification (already wired in
 // Phase 6.4); confirm it still works after our changes.
 func TestNotify_SubmitStillProducesRow(t *testing.T) {
+	t.Parallel()
 	router, cookie, db := notifRouter(t)
 	taskID, agentID := seedProjectAndTask(t, db, cookie)
 

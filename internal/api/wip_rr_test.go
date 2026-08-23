@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -29,13 +28,8 @@ import (
 // (the seam added by Wave 0) so the new lookupWIPLimit reads the
 // column's wip_limit.
 func TestIntegration_MoveRejectsWhenColumnWIPFull(t *testing.T) {
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "wip.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	t.Parallel()
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
@@ -144,13 +138,8 @@ func TestIntegration_MoveRejectsWhenColumnWIPFull(t *testing.T) {
 // dereferenced parseOptionalTime() without a nil check, causing a
 // nil pointer dereference on any body that omitted those fields.
 func TestCreateEvent_MissingTimesReturns422(t *testing.T) {
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/task38.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	t.Parallel()
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
@@ -219,13 +208,8 @@ func TestCreateEvent_MissingTimesReturns422(t *testing.T) {
 // parseOptionalTime() inside the "if in.StartAt != "" guard, which
 // still panics when parseOptionalTime returns nil for garbage input.
 func TestUpdateEvent_InvalidTimestampReturns422(t *testing.T) {
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/task38u.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	t.Parallel()
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
@@ -306,13 +290,8 @@ func TestUpdateEvent_InvalidTimestampReturns422(t *testing.T) {
 }
 
 func TestIntegration_ListEvents_ExpandsRecurrence(t *testing.T) {
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "rr.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	t.Parallel()
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
@@ -414,13 +393,8 @@ func TestIntegration_ListEvents_ExpandsRecurrence(t *testing.T) {
 // PATCH /api/v1/events/{masterID::1} must resolve to the master and
 // succeed; GET must return the master; PATCH unknown id → 404 (not 500).
 func TestIntegration_SyntheticOccurrenceID_RoundTripsToMaster(t *testing.T) {
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "t39.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	t.Parallel()
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{

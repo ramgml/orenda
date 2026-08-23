@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -47,13 +46,7 @@ type agentWikiFixture struct {
 
 func newAgentWikiFixture(t *testing.T) *agentWikiFixture {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "aw.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	ownerEmail := "aw-owner-" + randLite()[:8] + "@x.com"
@@ -124,6 +117,7 @@ func (fx *agentWikiFixture) agentReq(method, path string, body any) *httptest.Re
 }
 
 func TestAgentWiki_FullCRUDRoundTrip(t *testing.T) {
+	t.Parallel()
 	fx := newAgentWikiFixture(t)
 
 	// Create (PUT upsert).
@@ -204,6 +198,7 @@ func TestAgentWiki_FullCRUDRoundTrip(t *testing.T) {
 }
 
 func TestAgentWiki_RequiresAgentToken(t *testing.T) {
+	t.Parallel()
 	fx := newAgentWikiFixture(t)
 
 	// No token at all.
@@ -228,6 +223,7 @@ func TestAgentWiki_RequiresAgentToken(t *testing.T) {
 }
 
 func TestAgentWiki_SearchFindsAgentContent(t *testing.T) {
+	t.Parallel()
 	fx := newAgentWikiFixture(t)
 
 	rr := fx.agentReq(http.MethodPut, "/api/v1/agent/pages/zebra-manual", map[string]any{
@@ -250,6 +246,7 @@ func TestAgentWiki_SearchFindsAgentContent(t *testing.T) {
 }
 
 func TestAgentWiki_UserSideUnchanged(t *testing.T) {
+	t.Parallel()
 	fx := newAgentWikiFixture(t)
 
 	// User creates a page on the user surface; the agent sees it too

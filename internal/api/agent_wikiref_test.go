@@ -77,6 +77,7 @@ func newWikiRefFixture(t *testing.T) *wikiRefFixture {
 
 // TestWikiRef_GetByWRef: GET /agent/pages/W<N> resolves the page.
 func TestWikiRef_GetByWRef(t *testing.T) {
+	t.Parallel()
 	fx := newWikiRefFixture(t)
 	ref := fmt.Sprintf("W%d", fx.page1Number)
 
@@ -90,6 +91,7 @@ func TestWikiRef_GetByWRef(t *testing.T) {
 
 // TestWikiRef_GetByWRefCaseInsensitive: w42 works the same as W42.
 func TestWikiRef_GetByWRefCaseInsensitive(t *testing.T) {
+	t.Parallel()
 	fx := newWikiRefFixture(t)
 	ref := fmt.Sprintf("w%d", fx.page1Number)
 
@@ -102,6 +104,7 @@ func TestWikiRef_GetByWRefCaseInsensitive(t *testing.T) {
 
 // TestWikiRef_DeleteByWRef: DELETE /agent/pages/W<N> resolves and deletes.
 func TestWikiRef_DeleteByWRef(t *testing.T) {
+	t.Parallel()
 	fx := newWikiRefFixture(t)
 	ref := fmt.Sprintf("W%d", fx.page1Number)
 
@@ -115,6 +118,7 @@ func TestWikiRef_DeleteByWRef(t *testing.T) {
 
 // TestWikiRef_MoveByWRef: PATCH /agent/pages/W<N>/move resolves and moves.
 func TestWikiRef_MoveByWRef(t *testing.T) {
+	t.Parallel()
 	fx := newWikiRefFixture(t)
 	ref := fmt.Sprintf("W%d", fx.page2Number)
 
@@ -133,6 +137,7 @@ func TestWikiRef_MoveByWRef(t *testing.T) {
 
 // TestWikiRef_BacklinksByWRef: GET /agent/pages/W<N>/backlinks resolves.
 func TestWikiRef_BacklinksByWRef(t *testing.T) {
+	t.Parallel()
 	fx := newWikiRefFixture(t)
 
 	// Create a page that links to page 2 via [[wref-beta]].
@@ -155,6 +160,7 @@ func TestWikiRef_BacklinksByWRef(t *testing.T) {
 
 // TestWikiRef_UpsertByWRef: PUT /agent/pages/W<N> resolves and updates.
 func TestWikiRef_UpsertByWRef(t *testing.T) {
+	t.Parallel()
 	fx := newWikiRefFixture(t)
 	ref := fmt.Sprintf("W%d", fx.page1Number)
 
@@ -172,6 +178,7 @@ func TestWikiRef_UpsertByWRef(t *testing.T) {
 // TestWikiRef_SlugConflict422: POST with slug "W42" is rejected, but
 // PUT with URL W42 + body slug=W42 succeeds (URL is authoritative).
 func TestWikiRef_SlugConflict422(t *testing.T) {
+	t.Parallel()
 	fx := newWikiRefFixture(t)
 
 	// POST body slug "W42" must be rejected — W-refs are resolution-only.
@@ -217,6 +224,7 @@ func TestWikiRef_SlugConflict422(t *testing.T) {
 
 // TestWikiRef_Unknown404: unknown W-ref returns "page W999 not found".
 func TestWikiRef_Unknown404(t *testing.T) {
+	t.Parallel()
 	fx := newAgentWikiFixture(t)
 
 	rr := fx.agentReq(http.MethodGet, "/api/v1/agent/pages/W999999", nil)

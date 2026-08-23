@@ -119,13 +119,7 @@ const p3Email = "p3-owner@orenda.test"
 // (real agents, real tasks for FK satisfaction).
 func buildP3Router(t *testing.T) (http.Handler, *sqlLite) {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/p3.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, dir := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
@@ -287,6 +281,7 @@ func p3SeedTask(t *testing.T, router http.Handler, cookie, projectID, columnID, 
 // ---------- tests ----------
 
 func TestP3_ListAgents(t *testing.T) {
+	t.Parallel()
 	router, _ := buildP3Router(t)
 	cookie := p3Login(t, router)
 
@@ -295,6 +290,7 @@ func TestP3_ListAgents(t *testing.T) {
 }
 
 func TestP3_CreateAgent(t *testing.T) {
+	t.Parallel()
 	router, _ := buildP3Router(t)
 	cookie := p3Login(t, router)
 
@@ -304,6 +300,7 @@ func TestP3_CreateAgent(t *testing.T) {
 }
 
 func TestP3_CommentsAndActivity(t *testing.T) {
+	t.Parallel()
 	router, _ := buildP3Router(t)
 	cookie := p3Login(t, router)
 	p, col := p3SeedProject(t, router, cookie, "C")
@@ -330,6 +327,7 @@ func TestP3_CommentsAndActivity(t *testing.T) {
 }
 
 func TestP3_AttachmentUpload(t *testing.T) {
+	t.Parallel()
 	router, _ := buildP3Router(t)
 	cookie := p3Login(t, router)
 	p, col := p3SeedProject(t, router, cookie, "A")
@@ -357,6 +355,7 @@ func TestP3_AttachmentUpload(t *testing.T) {
 }
 
 func TestP3_TaskContext(t *testing.T) {
+	t.Parallel()
 	router, _ := buildP3Router(t)
 	cookie := p3Login(t, router)
 	p, col := p3SeedProject(t, router, cookie, "Ctx")
@@ -367,6 +366,7 @@ func TestP3_TaskContext(t *testing.T) {
 }
 
 func TestP3_ClaimReleaseSubmitReview(t *testing.T) {
+	t.Parallel()
 	router, db := buildP3Router(t)
 	cookie := p3Login(t, router)
 	p, col := p3SeedProject(t, router, cookie, "Cl")
@@ -414,6 +414,7 @@ func TestP3_ClaimReleaseSubmitReview(t *testing.T) {
 // on the service side (ErrInvalidInput for "decision != approve and
 // != reject").
 func TestP3_ReviewWithoutCommentReturnsBadRequest(t *testing.T) {
+	t.Parallel()
 	router, db := buildP3Router(t)
 	cookie := p3Login(t, router)
 	p, col := p3SeedProject(t, router, cookie, "Rev")

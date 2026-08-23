@@ -57,6 +57,7 @@ func doReq(router http.Handler, method, path, cookie string, body any) *httptest
 
 // 1) Tag CRUD happy path.
 func TestTags_CRUD(t *testing.T) {
+	t.Parallel()
 	f := tagDeps(t)
 
 	// Create.
@@ -101,6 +102,7 @@ func TestTags_CRUD(t *testing.T) {
 
 // 2) Empty name → 400.
 func TestTags_Create_EmptyName(t *testing.T) {
+	t.Parallel()
 	f := tagDeps(t)
 	rr := doReq(f.router, "POST", "/api/v1/tags", f.cookie, map[string]any{
 		"name": "",
@@ -111,6 +113,7 @@ func TestTags_Create_EmptyName(t *testing.T) {
 
 // 3) Duplicate name → 409.
 func TestTags_Create_DuplicateName(t *testing.T) {
+	t.Parallel()
 	f := tagDeps(t)
 	rr := doReq(f.router, "POST", "/api/v1/tags", f.cookie, map[string]any{"name": "dup"})
 	require.Equal(t, http.StatusCreated, rr.Code)
@@ -121,6 +124,7 @@ func TestTags_Create_DuplicateName(t *testing.T) {
 
 // 4) Set tags on a task.
 func TestTaskTags_SetReplace(t *testing.T) {
+	t.Parallel()
 	f := tagDeps(t)
 
 	// Create three tags, pre-allocate the slice so prealloc stays
@@ -178,6 +182,7 @@ func TestTaskTags_SetReplace(t *testing.T) {
 
 // 5) Bad tag id → 404 with the offending id echoed back.
 func TestTaskTags_Set_BadID(t *testing.T) {
+	t.Parallel()
 	f := tagDeps(t)
 	rr := doReq(f.router, "POST", "/api/v1/tags", f.cookie, map[string]any{"name": "good"})
 	require.Equal(t, http.StatusCreated, rr.Code)
@@ -193,6 +198,7 @@ func TestTaskTags_Set_BadID(t *testing.T) {
 
 // 6) PATCH /tasks/{id} with color clears when sent as "".
 func TestTask_PatchColor_ClearAndSet(t *testing.T) {
+	t.Parallel()
 	f := tagDeps(t)
 
 	// Set.
@@ -225,6 +231,7 @@ func TestTask_PatchColor_ClearAndSet(t *testing.T) {
 
 // 7) GET /tags and GET /tasks/{id}/tags require auth.
 func TestTags_RequiresAuth(t *testing.T) {
+	t.Parallel()
 	f := tagDeps(t)
 
 	req := httptest.NewRequest("GET", "/api/v1/tags", nil)
@@ -240,6 +247,7 @@ func TestTags_RequiresAuth(t *testing.T) {
 
 // 8) `tags` field on PATCH /tasks/{id} replaces the tag set.
 func TestTask_PatchTags_Replace(t *testing.T) {
+	t.Parallel()
 	f := tagDeps(t)
 
 	// Create two tags.

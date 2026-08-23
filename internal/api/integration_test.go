@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -28,13 +27,7 @@ import (
 // t.Cleanup, so callers only receive the Dependencies.
 func integrationDeps(t *testing.T) api.Dependencies {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "orenda.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
@@ -99,6 +92,7 @@ func authedJSON(t *testing.T, router http.Handler, method, path, cookie string, 
 }
 
 func TestIntegration_Login_Me_Project_Task(t *testing.T) {
+	t.Parallel()
 	deps := integrationDeps(t)
 	router := api.NewRouter(&deps)
 	t.Cleanup(deps.RateLimitClose)
@@ -178,6 +172,7 @@ func TestIntegration_Login_Me_Project_Task(t *testing.T) {
 }
 
 func TestIntegration_BadLogin(t *testing.T) {
+	t.Parallel()
 	deps := integrationDeps(t)
 	router := api.NewRouter(&deps)
 	t.Cleanup(deps.RateLimitClose)
@@ -190,6 +185,7 @@ func TestIntegration_BadLogin(t *testing.T) {
 }
 
 func TestIntegration_RequiresAuth(t *testing.T) {
+	t.Parallel()
 	deps := integrationDeps(t)
 	router := api.NewRouter(&deps)
 	t.Cleanup(deps.RateLimitClose)
@@ -209,6 +205,7 @@ func TestIntegration_RequiresAuth(t *testing.T) {
 }
 
 func TestIntegration_Logout(t *testing.T) {
+	t.Parallel()
 	deps := integrationDeps(t)
 	router := api.NewRouter(&deps)
 	t.Cleanup(deps.RateLimitClose)

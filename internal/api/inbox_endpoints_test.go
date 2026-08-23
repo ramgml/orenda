@@ -17,6 +17,7 @@ import (
 
 // Phase 16.5: /api/v1/inbox/tasks — list + create inbox tasks.
 func TestInbox_ListAndCreate(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 
 	// Empty inbox.
@@ -51,6 +52,7 @@ func TestInbox_ListAndCreate(t *testing.T) {
 // The inbox endpoint is exclusively for unfiled capture — clients
 // that want a project must use POST /api/v1/projects/{id}/tasks.
 func TestInbox_Create_RejectsProjectBody(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 
 	pid := f.projectID
@@ -65,6 +67,7 @@ func TestInbox_Create_RejectsProjectBody(t *testing.T) {
 
 // Phase 16.5: inbox endpoint requires title.
 func TestInbox_Create_RequiresTitle(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	rr := doReq(f.router, http.MethodPost, "/api/v1/inbox/tasks", f.cookie,
 		map[string]any{"title": ""})
@@ -74,6 +77,7 @@ func TestInbox_Create_RequiresTitle(t *testing.T) {
 
 // Phase 16.5: auth required.
 func TestInbox_RequiresAuth(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	for _, path := range []string{"/api/v1/inbox/tasks", "/api/v1/inbox/tasks"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -87,6 +91,7 @@ func TestInbox_RequiresAuth(t *testing.T) {
 // We create a real project via the project repo (not the test fixture)
 // so we can verify the PATCH path end-to-end.
 func TestInbox_FileToProject(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 
 	// Create an inbox task.
@@ -122,6 +127,7 @@ func TestInbox_FileToProject(t *testing.T) {
 
 // Phase 16.5: invalid JSON returns 400 (catch-all for handlers).
 func TestInbox_Create_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/inbox/tasks",
 		bytes.NewReader([]byte("{not-json")))
@@ -138,6 +144,7 @@ func TestInbox_Create_InvalidJSON(t *testing.T) {
 // endpoint must persist it (previously due_at was silently dropped —
 // the field existed only in the project create path).
 func TestInbox_Create_AcceptsDueAt(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 
 	rr := doReq(f.router, http.MethodPost, "/api/v1/inbox/tasks", f.cookie, map[string]any{

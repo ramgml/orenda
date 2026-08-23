@@ -142,6 +142,7 @@ func buildAuthRouter(users user.Repository, tokens api.TokenLookup, signer *auth
 }
 
 func TestRequireUser_AcceptsValidJWT(t *testing.T) {
+	t.Parallel()
 	users := newFakeUserRepo()
 	u := &user.User{ID: "u-1", Email: "a@b.c", Role: user.RoleOwner}
 	_ = users.Create(context.Background(), u)
@@ -165,6 +166,7 @@ func TestRequireUser_AcceptsValidJWT(t *testing.T) {
 }
 
 func TestRequireUser_RejectsExpired(t *testing.T) {
+	t.Parallel()
 	users := newFakeUserRepo()
 	u := &user.User{ID: "u-1", Email: "a@b.c", Role: user.RoleOwner}
 	_ = users.Create(context.Background(), u)
@@ -181,6 +183,7 @@ func TestRequireUser_RejectsExpired(t *testing.T) {
 }
 
 func TestRequireUser_AcceptsCookie(t *testing.T) {
+	t.Parallel()
 	users := newFakeUserRepo()
 	u := &user.User{ID: "u-1", Email: "a@b.c", Role: user.RoleOwner}
 	_ = users.Create(context.Background(), u)
@@ -197,6 +200,7 @@ func TestRequireUser_AcceptsCookie(t *testing.T) {
 }
 
 func TestRequireScope(t *testing.T) {
+	t.Parallel()
 	// A trivial middleware that injects a fixed identity — used so
 	// RequireScope can be exercised without wiring the full cookie/Bearer
 	// flow.

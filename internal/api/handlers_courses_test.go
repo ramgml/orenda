@@ -190,6 +190,7 @@ func driveHandler(t *testing.T, method, template, idValue, body string, h http.H
 }
 
 func TestDecodeCurriculumSwap_FillsQuizLessonIDsAndReusesIDs(t *testing.T) {
+	t.Parallel()
 	req := curriculumRequest{
 		Modules: []curriculumModule{
 			{
@@ -226,6 +227,7 @@ func TestDecodeCurriculumSwap_FillsQuizLessonIDsAndReusesIDs(t *testing.T) {
 }
 
 func TestSubmitCurriculumHandlerUser_OK(t *testing.T) {
+	t.Parallel()
 	svc, repo := newFakeCourseService(t)
 	deps := &Dependencies{CourseService: svc, Courses: repo}
 	body := `{"modules":[{"id":"m1","title":"M","position":1,"lessons":[
@@ -242,6 +244,7 @@ func TestSubmitCurriculumHandlerUser_OK(t *testing.T) {
 }
 
 func TestSubmitCurriculumHandlerUser_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	svc, repo := newFakeCourseService(t)
 	deps := &Dependencies{CourseService: svc, Courses: repo}
 	w := driveHandler(t, http.MethodPut, "/api/v1/courses/{id}/curriculum", "course-00000001", "not-json",
@@ -250,6 +253,7 @@ func TestSubmitCurriculumHandlerUser_InvalidJSON(t *testing.T) {
 }
 
 func TestAddQuizHandler_OK(t *testing.T) {
+	t.Parallel()
 	svc, repo := newFakeCourseService(t)
 	repo.lessons["lesson-00000001"] = &course.Lesson{ID: "lesson-00000001", ModuleID: "m1", Title: "L"}
 	deps := &Dependencies{CourseService: svc, Courses: repo}
@@ -264,6 +268,7 @@ func TestAddQuizHandler_OK(t *testing.T) {
 }
 
 func TestAddQuizHandler_RejectsMissingQuestion(t *testing.T) {
+	t.Parallel()
 	svc, repo := newFakeCourseService(t)
 	repo.lessons["lesson-00000002"] = &course.Lesson{ID: "lesson-00000002", ModuleID: "m1", Title: "L"}
 	deps := &Dependencies{CourseService: svc, Courses: repo}
@@ -273,6 +278,7 @@ func TestAddQuizHandler_RejectsMissingQuestion(t *testing.T) {
 }
 
 func TestAddQuizHandler_NotFoundLesson(t *testing.T) {
+	t.Parallel()
 	svc, repo := newFakeCourseService(t)
 	deps := &Dependencies{CourseService: svc, Courses: repo}
 	w := driveHandler(t, http.MethodPost, "/api/v1/lessons/{id}/quizzes", "missing",
@@ -282,6 +288,7 @@ func TestAddQuizHandler_NotFoundLesson(t *testing.T) {
 }
 
 func TestUpdateLessonContentHandlerUser_OK(t *testing.T) {
+	t.Parallel()
 	svc, repo := newFakeCourseService(t)
 	repo.lessons["lesson-uuid-001"] = &course.Lesson{
 		ID: "lesson-uuid-001", ModuleID: "m1", Title: "L",
@@ -297,6 +304,7 @@ func TestUpdateLessonContentHandlerUser_OK(t *testing.T) {
 }
 
 func TestUpdateLessonContentHandlerUser_EmptyRejected(t *testing.T) {
+	t.Parallel()
 	svc, repo := newFakeCourseService(t)
 	repo.lessons["lesson-uuid-002"] = &course.Lesson{ID: "lesson-uuid-002", ModuleID: "m1", Title: "L", Status: course.LessonOpen}
 	deps := &Dependencies{CourseService: svc, Courses: repo}

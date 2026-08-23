@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -51,13 +50,7 @@ type agentProjectFixture struct {
 
 func newAgentProjectFixture(t *testing.T) *agentProjectFixture {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "ap.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	ownerEmail := "ap-owner-" + randLite()[:8] + "@x.com"
@@ -168,6 +161,7 @@ func (fx *agentProjectFixture) agentReq(method, path string, body any) *httptest
 }
 
 func TestAgentProjects_GetReturnsProject(t *testing.T) {
+	t.Parallel()
 	fx := newAgentProjectFixture(t)
 	rr := fx.agentReq(http.MethodGet, "/api/v1/agent/projects/"+fx.projectID, nil)
 	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
@@ -179,12 +173,14 @@ func TestAgentProjects_GetReturnsProject(t *testing.T) {
 }
 
 func TestAgentProjects_GetNotFound(t *testing.T) {
+	t.Parallel()
 	fx := newAgentProjectFixture(t)
 	rr := fx.agentReq(http.MethodGet, "/api/v1/agent/projects/does-not-exist", nil)
 	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
 
 func TestAgentProjects_PatchDescription(t *testing.T) {
+	t.Parallel()
 	fx := newAgentProjectFixture(t)
 
 	rr := fx.agentReq(http.MethodPatch, "/api/v1/agent/projects/"+fx.projectID, map[string]any{
@@ -217,6 +213,7 @@ func TestAgentProjects_PatchDescription(t *testing.T) {
 }
 
 func TestAgentProjects_PatchClearsDescription(t *testing.T) {
+	t.Parallel()
 	fx := newAgentProjectFixture(t)
 	rr := fx.agentReq(http.MethodPatch, "/api/v1/agent/projects/"+fx.projectID, map[string]any{
 		"description": "",
@@ -228,6 +225,7 @@ func TestAgentProjects_PatchClearsDescription(t *testing.T) {
 }
 
 func TestAgentProjects_PatchNoDescriptionFieldIsNoop(t *testing.T) {
+	t.Parallel()
 	fx := newAgentProjectFixture(t)
 	// Body without a description key: nothing changes, no activity row.
 	rr := fx.agentReq(http.MethodPatch, "/api/v1/agent/projects/"+fx.projectID, map[string]any{})
@@ -241,6 +239,7 @@ func TestAgentProjects_PatchNoDescriptionFieldIsNoop(t *testing.T) {
 }
 
 func TestAgentProjects_PatchIgnoresUserOnlyFields(t *testing.T) {
+	t.Parallel()
 	fx := newAgentProjectFixture(t)
 	// name/color/archived are user-only; the agent handler must not
 	// apply them even if sent.
@@ -262,6 +261,7 @@ func TestAgentProjects_PatchIgnoresUserOnlyFields(t *testing.T) {
 // Namespace split, direction 1: a user cookie is NOT an agent
 // credential — the agent route must 401.
 func TestAgentProjects_CookieRejectedOnAgentRoute(t *testing.T) {
+	t.Parallel()
 	fx := newAgentProjectFixture(t)
 	for _, m := range []struct {
 		method, path string
@@ -286,6 +286,7 @@ func TestAgentProjects_CookieRejectedOnAgentRoute(t *testing.T) {
 // Namespace split, direction 2: an agent token is NOT a user
 // credential — the user-side project routes must 401.
 func TestAgentProjects_AgentTokenRejectedOnUserRoute(t *testing.T) {
+	t.Parallel()
 	fx := newAgentProjectFixture(t)
 	for _, m := range []struct {
 		method, path string
@@ -309,6 +310,7 @@ func TestAgentProjects_AgentTokenRejectedOnUserRoute(t *testing.T) {
 
 // No token at all → 401.
 func TestAgentProjects_RequiresToken(t *testing.T) {
+	t.Parallel()
 	fx := newAgentProjectFixture(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/projects/"+fx.projectID, nil)
 	rr := httptest.NewRecorder()
@@ -318,6 +320,7 @@ func TestAgentProjects_RequiresToken(t *testing.T) {
 
 // WS: PATCH publishes a project.updated event on the "projects" topic.
 func TestAgentProjects_PatchEmitsWSEvent(t *testing.T) {
+	t.Parallel()
 	fx := newAgentProjectFixture(t)
 	events, unsub := fx.hub.Subscribe(fx.ownerID, "projects")
 	defer unsub()

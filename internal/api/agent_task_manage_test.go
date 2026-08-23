@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,6 +29,7 @@ import (
 )
 
 func TestAgent_PatchOwnProposal_OK(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
 	require.Equal(t, http.StatusCreated, rr.Code)
@@ -64,6 +64,7 @@ func TestAgent_PatchOwnProposal_OK(t *testing.T) {
 }
 
 func TestAgent_PatchForeignProposal_403(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 	body := map[string]any{
 		"project_id":     f.projectID,
@@ -80,6 +81,7 @@ func TestAgent_PatchForeignProposal_403(t *testing.T) {
 }
 
 func TestAgent_PatchTriagedOwnProposal_403(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
 	require.Equal(t, http.StatusCreated, rr.Code)
@@ -93,6 +95,7 @@ func TestAgent_PatchTriagedOwnProposal_403(t *testing.T) {
 }
 
 func TestAgent_DeleteOwnProposal_204(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
 	require.Equal(t, http.StatusCreated, rr.Code)
@@ -107,6 +110,7 @@ func TestAgent_DeleteOwnProposal_204(t *testing.T) {
 }
 
 func TestAgent_DeleteForeignProposal_403(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 	body := map[string]any{
 		"project_id":     f.projectID,
@@ -123,6 +127,7 @@ func TestAgent_DeleteForeignProposal_403(t *testing.T) {
 }
 
 func TestAgent_HolderAgentNotes_OK(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
 	require.Equal(t, http.StatusCreated, rr.Code)
@@ -141,6 +146,7 @@ func TestAgent_HolderAgentNotes_OK(t *testing.T) {
 }
 
 func TestAgent_NonHolderAgentNotes_403(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
 	require.Equal(t, http.StatusCreated, rr.Code)
@@ -156,6 +162,7 @@ func TestAgent_NonHolderAgentNotes_403(t *testing.T) {
 }
 
 func TestAgent_ContextScrubsNotesForNonHolder(t *testing.T) {
+	t.Parallel()
 	// Phase 33.2.1: a non-holder reader sees task.agent_notes and
 	// task.context_md scrubbed (empty string) AND the activity
 	// feed has task.agent_notes_updated rows filtered out.
@@ -197,6 +204,7 @@ func TestAgent_ContextScrubsNotesForNonHolder(t *testing.T) {
 }
 
 func TestAgent_ContextHolderSeesOwnNotesAndActivity(t *testing.T) {
+	t.Parallel()
 	// The holder reads everything: their own notes + their own
 	// activity rows are NOT scrubbed.
 	f := newProposeFixture(t)
@@ -230,6 +238,7 @@ func TestAgent_ContextHolderSeesOwnNotesAndActivity(t *testing.T) {
 }
 
 func TestAgent_ContextProposerSeesOwnContextBeforeClaim(t *testing.T) {
+	t.Parallel()
 	// Before claim, the original proposer is neither assignee nor
 	// "holder" — agent_notes and context_md are scrubbed for them
 	// too. (Task.agent_notes only becomes relevant post-claim.)
@@ -252,6 +261,7 @@ func TestAgent_ContextProposerSeesOwnContextBeforeClaim(t *testing.T) {
 }
 
 func TestAgent_ContextAnyAgent_OK(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 	body := validProposeBody(f.projectID)
 	body["title"] = "Visible to anyone"
@@ -269,6 +279,7 @@ func TestAgent_ContextAnyAgent_OK(t *testing.T) {
 }
 
 func TestAgent_PatchTask_ByNumber_OK(t *testing.T) {
+	t.Parallel()
 	// Phase 33.2.1 → Task 48: PATCH accepts the T-prefixed ref "T<N>".
 	f := newProposeFixture(t)
 	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
@@ -289,6 +300,7 @@ func TestAgent_PatchTask_ByNumber_OK(t *testing.T) {
 }
 
 func TestAgent_DeleteTask_ByNumber_OK(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
 	require.Equal(t, http.StatusCreated, rr.Code)
@@ -417,6 +429,7 @@ func moveTaskToColumn(t *testing.T, f *proposeFixture, taskID, columnID string) 
 }
 
 func TestAgent_DeleteAuditSurvivesViaTombstone(t *testing.T) {
+	t.Parallel()
 	// Phase 33.2.1: retract writes a tombstone row in
 	// task_retracted (no FK on tasks.id, so the audit survives the
 	// hard delete).
@@ -440,6 +453,7 @@ func TestAgent_DeleteAuditSurvivesViaTombstone(t *testing.T) {
 }
 
 func TestAgent_EditProposal_TriagedBeforeRequest_Returns403(t *testing.T) {
+	t.Parallel()
 	// A proposal that the owner dragged out of backlog before the
 	// PATCH is no longer the agent's proposal. Pre-check reads the
 	// post-triage state and rejects with 403 not_your_proposal.
@@ -464,13 +478,8 @@ func TestAgent_EditProposal_TriagedBeforeRequest_Returns403(t *testing.T) {
 // TestAgent_EditProposal_TriagedBeforeRequest_Returns403); this
 // direct test pins the gate itself.
 func TestGate_UpdateProposalFields(t *testing.T) {
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "/g.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	defer db.Close()
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	t.Parallel()
+	db, _ := copyTemplateDB(t)
 	tasks := sqlite.NewTaskRepository(db)
 	tr := &task.Task{
 		Title: "g", Status: task.StatusTodo, Priority: task.PriorityMedium,
@@ -478,6 +487,7 @@ func TestGate_UpdateProposalFields(t *testing.T) {
 	}
 	require.NoError(t, tasks.Create(context.Background(), tr))
 	title := "patched"
+	var err error
 	err = tasks.UpdateProposalFields(context.Background(), task.ProposalPatchParams{
 		TaskID: tr.ID,
 		Gate:   task.ProposalGate{CreatedByID: "agent-A"},
@@ -495,6 +505,7 @@ func TestGate_UpdateProposalFields(t *testing.T) {
 }
 
 func TestAgent_UpdateAgentNotes_ReleaseInterleaved_NoResurrect(t *testing.T) {
+	t.Parallel()
 	// Phase 33.2.1 TOCTOU fix: a concurrent Release that clears the
 	// assignee must stop the notes write. Pre-33.2.1 the full-row
 	// Update resurrected assignee from the stale in-memory snapshot.

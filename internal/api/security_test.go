@@ -41,6 +41,7 @@ func withRateLimitDeps() *api.Dependencies {
 }
 
 func TestSecurityHeaders_AreSet(t *testing.T) {
+	t.Parallel()
 	router := api.NewRouter(withRateLimitDeps())
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
@@ -58,6 +59,7 @@ func TestSecurityHeaders_AreSet(t *testing.T) {
 // Policy directive: "font-src 'self'"` in DevTools. We extend with
 // data: and blob: which is safe — fonts can't inject script.
 func TestSecurityHeaders_FontSrcAllowsBlobAndData(t *testing.T) {
+	t.Parallel()
 	router := api.NewRouter(withRateLimitDeps())
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
@@ -80,6 +82,7 @@ func TestSecurityHeaders_FontSrcAllowsBlobAndData(t *testing.T) {
 // because some legacy browsers still need `style="..."` inline on
 // individual DOM elements. Tightening further is a separate change.
 func TestSecurityHeaders_StyleSrcNoUnsafeInline(t *testing.T) {
+	t.Parallel()
 	router := api.NewRouter(withRateLimitDeps())
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
@@ -100,6 +103,7 @@ func TestSecurityHeaders_StyleSrcNoUnsafeInline(t *testing.T) {
 // either inlining them with explicit hashes or wrapping via a
 // nonce-aware render pass.
 func TestSecurityHeaders_ScriptSrcSelfOnly(t *testing.T) {
+	t.Parallel()
 	router := api.NewRouter(withRateLimitDeps())
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
@@ -116,6 +120,7 @@ func TestSecurityHeaders_ScriptSrcSelfOnly(t *testing.T) {
 }
 
 func TestRateLimit_Anonymous429(t *testing.T) {
+	t.Parallel()
 	router := api.NewRouter(withRateLimitDeps())
 
 	// Flood /api/v1/info (no auth, low anon burst).
@@ -136,6 +141,7 @@ func TestRateLimit_Anonymous429(t *testing.T) {
 }
 
 func TestRateLimit_HealthzSkipped(t *testing.T) {
+	t.Parallel()
 	router := api.NewRouter(withRateLimitDeps())
 	for i := 0; i < 200; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
@@ -156,6 +162,7 @@ func TestRateLimit_HealthzSkipped(t *testing.T) {
 // credentials) instead of NPE'ing on users.GetByEmail — the test
 // asserts the rate-limit contract, not the login correctness contract.
 func TestRateLimit_LoginNotSkipped(t *testing.T) {
+	t.Parallel()
 	router := api.NewRouter(withRateLimitDeps())
 
 	var last *httptest.ResponseRecorder
