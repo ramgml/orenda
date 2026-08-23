@@ -27,6 +27,7 @@ type rateLimiter struct {
 	buckets  map[string]*bucket
 	capacity float64
 	refill   float64 // tokens per second
+	done     chan struct{}
 }
 
 type bucket struct {
@@ -41,9 +42,20 @@ func newRateLimiter(capacity int, refillPerSec float64) *rateLimiter {
 		buckets:  make(map[string]*bucket),
 		capacity: float64(capacity),
 		refill:   refillPerSec,
+		done:     make(chan struct{}),
 	}
 	go rl.cleanupLoop()
 	return rl
+}
+
+// Close stops the background cleanup goroutine. Safe to call more than once.
+func (rl *rateLimiter) Close() {
+	select {
+	case <-rl.done:
+		// already closed
+	default:
+		close(rl.done)
+	}
 }
 
 // allow returns true if a token is available for key.
@@ -89,15 +101,20 @@ func (rl *rateLimiter) retryAfterSeconds(key string) int {
 func (rl *rateLimiter) cleanupLoop() {
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
-	for range t.C {
-		rl.mu.Lock()
-		cutoff := time.Now().Add(-5 * time.Minute)
-		for k, b := range rl.buckets {
-			if b.last.Before(cutoff) {
-				delete(rl.buckets, k)
+	for {
+		select {
+		case <-rl.done:
+			return
+		case <-t.C:
+			rl.mu.Lock()
+			cutoff := time.Now().Add(-5 * time.Minute)
+			for k, b := range rl.buckets {
+				if b.last.Before(cutoff) {
+					delete(rl.buckets, k)
+				}
 			}
+			rl.mu.Unlock()
 		}
-		rl.mu.Unlock()
 	}
 }
 
@@ -115,15 +132,23 @@ type rateLimitOptions struct {
 	SkipPaths map[string]bool
 }
 
-// rateLimit returns the middleware.
+// rateLimitResult bundles the middleware with a Close function that
+// stops the background cleanup goroutines. Callers SHOULD call Close
+// (typically via t.Cleanup) to avoid goroutine leaks.
+type rateLimitResult struct {
+	middleware func(http.Handler) http.Handler
+	close      func()
+}
+
+// rateLimit returns the rate-limit middleware and a cleanup function.
 //
 // Order: this middleware runs AFTER auth middleware so IdentityFrom is
 // available when present.
-func rateLimit(opts rateLimitOptions) func(http.Handler) http.Handler {
+func rateLimit(opts rateLimitOptions) rateLimitResult {
 	anon := newRateLimiter(opts.AnonBurst, opts.AnonPerSec)
 	auth := newRateLimiter(opts.AuthBurst, opts.AuthPerSec)
 
-	return func(next http.Handler) http.Handler {
+	mw := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if opts.SkipPaths[r.URL.Path] {
 				next.ServeHTTP(w, r)
@@ -156,5 +181,13 @@ func rateLimit(opts rateLimitOptions) func(http.Handler) http.Handler {
 			}
 			next.ServeHTTP(w, r)
 		})
+	}
+
+	return rateLimitResult{
+		middleware: mw,
+		close: func() {
+			anon.Close()
+			auth.Close()
+		},
 	}
 }

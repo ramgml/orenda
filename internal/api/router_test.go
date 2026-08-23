@@ -22,7 +22,9 @@ func testDeps() *api.Dependencies {
 }
 
 func TestHealthz(t *testing.T) {
-	router := api.NewRouter(testDeps())
+	td := testDeps()
+	router := api.NewRouter(td)
+	t.Cleanup(td.RateLimitClose)
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
@@ -38,12 +40,14 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestInfo(t *testing.T) {
-	router := api.NewRouter(&api.Dependencies{
+	infoDeps := &api.Dependencies{
 		Logger: zap.NewNop(),
 		Capabilities: api.Capabilities{
 			Auth: true, Backup: true,
 		},
-	})
+	}
+	router := api.NewRouter(infoDeps)
+	t.Cleanup(infoDeps.RateLimitClose)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/info", nil)
 	rr := httptest.NewRecorder()
@@ -65,7 +69,9 @@ func TestInfo(t *testing.T) {
 }
 
 func TestInfo_DefaultsAllFalse(t *testing.T) {
-	router := api.NewRouter(testDeps())
+	td := testDeps()
+	router := api.NewRouter(td)
+	t.Cleanup(td.RateLimitClose)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/info", nil)
 	rr := httptest.NewRecorder()
@@ -80,7 +86,9 @@ func TestInfo_DefaultsAllFalse(t *testing.T) {
 }
 
 func TestSPA_NotFoundForUnknownAPI(t *testing.T) {
-	router := api.NewRouter(testDeps())
+	td := testDeps()
+	router := api.NewRouter(td)
+	t.Cleanup(td.RateLimitClose)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/nonexistent", nil)
 	rr := httptest.NewRecorder()

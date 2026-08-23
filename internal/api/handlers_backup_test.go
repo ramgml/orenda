@@ -52,13 +52,15 @@ func newBackupFixture(t *testing.T) *backupFixture {
 	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
 
 	repo := sqlite.NewBackupSettingsRepository(db)
-	router := api.NewRouter(&api.Dependencies{
+	bupDeps := &api.Dependencies{
 		Logger:         zap.NewNop(),
 		Signer:         signer,
 		Users:          users,
 		CookieName:     "orenda_session",
 		BackupSettings: repo,
-	})
+	}
+	router := api.NewRouter(bupDeps)
+	t.Cleanup(bupDeps.RateLimitClose)
 
 	cookie := loginAndCookie(t, router, "bup@x.com", "hunter2!")
 	return &backupFixture{t: t, router: router, cookie: cookie}

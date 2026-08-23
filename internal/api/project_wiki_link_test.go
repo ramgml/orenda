@@ -120,6 +120,7 @@ func newProjectWikiFixture(t *testing.T) *projectWikiFixture {
 		CookieName:              "orenda_session",
 	}
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	created, _, _, err := projects.CreateProject(context.Background(), &project.Project{
 		Name:        "PWL Proj",

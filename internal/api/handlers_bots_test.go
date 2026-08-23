@@ -106,7 +106,7 @@ func newTestBotFixture(t *testing.T) *testBotFixture {
 		reg.Register(&aliasingBot{recordingBot: rec, alias: name})
 	}
 
-	router := api.NewRouter(&api.Dependencies{
+	botDeps := &api.Dependencies{
 		Logger:     zap.NewNop(),
 		Signer:     signer,
 		Users:      users,
@@ -115,7 +115,9 @@ func newTestBotFixture(t *testing.T) *testBotFixture {
 		// dispatches through. nil is the alternative path (handler
 		// returns 503); exercised in a separate test.
 		BotRegistry: reg,
-	})
+	}
+	router := api.NewRouter(botDeps)
+	t.Cleanup(botDeps.RateLimitClose)
 
 	cookie := loginAndCookie(t, router, "testbot@x.com", "hunter2!")
 	return &testBotFixture{t: t, router: router, cookie: cookie, reg: reg, rec: rec}
@@ -228,13 +230,15 @@ func TestBotsTestHandler_BotNotRegistered(t *testing.T) {
 		DisplayName:  "NB",
 	}))
 	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
-	router := api.NewRouter(&api.Dependencies{
+	nobotsDeps := &api.Dependencies{
 		Logger:      zap.NewNop(),
 		Signer:      signer,
 		Users:       users,
 		CookieName:  "orenda_session",
 		BotRegistry: bot.NewRegistry(), // empty — no console even
-	})
+	}
+	router := api.NewRouter(nobotsDeps)
+	t.Cleanup(nobotsDeps.RateLimitClose)
 	cookie := loginAndCookie(t, router, "nobots@x.com", "hunter2!")
 
 	// POST /api/v1/bots/test with webhook → 503 bot_not_running.
@@ -349,13 +353,15 @@ func TestBotsTestHandler_RegistryNotWired(t *testing.T) {
 		DisplayName:  "NR",
 	}))
 	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
-	router := api.NewRouter(&api.Dependencies{
+	noregDeps := &api.Dependencies{
 		Logger:     zap.NewNop(),
 		Signer:     signer,
 		Users:      users,
 		CookieName: "orenda_session",
 		// BotRegistry deliberately nil.
-	})
+	}
+	router := api.NewRouter(noregDeps)
+	t.Cleanup(noregDeps.RateLimitClose)
 	cookie := loginAndCookie(t, router, "noreg@x.com", "hunter2!")
 	var buf bytes.Buffer
 	require.NoError(t, json.NewEncoder(&buf).Encode(map[string]string{

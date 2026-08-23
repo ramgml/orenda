@@ -115,6 +115,7 @@ func newAgentProjectFixture(t *testing.T) *agentProjectFixture {
 		CookieName:              "orenda_session",
 	}
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	// Create a project owned by the owner (direct repo call — the
 	// agent surface has no create route by design).

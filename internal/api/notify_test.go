@@ -79,6 +79,7 @@ func notifRouter(t *testing.T) (http.Handler, string, *sqlLite) {
 		Notifier:    notifSvc,
 	}
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	// Login.
 	body, _ := json.Marshal(map[string]string{"email": "nf@x.com", "password": "hunter2!"})
