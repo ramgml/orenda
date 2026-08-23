@@ -296,7 +296,7 @@ func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.
 	// T46: centralize status↔column sync + persist + mirror + activity
 	// in SyncAndSave instead of direct Tasks.Update.
 	if deps.TaskService != nil {
-		if err := deps.TaskService.SyncAndSave(ctx, tr, actorID, prevStatus); err != nil {
+		if err := deps.TaskService.SyncAndSave(ctx, tr, actorID, activity.ActorUser, prevStatus); err != nil {
 			return err
 		}
 	} else {

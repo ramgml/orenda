@@ -799,6 +799,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		nil, // task_service.Recorder would be a circular adapter; accept/dismiss don't audit-row
 	)
 	taskSvc := taskservice.New(tasksRepo, taskLocks, taskRecorderFor(activityRecorder), commentAdderFor(commentSvc), hub)
+	taskSvc.Logger = logger
 	taskSvc.Mirror = mirrorSvc
 	taskSvc.Columns = projects // Phase 23.1 + 16.7: WIP lookup + inbox→project filing
 	// Phase Wave 4 PR 2: wire CommentLister so the markdown

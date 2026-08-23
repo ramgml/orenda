@@ -361,7 +361,7 @@ func TestService_SyncAndSave_StatusDrivesColumn(t *testing.T) {
 	// status → column direction
 	prevStatus := tr.Status
 	tr.Status = task.StatusDone
-	err := svc.SyncAndSave(context.Background(), tr, "user-1", prevStatus)
+	err := svc.SyncAndSave(context.Background(), tr, "user-1", activity.ActorUser, prevStatus)
 	require.NoError(t, err)
 	assert.Equal(t, done.ID, tr.ColumnID, "status=done → card on done column")
 	assert.Equal(t, task.StatusDone, tr.Status)
@@ -387,7 +387,7 @@ func TestService_SyncAndSave_ColumnDrivesStatus(t *testing.T) {
 	prevStatus := tr.Status
 	tr.ColumnID = done.ID
 	tr.Status = task.Status(done.Status) // Handler lifts column status before SyncAndSave.
-	err := svc.SyncAndSave(context.Background(), tr, "user-1", prevStatus)
+	err := svc.SyncAndSave(context.Background(), tr, "user-1", activity.ActorUser, prevStatus)
 	require.NoError(t, err)
 	assert.Equal(t, task.StatusDone, tr.Status, "done column → status=done")
 
@@ -396,7 +396,7 @@ func TestService_SyncAndSave_ColumnDrivesStatus(t *testing.T) {
 	assert.Equal(t, done.ID, persisted.ColumnID)
 }
 
-// T46: SyncAndSave records activity when status changes.
+// T46: SyncAndSave records activity when status changes — exactly once.
 func TestService_SyncAndSave_RecordsActivityOnStatusChange(t *testing.T) {
 	f := setupPhase278Project(t)
 	backlog := columnByStatus(t, f, task.StatusBacklog)
@@ -412,15 +412,51 @@ func TestService_SyncAndSave_RecordsActivityOnStatusChange(t *testing.T) {
 	// Simulate a status change (status→column will run in SyncAndSave).
 	prevStatus := tr.Status
 	tr.Status = task.StatusDone
-	err := svc.SyncAndSave(context.Background(), tr, "user-act", prevStatus)
+	err := svc.SyncAndSave(context.Background(), tr, "user-act", activity.ActorUser, prevStatus)
 	require.NoError(t, err)
 
-	found := false
+	count := 0
 	for _, call := range f.rec.calls {
 		if strings.Contains(call, tr.ID) && strings.Contains(call, string(activity.ActionStatusChanged)) {
-			found = true
-			break
+			count++
 		}
 	}
-	assert.True(t, found, "SyncAndSave must record status_changed activity; got: %v", f.rec.calls)
+	assert.Equal(t, 1, count, "SyncAndSave must record status_changed exactly once; got calls: %v", f.rec.calls)
+}
+
+// T46: column-only PATCH on a statusless column must persist the chosen
+// column without the card jumping — SyncAndSave must NOT re-sync when
+// status hasn't changed. This is the reviewer's point 3+4 regression.
+func TestService_SyncAndSave_ColumnOnlyPatch_PersistsColumn(t *testing.T) {
+	f := setupPhase278Project(t)
+	backlog := columnByStatus(t, f, task.StatusBacklog)
+	done := columnByStatus(t, f, task.StatusDone)
+	svc := newSvc(t, f)
+
+	// Task starts in backlog with status=backlog.
+	tr := &task.Task{ProjectID: f.project.ID, ColumnID: backlog.ID, Title: "col-only",
+		Status: task.StatusBacklog}
+	require.NoError(t, f.taskRepo.Create(context.Background(), tr))
+
+	// Simulate column-only PATCH: caller moves card to done column and
+	// lifts status to done. prevStatus == new status → SyncAndSave must
+	// NOT re-sync column (status didn't change from caller's perspective).
+	prevStatus := task.StatusDone // Same as new status — "no status change"
+	tr.ColumnID = done.ID
+	tr.Status = task.StatusDone
+	err := svc.SyncAndSave(context.Background(), tr, "u1", activity.ActorUser, prevStatus)
+	require.NoError(t, err)
+
+	persisted := mustGetByID(t, f.taskRepo, tr.ID)
+	assert.Equal(t, done.ID, persisted.ColumnID, "column-only PATCH must persist chosen column")
+	assert.Equal(t, task.StatusDone, persisted.Status)
+
+	// Verify no status_changed activity was recorded (status didn't change).
+	count := 0
+	for _, call := range f.rec.calls {
+		if strings.Contains(call, tr.ID) && strings.Contains(call, string(activity.ActionStatusChanged)) {
+			count++
+		}
+	}
+	assert.Equal(t, 0, count, "no status_changed activity when status unchanged; got: %v", f.rec.calls)
 }

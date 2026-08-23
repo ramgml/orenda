@@ -234,28 +234,33 @@ func (s *Service) SyncStatusAndColumn(ctx context.Context, tr *task.Task) {
 }
 
 // SyncAndSave is the canonical save point for every PATCH that may touch
-// status or column_id. It performs the status→column sync, persists the
-// task, mirrors it, and records a task.status_changed activity row when
-// the status actually changes.
+// status or column_id. It performs the status→column sync ONLY when the
+// status actually changed (tr.Status != prevStatus), persists the task,
+// mirrors it, and records a task.status_changed activity row.
 //
 // prevStatus is the task's status BEFORE the caller mutated it — the
 // caller (applyTaskPatchAndEffects) captures it before applying changes.
 // This lets SyncAndSave detect the transition and record the activity.
 //
-// Handlers MUST call this instead of deps.Tasks.Update directly when the
-// PATCH body may contain status or column_id — this is the single place
-// that guarantees the invariant status(column_id) == task.status.
-//
 // Column→status (the reverse direction, e.g. user drags a card) is done
 // by the caller BEFORE calling SyncAndSave — the caller knows which axis
-// the user changed.
-func (s *Service) SyncAndSave(ctx context.Context, tr *task.Task, actorID string, prevStatus task.Status) error {
+// the user changed. SyncAndSave NEVER touches the column when status
+// hasn't changed, so an explicit column_id PATCH persists even when the
+// column has no status (statusless columns) or the row was pre-diverged.
+//
+// actorType identifies who performed the action (ActorUser, ActorAgent,
+// ActorSystem). The sync path (offline outbox) should use ActorSystem.
+func (s *Service) SyncAndSave(ctx context.Context, tr *task.Task, actorID string, actorType activity.ActorType, prevStatus task.Status) error {
 	if s == nil || tr == nil {
 		return nil
 	}
 
-	// status → column: when status changed, move card to matching column.
-	s.syncColumnToStatus(ctx, tr)
+	// status → column: ONLY when status actually changed. When only
+	// column_id changed (explicit drag or statusless column), the caller
+	// already set both column_id and status — don't overwrite.
+	if tr.Status != prevStatus {
+		s.syncColumnToStatus(ctx, tr)
+	}
 
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return err
@@ -263,7 +268,7 @@ func (s *Service) SyncAndSave(ctx context.Context, tr *task.Task, actorID string
 	s.mirrorSave(ctx, tr)
 
 	if s.Recorder != nil && tr.Status != prevStatus {
-		_ = s.Recorder.Record(ctx, tr.ID, activity.ActorUser, actorID, activity.ActionStatusChanged,
+		_ = s.Recorder.Record(ctx, tr.ID, actorType, actorID, activity.ActionStatusChanged,
 			fmt.Sprintf(`{"from":%q,"to":%q}`, prevStatus, tr.Status))
 	}
 	return nil

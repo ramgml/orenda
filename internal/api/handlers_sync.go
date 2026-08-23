@@ -24,6 +24,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/comment"
 	"github.com/ramgml/orenda/internal/domain/event"
 	"github.com/ramgml/orenda/internal/domain/task"
@@ -194,7 +195,7 @@ func applySyncOp(r *http.Request, deps *Dependencies, id *Identity, op syncOp) s
 		}
 		// T46: use SyncAndSave for status↔column sync + persist.
 		if deps.TaskService != nil {
-			if err := deps.TaskService.SyncAndSave(ctx, tr, op.ClientID, prevStatus); err != nil {
+			if err := deps.TaskService.SyncAndSave(ctx, tr, op.ClientID, activity.ActorSystem, prevStatus); err != nil {
 				res.Error = err.Error()
 				return res
 			}
