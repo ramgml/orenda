@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/activity"
 	commentdomain "github.com/ramgml/orenda/internal/domain/comment"
@@ -116,6 +118,9 @@ type Service struct {
 	// dragged onto a real board gets filed under that project
 	// (Phase 16.7).
 	Columns project.Repository
+	// Logger is used for warn/error logs in the service layer.
+	// nil-safe — callers that don't set it get silent degradation.
+	Logger *zap.Logger
 }
 
 // MirrorWriter is the seam for the Phase 7 markdown mirror. The concrete
@@ -173,6 +178,13 @@ func (s *Service) lookupColumnForStatus(ctx context.Context, projectID, status s
 	}
 	col, err := s.Columns.FindColumnByStatus(ctx, projectID, status)
 	if err != nil {
+		if s.Logger != nil {
+			s.Logger.Warn("lookupColumnForStatus: FindColumnByStatus failed",
+				zap.String("project_id", projectID),
+				zap.String("status", status),
+				zap.Error(err),
+			)
+		}
 		return ""
 	}
 	return col.ID
@@ -219,6 +231,47 @@ func (s *Service) SyncStatusAndColumn(ctx context.Context, tr *task.Task) {
 		return
 	}
 	s.syncColumnToStatus(ctx, tr)
+}
+
+// SyncAndSave is the canonical save point for every PATCH that may touch
+// status or column_id. It performs the status→column sync ONLY when the
+// status actually changed (tr.Status != prevStatus), persists the task,
+// mirrors it, and records a task.status_changed activity row.
+//
+// prevStatus is the task's status BEFORE the caller mutated it — the
+// caller (applyTaskPatchAndEffects) captures it before applying changes.
+// This lets SyncAndSave detect the transition and record the activity.
+//
+// Column→status (the reverse direction, e.g. user drags a card) is done
+// by the caller BEFORE calling SyncAndSave — the caller knows which axis
+// the user changed. SyncAndSave NEVER touches the column when status
+// hasn't changed, so an explicit column_id PATCH persists even when the
+// column has no status (statusless columns) or the row was pre-diverged.
+//
+// actorType identifies who performed the action (ActorUser, ActorAgent,
+// ActorSystem). The sync path (offline outbox) should use ActorSystem.
+func (s *Service) SyncAndSave(ctx context.Context, tr *task.Task, actorID string, actorType activity.ActorType, prevStatus task.Status) error {
+	if s == nil || tr == nil {
+		return nil
+	}
+
+	// status → column: ONLY when status actually changed. When only
+	// column_id changed (explicit drag or statusless column), the caller
+	// already set both column_id and status — don't overwrite.
+	if tr.Status != prevStatus {
+		s.syncColumnToStatus(ctx, tr)
+	}
+
+	if err := s.Tasks.Update(ctx, tr); err != nil {
+		return err
+	}
+	s.mirrorSave(ctx, tr)
+
+	if s.Recorder != nil && tr.Status != prevStatus {
+		_ = s.Recorder.Record(ctx, tr.ID, actorType, actorID, activity.ActionStatusChanged,
+			fmt.Sprintf(`{"from":%q,"to":%q}`, prevStatus, tr.Status))
+	}
+	return nil
 }
 
 // Move relocates a task to a new column / position atomically.
@@ -478,6 +531,9 @@ func (s *Service) Claim(ctx context.Context, taskID, agentID string) (*task.Task
 	}
 	s.mirrorSave(ctx, tr)
 
+	if s.Recorder != nil {
+		_ = s.Recorder.Record(ctx, taskID, activity.ActorAgent, agentID, activity.ActionClaimed, "")
+	}
 	s.publishTask(ctx, "task.claimed", tr, agentID, map[string]any{"agent_id": agentID})
 	return tr, nil
 }
@@ -509,6 +565,9 @@ func (s *Service) Release(ctx context.Context, taskID, agentID string) (*task.Ta
 	}
 	s.mirrorSave(ctx, tr)
 
+	if s.Recorder != nil {
+		_ = s.Recorder.Record(ctx, taskID, activity.ActorAgent, agentID, activity.ActionReleased, "")
+	}
 	s.publishTask(ctx, "task.released", tr, agentID, map[string]any{"agent_id": agentID})
 	return tr, nil
 }
@@ -748,6 +807,10 @@ func (s *Service) Review(ctx context.Context, taskID, userID string, decision Re
 		return nil, err
 	}
 	s.mirrorSave(ctx, tr)
+	if s.Recorder != nil {
+		_ = s.Recorder.Record(ctx, taskID, activity.ActorUser, userID, activity.ActionReviewed,
+			fmt.Sprintf(`{"decision":%q}`, decision))
+	}
 	s.publishTask(ctx, "task.reviewed", tr, userID, map[string]any{
 		"decision": string(decision),
 		"comment":  comment,
