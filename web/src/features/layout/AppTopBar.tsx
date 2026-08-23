@@ -43,7 +43,7 @@ interface AppTopBarProps {
 export function AppTopBar({ onMobileMenuClick }: AppTopBarProps): JSX.Element {
   const { user, logout } = useAuth();
   return (
-    <header className="h-12 border-b border-border bg-background flex items-center justify-between gap-3 px-4">
+    <header className="h-12 border-b border-border bg-background flex items-center justify-between gap-3 px-4 overflow-hidden">
       <div className="flex items-center gap-2">
         {onMobileMenuClick && <HamburgerButton onClick={onMobileMenuClick} />}
         <Link to="/" className="flex items-center gap-2 font-semibold md:hidden">
@@ -51,7 +51,7 @@ export function AppTopBar({ onMobileMenuClick }: AppTopBarProps): JSX.Element {
           Orenda
         </Link>
       </div>
-      <div className="flex items-center gap-3 text-sm text-muted-foreground">
+      <div className="flex items-center gap-3 text-sm text-muted-foreground flex-1 min-w-0 justify-end">
         <NotificationsBell />
         <HealthBadge />
         <ThemeToggle />
@@ -64,7 +64,7 @@ export function AppTopBar({ onMobileMenuClick }: AppTopBarProps): JSX.Element {
           variant="outline"
           size="sm"
           onClick={() => logout()}
-          className="px-2 py-1 text-xs h-auto"
+          className="px-2 py-1 text-xs h-auto shrink-0 hidden sm:inline-flex"
         >
           Sign out
         </Button>
