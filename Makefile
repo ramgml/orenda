@@ -27,7 +27,7 @@ LDFLAGS    := -ldflags "-s -w -X main.version=$(VERSION)"
 
 .PHONY: all dev build test test-full lint lint-new clean migrate-up migrate-down \
         backup backup-push backup-snapshot backup-status \
-        web-install web-dev web-build web-test test-e2e \
+        web-install web-dev web-build web-test web-typecheck test-e2e \
         embed-dists run version help govulncheck hooks \
         web-format web-format-check
 
@@ -150,7 +150,7 @@ hooks:
 		echo "hooks: setting core.hooksPath = $$hooks in $$main_git/config"; \
 		GIT_DIR="$$main_git" git config core.hooksPath "$$hooks"; \
 	fi
-	@echo "hooks: active — pre-commit (gofmt + prettier --check) and pre-push (make lint-new + make test)"
+	@echo "hooks: active — pre-commit (gofmt + prettier --check) and pre-push (make lint-new + make web-typecheck + make test)"
 	@echo "hooks: bypass with SKIP_ORENDA_HOOKS=1 (avoid --no-verify — see AGENTS.md)"
 
 ## web-format: Format web/ sources with Prettier (writes in-place).
@@ -226,6 +226,11 @@ web-build:
 ## web-test: Run the vitest suite (component / unit / hook tests)
 web-test:
 	cd $(WEB_DIR) && $(NPM) run test
+
+## web-typecheck: Run tsc --noEmit on the SPA.
+## Task 44: catches TS errors locally before push; mirrors `web-test` style.
+web-typecheck:
+	cd $(WEB_DIR) && $(NPM) run typecheck
 
 ## version: Print version
 version:
