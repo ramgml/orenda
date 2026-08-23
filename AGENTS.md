@@ -80,6 +80,11 @@ Hook contract:
 | `pre-commit`| `git commit`   | `gofmt -l` on staged `.go` + `prettier --check` on staged web     | <2 s       |
 | `pre-push`  | `git push`     | `make lint-new` + `make web-typecheck` + `make test`              | ~1 min cold, seconds warm |
 
+Deletion-only pushes (e.g. `git push origin --delete <branch>`) skip
+the gates entirely — no code crosses the wire, so there is nothing to
+gate.  Mixed pushes (any code update alongside a deletion) still run
+the full gate.
+
 `make web-typecheck` runs `tsc --noEmit` on the SPA (~7 s wall time).
 It catches TS errors that would break `web-build` (e.g. the v0.5.0
 release blocker where `shadcn.test.tsx` referenced an undefined
