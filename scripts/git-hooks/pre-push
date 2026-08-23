@@ -8,13 +8,15 @@
 # Goal: ~1 min on a typical push. One push per task, so cost is fine.
 #
 # Checks:
-#   make lint-new   — golangci-lint run --new-from-merge-base=origin/dev
-#                     (same flag the PR CI uses; pre-existing debt is
-#                     silent by design — see Phase 30.16)
-#   make test       — go test ./... -race (Go test cache ENABLED — no
-#                     -count=1, so an unchanged tree re-runs in seconds)
-#                     + vitest. The full uncached `make test-full` is the
-#                     CI backstop on push to dev.
+#   make lint-new      — golangci-lint run --new-from-merge-base=origin/dev
+#                        (same flag the PR CI uses; pre-existing debt is
+#                        silent by design — see Phase 30.16)
+#   make web-typecheck  — tsc --noEmit on web/src (catches TS errors that
+#                         would break web-build; Task 44)
+#   make test          — go test ./... -race (Go test cache ENABLED — no
+#                        -count=1, so an unchanged tree re-runs in seconds)
+#                        + vitest. The full uncached `make test-full` is the
+#                        CI backstop on push to dev.
 #
 # Exits non-zero to block the push. Set SKIP_ORENDA_HOOKS=1 to bypass.
 # `--no-verify` is forbidden by AGENTS.md.
@@ -55,6 +57,13 @@ echo "pre-push: running \`make lint-new\` (golangci-lint --new-from-merge-base=o
 if ! make lint-new; then
   echo "pre-push: lint-new failed — push blocked." >&2
   echo "  inspect new issues locally; \`make lint\` shows everything (incl. pre-existing)." >&2
+  exit 1
+fi
+
+echo "pre-push: running \`make web-typecheck\` (tsc --noEmit)…"
+if ! make web-typecheck; then
+  echo "pre-push: web-typecheck failed — push blocked." >&2
+  echo "  fix TS errors in web/src. If tsc is not found: \`cd web && npm install\`." >&2
   exit 1
 fi
 

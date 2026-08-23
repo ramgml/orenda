@@ -10,10 +10,10 @@
 #     waiting on this runner
 #   - `workflow_dispatch` runs the full pipeline on demand
 #
-# Jobs (release gate only — push-to-dev backstop runs only `test-full`):
+# Jobs (release gate only — push-to-dev backstop runs `web-typecheck` + `test-full`):
 #   lint     — golangci-lint (new-vs-main on release-gate runs; full lint
 #              stays local as `make lint` debt inventory, Phase 30.16)
-#   test     — go test -race + vitest
+#   test     — web-typecheck + go test -race + vitest
 #   build    — make build (binary with embedded SPA)
 #   e2e      — Playwright against the built binary
 #
@@ -156,6 +156,12 @@ jobs:
       - name: npm ci
         working-directory: web
         run: npm ci
+
+      - name: "make web-typecheck (tsc --noEmit — catch TS errors before build)"
+        # Task 44: the dev backstop catches the incident class where tsc
+        # errors broke web-build (shadcn.test.tsx, v0.5.0 blocker). Runs
+        # before test-full so the failure message is clear and isolated.
+        run: make web-typecheck
 
       - name: "make test-full (full uncached run: go test -race -count=1 + vitest)"
         # The CI backstop deliberately runs the full `make test-full` target
