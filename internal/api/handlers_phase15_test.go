@@ -136,8 +136,10 @@ func newPhase15Fixture(t *testing.T) *phase15Fixture {
 		TaskLockHolder: lockRepo,
 	}
 
+	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 	return &phase15Fixture{
-		router:        api.NewRouter(&deps),
+		router:        router,
 		ownerEmail:    ownerEmail,
 		holderToken:   holderReg.PlainToken,
 		holderAgentID: holderReg.Agent.ID,
@@ -278,6 +280,7 @@ func TestPhase15_LockTaken_FallsBackToBareErrorWhenHolderRepoUnwired(t *testing.
 		// TaskLockHolder deliberately nil — backwards-compat path.
 	}
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	taskID := f.seedTask(t)
 

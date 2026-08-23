@@ -120,6 +120,7 @@ func newProposeFixture(t *testing.T) *proposeFixture {
 		CookieName:       "orenda_session",
 	}
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	// Owner cookie via the real login endpoint.
 	loginBody, _ := json.Marshal(map[string]string{"email": ownerEmail, "password": "hunter2!"})

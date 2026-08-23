@@ -101,6 +101,7 @@ func authedJSON(t *testing.T, router http.Handler, method, path, cookie string, 
 func TestIntegration_Login_Me_Project_Task(t *testing.T) {
 	deps := integrationDeps(t)
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	// Login.
 	cookie := loginAndCookie(t, router, "owner@x.com", "hunter2")
@@ -179,6 +180,7 @@ func TestIntegration_Login_Me_Project_Task(t *testing.T) {
 func TestIntegration_BadLogin(t *testing.T) {
 	deps := integrationDeps(t)
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	body, _ := json.Marshal(map[string]string{"email": "owner@x.com", "password": "wrong"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
@@ -190,6 +192,7 @@ func TestIntegration_BadLogin(t *testing.T) {
 func TestIntegration_RequiresAuth(t *testing.T) {
 	deps := integrationDeps(t)
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	// No cookie.
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
@@ -208,6 +211,7 @@ func TestIntegration_RequiresAuth(t *testing.T) {
 func TestIntegration_Logout(t *testing.T) {
 	deps := integrationDeps(t)
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 	cookie := loginAndCookie(t, router, "owner@x.com", "hunter2")
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)

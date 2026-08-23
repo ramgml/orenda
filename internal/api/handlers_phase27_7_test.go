@@ -108,6 +108,7 @@ func p27_7Deps(t *testing.T) p27_7Fixtures {
 		CookieName:  "orenda_session",
 	}
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	body, _ := json.Marshal(map[string]string{"email": "p277@x.com", "password": "hunter2!"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))

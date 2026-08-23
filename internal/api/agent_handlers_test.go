@@ -90,8 +90,10 @@ func newAgentFixture(t *testing.T) *agentFixture {
 		WSHub:       hub,
 		CookieName:  "orenda_session",
 	}
+	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 	return &agentFixture{
-		router:  api.NewRouter(&deps),
+		router:  router,
 		agentID: got.Agent.ID,
 		token:   got.PlainToken,
 		db:      db,

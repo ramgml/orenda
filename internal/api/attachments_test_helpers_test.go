@@ -14,8 +14,11 @@ import (
 	"github.com/ramgml/orenda/internal/api"
 )
 
-func apiNewRouter(deps api.Dependencies) http.Handler {
-	return api.NewRouter(&deps)
+func apiNewRouter(t *testing.T, deps api.Dependencies) http.Handler {
+	t.Helper()
+	r := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
+	return r
 }
 
 // uploadOneAttachment drives the public POST /tasks/:id/attachments

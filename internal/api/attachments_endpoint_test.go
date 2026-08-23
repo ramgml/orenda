@@ -23,7 +23,7 @@ import (
 
 func TestListTaskAttachments_Regression405(t *testing.T) {
 	deps := integrationDeps(t)
-	router := apiNewRouter(deps)
+	router := apiNewRouter(t, deps)
 	cookie := loginAndCookie(t, router, "owner@x.com", "hunter2")
 
 	// Set up project + column + task via the public REST surface.

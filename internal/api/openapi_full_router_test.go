@@ -138,7 +138,9 @@ func fullRouterDeps(t *testing.T) http.Handler {
 		// filesystem paths (config + uploads dir) and aren't needed
 		// for route mount. Their routes mount unconditionally.
 	}
-	return api.NewRouter(&deps)
+	r := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
+	return r
 }
 
 // TestOpenAPI_RouteCoverage_FullRouter (Phase 27.11) walks the

@@ -90,6 +90,7 @@ func newAgentWikiFixture(t *testing.T) *agentWikiFixture {
 		CookieName:    "orenda_session",
 	}
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	// Log the owner in so tests can also hit the user-side routes.
 	body, _ := json.Marshal(map[string]string{"email": ownerEmail, "password": "hunter2!"})

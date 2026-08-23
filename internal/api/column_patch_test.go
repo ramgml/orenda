@@ -80,6 +80,7 @@ func columnDeps(t *testing.T) colFixtures {
 		CookieName:  "orenda_session",
 	}
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	body, _ := json.Marshal(map[string]string{"email": "col@x.com", "password": "hunter2!"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
@@ -234,6 +235,7 @@ func TestPatchColumn_BroadcastsColumnUpdated(t *testing.T) {
 		CookieName:  "orenda_session",
 	}
 	router := api.NewRouter(&deps2)
+	t.Cleanup(deps2.RateLimitClose)
 
 	body, _ := json.Marshal(map[string]string{"email": "col2@x.com", "password": "hunter2!"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))

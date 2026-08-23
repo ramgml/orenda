@@ -111,6 +111,7 @@ func newAgentCourseFixture(t *testing.T) *agentCourseFixture {
 		CookieName:    "orenda_session",
 	}
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	// Log the owner in for user-side cross-checks.
 	body, _ := json.Marshal(map[string]string{"email": ownerEmail, "password": "hunter2!"})
