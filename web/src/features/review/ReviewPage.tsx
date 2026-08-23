@@ -139,7 +139,7 @@ function ReviewRow({
   return (
     <li
       data-testid="review-row"
-      className="rounded border border-border bg-background p-3 flex gap-3 items-start"
+      className="rounded border border-border bg-background p-3 flex gap-3 items-start w-full min-w-0"
     >
       <Button
         type="button"
@@ -147,30 +147,33 @@ function ReviewRow({
         onClick={onOpen}
         className="flex-1 min-w-0 h-auto justify-start p-0 text-left"
       >
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <span
-            aria-hidden
-            className="inline-block h-2 w-2 rounded-full"
-            style={{ background: projectColor }}
-          />
-          <span>{projectLabel}</span>
-          <span>·</span>
-          <span>{new Date(item.task.updated_at).toLocaleString()}</span>
-        </div>
-        <p className="text-foreground mt-1">
-          <TaskNumberChip number={item.task.number} /> <span>{item.task.title}</span>
-        </p>
-        {item.task.description && (
-          <p className="text-xs text-slate-500 mt-1 line-clamp-2">{item.task.description}</p>
-        )}
-        <div className="flex gap-3 text-[10px] text-slate-400 mt-1 font-mono">
-          <span>{item.task.status}</span>
-          <span>{item.task.priority}</span>
-          {item.task.assignee_type && item.task.assignee_id && (
-            <span>
-              {item.task.assignee_type}:{item.task.assignee_id.slice(0, 6)}
-            </span>
+        <div className="w-full min-w-0">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <span
+              aria-hidden
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ background: projectColor }}
+            />
+            <span>{projectLabel}</span>
+            <span>·</span>
+            <span>{new Date(item.task.updated_at).toLocaleString()}</span>
+          </div>
+          <p className="text-foreground mt-1 whitespace-normal break-words">
+            <TaskNumberChip number={item.task.number} /> <span>{item.task.title}</span>
+          </p>
+          {item.task.description && (
+            <p className="text-xs text-slate-500 mt-1 line-clamp-2">{item.task.description}</p>
           )}
+          <div className="flex gap-3 flex-wrap text-[10px] text-slate-400 mt-1 font-mono">
+            <span>{item.task.status}</span>
+            <span>{item.task.priority}</span>
+            {item.task.assignee_type && item.task.assignee_id && (
+              <span className="min-w-0 max-w-full">
+                {item.task.assignee_type}:
+                <span className="truncate max-w-[6rem]">{item.task.assignee_id.slice(0, 6)}</span>
+              </span>
+            )}
+          </div>
         </div>
       </Button>
       <div className="flex flex-col gap-1 items-end shrink-0">
