@@ -34,13 +34,7 @@ const p6Email = "p6-owner@orenda.test"
 // p6Fixture returns a router with the full Phase 6 dependency set.
 func p6Fixture(t *testing.T) (http.Handler, *sqlLite) {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/p6.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, dir := copyTemplateDB(t)
 	_ = os.MkdirAll(filepath.Join(dir, "uploads"), 0o755)
 
 	users := sqlite.NewUserRepository(db)
@@ -187,6 +181,7 @@ func p6SeedTask(t *testing.T, router http.Handler, cookie string) string {
 }
 
 func TestP6_SubmitNotifiesOwner(t *testing.T) {
+	t.Parallel()
 	router, _ := p6Fixture(t)
 	cookie := p6Login(t, router)
 
@@ -219,6 +214,7 @@ func TestP6_SubmitNotifiesOwner(t *testing.T) {
 }
 
 func TestP6_MentionNotifiesMentionedUser(t *testing.T) {
+	t.Parallel()
 	router, db := p6Fixture(t)
 	cookie := p6Login(t, router)
 
@@ -252,6 +248,7 @@ func TestP6_MentionNotifiesMentionedUser(t *testing.T) {
 }
 
 func TestP6_SubmitDedupes(t *testing.T) {
+	t.Parallel()
 	router, _ := p6Fixture(t)
 	cookie := p6Login(t, router)
 
@@ -274,6 +271,7 @@ func TestP6_SubmitDedupes(t *testing.T) {
 }
 
 func TestP6_MarkNotificationRead(t *testing.T) {
+	t.Parallel()
 	router, _ := p6Fixture(t)
 	cookie := p6Login(t, router)
 

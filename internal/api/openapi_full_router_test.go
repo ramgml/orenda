@@ -27,7 +27,6 @@ package api_test
 import (
 	"context"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -62,13 +61,7 @@ import (
 // handlers, we just need them mountable.
 func fullRouterDeps(t *testing.T) http.Handler {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/full.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	projects := sqlite.NewProjectRepository(db)
@@ -151,6 +144,7 @@ func fullRouterDeps(t *testing.T) http.Handler {
 // the courses namespace, and the inbox endpoint; this test is
 // the production-shape coverage run.
 func TestOpenAPI_RouteCoverage_FullRouter(t *testing.T) {
+	t.Parallel()
 	spec := readOpenAPISpec(t)
 	require.NotEmpty(t, spec, "openapi.yaml must be readable")
 

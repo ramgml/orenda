@@ -22,6 +22,7 @@ func testDeps() *api.Dependencies {
 }
 
 func TestHealthz(t *testing.T) {
+	t.Parallel()
 	td := testDeps()
 	router := api.NewRouter(td)
 	t.Cleanup(td.RateLimitClose)
@@ -40,6 +41,7 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestInfo(t *testing.T) {
+	t.Parallel()
 	infoDeps := &api.Dependencies{
 		Logger: zap.NewNop(),
 		Capabilities: api.Capabilities{
@@ -69,6 +71,7 @@ func TestInfo(t *testing.T) {
 }
 
 func TestInfo_DefaultsAllFalse(t *testing.T) {
+	t.Parallel()
 	td := testDeps()
 	router := api.NewRouter(td)
 	t.Cleanup(td.RateLimitClose)
@@ -86,6 +89,7 @@ func TestInfo_DefaultsAllFalse(t *testing.T) {
 }
 
 func TestSPA_NotFoundForUnknownAPI(t *testing.T) {
+	t.Parallel()
 	td := testDeps()
 	router := api.NewRouter(td)
 	t.Cleanup(td.RateLimitClose)
@@ -102,6 +106,7 @@ func TestSPA_NotFoundForUnknownAPI(t *testing.T) {
 }
 
 func TestCORS_LoopbackAllowed(t *testing.T) {
+	t.Parallel()
 	router := api.NewRouter(testDeps())
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
@@ -114,6 +119,7 @@ func TestCORS_LoopbackAllowed(t *testing.T) {
 }
 
 func TestCORS_ExternalOriginIgnored(t *testing.T) {
+	t.Parallel()
 	router := api.NewRouter(testDeps())
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
@@ -126,6 +132,7 @@ func TestCORS_ExternalOriginIgnored(t *testing.T) {
 }
 
 func TestCORS_PreflightLoopback(t *testing.T) {
+	t.Parallel()
 	router := api.NewRouter(testDeps())
 
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/tasks", nil)

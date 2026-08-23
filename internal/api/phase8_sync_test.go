@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -52,6 +51,7 @@ func parseSyncResults(t *testing.T, rr *httptest.ResponseRecorder) []syncResultR
 }
 
 func TestP8_Sync_CreateTask_Idempotent(t *testing.T) {
+	t.Parallel()
 	router, _ := buildP3Router(t)
 	cookie := p3Login(t, router)
 	projID, colID := p3SeedProject(t, router, cookie, "P8")
@@ -80,6 +80,7 @@ func TestP8_Sync_CreateTask_Idempotent(t *testing.T) {
 }
 
 func TestP8_Sync_MoveTask(t *testing.T) {
+	t.Parallel()
 	router, _ := buildP3Router(t)
 	cookie := p3Login(t, router)
 	projID, colID := p3SeedProject(t, router, cookie, "P8m")
@@ -100,6 +101,7 @@ func TestP8_Sync_MoveTask(t *testing.T) {
 }
 
 func TestP8_Sync_UnsupportedOp(t *testing.T) {
+	t.Parallel()
 	router, _ := buildP3Router(t)
 	cookie := p3Login(t, router)
 
@@ -119,6 +121,7 @@ func TestP8_Sync_UnsupportedOp(t *testing.T) {
 }
 
 func TestP8_Sync_EmptyBatch(t *testing.T) {
+	t.Parallel()
 	router, _ := buildP3Router(t)
 	cookie := p3Login(t, router)
 	rr := p8PostSync(t, router, cookie, nil)
@@ -130,13 +133,7 @@ func TestP8_Sync_EmptyBatch(t *testing.T) {
 // router and the auth cookie.
 func syncWithEWRouter(t *testing.T) (http.Handler, string) {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/ew.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
@@ -180,6 +177,7 @@ func syncWithEWRouter(t *testing.T) (http.Handler, string) {
 }
 
 func TestP8_Sync_CreateEvent(t *testing.T) {
+	t.Parallel()
 	router, cookie := syncWithEWRouter(t)
 	now := time.Now().UTC().Truncate(time.Second).Format(time.RFC3339)
 	soon := time.Now().UTC().Add(30 * time.Minute).Truncate(time.Second).Format(time.RFC3339)
@@ -204,6 +202,7 @@ func TestP8_Sync_CreateEvent(t *testing.T) {
 }
 
 func TestP8_Sync_CreatePage(t *testing.T) {
+	t.Parallel()
 	router, cookie := syncWithEWRouter(t)
 	op := map[string]any{
 		"op":     "create_page",
@@ -226,6 +225,7 @@ func TestP8_Sync_CreatePage(t *testing.T) {
 
 // Replay a create_page with the same client_id: idempotent.
 func TestP8_Sync_CreatePage_Idempotent(t *testing.T) {
+	t.Parallel()
 	router, cookie := syncWithEWRouter(t)
 	op := map[string]any{
 		"op":         "create_page",

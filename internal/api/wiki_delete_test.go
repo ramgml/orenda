@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -24,13 +23,7 @@ import (
 
 func wikiRouter(t *testing.T) (http.Handler, string) {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/w.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
@@ -75,6 +68,7 @@ func wikiRouter(t *testing.T) (http.Handler, string) {
 // shape, and the handler must take the slug from the URL. Regression
 // test for the 500 that the Save button used to produce.
 func TestWiki_PutUpdatesWithoutSlugInBody(t *testing.T) {
+	t.Parallel()
 	router, cookie := wikiRouter(t)
 
 	// Seed a page.
@@ -109,6 +103,7 @@ func TestWiki_PutUpdatesWithoutSlugInBody(t *testing.T) {
 // PATCH /pages/{slug}/move with parent_id moves the page under that
 // parent. The next Tree fetch must show it as a child.
 func TestWiki_Move_ToParent(t *testing.T) {
+	t.Parallel()
 	router, cookie := wikiRouter(t)
 
 	// Create parent + child at root.
@@ -179,6 +174,7 @@ func TestWiki_Move_ToParent(t *testing.T) {
 
 // Moving a page under itself is a 400 (cycle).
 func TestWiki_Move_RejectsSelf(t *testing.T) {
+	t.Parallel()
 	router, cookie := wikiRouter(t)
 	createPage(t, router, cookie, mustJSON(t, map[string]string{"slug": "a", "title": "A"}))
 
@@ -204,6 +200,7 @@ func TestWiki_Move_RejectsSelf(t *testing.T) {
 
 // Moving a parent under its own child would create a cycle → 400.
 func TestWiki_Move_RejectsCycle(t *testing.T) {
+	t.Parallel()
 	router, cookie := wikiRouter(t)
 	createPage(t, router, cookie, mustJSON(t, map[string]string{"slug": "parent", "title": "Parent"}))
 	createPage(t, router, cookie, mustJSON(t, map[string]string{"slug": "child", "title": "Child"}))
@@ -246,6 +243,7 @@ func TestWiki_Move_RejectsCycle(t *testing.T) {
 
 // Move to root by sending empty parent_id.
 func TestWiki_Move_ToRoot(t *testing.T) {
+	t.Parallel()
 	router, cookie := wikiRouter(t)
 	createPage(t, router, cookie, mustJSON(t, map[string]string{"slug": "p", "title": "P"}))
 	createPage(t, router, cookie, mustJSON(t, map[string]string{"slug": "c", "title": "C"}))
@@ -279,6 +277,7 @@ func TestWiki_Move_ToRoot(t *testing.T) {
 
 // Russian (Cyrillic) title + auto-Latin slug is a valid save too.
 func TestWiki_PutAcceptsNonASCIITitle(t *testing.T) {
+	t.Parallel()
 	router, cookie := wikiRouter(t)
 	putBody, _ := json.Marshal(map[string]string{
 		"title":      "Обновлённый заголовок",
@@ -298,6 +297,7 @@ func TestWiki_PutAcceptsNonASCIITitle(t *testing.T) {
 }
 
 func TestWiki_Delete(t *testing.T) {
+	t.Parallel()
 	router, cookie := wikiRouter(t)
 
 	// Create a page via POST.
@@ -327,6 +327,7 @@ func TestWiki_Delete(t *testing.T) {
 }
 
 func TestWiki_DeleteMissing(t *testing.T) {
+	t.Parallel()
 	router, cookie := wikiRouter(t)
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/pages/no-such", nil)
 	req.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
@@ -336,6 +337,7 @@ func TestWiki_DeleteMissing(t *testing.T) {
 }
 
 func TestWiki_DeleteCascadesLinks(t *testing.T) {
+	t.Parallel()
 	router, cookie := wikiRouter(t)
 
 	// Create target first so the source save doesn't auto-create it.

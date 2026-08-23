@@ -26,6 +26,7 @@ func createColumnReq(router http.Handler, cookie, projectID string, body any) *h
 
 // 1) Happy path: create a column and confirm it appears in GET /board.
 func TestCreateColumn_Success(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	rr := createColumnReq(f.router, f.cookie, f.projectID, map[string]any{
 		"name":  "QA",
@@ -54,6 +55,7 @@ func TestCreateColumn_Success(t *testing.T) {
 
 // 2) wip_limit is honored on create.
 func TestCreateColumn_WithWIPLimit(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	three := 3
 	rr := createColumnReq(f.router, f.cookie, f.projectID, map[string]any{
@@ -69,6 +71,7 @@ func TestCreateColumn_WithWIPLimit(t *testing.T) {
 
 // 3) Empty name → 400.
 func TestCreateColumn_EmptyName(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	rr := createColumnReq(f.router, f.cookie, f.projectID, map[string]any{"name": ""})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
@@ -78,6 +81,7 @@ func TestCreateColumn_EmptyName(t *testing.T) {
 
 // 4) Missing body → 400.
 func TestCreateColumn_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+f.projectID+"/columns",
 		bytes.NewReader([]byte("{not-json")))
@@ -90,6 +94,7 @@ func TestCreateColumn_InvalidJSON(t *testing.T) {
 
 // 5) Negative wip_limit → 400.
 func TestCreateColumn_NegativeWIP(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	neg := -1
 	rr := createColumnReq(f.router, f.cookie, f.projectID, map[string]any{
@@ -101,6 +106,7 @@ func TestCreateColumn_NegativeWIP(t *testing.T) {
 
 // 6) Unknown project → 404 (no board exists).
 func TestCreateColumn_ProjectNotFound(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	rr := createColumnReq(f.router, f.cookie, "deadbeef-0000-0000-0000-000000000000",
 		map[string]any{"name": "QA"})
@@ -110,6 +116,7 @@ func TestCreateColumn_ProjectNotFound(t *testing.T) {
 // 7) After create + reorder (via PATCH position), GET /board preserves the
 // new order. This is the integration glue the kanban dnd code depends on.
 func TestCreateColumn_ThenReorderByPosition(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 
 	// Insert a fresh column at the end (max+1024).

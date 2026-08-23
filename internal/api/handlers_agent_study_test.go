@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -26,16 +25,8 @@ import (
 // (RequireAgent middleware + chi URL params).
 func buildAgentStudyDeps(t *testing.T) (*Dependencies, string, string) {
 	t.Helper()
+	db := copyInternalTemplateDB(t)
 	ctx := context.Background()
-
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "orenda.db")
-	db, err := sqlite.Open(ctx, dbPath, sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	require.NoError(t, sqlite.Migrate(ctx, db, sqlite.MigrationsFS, "migrations"))
-	t.Cleanup(func() { _ = db.Close() })
 
 	// Study repo + task repo + course repo all on the same DB.
 	propRepo := sqlite.NewStudyProposalRepository(db)
@@ -54,7 +45,7 @@ func buildAgentStudyDeps(t *testing.T) (*Dependencies, string, string) {
 		agentID  = "a-as"
 		courseID = "c-as"
 	)
-	_, err = db.ExecContext(ctx,
+	_, err := db.ExecContext(ctx,
 		`INSERT INTO users (id, email, password_hash, display_name) VALUES (?, ?, ?, ?)`,
 		ownerID, "as@031.local", "x", "U")
 	require.NoError(t, err)
@@ -101,6 +92,7 @@ func withRouteParam(r *http.Request, value string) *http.Request {
 // TestAgentStudyPropose_HappyPath: the planner posts a proposal,
 // the handler stamps agent_id, returns 201 + proposal.
 func TestAgentStudyPropose_HappyPath(t *testing.T) {
+	t.Parallel()
 	deps, agentID, _ := buildAgentStudyDeps(t)
 
 	body, _ := json.Marshal(map[string]string{
@@ -125,6 +117,7 @@ func TestAgentStudyPropose_HappyPath(t *testing.T) {
 // TestAgentStudyPropose_MissingFields: title or target_date
 // empty → 400 with a stable error key.
 func TestAgentStudyPropose_MissingFields(t *testing.T) {
+	t.Parallel()
 	deps, agentID, _ := buildAgentStudyDeps(t)
 	cases := []struct {
 		name string
@@ -151,6 +144,7 @@ func TestAgentStudyPropose_MissingFields(t *testing.T) {
 // agent_id in the context → 401 (defence in depth — the
 // middleware should reject first, but handlers must guard).
 func TestAgentStudyPropose_NoIdentity(t *testing.T) {
+	t.Parallel()
 	deps, _, _ := buildAgentStudyDeps(t)
 	body, _ := json.Marshal(map[string]string{
 		"title": "Read", "target_date": "2099-08-17",
@@ -165,6 +159,7 @@ func TestAgentStudyPropose_NoIdentity(t *testing.T) {
 // 503 so partial-router fixtures (some routes only) report a
 // useful error instead of crashing.
 func TestAgentStudyPropose_NoServiceWired(t *testing.T) {
+	t.Parallel()
 	deps := &Dependencies{} // no StudyService
 	body, _ := json.Marshal(map[string]string{
 		"title": "Read", "target_date": "2099-08-17",
@@ -180,6 +175,7 @@ func TestAgentStudyPropose_NoServiceWired(t *testing.T) {
 // notes through the narrow PATCH; the row returns with the trimmed
 // value + 200.
 func TestPatchCoursePaceNotes_HappyPath(t *testing.T) {
+	t.Parallel()
 	deps, _, courseID := buildAgentStudyDeps(t)
 
 	body, _ := json.Marshal(map[string]string{
@@ -204,6 +200,7 @@ func TestPatchCoursePaceNotes_HappyPath(t *testing.T) {
 // stripped by the repo's Course.Validate — the response shows
 // the trimmed form.
 func TestPatchCoursePaceNotes_Trims(t *testing.T) {
+	t.Parallel()
 	deps, _, courseID := buildAgentStudyDeps(t)
 
 	body, _ := json.Marshal(map[string]string{"pace_notes_md": "  trim me  "})
@@ -223,6 +220,7 @@ func TestPatchCoursePaceNotes_Trims(t *testing.T) {
 // TestPatchCoursePaceNotes_Oversized: oversized payload → 400
 // (the repo's Course.Validate rejects >64 KiB).
 func TestPatchCoursePaceNotes_Oversized(t *testing.T) {
+	t.Parallel()
 	deps, _, courseID := buildAgentStudyDeps(t)
 
 	huge := strings.Repeat("x", 65537)
@@ -240,6 +238,7 @@ func TestPatchCoursePaceNotes_Oversized(t *testing.T) {
 // TestPatchCoursePaceNotes_UnknownCourse: course id not in DB →
 // 404.
 func TestPatchCoursePaceNotes_UnknownCourse(t *testing.T) {
+	t.Parallel()
 	deps, _, _ := buildAgentStudyDeps(t)
 
 	body, _ := json.Marshal(map[string]string{"pace_notes_md": "nope"})
@@ -267,6 +266,7 @@ func TestPatchCoursePaceNotes_UnknownCourse(t *testing.T) {
 // pinned here by constructing the same logical row through a
 // direct call into enrichActiveCourse.
 func TestEnrichActiveCourse_AttachedProgress(t *testing.T) {
+	t.Parallel()
 	deps, _, courseID := buildAgentStudyDeps(t)
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)

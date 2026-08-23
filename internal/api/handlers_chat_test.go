@@ -39,6 +39,7 @@ func (f *fakeChatMessages) ListByThread(_ context.Context, threadID string, _ in
 
 // TestChat_ExtractCommand pins the command-token parser.
 func TestChat_ExtractCommand(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in, want string
 	}{
@@ -62,6 +63,7 @@ func TestChat_ExtractCommand(t *testing.T) {
 // POST /api/v1/dashboard/chat with /help → both messages
 // persisted, agent reply echoes the static help text.
 func TestChat_PostPersistsAndDispatches(t *testing.T) {
+	t.Parallel()
 	deps := &Dependencies{
 		ChatMessages: &fakeChatMessages{},
 		WSHub:        ws.NopHub{},
@@ -85,6 +87,7 @@ func TestChat_PostPersistsAndDispatches(t *testing.T) {
 // TestChat_PlainTextEchoes pins the MVP "free dialogue isn't
 // supported yet" reply.
 func TestChat_PlainTextEchoes(t *testing.T) {
+	t.Parallel()
 	deps := &Dependencies{
 		ChatMessages: &fakeChatMessages{},
 		WSHub:        ws.NopHub{},
@@ -103,6 +106,7 @@ func TestChat_PlainTextEchoes(t *testing.T) {
 
 // TestChat_RejectsEmpty pins the input validation.
 func TestChat_RejectsEmpty(t *testing.T) {
+	t.Parallel()
 	deps := &Dependencies{
 		ChatMessages: &fakeChatMessages{},
 		WSHub:        ws.NopHub{},
@@ -121,6 +125,7 @@ func TestChat_RejectsEmpty(t *testing.T) {
 // TestChat_NotWiredReturns503 pins the nil-safe behaviour when
 // the repo isn't wired (partial fixtures).
 func TestChat_NotWiredReturns503(t *testing.T) {
+	t.Parallel()
 	deps := &Dependencies{
 		ChatMessages: nil,
 		WSHub:        ws.NopHub{},
@@ -138,6 +143,7 @@ func TestChat_NotWiredReturns503(t *testing.T) {
 // returns the messages for that thread in the order they were
 // persisted.
 func TestChat_GETReplaysThread(t *testing.T) {
+	t.Parallel()
 	repo := &fakeChatMessages{}
 	deps := &Dependencies{
 		ChatMessages: repo,

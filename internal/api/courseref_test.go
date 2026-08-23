@@ -9,6 +9,7 @@ import (
 )
 
 func TestParseCourseRef(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		ref   string
@@ -42,6 +43,7 @@ func TestParseCourseRef(t *testing.T) {
 }
 
 func TestParseLessonRef(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		ref   string
@@ -75,12 +77,14 @@ func TestParseLessonRef(t *testing.T) {
 }
 
 func TestCourseRefNotFoundError(t *testing.T) {
+	t.Parallel()
 	err := &course.RefNotFoundError{Ref: "C7"}
 	assert.Equal(t, "course C7 not found", err.Error())
 	assert.ErrorIs(t, err, course.ErrNotFound)
 }
 
 func TestLessonRefNotFoundError(t *testing.T) {
+	t.Parallel()
 	err := &course.LessonRefNotFoundError{Ref: "L10"}
 	assert.Equal(t, "lesson L10 not found", err.Error())
 	assert.ErrorIs(t, err, course.ErrNotFound)

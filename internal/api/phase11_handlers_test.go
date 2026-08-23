@@ -22,6 +22,7 @@ import (
 // actually overwrite the existing description (not skip it like the
 // old non-pointer version did).
 func TestPhase11_PatchProject_ClearsDescription(t *testing.T) {
+	t.Parallel()
 	router, _ := buildP3Router(t)
 	cookie := p3Login(t, router)
 	projectID, _ := p3SeedProject(t, router, cookie, "P11-desc")
@@ -61,6 +62,7 @@ func TestPhase11_PatchProject_ClearsDescription(t *testing.T) {
 // pressing Enter on an empty field is a no-op client-side, but the
 // server is the last line of defence).
 func TestPhase11_PatchProject_RejectsEmptyName(t *testing.T) {
+	t.Parallel()
 	router, _ := buildP3Router(t)
 	cookie := p3Login(t, router)
 	projectID, _ := p3SeedProject(t, router, cookie, "P11-name")
@@ -83,6 +85,7 @@ func TestPhase11_PatchProject_RejectsEmptyName(t *testing.T) {
 // TestPhase11_PatchProject_ColorFallbackToDefault covers the
 // "explicit empty color resets to default" semantics.
 func TestPhase11_PatchProject_ColorFallbackToDefault(t *testing.T) {
+	t.Parallel()
 	router, _ := buildP3Router(t)
 	cookie := p3Login(t, router)
 	projectID, _ := p3SeedProject(t, router, cookie, "P11-color")
@@ -120,6 +123,7 @@ func TestPhase11_PatchProject_ColorFallbackToDefault(t *testing.T) {
 // that reliably writes task_activity in the test router today — the
 // full recorder wiring lives in cmd/orenda/main.go).
 func TestPhase11_ProjectActivity(t *testing.T) {
+	t.Parallel()
 	router, db := buildP3Router(t)
 	cookie := p3Login(t, router)
 	projectID, col := p3SeedProject(t, router, cookie, "P11-act")
@@ -218,6 +222,7 @@ func uuidLite() string {
 // TestPhase11_ProjectAttachments covers the upload + list + download
 // flow for the new project-scoped attachments tab.
 func TestPhase11_ProjectAttachments(t *testing.T) {
+	t.Parallel()
 	router, _ := buildP3Router(t)
 	cookie := p3Login(t, router)
 	projectID, _ := p3SeedProject(t, router, cookie, "P11-files")
@@ -279,6 +284,7 @@ func TestPhase11_ProjectAttachments(t *testing.T) {
 // project-scoped list does not leak attachments uploaded to a
 // different project.
 func TestPhase11_ProjectAttachments_NotFromOtherProjects(t *testing.T) {
+	t.Parallel()
 	router, _ := buildP3Router(t)
 	cookie := p3Login(t, router)
 	pA, _ := p3SeedProject(t, router, cookie, "Iso-A")

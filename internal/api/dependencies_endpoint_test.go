@@ -24,6 +24,7 @@ import (
 //   - missing depends_on_ids → 400.
 
 func TestTaskDependencies_HTTP(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	ctx := context.Background()
 

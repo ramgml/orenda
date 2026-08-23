@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -61,13 +60,7 @@ type phase15Fixture struct {
 
 func newPhase15Fixture(t *testing.T) *phase15Fixture {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "p15.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	ownerEmail := "p15-" + randLite()[:8] + "@x.com"
@@ -229,6 +222,7 @@ func (f *phase15Fixture) do(t *testing.T, method, path, token string, body any) 
 // ---- Phase 15.2: 409 lock_taken surfaces the holder ----
 
 func TestPhase15_LockTaken_IncludesHolderAgentIDAndName(t *testing.T) {
+	t.Parallel()
 	f := newPhase15Fixture(t)
 	taskID := f.seedTask(t)
 
@@ -254,6 +248,7 @@ func TestPhase15_LockTaken_IncludesHolderAgentIDAndName(t *testing.T) {
 }
 
 func TestPhase15_LockTaken_FallsBackToBareErrorWhenHolderRepoUnwired(t *testing.T) {
+	t.Parallel()
 	// Build a router WITHOUT TaskLockHolder set — handlers should
 	// still produce a 409, just without the holder fields. This
 	// pins backwards-compat: a downstream consumer can rely on
@@ -319,6 +314,7 @@ func doWithRouter(t *testing.T, router http.Handler, method, path, token string,
 // ---- Phase 15.3: agent context surfaces blocked_by + lock_holder ----
 
 func TestPhase15_AgentContext_BlockedByAndLockHolder(t *testing.T) {
+	t.Parallel()
 	f := newPhase15Fixture(t)
 	targetID := f.seedTask(t)
 	blockerID := f.seedTask(t)
@@ -362,6 +358,7 @@ func TestPhase15_AgentContext_BlockedByAndLockHolder(t *testing.T) {
 // with the bearer-agent endpoint. We're really testing the
 // helpers, not two implementations.
 func TestPhase15_UserContext_SameHelpers(t *testing.T) {
+	t.Parallel()
 	f := newPhase15Fixture(t)
 	targetID := f.seedTask(t)
 	blockerID := f.seedTask(t)
@@ -388,6 +385,7 @@ func TestPhase15_UserContext_SameHelpers(t *testing.T) {
 }
 
 func TestPhase15_AgentContext_LockHolderAbsentWhenNoLock(t *testing.T) {
+	t.Parallel()
 	// A task nobody has claimed yet should have no LockHolder.
 	// BlockedBy should also be empty (no deps seeded).
 	//
@@ -430,6 +428,7 @@ type lockHolderT struct {
 // ---- Phase 15.4: listAgentTasksHandler excludes self-assigned ----
 
 func TestPhase15_ListAgentTasks_ReadyExcludesSelfAssigned(t *testing.T) {
+	t.Parallel()
 	f := newPhase15Fixture(t)
 	taskA := f.seedTask(t)
 	taskB := f.seedTask(t)

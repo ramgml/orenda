@@ -23,6 +23,7 @@ import (
 )
 
 func TestToday_TZBoundary_DueTodayExcludesYesterday(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	now := time.Now().UTC()
 	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
@@ -69,6 +70,7 @@ func TestToday_TZBoundary_DueTodayExcludesYesterday(t *testing.T) {
 }
 
 func TestToday_UpcomingWeek_BucketsByDate(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 
 	now := time.Now().UTC()
@@ -114,6 +116,7 @@ func TestToday_UpcomingWeek_BucketsByDate(t *testing.T) {
 }
 
 func TestToday_ActiveTimer_FilledWhenRunning(t *testing.T) {
+	t.Parallel()
 	// White-box coverage: when an active time entry exists for the
 	// owner, /today surfaces it. We don't seed a time entry here
 	// (the fixture doesn't wire TimeService); the no-timer case is

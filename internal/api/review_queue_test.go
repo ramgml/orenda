@@ -25,6 +25,7 @@ type reviewCountResponse struct {
 
 // 1) Empty queue: 200 with empty tasks/count=0.
 func TestReviewQueue_Empty(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 
 	rr := doReq(f.router, http.MethodGet, "/api/v1/review-queue", f.cookie, nil)
@@ -46,6 +47,7 @@ func TestReviewQueue_Empty(t *testing.T) {
 // accept → task is done and gone from the queue; reject with comment →
 // task returns to in_progress with awaiting=agent.
 func TestReviewQueue_FullFlow(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 
 	// Owner has to act as both the agent (submit) and the human (review)
@@ -125,6 +127,7 @@ func TestReviewQueue_FullFlow(t *testing.T) {
 
 // 3) /review-queue requires auth.
 func TestReviewQueue_RequiresAuth(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	for _, path := range []string{"/api/v1/review-queue", "/api/v1/review-queue/count"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -136,6 +139,7 @@ func TestReviewQueue_RequiresAuth(t *testing.T) {
 
 // 4) Inbox tasks awaiting human are in the queue with empty project name.
 func TestReviewQueue_IncludesInbox(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 
 	// Create an inbox task and put it in awaiting=human by hand.
