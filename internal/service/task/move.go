@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
+
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/activity"
 	commentdomain "github.com/ramgml/orenda/internal/domain/comment"
@@ -116,6 +118,9 @@ type Service struct {
 	// dragged onto a real board gets filed under that project
 	// (Phase 16.7).
 	Columns project.Repository
+	// Logger is used for warn/error logs in the service layer.
+	// nil-safe — callers that don't set it get silent degradation.
+	Logger *zap.Logger
 }
 
 // MirrorWriter is the seam for the Phase 7 markdown mirror. The concrete
@@ -173,6 +178,13 @@ func (s *Service) lookupColumnForStatus(ctx context.Context, projectID, status s
 	}
 	col, err := s.Columns.FindColumnByStatus(ctx, projectID, status)
 	if err != nil {
+		if s.Logger != nil {
+			s.Logger.Warn("lookupColumnForStatus: FindColumnByStatus failed",
+				zap.String("project_id", projectID),
+				zap.String("status", status),
+				zap.Error(err),
+			)
+		}
 		return ""
 	}
 	return col.ID
@@ -219,6 +231,42 @@ func (s *Service) SyncStatusAndColumn(ctx context.Context, tr *task.Task) {
 		return
 	}
 	s.syncColumnToStatus(ctx, tr)
+}
+
+// SyncAndSave is the canonical save point for every PATCH that may touch
+// status or column_id. It performs the status→column sync, persists the
+// task, mirrors it, and records a task.status_changed activity row when
+// the status actually changes.
+//
+// prevStatus is the task's status BEFORE the caller mutated it — the
+// caller (applyTaskPatchAndEffects) captures it before applying changes.
+// This lets SyncAndSave detect the transition and record the activity.
+//
+// Handlers MUST call this instead of deps.Tasks.Update directly when the
+// PATCH body may contain status or column_id — this is the single place
+// that guarantees the invariant status(column_id) == task.status.
+//
+// Column→status (the reverse direction, e.g. user drags a card) is done
+// by the caller BEFORE calling SyncAndSave — the caller knows which axis
+// the user changed.
+func (s *Service) SyncAndSave(ctx context.Context, tr *task.Task, actorID string, prevStatus task.Status) error {
+	if s == nil || tr == nil {
+		return nil
+	}
+
+	// status → column: when status changed, move card to matching column.
+	s.syncColumnToStatus(ctx, tr)
+
+	if err := s.Tasks.Update(ctx, tr); err != nil {
+		return err
+	}
+	s.mirrorSave(ctx, tr)
+
+	if s.Recorder != nil && tr.Status != prevStatus {
+		_ = s.Recorder.Record(ctx, tr.ID, activity.ActorUser, actorID, activity.ActionStatusChanged,
+			fmt.Sprintf(`{"from":%q,"to":%q}`, prevStatus, tr.Status))
+	}
+	return nil
 }
 
 // Move relocates a task to a new column / position atomically.
@@ -478,6 +526,9 @@ func (s *Service) Claim(ctx context.Context, taskID, agentID string) (*task.Task
 	}
 	s.mirrorSave(ctx, tr)
 
+	if s.Recorder != nil {
+		_ = s.Recorder.Record(ctx, taskID, activity.ActorAgent, agentID, activity.ActionClaimed, "")
+	}
 	s.publishTask(ctx, "task.claimed", tr, agentID, map[string]any{"agent_id": agentID})
 	return tr, nil
 }
@@ -509,6 +560,9 @@ func (s *Service) Release(ctx context.Context, taskID, agentID string) (*task.Ta
 	}
 	s.mirrorSave(ctx, tr)
 
+	if s.Recorder != nil {
+		_ = s.Recorder.Record(ctx, taskID, activity.ActorAgent, agentID, activity.ActionReleased, "")
+	}
 	s.publishTask(ctx, "task.released", tr, agentID, map[string]any{"agent_id": agentID})
 	return tr, nil
 }
@@ -748,6 +802,10 @@ func (s *Service) Review(ctx context.Context, taskID, userID string, decision Re
 		return nil, err
 	}
 	s.mirrorSave(ctx, tr)
+	if s.Recorder != nil {
+		_ = s.Recorder.Record(ctx, taskID, activity.ActorUser, userID, activity.ActionReviewed,
+			fmt.Sprintf(`{"decision":%q}`, decision))
+	}
 	s.publishTask(ctx, "task.reviewed", tr, userID, map[string]any{
 		"decision": string(decision),
 		"comment":  comment,

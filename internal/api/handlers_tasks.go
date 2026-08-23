@@ -293,11 +293,17 @@ func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.
 			tr.Awaiting = task.AwaitingNone
 		}
 	}
-	if err := deps.Tasks.Update(ctx, tr); err != nil {
-		return err
-	}
+	// T46: centralize status↔column sync + persist + mirror + activity
+	// in SyncAndSave instead of direct Tasks.Update.
 	if deps.TaskService != nil {
-		deps.TaskService.MirrorSave(ctx, tr)
+		if err := deps.TaskService.SyncAndSave(ctx, tr, actorID, prevStatus); err != nil {
+			return err
+		}
+	} else {
+		// Fallback when TaskService is not wired (partial test fixtures).
+		if err := deps.Tasks.Update(ctx, tr); err != nil {
+			return err
+		}
 	}
 	if in.Color != nil && prevColor != tr.Color && deps.TaskService != nil {
 		deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionColorChanged,
@@ -307,10 +313,7 @@ func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.
 		applyTaskTagsChange(ctx, deps, tr.ID, *in.Tags)
 	}
 	if deps.TaskService != nil {
-		if statusChanged {
-			deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionStatusChanged,
-				fmt.Sprintf(`{"from":%q,"to":%q}`, prevStatus, tr.Status))
-		}
+		// Status change activity is now recorded by SyncAndSave.
 		if in.Priority != "" && tr.Priority != prevPriority {
 			deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionPriorityChanged,
 				fmt.Sprintf(`{"from":%q,"to":%q}`, prevPriority, tr.Priority))
@@ -469,25 +472,12 @@ func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in t
 		tr.ColumnID = in.ColumnID
 	}
 
-	// Phase 27.8: keep (task.status, task.column_id) in sync. The two
-	// axes are now one — PATCH on one must update the other.
-	//
-	// status → column: when status changed, move the card onto the
-	// column that carries the new status.
-	// column → status: when only column_id changed, lift the
-	// column's status onto the task so the label follows the
-	// visual position.
-	if deps.Projects != nil {
-		if in.Status != "" {
-			if col, err := deps.Projects.FindColumnByStatus(ctx, tr.ProjectID, string(tr.Status)); err == nil && col != nil {
-				tr.ColumnID = col.ID
-			}
-		} else if in.ColumnID != "" && tr.ColumnID == in.ColumnID {
-			// Caller moved the card explicitly (e.g. DnD). Lift
-			// the destination column's status onto the task.
-			if dest, err := deps.Projects.GetColumn(ctx, in.ColumnID); err == nil && dest != nil && dest.Status != "" {
-				tr.Status = task.Status(dest.Status)
-			}
+	// Phase 27.8 / T46: column→status sync when the user explicitly
+	// changed column_id (e.g. DnD). Status→column is handled by
+	// Service.SyncAndSave (called by applyTaskPatchAndEffects).
+	if in.ColumnID != "" && in.Status == "" && deps.Projects != nil {
+		if dest, err := deps.Projects.GetColumn(ctx, in.ColumnID); err == nil && dest != nil && dest.Status != "" {
+			tr.Status = task.Status(dest.Status)
 		}
 	}
 	if in.Color != nil {
