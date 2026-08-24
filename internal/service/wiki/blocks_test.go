@@ -220,3 +220,33 @@ func TestBlockService_Validation_TooManyBlocks(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, wiki.ErrInvalidInput)
 }
+
+func TestBlockService_Validation_TooManyNestedBlocks(t *testing.T) {
+	svc, _ := setupWikiSvc(t)
+
+	_, err := svc.Save(context.Background(), &wiki.Page{
+		Slug:  "many-nested",
+		Title: "Many Nested",
+	})
+	require.NoError(t, err)
+
+	// 46 roots × 45 children = 2070 total blocks, each with unique ID.
+	roots := make([]*wiki.Block, 0, 46)
+	for r := range 46 {
+		children := make([]*wiki.Block, 45)
+		for c := range 45 {
+			children[c] = &wiki.Block{
+				ID:   fmt.Sprintf("r%dc%d", r, c),
+				Type: "paragraph",
+			}
+		}
+		roots = append(roots, &wiki.Block{
+			ID:       fmt.Sprintf("r%d", r),
+			Type:     "paragraph",
+			Children: children,
+		})
+	}
+	_, err = svc.ReplaceBlockTree(context.Background(), "many-nested", roots)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wiki.ErrInvalidInput)
+}

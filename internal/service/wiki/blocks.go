@@ -73,7 +73,7 @@ func buildBlockTree(byParent map[string][]*wiki.Block, parentID string) []*wiki.
 //   - Every ID is non-empty and unique.
 //   - Every type is in the ValidBlockType whitelist.
 //   - Tree depth ≤ 8.
-//   - Total block count ≤ 2000.
+//   - Total block count (all levels) ≤ 2000.
 //
 // Returns ErrInvalidInput on any violation.
 func (s *Service) ReplaceBlockTree(ctx context.Context, ref string, tree []*wiki.Block) (*wiki.Page, error) {
@@ -133,37 +133,50 @@ const (
 	maxBlockCount = 2000
 )
 
+// validateBlockTree validates the entire tree (all levels). It counts
+// ALL blocks recursively, not just the root slice, to enforce the
+// total block limit.
 func validateBlockTree(tree []*wiki.Block) error {
 	if len(tree) == 0 {
 		return nil
 	}
-	if len(tree) > maxBlockCount {
-		return fmt.Errorf("%w: too many blocks (%d > %d)", wiki.ErrInvalidInput, len(tree), maxBlockCount)
+	seen := make(map[string]struct{})
+	total, err := countAndValidate(tree, 0, seen)
+	if err != nil {
+		return err
 	}
-	seen := make(map[string]struct{}, len(tree))
-	return validateBlocksRecursive(tree, 0, seen)
+	if total > maxBlockCount {
+		return fmt.Errorf("%w: too many blocks (%d > %d)", wiki.ErrInvalidInput, total, maxBlockCount)
+	}
+	return nil
 }
 
-func validateBlocksRecursive(blocks []*wiki.Block, depth int, seen map[string]struct{}) error {
+// countAndValidate walks the tree validating depth, ID uniqueness,
+// and block types. Returns the total count of blocks visited.
+func countAndValidate(blocks []*wiki.Block, depth int, seen map[string]struct{}) (int, error) {
 	if depth > maxBlockDepth {
-		return fmt.Errorf("%w: block tree depth exceeds %d", wiki.ErrInvalidInput, maxBlockDepth)
+		return 0, fmt.Errorf("%w: block tree depth exceeds %d", wiki.ErrInvalidInput, maxBlockDepth)
 	}
+	count := 0
 	for _, b := range blocks {
+		count++
 		if b.ID == "" {
-			return fmt.Errorf("%w: block ID must not be empty", wiki.ErrInvalidInput)
+			return 0, fmt.Errorf("%w: block ID must not be empty", wiki.ErrInvalidInput)
 		}
 		if _, ok := seen[b.ID]; ok {
-			return fmt.Errorf("%w: duplicate block ID %q", wiki.ErrInvalidInput, b.ID)
+			return 0, fmt.Errorf("%w: duplicate block ID %q", wiki.ErrInvalidInput, b.ID)
 		}
 		seen[b.ID] = struct{}{}
 		if !wiki.ValidBlockType(b.Type) {
-			return fmt.Errorf("%w: unknown block type %q", wiki.ErrInvalidInput, b.Type)
+			return 0, fmt.Errorf("%w: unknown block type %q", wiki.ErrInvalidInput, b.Type)
 		}
-		if err := validateBlocksRecursive(b.Children, depth+1, seen); err != nil {
-			return err
+		childCount, err := countAndValidate(b.Children, depth+1, seen)
+		count += childCount
+		if err != nil {
+			return 0, err
 		}
 	}
-	return nil
+	return count, nil
 }
 
 // flattenDFS converts a tree into a flat list suitable for ReplaceBlocks.
