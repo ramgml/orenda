@@ -22,7 +22,10 @@ func testDeps() *api.Dependencies {
 }
 
 func TestHealthz(t *testing.T) {
-	router := api.NewRouter(testDeps())
+	t.Parallel()
+	td := testDeps()
+	router := api.NewRouter(td)
+	t.Cleanup(td.RateLimitClose)
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
@@ -38,12 +41,15 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestInfo(t *testing.T) {
-	router := api.NewRouter(&api.Dependencies{
+	t.Parallel()
+	infoDeps := &api.Dependencies{
 		Logger: zap.NewNop(),
 		Capabilities: api.Capabilities{
 			Auth: true, Backup: true,
 		},
-	})
+	}
+	router := api.NewRouter(infoDeps)
+	t.Cleanup(infoDeps.RateLimitClose)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/info", nil)
 	rr := httptest.NewRecorder()
@@ -65,7 +71,10 @@ func TestInfo(t *testing.T) {
 }
 
 func TestInfo_DefaultsAllFalse(t *testing.T) {
-	router := api.NewRouter(testDeps())
+	t.Parallel()
+	td := testDeps()
+	router := api.NewRouter(td)
+	t.Cleanup(td.RateLimitClose)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/info", nil)
 	rr := httptest.NewRecorder()
@@ -80,7 +89,10 @@ func TestInfo_DefaultsAllFalse(t *testing.T) {
 }
 
 func TestSPA_NotFoundForUnknownAPI(t *testing.T) {
-	router := api.NewRouter(testDeps())
+	t.Parallel()
+	td := testDeps()
+	router := api.NewRouter(td)
+	t.Cleanup(td.RateLimitClose)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/nonexistent", nil)
 	rr := httptest.NewRecorder()
@@ -94,6 +106,7 @@ func TestSPA_NotFoundForUnknownAPI(t *testing.T) {
 }
 
 func TestCORS_LoopbackAllowed(t *testing.T) {
+	t.Parallel()
 	router := api.NewRouter(testDeps())
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
@@ -106,6 +119,7 @@ func TestCORS_LoopbackAllowed(t *testing.T) {
 }
 
 func TestCORS_ExternalOriginIgnored(t *testing.T) {
+	t.Parallel()
 	router := api.NewRouter(testDeps())
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
@@ -118,6 +132,7 @@ func TestCORS_ExternalOriginIgnored(t *testing.T) {
 }
 
 func TestCORS_PreflightLoopback(t *testing.T) {
+	t.Parallel()
 	router := api.NewRouter(testDeps())
 
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/tasks", nil)

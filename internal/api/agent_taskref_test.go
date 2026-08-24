@@ -59,6 +59,7 @@ func (f *refFixture) agentDo(t *testing.T, method, path string) *httptest.Respon
 // TestAgentRef_ClaimContextByNumber: "T<N>" resolves on the claim and
 // context routes; the responses carry the task's number.
 func TestAgentRef_ClaimContextByNumber(t *testing.T) {
+	t.Parallel()
 	fx := newRefFixture(t)
 	ref := fmt.Sprintf("T%d", fx.taskNumber)
 
@@ -86,6 +87,7 @@ func TestAgentRef_ClaimContextByNumber(t *testing.T) {
 // explicit "task TN not found" message (not a bare not_found).
 // Legacy forms "#N" and bare "N" also 404 (cutover).
 func TestAgentRef_UnknownNumber404(t *testing.T) {
+	t.Parallel()
 	fx := newRefFixture(t)
 
 	cases := []struct{ name, ref string }{
@@ -116,6 +118,7 @@ func TestAgentRef_UnknownNumber404(t *testing.T) {
 // TestAgentRef_UUIDStillWorks: the UUID path is untouched — claim by
 // id, and a UUID is never mistaken for a number.
 func TestAgentRef_UUIDStillWorks(t *testing.T) {
+	t.Parallel()
 	fx := newRefFixture(t)
 
 	rr := fx.agentDo(t, http.MethodPost, "/api/v1/agent/tasks/"+fx.taskID+"/claim")
@@ -135,6 +138,7 @@ func TestAgentRef_UUIDStillWorks(t *testing.T) {
 // behind `orenda agent next` and MCP orenda_list_tasks) includes the
 // number on every row.
 func TestAgentRef_ListCarriesNumber(t *testing.T) {
+	t.Parallel()
 	fx := newRefFixture(t)
 
 	rr := fx.agentDo(t, http.MethodGet, "/api/v1/agent/tasks?ready=true")
@@ -158,6 +162,7 @@ func TestAgentRef_ListCarriesNumber(t *testing.T) {
 // TestUserRef_GetTaskByNumber: the user-side lookup accepts T-prefixed
 // refs too (GET /api/v1/tasks/{id}).
 func TestUserRef_GetTaskByNumber(t *testing.T) {
+	t.Parallel()
 	fx := newRefFixture(t)
 
 	rr := fx.doWithCookie(t, http.MethodGet,
@@ -177,6 +182,7 @@ func TestUserRef_GetTaskByNumber(t *testing.T) {
 // TestServiceResolve_RefShapes: the service-level resolver pins the
 // domain parsing contract end-to-end against a real DB.
 func TestServiceResolve_RefShapes(t *testing.T) {
+	t.Parallel()
 	fx := newRefFixture(t)
 	svc := taskservice.New(sqlite.NewTaskRepository(fx.db), nil, nil, nil, nil)
 

@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -63,13 +62,7 @@ type agentCourseFixture struct {
 
 func newAgentCourseFixture(t *testing.T) *agentCourseFixture {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "ac.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	ownerEmail := "ac-owner-" + randLite()[:8] + "@x.com"
@@ -111,6 +104,7 @@ func newAgentCourseFixture(t *testing.T) *agentCourseFixture {
 		CookieName:    "orenda_session",
 	}
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	// Log the owner in for user-side cross-checks.
 	body, _ := json.Marshal(map[string]string{"email": ownerEmail, "password": "hunter2!"})
@@ -150,6 +144,7 @@ func (fx *agentCourseFixture) agentReq(method, path string, body any) *httptest.
 }
 
 func TestAgentCourses_CreateActivate_EndToEnd(t *testing.T) {
+	t.Parallel()
 	fx := newAgentCourseFixture(t)
 
 	// Create: 201, draft, owned by the first non-system user, and
@@ -204,6 +199,7 @@ func TestAgentCourses_CreateActivate_EndToEnd(t *testing.T) {
 }
 
 func TestAgentCourses_Create_MissingTitle(t *testing.T) {
+	t.Parallel()
 	fx := newAgentCourseFixture(t)
 	rr := fx.agentReq(http.MethodPost, "/api/v1/agent/courses", map[string]any{
 		"intent_md": "no title here",
@@ -213,6 +209,7 @@ func TestAgentCourses_Create_MissingTitle(t *testing.T) {
 }
 
 func TestAgentCourses_Activate_InvalidTransition(t *testing.T) {
+	t.Parallel()
 	fx := newAgentCourseFixture(t)
 
 	rr := fx.agentReq(http.MethodPost, "/api/v1/agent/courses", map[string]any{"title": "Drafty"})
@@ -227,12 +224,14 @@ func TestAgentCourses_Activate_InvalidTransition(t *testing.T) {
 }
 
 func TestAgentCourses_Activate_NotFound(t *testing.T) {
+	t.Parallel()
 	fx := newAgentCourseFixture(t)
 	rr := fx.agentReq(http.MethodPost, "/api/v1/agent/courses/does-not-exist/activate", nil)
 	assert.Equal(t, http.StatusNotFound, rr.Code)
 }
 
 func TestAgentCourses_RequiresAgentToken(t *testing.T) {
+	t.Parallel()
 	fx := newAgentCourseFixture(t)
 
 	// No token.

@@ -24,13 +24,7 @@ import (
 // both the publisher (in this test) and the await handler.
 func longPollDeps(t *testing.T) (api.Dependencies, string) {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), dir+"/lp.db", sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
@@ -61,8 +55,10 @@ func longPollDeps(t *testing.T) (api.Dependencies, string) {
 }
 
 func TestLongPoll_ReturnsEventWithinTimeout(t *testing.T) {
+	t.Parallel()
 	deps, plain := longPollDeps(t)
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	// Login.
 	body, _ := json.Marshal(map[string]string{"email": "lp@x.com", "password": plain})
@@ -104,8 +100,10 @@ func TestLongPoll_ReturnsEventWithinTimeout(t *testing.T) {
 }
 
 func TestLongPoll_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	deps, plain := longPollDeps(t)
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	// Login.
 	body, _ := json.Marshal(map[string]string{"email": "lp@x.com", "password": plain})

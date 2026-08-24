@@ -24,6 +24,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/comment"
 	"github.com/ramgml/orenda/internal/domain/event"
 	"github.com/ramgml/orenda/internal/domain/task"
@@ -182,6 +183,7 @@ func applySyncOp(r *http.Request, deps *Dependencies, id *Identity, op syncOp) s
 		if in.Description != "" {
 			tr.Description = in.Description
 		}
+		prevStatus := tr.Status
 		if in.Status != "" {
 			tr.Status = task.Status(in.Status)
 		}
@@ -191,17 +193,22 @@ func applySyncOp(r *http.Request, deps *Dependencies, id *Identity, op syncOp) s
 		if in.Color != nil {
 			tr.Color = *in.Color
 		}
-		if err := deps.Tasks.Update(ctx, tr); err != nil {
-			res.Error = err.Error()
-			return res
+		// T46: use SyncAndSave for status↔column sync + persist.
+		if deps.TaskService != nil {
+			if err := deps.TaskService.SyncAndSave(ctx, tr, op.ClientID, activity.ActorSystem, prevStatus); err != nil {
+				res.Error = err.Error()
+				return res
+			}
+		} else {
+			if err := deps.Tasks.Update(ctx, tr); err != nil {
+				res.Error = err.Error()
+				return res
+			}
 		}
 		// Tag replacement goes through the same diff path as the
 		// user-side PATCH so a no-op doesn't spam the activity feed.
 		if in.Tags != nil {
 			applyTaskTagsChange(ctx, deps, tr.ID, *in.Tags)
-		}
-		if deps.TaskService != nil {
-			deps.TaskService.MirrorSave(ctx, tr)
 		}
 		_ = syncOpsRecord(ctx, deps, op.ClientID, tr.ID)
 		res.OK = true

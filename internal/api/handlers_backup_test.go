@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -33,13 +32,7 @@ type backupFixture struct {
 
 func newBackupFixture(t *testing.T) *backupFixture {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "bup-handlers.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	u := &user.User{
@@ -52,13 +45,15 @@ func newBackupFixture(t *testing.T) *backupFixture {
 	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
 
 	repo := sqlite.NewBackupSettingsRepository(db)
-	router := api.NewRouter(&api.Dependencies{
+	bupDeps := &api.Dependencies{
 		Logger:         zap.NewNop(),
 		Signer:         signer,
 		Users:          users,
 		CookieName:     "orenda_session",
 		BackupSettings: repo,
-	})
+	}
+	router := api.NewRouter(bupDeps)
+	t.Cleanup(bupDeps.RateLimitClose)
 
 	cookie := loginAndCookie(t, router, "bup@x.com", "hunter2!")
 	return &backupFixture{t: t, router: router, cookie: cookie}
@@ -82,6 +77,7 @@ func (f *backupFixture) do(t *testing.T, method string, body any) *httptest.Resp
 }
 
 func TestBackupSettings_Get_EmptyReturnsInMemoryDefaults(t *testing.T) {
+	t.Parallel()
 	f := newBackupFixture(t)
 	w := f.do(t, http.MethodGet, nil)
 	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
@@ -94,6 +90,7 @@ func TestBackupSettings_Get_EmptyReturnsInMemoryDefaults(t *testing.T) {
 }
 
 func TestBackupSettings_Put_AndGetRoundTrip(t *testing.T) {
+	t.Parallel()
 	f := newBackupFixture(t)
 	body := map[string]any{
 		"enabled":     true,
@@ -123,6 +120,7 @@ func TestBackupSettings_Put_AndGetRoundTrip(t *testing.T) {
 }
 
 func TestBackupSettings_Put_RejectsInvalidURL(t *testing.T) {
+	t.Parallel()
 	f := newBackupFixture(t)
 	cases := []struct {
 		name string
@@ -145,6 +143,7 @@ func TestBackupSettings_Put_RejectsInvalidURL(t *testing.T) {
 }
 
 func TestBackupSettings_Put_EnabledRequiresURL(t *testing.T) {
+	t.Parallel()
 	f := newBackupFixture(t)
 	w := f.do(t, http.MethodPut,
 		map[string]any{"enabled": true, "remote_url": ""})
@@ -153,6 +152,7 @@ func TestBackupSettings_Put_EnabledRequiresURL(t *testing.T) {
 }
 
 func TestBackupSettings_Put_DisabledWithoutURLOK(t *testing.T) {
+	t.Parallel()
 	f := newBackupFixture(t)
 	w := f.do(t, http.MethodPut,
 		map[string]any{"enabled": false, "remote_url": ""})
@@ -160,6 +160,7 @@ func TestBackupSettings_Put_DisabledWithoutURLOK(t *testing.T) {
 }
 
 func TestBackupSettings_Put_RemoteAuthPersists(t *testing.T) {
+	t.Parallel()
 	f := newBackupFixture(t)
 
 	// First save without auth — has_auth is false.
@@ -181,6 +182,7 @@ func TestBackupSettings_Put_RemoteAuthPersists(t *testing.T) {
 }
 
 func TestBackupSettings_Put_InvalidJSONReturns400(t *testing.T) {
+	t.Parallel()
 	f := newBackupFixture(t)
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/backups/settings",
 		bytes.NewReader([]byte(`{not-json`)))
@@ -205,6 +207,7 @@ func TestBackupSettings_Put_InvalidJSONReturns400(t *testing.T) {
 // snapshot_cron / snapshot_rotation_days keeps the current value
 // (the "save one field at a time" UX).
 func TestBackupSettings_Put_ScheduleAndRotation(t *testing.T) {
+	t.Parallel()
 	f := newBackupFixture(t)
 	body := map[string]any{
 		"enabled":                true,
@@ -234,6 +237,7 @@ func TestBackupSettings_Put_ScheduleAndRotation(t *testing.T) {
 // never reaches the DB. The error message should mention
 // snapshot_cron so the UI can highlight the offending field.
 func TestBackupSettings_Put_InvalidCronReturns400(t *testing.T) {
+	t.Parallel()
 	f := newBackupFixture(t)
 	cases := []struct {
 		name string
@@ -266,6 +270,7 @@ func TestBackupSettings_Put_InvalidCronReturns400(t *testing.T) {
 // accepted. Negative values are nonsense (a snapshot can't be
 // rotated "yesterday") and rejected with 400.
 func TestBackupSettings_Put_NegativeRotationDaysReturns400(t *testing.T) {
+	t.Parallel()
 	f := newBackupFixture(t)
 	body := map[string]any{
 		"enabled":                true,
@@ -283,6 +288,7 @@ func TestBackupSettings_Put_NegativeRotationDaysReturns400(t *testing.T) {
 // Without this row, a regression to "reject 0" would surface only
 // when an operator deliberately chose "forever".
 func TestBackupSettings_Put_ZeroRotationDaysOK(t *testing.T) {
+	t.Parallel()
 	f := newBackupFixture(t)
 	body := map[string]any{
 		"enabled":                true,
@@ -303,6 +309,7 @@ func TestBackupSettings_Put_ZeroRotationDaysOK(t *testing.T) {
 // Round-trip: first save sets both, second save sets only the cron,
 // third GET confirms the rotation days survived.
 func TestBackupSettings_Put_OmittedScheduleKeepsCurrent(t *testing.T) {
+	t.Parallel()
 	f := newBackupFixture(t)
 
 	// 1. Set both to known values.
@@ -335,6 +342,7 @@ func TestBackupSettings_Put_OmittedScheduleKeepsCurrent(t *testing.T) {
 // previous test from the other direction: operator edits only
 // rotation days, the cron must not regress to the default.
 func TestBackupSettings_Put_OmittedCronKeepsCurrent(t *testing.T) {
+	t.Parallel()
 	f := newBackupFixture(t)
 
 	require.Equal(t, http.StatusOK,
@@ -368,6 +376,7 @@ func TestBackupSettings_Put_OmittedCronKeepsCurrent(t *testing.T) {
 // This is the wire contract the UI's form depends on for the
 // initial pre-fill.
 func TestBackupSettings_Get_DefaultCronWhenEmpty(t *testing.T) {
+	t.Parallel()
 	f := newBackupFixture(t)
 	w := f.do(t, http.MethodGet, nil)
 	require.Equal(t, http.StatusOK, w.Code)

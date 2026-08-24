@@ -13,6 +13,7 @@ import (
 // TestAgentCourses_CRefResolution: agent activate with C<N> ref resolves
 // correctly, unknown C-ref returns 404 with explicit ref name.
 func TestAgentCourses_CRefResolution(t *testing.T) {
+	t.Parallel()
 	fx := newAgentCourseFixture(t)
 
 	// Create a course via agent endpoint.
@@ -71,6 +72,7 @@ func TestAgentCourses_CRefResolution(t *testing.T) {
 // TestAgentCourses_LRefResolution: agent materialize with L<N> ref resolves
 // correctly, unknown L-ref returns 404 with explicit ref name.
 func TestAgentCourses_LRefResolution(t *testing.T) {
+	t.Parallel()
 	fx := newAgentCourseFixture(t)
 
 	// Create and activate a course with a lesson.
@@ -131,6 +133,7 @@ func TestAgentCourses_LRefResolution(t *testing.T) {
 
 // TestUserCourses_CRefResolution: user getCourse with C<N> ref.
 func TestUserCourses_CRefResolution(t *testing.T) {
+	t.Parallel()
 	fx := newAgentCourseFixture(t)
 
 	// Create a course via agent endpoint.

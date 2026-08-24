@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -69,13 +68,7 @@ type p27_7Fixtures struct {
 
 func p27_7Deps(t *testing.T) p27_7Fixtures {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "p277.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	u := &user.User{Email: "p277@x.com", PasswordHash: mustHashFast(t), DisplayName: "P"}
@@ -108,6 +101,7 @@ func p27_7Deps(t *testing.T) p27_7Fixtures {
 		CookieName:  "orenda_session",
 	}
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	body, _ := json.Marshal(map[string]string{"email": "p277@x.com", "password": "hunter2!"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
@@ -184,6 +178,7 @@ func p27_7_latestAction(t *testing.T, items []activity.Activity, want activity.A
 
 // 1) PATCH status=done auto-fills completed_at and normalises awaiting.
 func TestPatchTask_StatusDone_AutoCompletesAndNormalisesAwaiting(t *testing.T) {
+	t.Parallel()
 	f := p27_7Deps(t)
 	tr := p27_7_makeTask(t, f, "Done it")
 
@@ -205,6 +200,7 @@ func TestPatchTask_StatusDone_AutoCompletesAndNormalisesAwaiting(t *testing.T) {
 
 // 2) PATCH status=review normalises awaiting to human.
 func TestPatchTask_StatusReview_NormalisesAwaitingHuman(t *testing.T) {
+	t.Parallel()
 	f := p27_7Deps(t)
 	tr := p27_7_makeTask(t, f, "Ready for review")
 
@@ -222,6 +218,7 @@ func TestPatchTask_StatusReview_NormalisesAwaitingHuman(t *testing.T) {
 // start the task as in_progress with awaiting=agent (the agent-flow
 // shape) and have the owner drag it back to todo to take the wheel.
 func TestPatchTask_ManualStatusOverride_ClearsAwaitingAgent(t *testing.T) {
+	t.Parallel()
 	f := p27_7Deps(t)
 	tr := p27_7_makeTask(t, f, "Owner takes over")
 	tr.Status = task.StatusInProgress
@@ -241,6 +238,7 @@ func TestPatchTask_ManualStatusOverride_ClearsAwaitingAgent(t *testing.T) {
 
 // 4) PATCH priority emits activity row, no other side-effects.
 func TestPatchTask_PriorityChange_EmitsActivity(t *testing.T) {
+	t.Parallel()
 	f := p27_7Deps(t)
 	tr := p27_7_makeTask(t, f, "Priority flip")
 
@@ -259,6 +257,7 @@ func TestPatchTask_PriorityChange_EmitsActivity(t *testing.T) {
 
 // 5) PATCH assignee (user → another user-style value) emits activity.
 func TestPatchTask_AssigneeChange_EmitsActivity(t *testing.T) {
+	t.Parallel()
 	f := p27_7Deps(t)
 	tr := p27_7_makeTask(t, f, "Assign me")
 
@@ -275,6 +274,7 @@ func TestPatchTask_AssigneeChange_EmitsActivity(t *testing.T) {
 
 // 6) PATCH with the same values emits no activity row (no spam).
 func TestPatchTask_NoOpChange_EmitsNoActivity(t *testing.T) {
+	t.Parallel()
 	f := p27_7Deps(t)
 	tr := p27_7_makeTask(t, f, "No change")
 
@@ -294,6 +294,7 @@ func TestPatchTask_NoOpChange_EmitsNoActivity(t *testing.T) {
 
 // 7) PATCH done with an explicit completed_at preserves the caller value.
 func TestPatchTask_StatusDoneWithExplicitCompletedAt_RespectsCaller(t *testing.T) {
+	t.Parallel()
 	f := p27_7Deps(t)
 	tr := p27_7_makeTask(t, f, "Done long ago")
 
@@ -310,6 +311,7 @@ func TestPatchTask_StatusDoneWithExplicitCompletedAt_RespectsCaller(t *testing.T
 }
 
 func TestBulkPatchTasks_AppliesSharedSideEffectsAndReportsMissingIDs(t *testing.T) {
+	t.Parallel()
 	f := p27_7Deps(t)
 	a := p27_7_makeTask(t, f, "Bulk A")
 	b := p27_7_makeTask(t, f, "Bulk B")
@@ -341,6 +343,7 @@ func TestBulkPatchTasks_AppliesSharedSideEffectsAndReportsMissingIDs(t *testing.
 // an unresolved ref string as the project_id. Pre-fix, applyTaskPatch
 // had a void return and the resolve error was silently dropped.
 func TestPatchTask_BadProjectPRef_Returns404(t *testing.T) {
+	t.Parallel()
 	f := p27_7Deps(t)
 	tr := p27_7_makeTask(t, f, "Move me")
 

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -79,13 +78,7 @@ func (a *aliasingBot) Name() string { return a.alias }
 
 func newTestBotFixture(t *testing.T) *testBotFixture {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "test-bot.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
@@ -106,7 +99,7 @@ func newTestBotFixture(t *testing.T) *testBotFixture {
 		reg.Register(&aliasingBot{recordingBot: rec, alias: name})
 	}
 
-	router := api.NewRouter(&api.Dependencies{
+	botDeps := &api.Dependencies{
 		Logger:     zap.NewNop(),
 		Signer:     signer,
 		Users:      users,
@@ -115,7 +108,9 @@ func newTestBotFixture(t *testing.T) *testBotFixture {
 		// dispatches through. nil is the alternative path (handler
 		// returns 503); exercised in a separate test.
 		BotRegistry: reg,
-	})
+	}
+	router := api.NewRouter(botDeps)
+	t.Cleanup(botDeps.RateLimitClose)
 
 	cookie := loginAndCookie(t, router, "testbot@x.com", "hunter2!")
 	return &testBotFixture{t: t, router: router, cookie: cookie, reg: reg, rec: rec}
@@ -141,6 +136,7 @@ func (f *testBotFixture) do(t *testing.T, body any) *httptest.ResponseRecorder {
 // with the test message and target, returns 200 with the sent_at
 // sentinel.
 func TestBotsTestHandler_Success(t *testing.T) {
+	t.Parallel()
 	f := newTestBotFixture(t)
 	w := f.do(t, map[string]string{
 		"bot_type":       "webhook",
@@ -168,6 +164,7 @@ func TestBotsTestHandler_Success(t *testing.T) {
 // TestBotsTestHandler_MissingFields — bot_type or target_address
 // missing → 400 invalid_input.
 func TestBotsTestHandler_MissingFields(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		body map[string]string
@@ -192,6 +189,7 @@ func TestBotsTestHandler_MissingFields(t *testing.T) {
 // knownTestBotTypes set (the dropdown's whitelist) → 400
 // unknown_bot_type.
 func TestBotsTestHandler_UnknownBotType(t *testing.T) {
+	t.Parallel()
 	f := newTestBotFixture(t)
 	w := f.do(t, map[string]string{
 		"bot_type":       "console",
@@ -207,6 +205,7 @@ func TestBotsTestHandler_UnknownBotType(t *testing.T) {
 // the bot isn't running (registry returned nil). The handler must
 // return 503 with a friendly hint.
 func TestBotsTestHandler_BotNotRegistered(t *testing.T) {
+	t.Parallel()
 	f := newTestBotFixture(t)
 	// Remove the bot we registered in the fixture so the lookup
 	// returns nil. Easiest is to swap in a fresh registry.
@@ -214,13 +213,7 @@ func TestBotsTestHandler_BotNotRegistered(t *testing.T) {
 	// The router holds the original registry; we have to rebuild
 	// the router with a registry that has no bots. The handler
 	// resolves `BotRegistry` from deps, so build a new router.
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "no-bots.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
 		Email:        "nobots@x.com",
@@ -228,13 +221,15 @@ func TestBotsTestHandler_BotNotRegistered(t *testing.T) {
 		DisplayName:  "NB",
 	}))
 	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
-	router := api.NewRouter(&api.Dependencies{
+	nobotsDeps := &api.Dependencies{
 		Logger:      zap.NewNop(),
 		Signer:      signer,
 		Users:       users,
 		CookieName:  "orenda_session",
 		BotRegistry: bot.NewRegistry(), // empty — no console even
-	})
+	}
+	router := api.NewRouter(nobotsDeps)
+	t.Cleanup(nobotsDeps.RateLimitClose)
 	cookie := loginAndCookie(t, router, "nobots@x.com", "hunter2!")
 
 	// POST /api/v1/bots/test with webhook → 503 bot_not_running.
@@ -258,6 +253,7 @@ func TestBotsTestHandler_BotNotRegistered(t *testing.T) {
 // TestBotsTestHandler_SendFailed — bot.Send returns an error → 502
 // send_failed with the transport error in the hint.
 func TestBotsTestHandler_SendFailed(t *testing.T) {
+	t.Parallel()
 	f := newTestBotFixture(t)
 	f.rec.failWith = errors.New("smtp: dial: connection refused")
 	w := f.do(t, map[string]string{
@@ -274,6 +270,7 @@ func TestBotsTestHandler_SendFailed(t *testing.T) {
 // TestBotsTestHandler_TargetPreCheck — per-bot target validation
 // rejects the obvious typos before burning a transport round-trip.
 func TestBotsTestHandler_TargetPreCheck(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		botType string
@@ -319,6 +316,7 @@ func TestBotsTestHandler_TargetPreCheck(t *testing.T) {
 // TestBotsTestHandler_InvalidJSON — body that isn't JSON → 400
 // invalid_json.
 func TestBotsTestHandler_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	f := newTestBotFixture(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/bots/test", bytes.NewBufferString("not-json"))
 	req.Header.Set("Content-Type", "application/json")
@@ -335,13 +333,8 @@ func TestBotsTestHandler_InvalidJSON(t *testing.T) {
 // bot_registry_not_wired when BotRegistry is nil (degenerate
 // router config — production always wires it).
 func TestBotsTestHandler_RegistryNotWired(t *testing.T) {
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "no-reg.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	t.Parallel()
+	db, _ := copyTemplateDB(t)
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
 		Email:        "noreg@x.com",
@@ -349,13 +342,15 @@ func TestBotsTestHandler_RegistryNotWired(t *testing.T) {
 		DisplayName:  "NR",
 	}))
 	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
-	router := api.NewRouter(&api.Dependencies{
+	noregDeps := &api.Dependencies{
 		Logger:     zap.NewNop(),
 		Signer:     signer,
 		Users:      users,
 		CookieName: "orenda_session",
 		// BotRegistry deliberately nil.
-	})
+	}
+	router := api.NewRouter(noregDeps)
+	t.Cleanup(noregDeps.RateLimitClose)
 	cookie := loginAndCookie(t, router, "noreg@x.com", "hunter2!")
 	var buf bytes.Buffer
 	require.NoError(t, json.NewEncoder(&buf).Encode(map[string]string{

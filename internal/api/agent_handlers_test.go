@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -36,13 +35,7 @@ type agentFixture struct {
 
 func newAgentFixture(t *testing.T) *agentFixture {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/a.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	ownerEmail := "agent-owner-" + randLite()[:8] + "@x.com"
@@ -90,8 +83,10 @@ func newAgentFixture(t *testing.T) *agentFixture {
 		WSHub:       hub,
 		CookieName:  "orenda_session",
 	}
+	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 	return &agentFixture{
-		router:  api.NewRouter(&deps),
+		router:  router,
 		agentID: got.Agent.ID,
 		token:   got.PlainToken,
 		db:      db,
@@ -109,6 +104,7 @@ func (a *agentFixtureTMinter) MintToken(ctx context.Context, userID, name, hash,
 }
 
 func TestAgent_MeReturnsAgent(t *testing.T) {
+	t.Parallel()
 	fx := newAgentFixture(t)
 
 	t.Logf("fx.token=%q agentID=%q", fx.token, fx.agentID)
@@ -138,6 +134,7 @@ func TestAgent_MeReturnsAgent(t *testing.T) {
 }
 
 func TestAgent_NoTokenReturns401(t *testing.T) {
+	t.Parallel()
 	fx := newAgentFixture(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/me", nil)
@@ -147,6 +144,7 @@ func TestAgent_NoTokenReturns401(t *testing.T) {
 }
 
 func TestAgent_BadTokenReturns401(t *testing.T) {
+	t.Parallel()
 	fx := newAgentFixture(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/me", nil)
@@ -157,6 +155,7 @@ func TestAgent_BadTokenReturns401(t *testing.T) {
 }
 
 func TestAgent_HeartbeatReturnsAgent(t *testing.T) {
+	t.Parallel()
 	fx := newAgentFixture(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/heartbeat", nil)
@@ -168,6 +167,7 @@ func TestAgent_HeartbeatReturnsAgent(t *testing.T) {
 }
 
 func TestAgent_ClaimRejectsNoTask(t *testing.T) {
+	t.Parallel()
 	fx := newAgentFixture(t)
 
 	// Send claim with a non-existent task id — should return ErrNotFound (404).
@@ -181,6 +181,7 @@ func TestAgent_ClaimRejectsNoTask(t *testing.T) {
 }
 
 func TestAgent_ClaimReleaseSubmitRoundTrip(t *testing.T) {
+	t.Parallel()
 	fx := newAgentFixture(t)
 
 	// Seed a real task owned by the fixture's user.
@@ -243,6 +244,7 @@ func TestAgent_ClaimReleaseSubmitRoundTrip(t *testing.T) {
 // posted to the user-cookie route `/api/v1/tasks/{id}/comments`
 // which only accepts a JWT session — agent tokens got 401.
 func TestAgent_CommentCreatesAgentAuthoredComment(t *testing.T) {
+	t.Parallel()
 	fx := newAgentFixture(t)
 
 	// Seed a real task.
@@ -285,6 +287,7 @@ func TestAgent_CommentCreatesAgentAuthoredComment(t *testing.T) {
 // session on /agent/tasks/.../comments must not pass through — it
 // belongs to the user-side namespace, not the agent one.
 func TestAgent_CommentRejectsUserCookie(t *testing.T) {
+	t.Parallel()
 	fx := newAgentFixture(t)
 	row := fx.db.QueryRow("SELECT id FROM users LIMIT 1")
 	var ownerID string
@@ -342,6 +345,7 @@ func ownerEmailFor(t *testing.T, fx *agentFixture, ownerID string) string {
 // requires the agent token, and that the user-cookie variant
 // returns 401 (mirroring the comment contract).
 func TestAgent_AwaitRequiresAgentToken(t *testing.T) {
+	t.Parallel()
 	fx := newAgentFixture(t)
 
 	// Without any auth → 401.

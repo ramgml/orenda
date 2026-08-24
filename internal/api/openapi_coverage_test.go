@@ -170,6 +170,7 @@ func pathInSpec(spec, method, path string) bool {
 // TestOpenAPI_RouteCoverage_FullRouter (separate, run via
 // -tags=integration in CI; here we keep the test small).
 func TestOpenAPI_RouteCoverage(t *testing.T) {
+	t.Parallel()
 	spec := readOpenAPISpec(t)
 	require.NotEmpty(t, spec, "openapi.yaml must be readable")
 
@@ -190,6 +191,7 @@ func TestOpenAPI_RouteCoverage(t *testing.T) {
 // minimal "every top-level path entry looks right" check catches
 // the obvious typos.
 func TestOpenAPI_SpecReadable(t *testing.T) {
+	t.Parallel()
 	spec := readOpenAPISpec(t)
 	require.NotEmpty(t, spec)
 	require.True(t, strings.HasPrefix(spec, "# Orenda REST API"))
@@ -212,6 +214,7 @@ func TestOpenAPI_SpecReadable(t *testing.T) {
 // pathTestCase enumerates the routes we KNOW are documented.
 // Used as a sanity test that the spec actually contains entries.
 func TestOpenAPI_DocumentedEndpoints(t *testing.T) {
+	t.Parallel()
 	spec := readOpenAPISpec(t)
 	cases := []struct {
 		method, path string
@@ -245,6 +248,7 @@ func TestOpenAPI_DocumentedEndpoints(t *testing.T) {
 // TestOpenAPI_EndpointServesSpec checks the public /openapi.yaml
 // endpoint returns 200 + yaml.
 func TestOpenAPI_EndpointServesSpec(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/openapi.yaml", nil)
 	rr := httptest.NewRecorder()

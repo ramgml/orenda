@@ -139,6 +139,7 @@ func seedTree(f *structureFake) {
 }
 
 func TestStructure_CreateModule_201(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	deps := structureDeps(f)
 	w := driveCourseHandler(t, http.MethodPost, "/courses/{id}/modules", "/courses/course-00000001/modules",
@@ -151,6 +152,7 @@ func TestStructure_CreateModule_201(t *testing.T) {
 }
 
 func TestStructure_CreateModule_400_MissingTitle(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	w := driveCourseHandler(t, http.MethodPost, "/courses/{id}/modules", "/courses/course-00000001/modules",
 		`{"title":"  "}`, createModuleHandler(structureDeps(f)))
@@ -159,6 +161,7 @@ func TestStructure_CreateModule_400_MissingTitle(t *testing.T) {
 }
 
 func TestStructure_CreateModule_404_UnknownCourse(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	f.courseMissing = true
 	w := driveCourseHandler(t, http.MethodPost, "/courses/{id}/modules", "/courses/course-00000001/modules",
@@ -168,6 +171,7 @@ func TestStructure_CreateModule_404_UnknownCourse(t *testing.T) {
 }
 
 func TestStructure_CreateModule_422_FrozenCourse(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	f.status = course.StatusDone
 	w := driveCourseHandler(t, http.MethodPost, "/courses/{id}/modules", "/courses/course-00000001/modules",
@@ -177,6 +181,7 @@ func TestStructure_CreateModule_422_FrozenCourse(t *testing.T) {
 }
 
 func TestStructure_UpdateModule_200(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	seedTree(f)
 	w := driveCourseHandler(t, http.MethodPatch, "/modules/{id}", "/modules/m1",
@@ -186,6 +191,7 @@ func TestStructure_UpdateModule_200(t *testing.T) {
 }
 
 func TestStructure_UpdateModule_404(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	w := driveCourseHandler(t, http.MethodPatch, "/modules/{id}", "/modules/nope",
 		`{"title":"X"}`, updateModuleHandler(structureDeps(f)))
@@ -193,6 +199,7 @@ func TestStructure_UpdateModule_404(t *testing.T) {
 }
 
 func TestStructure_DeleteModule_204And404(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	seedTree(f)
 	deps := structureDeps(f)
@@ -203,6 +210,7 @@ func TestStructure_DeleteModule_204And404(t *testing.T) {
 }
 
 func TestStructure_CreateLesson_201_BornLocked(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	seedTree(f)
 	f.status = course.StatusActive
@@ -216,6 +224,7 @@ func TestStructure_CreateLesson_201_BornLocked(t *testing.T) {
 }
 
 func TestStructure_RenameLesson_200_PreservesStatus(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	seedTree(f)
 	w := driveCourseHandler(t, http.MethodPatch, "/lessons/{id}", "/lessons/lesson-00000001",
@@ -228,6 +237,7 @@ func TestStructure_RenameLesson_200_PreservesStatus(t *testing.T) {
 }
 
 func TestStructure_RenameLesson_422_Frozen(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	seedTree(f)
 	f.status = course.StatusArchived
@@ -237,6 +247,7 @@ func TestStructure_RenameLesson_422_Frozen(t *testing.T) {
 }
 
 func TestStructure_DeleteLesson_204And404(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	seedTree(f)
 	deps := structureDeps(f)
@@ -247,6 +258,7 @@ func TestStructure_DeleteLesson_204And404(t *testing.T) {
 }
 
 func TestStructure_UpdateQuiz_200_DefaultsExactKind(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	seedTree(f)
 	w := driveCourseHandler(t, http.MethodPatch, "/quizzes/{qid}", "/quizzes/q1",
@@ -257,6 +269,7 @@ func TestStructure_UpdateQuiz_200_DefaultsExactKind(t *testing.T) {
 }
 
 func TestStructure_UpdateQuiz_400(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	seedTree(f)
 	deps := structureDeps(f)
@@ -269,6 +282,7 @@ func TestStructure_UpdateQuiz_400(t *testing.T) {
 }
 
 func TestStructure_DeleteQuiz_204And404(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	seedTree(f)
 	deps := structureDeps(f)
@@ -279,6 +293,7 @@ func TestStructure_DeleteQuiz_204And404(t *testing.T) {
 }
 
 func TestStructure_ApplyStructure_200_ReturnsTree(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	seedTree(f)
 	w := driveCourseHandler(t, http.MethodPut, "/courses/{id}/structure", "/courses/course-00000001/structure",
@@ -292,6 +307,7 @@ func TestStructure_ApplyStructure_200_ReturnsTree(t *testing.T) {
 }
 
 func TestStructure_ApplyStructure_400_InvalidCoverage(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	f.structureErr = course.ErrInvalidInput
 	w := driveCourseHandler(t, http.MethodPut, "/courses/{id}/structure", "/courses/course-00000001/structure",
@@ -301,6 +317,7 @@ func TestStructure_ApplyStructure_400_InvalidCoverage(t *testing.T) {
 }
 
 func TestStructure_ApplyStructure_422_Frozen(t *testing.T) {
+	t.Parallel()
 	f := newStructureFake()
 	f.status = course.StatusDone
 	w := driveCourseHandler(t, http.MethodPut, "/courses/{id}/structure", "/courses/course-00000001/structure",
@@ -309,6 +326,7 @@ func TestStructure_ApplyStructure_422_Frozen(t *testing.T) {
 }
 
 func TestStructure_WriteCourseSvcError_Mapping(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		err  error
 		code int

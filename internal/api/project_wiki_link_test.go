@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -52,13 +51,7 @@ type projectWikiFixture struct {
 
 func newProjectWikiFixture(t *testing.T) *projectWikiFixture {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "pwl.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	ownerEmail := "pwl-owner-" + randLite()[:8] + "@x.com"
@@ -120,6 +113,7 @@ func newProjectWikiFixture(t *testing.T) *projectWikiFixture {
 		CookieName:              "orenda_session",
 	}
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	created, _, _, err := projects.CreateProject(context.Background(), &project.Project{
 		Name:        "PWL Proj",
@@ -202,6 +196,7 @@ func (fx *projectWikiFixture) createRoadmapPage(t *testing.T) {
 // ---------- User cookie: GET returns wiki_slug ----------
 
 func TestProjectWiki_GetReturnsEmptySlugByDefault(t *testing.T) {
+	t.Parallel()
 	fx := newProjectWikiFixture(t)
 	rr := fx.userReq(http.MethodGet, "/api/v1/projects/"+fx.projectID, nil)
 	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
@@ -213,6 +208,7 @@ func TestProjectWiki_GetReturnsEmptySlugByDefault(t *testing.T) {
 // ---------- User cookie: PATCH validates and persists ----------
 
 func TestProjectWiki_UserPatch_LinksExistingPage(t *testing.T) {
+	t.Parallel()
 	fx := newProjectWikiFixture(t)
 	fx.createRoadmapPage(t)
 
@@ -232,6 +228,7 @@ func TestProjectWiki_UserPatch_LinksExistingPage(t *testing.T) {
 }
 
 func TestProjectWiki_UserPatch_RejectsUnknownSlugWith422(t *testing.T) {
+	t.Parallel()
 	fx := newProjectWikiFixture(t)
 	rr := fx.userReq(http.MethodPatch, "/api/v1/projects/"+fx.projectID, map[string]any{
 		"wiki_slug": "no-such-page",
@@ -247,6 +244,7 @@ func TestProjectWiki_UserPatch_RejectsUnknownSlugWith422(t *testing.T) {
 }
 
 func TestProjectWiki_UserPatch_EmptyStringUnlinks(t *testing.T) {
+	t.Parallel()
 	fx := newProjectWikiFixture(t)
 	fx.createRoadmapPage(t)
 
@@ -272,6 +270,7 @@ func TestProjectWiki_UserPatch_EmptyStringUnlinks(t *testing.T) {
 }
 
 func TestProjectWiki_UserPatch_NilLeavesSlugAlone(t *testing.T) {
+	t.Parallel()
 	fx := newProjectWikiFixture(t)
 	fx.createRoadmapPage(t)
 
@@ -294,6 +293,7 @@ func TestProjectWiki_UserPatch_NilLeavesSlugAlone(t *testing.T) {
 }
 
 func TestProjectWiki_UserPatch_TrimsWhitespace(t *testing.T) {
+	t.Parallel()
 	fx := newProjectWikiFixture(t)
 	fx.createRoadmapPage(t)
 
@@ -310,6 +310,7 @@ func TestProjectWiki_UserPatch_TrimsWhitespace(t *testing.T) {
 // ---------- Agent namespace: PATCH validates and writes audit ----------
 
 func TestProjectWiki_AgentPatch_LinksAndWritesActivity(t *testing.T) {
+	t.Parallel()
 	fx := newProjectWikiFixture(t)
 	fx.createRoadmapPage(t)
 
@@ -357,6 +358,7 @@ func TestProjectWiki_AgentPatch_LinksAndWritesActivity(t *testing.T) {
 }
 
 func TestProjectWiki_AgentPatch_RejectsUnknownSlugWith422(t *testing.T) {
+	t.Parallel()
 	fx := newProjectWikiFixture(t)
 	rr := fx.agentReq("/api/v1/agent/projects/"+fx.projectID, map[string]any{
 		"wiki_slug": "no-such-page",
@@ -371,6 +373,7 @@ func TestProjectWiki_AgentPatch_RejectsUnknownSlugWith422(t *testing.T) {
 }
 
 func TestProjectWiki_AgentPatch_EmptyStringUnlinks(t *testing.T) {
+	t.Parallel()
 	fx := newProjectWikiFixture(t)
 	fx.createRoadmapPage(t)
 
@@ -392,6 +395,7 @@ func TestProjectWiki_AgentPatch_EmptyStringUnlinks(t *testing.T) {
 }
 
 func TestProjectWiki_AgentPatch_NoSlugFieldNoOp(t *testing.T) {
+	t.Parallel()
 	fx := newProjectWikiFixture(t)
 	fx.createRoadmapPage(t)
 
@@ -409,6 +413,7 @@ func TestProjectWiki_AgentPatch_NoSlugFieldNoOp(t *testing.T) {
 }
 
 func TestProjectWiki_AgentPatch_BothDescriptionAndSlug(t *testing.T) {
+	t.Parallel()
 	fx := newProjectWikiFixture(t)
 	fx.createRoadmapPage(t)
 
@@ -434,6 +439,7 @@ func TestProjectWiki_AgentPatch_BothDescriptionAndSlug(t *testing.T) {
 }
 
 func TestProjectWiki_AgentPatch_TrimsWhitespace(t *testing.T) {
+	t.Parallel()
 	fx := newProjectWikiFixture(t)
 	fx.createRoadmapPage(t)
 
@@ -450,6 +456,7 @@ func TestProjectWiki_AgentPatch_TrimsWhitespace(t *testing.T) {
 // ---------- FK chain: deleting a wiki page clears the link ----------
 
 func TestProjectWiki_DeleteWikiPageClearsLink(t *testing.T) {
+	t.Parallel()
 	fx := newProjectWikiFixture(t)
 	fx.createRoadmapPage(t)
 
@@ -472,6 +479,7 @@ func TestProjectWiki_DeleteWikiPageClearsLink(t *testing.T) {
 // ---------- User-cookie namespace split (mirrors agent-projects) ----------
 
 func TestProjectWiki_UserCookie_RejectedOnAgentRoute(t *testing.T) {
+	t.Parallel()
 	fx := newProjectWikiFixture(t)
 	fx.createRoadmapPage(t)
 
@@ -496,6 +504,7 @@ func TestProjectWiki_UserCookie_RejectedOnAgentRoute(t *testing.T) {
 }
 
 func TestProjectWiki_AgentToken_RejectedOnUserRoute(t *testing.T) {
+	t.Parallel()
 	fx := newProjectWikiFixture(t)
 	fx.createRoadmapPage(t)
 

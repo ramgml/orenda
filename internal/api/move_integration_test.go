@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -27,13 +26,7 @@ import (
 // moveDeps wires Dependencies + a real ws.Hub for integration tests.
 func moveDeps(t *testing.T) (api.Dependencies, string) {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "move.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	require.NoError(t, users.Create(context.Background(), &user.User{
@@ -66,8 +59,10 @@ func moveDeps(t *testing.T) (api.Dependencies, string) {
 }
 
 func TestIntegration_MoveViaHandler(t *testing.T) {
+	t.Parallel()
 	deps, _ := moveDeps(t)
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	// Login.
 	body, _ := json.Marshal(map[string]string{"email": "move@x.com", "password": "hunter2!"})
@@ -136,8 +131,10 @@ func TestIntegration_MoveViaHandler(t *testing.T) {
 }
 
 func TestIntegration_MoveNotFoundReturns404(t *testing.T) {
+	t.Parallel()
 	deps, _ := moveDeps(t)
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	body, _ := json.Marshal(map[string]string{"email": "move@x.com", "password": "hunter2!"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
@@ -154,8 +151,10 @@ func TestIntegration_MoveNotFoundReturns404(t *testing.T) {
 }
 
 func TestIntegration_MoveBroadcastsOnWebSocket(t *testing.T) {
+	t.Parallel()
 	deps, plain := moveDeps(t)
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	// Login to get a JWT (the WS endpoint needs ?token=...).
 	body, _ := json.Marshal(map[string]string{"email": "move@x.com", "password": plain})

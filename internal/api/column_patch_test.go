@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -45,13 +44,7 @@ type colFixtures struct {
 
 func columnDeps(t *testing.T) colFixtures {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "col.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	u := &user.User{Email: "col@x.com", PasswordHash: mustHashFast(t), DisplayName: "C"}
@@ -80,6 +73,7 @@ func columnDeps(t *testing.T) colFixtures {
 		CookieName:  "orenda_session",
 	}
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	body, _ := json.Marshal(map[string]string{"email": "col@x.com", "password": "hunter2!"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
@@ -116,6 +110,7 @@ func patchColumn(router http.Handler, cookie, colID string, body any) *httptest.
 
 // 1) Rename + recolor succeeds and persists.
 func TestPatchColumn_RenameAndRecolor(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	rr := patchColumn(f.router, f.cookie, f.cols[1].ID, map[string]any{
 		"name":  "TODO renamed",
@@ -130,6 +125,7 @@ func TestPatchColumn_RenameAndRecolor(t *testing.T) {
 
 // 2) Setting wip_limit=0 clears the limit.
 func TestPatchColumn_WIPLimitZeroClears(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	zero := 0
 	rr := patchColumn(f.router, f.cookie, f.cols[1].ID, map[string]any{"wip_limit": &zero})
@@ -141,6 +137,7 @@ func TestPatchColumn_WIPLimitZeroClears(t *testing.T) {
 
 // 3) Setting wip_limit=3 succeeds with empty column.
 func TestPatchColumn_WIPLimitSet(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	three := 3
 	rr := patchColumn(f.router, f.cookie, f.cols[1].ID, map[string]any{"wip_limit": &three})
@@ -153,6 +150,7 @@ func TestPatchColumn_WIPLimitSet(t *testing.T) {
 
 // 4) Setting wip_limit=2 when there are already 3 tasks → 422.
 func TestPatchColumn_WIPLimitTooSmall(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	for i := 0; i < 3; i++ {
 		require.NoError(t, f.tasks.Create(context.Background(), &task.Task{
@@ -171,6 +169,7 @@ func TestPatchColumn_WIPLimitTooSmall(t *testing.T) {
 
 // 5) Unknown id → 404.
 func TestPatchColumn_NotFound(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	rr := patchColumn(f.router, f.cookie, "deadbeef", map[string]any{"name": "x"})
 	assert.Equal(t, http.StatusNotFound, rr.Code)
@@ -178,6 +177,7 @@ func TestPatchColumn_NotFound(t *testing.T) {
 
 // 6) Empty name is rejected (handler ignores it, name stays non-empty).
 func TestPatchColumn_EmptyNameRejected(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	rr := patchColumn(f.router, f.cookie, f.cols[1].ID, map[string]any{"name": ""})
 	assert.Equal(t, http.StatusOK, rr.Code, "empty name should be ignored, not rejected")
@@ -188,6 +188,7 @@ func TestPatchColumn_EmptyNameRejected(t *testing.T) {
 
 // 7) Negative wip_limit → 400.
 func TestPatchColumn_NegativeWIPRejected(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	neg := -1
 	rr := patchColumn(f.router, f.cookie, f.cols[1].ID, map[string]any{"wip_limit": &neg})
@@ -203,13 +204,8 @@ func TestPatchColumn_NegativeWIPRejected(t *testing.T) {
 // because the fixtures don't expose the hub — we need to subscribe
 // to it before the PATCH to assert the broadcast lands.
 func TestPatchColumn_BroadcastsColumnUpdated(t *testing.T) {
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/col2.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	t.Parallel()
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	u := &user.User{Email: "col2@x.com", PasswordHash: mustHashFast(t), DisplayName: "C2"}
@@ -234,6 +230,7 @@ func TestPatchColumn_BroadcastsColumnUpdated(t *testing.T) {
 		CookieName:  "orenda_session",
 	}
 	router := api.NewRouter(&deps2)
+	t.Cleanup(deps2.RateLimitClose)
 
 	body, _ := json.Marshal(map[string]string{"email": "col2@x.com", "password": "hunter2!"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))

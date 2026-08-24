@@ -4,6 +4,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"sync/atomic"
 
 	"go.uber.org/zap"
 
@@ -20,12 +21,19 @@ import (
 // apiLogger is the package-level logger used by writeError for unexpected
 // (500) errors. It is set once during router construction. nil is fine —
 // writeError just skips the log entry. Tests can override it via
-// SetAPILogger to surface internal errors.
-var apiLogger *zap.Logger
+// SetAPILogger to surface internal errors.  Protected by atomic.Value
+// for safe concurrent access from parallel test goroutines.
+var apiLogger atomic.Value // *zap.Logger
 
 // SetAPILogger installs the logger used by writeError for 500-class
-// errors. Pass nil to disable logging.
-func SetAPILogger(l *zap.Logger) { apiLogger = l }
+// errors. Pass nil to disable logging (sets a nop logger internally;
+// atomic.Value does not accept nil).
+func SetAPILogger(l *zap.Logger) {
+	if l == nil {
+		l = zap.NewNop()
+	}
+	apiLogger.Store(l)
+}
 
 // writeError translates a domain error into the appropriate HTTP status code
 // and writes a small JSON body. Unknown errors become 500.
@@ -68,8 +76,8 @@ func writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, eventservice.ErrInvalidInput):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
 	default:
-		if apiLogger != nil {
-			apiLogger.Error("api internal error", zap.Error(err))
+		if l, ok := apiLogger.Load().(*zap.Logger); ok && l != nil {
+			l.Error("api internal error", zap.Error(err))
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
 	}

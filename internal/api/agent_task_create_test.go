@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -57,13 +56,7 @@ type proposeFixture struct {
 
 func newProposeFixture(t *testing.T) *proposeFixture {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/p.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := copyTemplateDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	ownerEmail := "propose-owner-" + randLite()[:8] + "@x.com"
@@ -120,6 +113,7 @@ func newProposeFixture(t *testing.T) *proposeFixture {
 		CookieName:       "orenda_session",
 	}
 	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
 
 	// Owner cookie via the real login endpoint.
 	loginBody, _ := json.Marshal(map[string]string{"email": ownerEmail, "password": "hunter2!"})
@@ -196,6 +190,7 @@ func validProposeBody(projectID string) map[string]any {
 }
 
 func TestAgent_ProposeTask_Created(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 
 	// WS: a subscriber on the `tasks` topic must see task.created.
@@ -240,6 +235,7 @@ func TestAgent_ProposeTask_Created(t *testing.T) {
 // in the project_id body field and resolves it to the correct
 // project. This is the primary agent-facing path for P-refs.
 func TestAgent_ProposeTask_PRefResolution(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 
 	// The fixture creates one project; after migration 036 it gets
@@ -254,6 +250,7 @@ func TestAgent_ProposeTask_PRefResolution(t *testing.T) {
 }
 
 func TestAgent_ProposeTask_OptionalFields(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 
 	// Seed a parent task and a blocker task.
@@ -303,6 +300,7 @@ func TestAgent_ProposeTask_OptionalFields(t *testing.T) {
 }
 
 func TestAgent_ProposeTask_Validation(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 	for _, tc := range []struct {
 		name string
@@ -321,6 +319,7 @@ func TestAgent_ProposeTask_Validation(t *testing.T) {
 }
 
 func TestAgent_ProposeTask_UnknownProject(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 	rr := f.proposeAsAgent(t, validProposeBody("no-such-project"))
 	assert.Equal(t, http.StatusNotFound, rr.Code, "body=%s", rr.Body.String())
@@ -329,6 +328,7 @@ func TestAgent_ProposeTask_UnknownProject(t *testing.T) {
 // The agent namespace rejects both anonymous callers and user-cookie
 // sessions (namespaces are split — mirrors TestAgent_CommentRejectsUserCookie).
 func TestAgent_ProposeTask_Auth(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 	raw, _ := json.Marshal(validProposeBody(f.projectID))
 
@@ -361,6 +361,7 @@ func TestAgent_ProposeTask_Auth(t *testing.T) {
 // does not see the task on /api/v1/agent/tasks until the owner has
 // moved it into a claimable column.
 func TestAgent_ProposeTask_BoardTriageFlow(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 
 	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
@@ -419,6 +420,7 @@ func TestAgent_ProposeTask_BoardTriageFlow(t *testing.T) {
 // agents would race for half-formed propose-tasks and the review
 // surface would re-appear under a different name.
 func TestAgent_ProposeTask_BacklogNotInAgentList(t *testing.T) {
+	t.Parallel()
 	f := newProposeFixture(t)
 
 	// Seed another ready-to-do task so the agent list is not empty —

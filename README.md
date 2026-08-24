@@ -2,11 +2,13 @@
 
 > **Local-first productivity suite** where AI-agents are first-class citizens. Tasks, projects, calendar, knowledge base — everything in your life, on your machine.
 
-*Имя — от ирокезского «orenda» — внутренняя сила, пронизывающая всё сущее.*
+*The name comes from the Iroquoian "orenda" — the inner force that pervades all being.*
+
+[Русская версия](README.ru.md)
 
 ## Why Orenda?
 
-В стандартных task-менеджерах AI — внешний инструмент, приклеенный через интеграции. В Orenda агенты — **полноправные участники workflow**: создают задачи, берут в работу, оставляют комментарии, получают контекст от владельца. Человек — владелец, ревьюер, инициатор.
+In standard task managers AI is an external tool bolted on through integrations. In Orenda agents are **full-fledged workflow participants**: they create tasks, claim work, leave comments, receive context from the owner. The human is the owner, the reviewer, the initiator.
 
 ## Stack
 

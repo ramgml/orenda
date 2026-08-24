@@ -718,6 +718,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	tokens := sqlite.NewAPITokenRepository(db)
 	usersRaw := users // *userRepo for FirstID; api takes the domain interface
 
+	// Signal-aware ctx created early so the backup scheduler
+	// (and every other goroutine below) receives SIGINT/SIGTERM
+	// for graceful shutdown.
+	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 	// Backup service + scheduler (Phase 7) — constructed before the other
 	// services so task/wiki services can hold a reference to the mirror.
 	var backupSvc *backup.Service
@@ -767,7 +772,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		// from booting.
 		applyStartupBackupSettings(cmd.Context(), backupSvc, db, logger)
 		scheduler := backup.NewScheduler(backupSvc)
-		go scheduler.Run(cmd.Context())
+		go scheduler.Run(ctx)
 		logger.Info("backup scheduler started",
 			zap.String("mirror_dir", cfg.Backup.MirrorDir),
 			zap.String("snapshot_dir", cfg.Backup.SnapshotDir),
@@ -799,6 +804,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		nil, // task_service.Recorder would be a circular adapter; accept/dismiss don't audit-row
 	)
 	taskSvc := taskservice.New(tasksRepo, taskLocks, taskRecorderFor(activityRecorder), commentAdderFor(commentSvc), hub)
+	taskSvc.Logger = logger
 	taskSvc.Mirror = mirrorSvc
 	taskSvc.Columns = projects // Phase 23.1 + 16.7: WIP lookup + inbox→project filing
 	// Phase Wave 4 PR 2: wire CommentLister so the markdown
@@ -1017,7 +1023,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	// Build the router.
 	api.Version = version
-	router := api.NewRouter(&api.Dependencies{
+	deps := &api.Dependencies{
 		Logger:      logger,
 		Signer:      signer,
 		Users:       users,
@@ -1106,7 +1112,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			FTS:       searchSvc != nil,
 			PWA:       true, // web/dist embedded at build time (27.1)
 		},
-	})
+	}
+	router := api.NewRouter(deps)
 
 	// HTTP server with graceful shutdown.
 	srv := &http.Server{
@@ -1115,9 +1122,6 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}
-
-	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
 
 	// Kick off the recurring-event reminder scheduler. It loops on
 	// ctx.Done() and exits with the server.
@@ -1222,6 +1226,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		if err := b.Stop(shutdownCtx); err != nil {
 			logger.Warn("bot stop failed", zap.String("bot", name), zap.Error(err))
 		}
+	}
+	// Stop the rate-limiter cleanup goroutine (PR #74).
+	if deps.RateLimitClose != nil {
+		deps.RateLimitClose()
 	}
 	logger.Info("shutdown complete")
 	return nil

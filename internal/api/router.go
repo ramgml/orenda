@@ -193,6 +193,11 @@ type Dependencies struct {
 	// nil-safe — handlers return 503 when the repo isn't wired
 	// (e.g. the early Phase 0 fixtures).
 	ChatMessages chat.MessageRepository
+	// RateLimitClose is set by NewRouter to a function that stops
+	// background goroutines (rate-limiter cleanup loops). Callers
+	// SHOULD wire it via t.Cleanup in tests to prevent goroutine
+	// leaks that accumulate across many fixture instantiations.
+	RateLimitClose func()
 }
 
 // CourseActivityRepo is the small read surface needed by the
@@ -220,7 +225,7 @@ func NewRouter(deps *Dependencies) http.Handler {
 	}
 	// Expose to writeError for unexpected (500) errors. Tests can
 	// override via SetAPILogger before calling NewRouter.
-	apiLogger = logger
+	apiLogger.Store(logger)
 	if deps.CookieName == "" {
 		deps.CookieName = "orenda_session"
 	}
@@ -260,7 +265,7 @@ func NewRouter(deps *Dependencies) http.Handler {
 	if authPerSec == 0 {
 		authPerSec = 100.0
 	}
-	r.Use(rateLimit(rateLimitOptions{
+	rl := rateLimit(rateLimitOptions{
 		AnonBurst:  anonBurst,
 		AnonPerSec: anonPerSec,
 		AuthBurst:  authBurst,
@@ -276,7 +281,11 @@ func NewRouter(deps *Dependencies) http.Handler {
 			"/api/v1/ws": true,
 			"/api/v1/me": true,
 		},
-	}))
+	})
+	r.Use(rl.middleware)
+	// Expose the cleanup function so callers (especially tests) can
+	// stop the background goroutines via t.Cleanup.
+	deps.RateLimitClose = rl.close
 	zap.L().Info("rate limit config",
 		zap.Int("anon_burst", anonBurst),
 		zap.Float64("anon_per_sec", anonPerSec),

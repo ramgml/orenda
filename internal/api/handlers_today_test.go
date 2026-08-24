@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -31,16 +30,8 @@ import (
 // due_at-yesterday / due_at-today boundary cases).
 func buildTodayDeps(t *testing.T) (*Dependencies, *sql.DB) {
 	t.Helper()
+	db := copyInternalTemplateDB(t)
 	ctx := context.Background()
-
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "orenda.db")
-	db, err := sqlite.Open(ctx, dbPath, sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	require.NoError(t, sqlite.Migrate(ctx, db, sqlite.MigrationsFS, "migrations"))
-	t.Cleanup(func() { _ = db.Close() })
 
 	studySvc := studysvc.New(
 		sqlite.NewStudyProposalRepository(db),
@@ -55,7 +46,7 @@ func buildTodayDeps(t *testing.T) (*Dependencies, *sql.DB) {
 
 	// Seed a single owner so the (unwired) active-timer path
 	// doesn't blow up; we don't use it.
-	_, err = db.ExecContext(ctx,
+	_, err := db.ExecContext(ctx,
 		`INSERT INTO users (id, email, password_hash, display_name) VALUES (?, ?, ?, ?)`,
 		"u-today", "today@031.local", "x", "U")
 	require.NoError(t, err)
@@ -80,6 +71,7 @@ func loadToday(t *testing.T, deps *Dependencies) todayResponse {
 // always present (empty array) so the front-end can render the
 // tray without a "loading" guard.
 func TestToday_Proposals_EmptyByDefault(t *testing.T) {
+	t.Parallel()
 	deps, _ := buildTodayDeps(t)
 	resp := loadToday(t, deps)
 	assert.NotNil(t, resp.Proposals)
@@ -89,6 +81,7 @@ func TestToday_Proposals_EmptyByDefault(t *testing.T) {
 // TestToday_Proposals_SurfacesPending — a pending proposal shows
 // up in the proposals field of /today.
 func TestToday_Proposals_SurfacesPending(t *testing.T) {
+	t.Parallel()
 	deps, db := buildTodayDeps(t)
 
 	ctx := context.Background()
@@ -129,6 +122,7 @@ func TestToday_Proposals_SurfacesPending(t *testing.T) {
 // Phase 31.7: a study-reminder with a due_at from yesterday is
 // NOT in overdue. Missed day never turns red.
 func TestToday_StudyReminder_NotInOverdue(t *testing.T) {
+	t.Parallel()
 	deps, db := buildTodayDeps(t)
 
 	_, err := db.ExecContext(context.Background(),
@@ -152,6 +146,7 @@ func TestToday_StudyReminder_NotInOverdue(t *testing.T) {
 // due_at, the reminder appears in due_today today (so the user
 // can ack/dismiss it).
 func TestToday_StudyReminder_InDueToday(t *testing.T) {
+	t.Parallel()
 	deps, db := buildTodayDeps(t)
 
 	_, err := db.ExecContext(context.Background(),
@@ -179,6 +174,7 @@ func TestToday_StudyReminder_InDueToday(t *testing.T) {
 // non-study task with yesterday's due_at STILL escalates to
 // overdue. The "no escalation" rule is for reminders only.
 func TestToday_RegularOverdue_StillOverdue(t *testing.T) {
+	t.Parallel()
 	deps, db := buildTodayDeps(t)
 
 	yesterday := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
@@ -201,6 +197,7 @@ func TestToday_RegularOverdue_StillOverdue(t *testing.T) {
 // TestToday_RegularDueToday — regression guard: a non-study
 // task with today's due_at shows up in due_today.
 func TestToday_RegularDueToday(t *testing.T) {
+	t.Parallel()
 	deps, db := buildTodayDeps(t)
 
 	now := time.Now().UTC()
@@ -224,6 +221,7 @@ func TestToday_RegularDueToday(t *testing.T) {
 // reminder with due_at = today end-of-day (the typical accept
 // path) shows up in due_today under the in-window filter.
 func TestToday_StudyReminder_TodayDueAt(t *testing.T) {
+	t.Parallel()
 	deps, db := buildTodayDeps(t)
 
 	_, err := db.ExecContext(context.Background(),
@@ -255,14 +253,8 @@ func TestToday_StudyReminder_TodayDueAt(t *testing.T) {
 // that don't wire StudyService still work (Proposals is an empty
 // array, not a 500).
 func TestToday_Proposals_NoServiceWired(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "orenda.db")
-	db, err := sqlite.Open(context.Background(), dbPath, sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
-	t.Cleanup(func() { _ = db.Close() })
+	t.Parallel()
+	db := copyInternalTemplateDB(t)
 
 	deps := &Dependencies{
 		Tasks: sqlite.NewTaskRepository(db),

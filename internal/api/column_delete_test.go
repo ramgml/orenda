@@ -26,6 +26,7 @@ func deleteColumn(router http.Handler, cookie, colID string) *httptest.ResponseR
 
 // 1) Empty column → 204 No Content, then GET /board shows one less column.
 func TestDeleteColumn_Empty(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	before := len(f.cols)
 
@@ -47,6 +48,7 @@ func TestDeleteColumn_Empty(t *testing.T) {
 
 // 2) Column with tasks → 422 with current count.
 func TestDeleteColumn_WithTasksRejected(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	for i := 0; i < 3; i++ {
 		require.NoError(t, f.tasks.Create(context.Background(), &task.Task{
@@ -81,6 +83,7 @@ func TestDeleteColumn_WithTasksRejected(t *testing.T) {
 
 // 3) Unknown id → 404.
 func TestDeleteColumn_NotFound(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	rr := deleteColumn(f.router, f.cookie, "deadbeef")
 	assert.Equal(t, http.StatusNotFound, rr.Code)
@@ -90,6 +93,7 @@ func TestDeleteColumn_NotFound(t *testing.T) {
 // the user-facing happy path: drag tasks to other columns, then
 // delete the now-empty column.
 func TestDeleteColumn_AfterMovingTasksOut(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	// Seed two tasks in cols[1], then move one to cols[2].
 	var taskIDs []string
@@ -135,6 +139,7 @@ func TestDeleteColumn_AfterMovingTasksOut(t *testing.T) {
 // from the caller's POV — no race window where a task could
 // silently lose its column_id.
 func TestDeleteColumn_PreservesTasksElsewhere(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	// One task in the doomed column, one in another.
 	doomed := &task.Task{
@@ -157,6 +162,7 @@ func TestDeleteColumn_PreservesTasksElsewhere(t *testing.T) {
 
 // 6) Idempotency: deleting the same id twice → first 204, second 404.
 func TestDeleteColumn_Idempotency(t *testing.T) {
+	t.Parallel()
 	f := columnDeps(t)
 	rr := deleteColumn(f.router, f.cookie, f.cols[0].ID)
 	require.Equal(t, http.StatusNoContent, rr.Code)
