@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-import { api, type WikiPage, type WikiTreeNode } from '@/shared/api/client';
+import { api, type WikiPage, type WikiTreeNode, type WikiBlock } from '@/shared/api/client';
 import { useWebSocketTopic } from '@/shared/ws';
 import { slugify } from '@/shared/util/slug';
 import { Button } from '@/shared/ui/button';
@@ -11,6 +11,7 @@ import { Input } from '@/shared/ui/input';
 import { Textarea } from '@/shared/ui/textarea';
 
 import { MarkdownEditor } from './MarkdownEditor';
+import { BlocksEditor, type BlocksEditorHandle } from './blocks/BlocksEditor';
 import { WikiNumberChip } from './WikiNumberChip';
 
 /**
@@ -37,6 +38,12 @@ export function WikiPage(): JSX.Element {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [blockView, setBlockView] = useState<{
+    format: string;
+    blocks?: WikiBlock[];
+    content_md?: string;
+  } | null>(null);
+  const blocksEditorRef = useRef<BlocksEditorHandle | null>(null);
 
   async function loadTree(): Promise<void> {
     try {
@@ -53,6 +60,14 @@ export function WikiPage(): JSX.Element {
       const bl = await api.getPageBacklinks(slugVal);
       setPage(p);
       setBacklinks(bl.backlinks ?? []);
+      // B2 fix: always fetch blocks — legacy markdown pages get
+      // format="markdown" + content_md; blocks pages get format="blocks" + blocks
+      try {
+        const bv = await api.getPageBlocks(slugVal);
+        setBlockView(bv);
+      } catch {
+        setBlockView(null);
+      }
       setError(null);
     } catch (e) {
       if ((e as { response?: { status?: number } }).response?.status === 404) {
@@ -90,7 +105,13 @@ export function WikiPage(): JSX.Element {
     if (!page || !page.slug) return;
     setSaving(true);
     try {
-      if (page.id) {
+      // If blocks editor is active, save as blocks
+      if (page.id && blocksEditorRef.current) {
+        const blocks = blocksEditorRef.current.getDocument();
+        const saved = await api.updatePageBlocks(page.slug, blocks);
+        setPage(saved);
+        setBlockView({ format: 'blocks', blocks });
+      } else if (page.id) {
         await api.updatePage(page.slug, {
           title: page.title,
           content_md: page.content_md,
@@ -155,10 +176,13 @@ export function WikiPage(): JSX.Element {
             saving={saving}
             deleting={deleting}
             pagesTree={tree}
+            blockView={blockView}
+            blocksEditorRef={blocksEditorRef}
             onChange={(p) => {
               setPage(p);
               setDirty(true);
             }}
+            onDirty={() => setDirty(true)}
             onSave={onSave}
             onDelete={onDelete}
           />
@@ -296,9 +320,12 @@ function PageEditor({
   saving,
   deleting,
   pagesTree,
+  blockView,
+  blocksEditorRef,
   onChange,
   onSave,
   onDelete,
+  onDirty,
 }: {
   page: WikiPage;
   backlinks: WikiPage[];
@@ -306,7 +333,10 @@ function PageEditor({
   saving: boolean;
   deleting: boolean;
   pagesTree: WikiTreeNode[];
+  blockView: { format: string; blocks?: WikiBlock[]; content_md?: string } | null;
+  blocksEditorRef: React.RefObject<BlocksEditorHandle | null>;
   onChange: (p: WikiPage) => void;
+  onDirty: () => void;
   onSave: () => void;
   onDelete: () => void;
 }): JSX.Element {
@@ -359,12 +389,25 @@ function PageEditor({
       </div>
 
       {tab === 'edit' ? (
-        <MarkdownEditor
-          value={page.content_md ?? ''}
-          onChange={(md) => onChange({ ...page, content_md: md })}
-          placeholder="Type / for commands…"
-          pages={pagesTree}
-        />
+        blockView ? (
+          <BlocksEditor
+            ref={blocksEditorRef as React.RefObject<BlocksEditorHandle>}
+            slug={page.slug}
+            pageId={page.id}
+            initialBlocks={blockView.blocks}
+            initialFormat={blockView.format}
+            initialContentMD={blockView.content_md}
+            pagesTree={pagesTree}
+            onChange={() => onDirty()}
+          />
+        ) : (
+          <MarkdownEditor
+            value={page.content_md ?? ''}
+            onChange={(md) => onChange({ ...page, content_md: md })}
+            placeholder="Type / for commands…"
+            pages={pagesTree}
+          />
+        )
       ) : tab === 'preview' ? (
         <div className="rounded border border-border bg-background px-6 py-5 min-h-[300px]">
           {page.content_md ? (
