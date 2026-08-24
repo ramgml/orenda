@@ -1229,6 +1229,25 @@ class ApiClient {
     return this.http.patch<void>(`/api/v1/pages/${slug}/move`, { parent_id }).then(() => undefined);
   }
 
+  // ---- Wiki Blocks (Phase 7/BlockNote) ----
+
+  getPageBlocks(slug: string): Promise<WikiBlockView> {
+    return this.http.get<WikiBlockView>(`/api/v1/pages/${slug}/blocks`).then((r) => r.data);
+  }
+
+  updatePageBlocks(slug: string, blocks: WikiBlock[]): Promise<WikiPage> {
+    return this.http.put<WikiPage>(`/api/v1/pages/${slug}/blocks`, { blocks }).then((r) => r.data);
+  }
+
+  uploadPageAttachment(slug: string, file: File): Promise<TaskAttachment> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http
+      .post<TaskAttachment>(`/api/v1/pages/${slug}/attachments`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data);
+  }
   // ---- Search (Phase 5) ----
 
   search(params: {
@@ -1515,6 +1534,7 @@ export interface WikiPage {
   title: string;
   content_md?: string;
   position: number;
+  content_format?: string;
   /**
    * Human-readable sequential wiki page number ("W5"). Assigned by the
    * storage layer on CreatePage from the wiki_number_seq high-watermark.
@@ -1524,6 +1544,28 @@ export interface WikiPage {
   updated_at: string;
 }
 
+/**
+ * One block in a wiki page's render tree. Mirrors BlockNote's block
+ * shape for direct round-trip without transformation.
+ */
+export interface WikiBlock {
+  id: string;
+  type: string;
+  props?: Record<string, unknown>;
+  content?: unknown;
+  children?: WikiBlock[];
+}
+
+/**
+ * Response from GET /api/v1/pages/{slug}/blocks.
+ * - format "markdown": content_md contains raw markdown (legacy page)
+ * - format "blocks": blocks array contains the BlockNote-shaped tree
+ */
+export interface WikiBlockView {
+  format: string;
+  content_md?: string;
+  blocks?: WikiBlock[];
+}
 export interface WikiTreeNode {
   page: WikiPage;
   children?: WikiTreeNode[];
