@@ -145,14 +145,26 @@ func TestBlocksToMarkdown(t *testing.T) {
 		{
 			name: "codeBlock with language",
 			blocks: []*wiki.Block{
-				block("codeBlock", codeBlockProps{Language: "go"}, "fmt.Println(\"hi\")"),
+				block("codeBlock", codeBlockProps{Language: "go"}, []inlineItem{inlineText("fmt.Println(\"hi\")")}),
 			},
 			expected: "```go\nfmt.Println(\"hi\")\n```\n\n",
 		},
 		{
 			name:     "codeBlock no language",
-			blocks:   []*wiki.Block{block("codeBlock", nil, "x = 1")},
+			blocks:   []*wiki.Block{block("codeBlock", nil, []inlineItem{inlineText("x = 1")})},
 			expected: "```\nx = 1\n```\n\n",
+		},
+		{
+			name: "codeBlock multiple text items concatenated",
+			blocks: []*wiki.Block{
+				block("codeBlock", codeBlockProps{Language: "python"}, []inlineItem{inlineText("print("), inlineText("'hello')")}),
+			},
+			expected: "```python\nprint('hello')\n```\n\n",
+		},
+		{
+			name:     "codeBlock empty inline array",
+			blocks:   []*wiki.Block{block("codeBlock", nil, []inlineItem{})},
+			expected: "```\n\n```\n\n",
 		},
 		{
 			name:     "divider",

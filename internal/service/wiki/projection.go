@@ -172,12 +172,17 @@ func renderCodeBlock(b *strings.Builder, block *wiki.Block) {
 	b.WriteString(lang)
 	b.WriteString("\n")
 
-	// CodeBlock content is a raw string in the Content field.
-	var code string
+	// CodeBlock content is an inline-item array (content:"plain" in
+	// BlockNote 0.54 — @blocknote/core/src/blocks/Code/block.ts).
+	// Styles are ignored — code blocks don't need formatting.
 	if len(block.Content) > 0 {
-		_ = json.Unmarshal(block.Content, &code)
+		var items []inlineItem
+		if json.Unmarshal(block.Content, &items) == nil {
+			for _, item := range items {
+				b.WriteString(item.Text)
+			}
+		}
 	}
-	b.WriteString(code)
 	b.WriteString("\n```\n\n")
 }
 
