@@ -1018,7 +1018,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	// Build the router.
 	api.Version = version
-	router := api.NewRouter(&api.Dependencies{
+	deps := &api.Dependencies{
 		Logger:      logger,
 		Signer:      signer,
 		Users:       users,
@@ -1107,7 +1107,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 			FTS:       searchSvc != nil,
 			PWA:       true, // web/dist embedded at build time (27.1)
 		},
-	})
+	}
+	router := api.NewRouter(deps)
 
 	// HTTP server with graceful shutdown.
 	srv := &http.Server{
@@ -1223,6 +1224,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		if err := b.Stop(shutdownCtx); err != nil {
 			logger.Warn("bot stop failed", zap.String("bot", name), zap.Error(err))
 		}
+	}
+	// Stop the rate-limiter cleanup goroutine (PR #74).
+	if deps.RateLimitClose != nil {
+		deps.RateLimitClose()
 	}
 	logger.Info("shutdown complete")
 	return nil
