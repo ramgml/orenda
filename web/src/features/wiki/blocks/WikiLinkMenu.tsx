@@ -1,106 +1,69 @@
 /**
  * Wiki [[…]] autocomplete for the BlockNote editor.
  *
- * Triggers when the user types `[[` and shows matching pages.
- * Picking an item inserts a standard `link` with `href="wiki:<slug>"` —
- * this survives the markdown round-trip (see schema.ts for rationale).
+ * Triggers when the user types [[ and shows matching pages.
+ * Picking an item inserts a standard link with href="wiki:<slug>".
  *
- * Uses a simple event-driven approach rather than SuggestionMenuController
- * because the controller doesn't reliably trigger for non-/ characters
- * inside BlockNoteView.
- *
- * `filterItems` and `flattenWikiTree` are ported from the Tiptap-based
- * `WikiLinkSuggestion.tsx` (preserving the same test contract).
+ * Uses refs for all mutable state to avoid useEffect re-registration.
  */
 import { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import type { BlockNoteEditor } from '@blocknote/core';
 import type { WikiTreeNode } from '@/shared/api/client';
-
-/** Minimal item shape used by filterItems / flattenWikiTree. */
-export interface WikiLinkItem {
-  slug: string;
-  title: string;
-}
-
-/**
- * Filter wiki pages by query. Matches case-insensitively on title and
- * slug. Returns at most 8 results, preserving original order.
- */
-export function filterItems(query: string, all: WikiLinkItem[]): WikiLinkItem[] {
-  const q = query.toLowerCase().trim();
-  if (!q) return all.slice(0, 8);
-  return all
-    .filter((p) => p.title.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q))
-    .slice(0, 8);
-}
-
-/**
- * Flatten a hierarchical wiki page tree into a flat {slug, title} array.
- * Accepts the API client's WikiTreeNode shape ({page, children?}).
- */
-export function flattenWikiTree(tree: WikiTreeNode[]): WikiLinkItem[] {
-  const out: WikiLinkItem[] = [];
-  const visit = (nodes: WikiTreeNode[]) => {
-    for (const n of nodes) {
-      out.push({ slug: n.page.slug, title: n.page.title });
-      if (n.children && n.children.length > 0) visit(n.children);
-    }
-  };
-  visit(tree);
-  return out;
-}
+import { filterItems, flattenWikiTree, type WikiLinkItem } from './wikiLinkUtils';
 
 interface WikiLinkMenuProps {
-  /** The BlockNote editor instance. */
   editor: BlockNoteEditor<any, any, any>;
-  /** All known wiki pages for the suggestion list. */
   pagesTree: WikiTreeNode[];
-  /**
-   * Callback when a wiki link is selected. Receives the markdown-format
-   * link string to insert: `[title](wiki:slug)`.
-   */
   onInsert: (markdown: string) => void;
 }
 
-/**
- * Wiki [[ autocomplete popup. Listens for `[[` input in the editor
- * and shows a filtered list of wiki pages. Selecting an item inserts
- * a standard link with wiki: protocol href.
- */
+const NAV_KEYS = new Set([
+  'Shift',
+  'Control',
+  'Alt',
+  'Meta',
+  'CapsLock',
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'ArrowDown',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+]);
+
 export function WikiLinkMenu({
   editor,
   pagesTree,
   onInsert,
 }: WikiLinkMenuProps): JSX.Element | null {
   const allPages = useMemo(() => flattenWikiTree(pagesTree), [pagesTree]);
-  const [query, setQuery] = useState('');
-  const [isOpen, setIsOpen] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const popupRef = useRef<HTMLDivElement>(null);
-  const triggerPosRef = useRef<number>(0);
 
-  const matched = useMemo(() => {
-    if (!query) return allPages.slice(0, 8);
-    return filterItems(query, allPages);
-  }, [query, allPages]);
+  const isOpenRef = useRef(false);
+  const queryRef = useRef('');
+  const selectedRef = useRef(0);
+  const triggerPosRef = useRef(0);
+  const matchedRef = useRef<WikiLinkItem[]>([]);
+  const [, forceRender] = useState(0);
+
+  // Update matchedRef whenever allPages or query changes
+  useEffect(() => {
+    matchedRef.current = queryRef.current
+      ? filterItems(queryRef.current, allPages)
+      : allPages.slice(0, 8);
+  }, [allPages]); // queryRef changes don't trigger re-render; matchedRef is updated in checkForTrigger
 
   const insertLink = useCallback(
     (item: WikiLinkItem) => {
-      // W1 fix: only delete [[query trigger text via transaction.
-      // The actual link insertion is done once by onInsert (editor.insertInlineContent).
-      // Using _tiptapEditor because BlockNote 0.54 has no public API for
-      // deleting arbitrary text ranges in inline content.
-      // W5: _tiptapEditor is private API — used intentionally for text range deletion
-      // (BlockNote 0.54 has no public equivalent). Safe to use until BlockNote
-      // provides a public deleteRange API.
+      // Delete [[query trigger text. Using _tiptapEditor because BlockNote 0.54
+      // has no public API for deleting arbitrary text ranges.
       const state = editor._tiptapEditor.state;
-      const tr = state.tr;
       let startPos = -1;
       state.doc.descendants((node, pos) => {
         if (startPos >= 0) return false;
         if (node.isText) {
-          const text = node.text || '';
-          const idx = text.indexOf('[[');
+          const idx = (node.text || '').indexOf('[[');
           if (idx >= 0) {
             startPos = pos + idx;
             return false;
@@ -109,102 +72,107 @@ export function WikiLinkMenu({
       });
       if (startPos >= 0) {
         const endPos = editor._tiptapEditor.state.selection.from;
-        tr.delete(startPos, endPos);
-        editor._tiptapEditor.view.dispatch(tr);
+        editor._tiptapEditor.view.dispatch(state.tr.delete(startPos, endPos));
       }
-      setIsOpen(false);
-      setQuery('');
-      // Single insertion via onInsert — parent calls editor.insertInlineContent
+      isOpenRef.current = false;
+      queryRef.current = '';
+      forceRender((n) => n + 1);
       onInsert(`[${item.title}](wiki:${item.slug})`);
     },
     [editor, onInsert],
   );
 
-  // Listen for keyboard input in the editor
+  // Register keyup listener ONCE on mount
   useEffect(() => {
     if (!editor) return;
 
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!isOpen) return;
-
-      if (event.key === 'ArrowDown') {
-        event.preventDefault();
-        setSelectedIndex((i) => Math.min(i + 1, matched.length - 1));
-      } else if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        setSelectedIndex((i) => Math.max(i - 1, 0));
-      } else if (event.key === 'Enter' || event.key === 'Tab') {
-        event.preventDefault();
-        if (matched[selectedIndex]) {
-          insertLink(matched[selectedIndex]);
-        }
-      } else if (event.key === 'Escape') {
-        setIsOpen(false);
-        setQuery('');
-      }
-    };
-
-    const handleChange = (_editor: any, _ctx: any) => {
-      // W5: _tiptapEditor is private API — used intentionally for text range deletion
-      // (BlockNote 0.54 has no public equivalent). Safe to use until BlockNote
-      // provides a public deleteRange API.
+    const checkForTrigger = () => {
       const state = editor._tiptapEditor.state;
       const { from } = state.selection;
-      // Look backward from cursor for [[
       const textBefore = state.doc.textBetween(Math.max(0, from - 50), from, '');
-      const doubleBracketIdx = textBefore.lastIndexOf('[[');
-      if (doubleBracketIdx >= 0) {
-        const afterBracket = textBefore.slice(doubleBracketIdx + 2);
-        // Only trigger if no newline between [[ and cursor
-        if (!afterBracket.includes('\n')) {
-          setQuery(afterBracket);
-          setIsOpen(true);
-          setSelectedIndex(0);
-          triggerPosRef.current = from - afterBracket.length - 2;
+      const idx = textBefore.lastIndexOf('[[');
+      if (idx >= 0) {
+        const after = textBefore.slice(idx + 2);
+        if (!after.includes('\n')) {
+          queryRef.current = after;
+          isOpenRef.current = true;
+          selectedRef.current = 0;
+          triggerPosRef.current = from - after.length - 2;
+          // Update matchedRef
+          matchedRef.current = filterItems(after, allPages);
+          forceRender((n) => n + 1);
           return;
         }
       }
-      setIsOpen(false);
-      setQuery('');
+      if (isOpenRef.current) {
+        isOpenRef.current = false;
+        queryRef.current = '';
+        forceRender((n) => n + 1);
+      }
     };
 
-    const unsub = editor.onChange(handleChange);
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (NAV_KEYS.has(e.key)) return;
+      setTimeout(checkForTrigger, 10);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isOpenRef.current) return;
+      const m = matchedRef.current;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        selectedRef.current = Math.min(selectedRef.current + 1, m.length - 1);
+        forceRender((n) => n + 1);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        selectedRef.current = Math.max(selectedRef.current - 1, 0);
+        forceRender((n) => n + 1);
+      } else if ((e.key === 'Enter' || e.key === 'Tab') && m[selectedRef.current]) {
+        e.preventDefault();
+        insertLink(m[selectedRef.current]);
+      } else if (e.key === 'Escape') {
+        isOpenRef.current = false;
+        queryRef.current = '';
+        forceRender((n) => n + 1);
+      }
+    };
+
+    document.addEventListener('keyup', handleKeyUp, true);
     document.addEventListener('keydown', handleKeyDown, true);
     return () => {
-      unsub();
+      document.removeEventListener('keyup', handleKeyUp, true);
       document.removeEventListener('keydown', handleKeyDown, true);
     };
-  }, [editor, isOpen, matched, selectedIndex, insertLink]);
+  }, [editor, insertLink, allPages]);
 
-  if (!isOpen || matched.length === 0) return null;
+  if (!isOpenRef.current || matchedRef.current.length === 0) return null;
 
-  // Position near cursor
-  const from = editor._tiptapEditor.state.selection.from;
-  // Approximate position from editor view
-  const editorView = editor._tiptapEditor.view;
-  const coords = editorView.coordsAtPos(from);
+  const { from } = editor._tiptapEditor.state.selection;
+  const coords = editor._tiptapEditor.view.coordsAtPos(from);
 
   return (
     <div
-      ref={popupRef}
       className="fixed z-50 rounded border border-border bg-card shadow-lg py-1 text-sm min-w-[180px] max-w-[320px]"
       style={{ top: coords.bottom + 4, left: coords.left }}
       role="listbox"
     >
-      {matched.map((item, idx) => (
+      {matchedRef.current.map((item, idx) => (
         <button
           key={item.slug}
           type="button"
           role="option"
-          aria-selected={idx === selectedIndex}
+          aria-selected={idx === selectedRef.current}
           data-testid={`wiki-link-item-${item.slug}`}
           onMouseDown={(e) => {
             e.preventDefault();
             insertLink(item);
           }}
-          onMouseEnter={() => setSelectedIndex(idx)}
+          onMouseEnter={() => {
+            selectedRef.current = idx;
+            forceRender((n) => n + 1);
+          }}
           className={`w-full text-left px-3 py-1.5 ${
-            idx === selectedIndex
+            idx === selectedRef.current
               ? 'bg-orenda-100 dark:bg-orenda-900/40 text-orenda-700 dark:text-orenda-300'
               : 'hover:bg-slate-100 dark:hover:bg-slate-800'
           }`}
