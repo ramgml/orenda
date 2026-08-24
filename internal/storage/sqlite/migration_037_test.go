@@ -45,7 +45,7 @@ func TestMigrate_037WikiPageNumbers(t *testing.T) {
 	_, err = db.ExecContext(ctx,
 		`INSERT INTO wiki_pages (id, slug, title, content_md, position, created_at, updated_at) VALUES
 		 (?, 'slug-new', 'New', '', 0, '2026-08-12 10:00:00', '2026-08-12 10:00:00'),
-		 (?, 'slug-old', 'Old', '', 0, '2026-08-08 10:00:00', '2026-08-08 10:00:00'),
+		 (?, 'slug-old', 'Old', '', 0, '2026-08-09 10:00:00', '2026-08-09 10:00:00'),
 		 (?, 'slug-mid', 'Mid', '', 0, '2026-08-10 10:00:00', '2026-08-10 10:00:00')`,
 		pageNew, pageOld, pageMiddle)
 	require.NoError(t, err)

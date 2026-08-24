@@ -24,6 +24,55 @@ func createTestPage(t *testing.T, repo wiki.Repository, slug string) *wiki.Page 
 	return p
 }
 
+// TestWikiBlocks_UpdatePreservesContentFormat verifies the BLOCKER fix:
+// an Update call with empty ContentFormat must NOT clobber the existing
+// value — callers that don't populate ContentFormat (legacy markdown
+// save) must not reset it.
+func TestWikiBlocks_UpdatePreservesContentFormat(t *testing.T) {
+	db := setupUserDB(t)
+	repo := NewWikiRepository(db)
+	ctx := context.Background()
+
+	// Create with content_format = "markdown".
+	page := createTestPage(t, repo, "wb-format-preserve")
+	got, err := repo.GetByID(ctx, page.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "markdown", got.ContentFormat)
+
+	// Update with empty ContentFormat (simulates legacy save path).
+	got.Title = "Updated Title"
+	got.ContentFormat = "" // caller didn't set it
+	err = repo.Update(ctx, got)
+	require.NoError(t, err)
+
+	// content_format must still be "markdown".
+	got2, err := repo.GetByID(ctx, page.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "markdown", got2.ContentFormat, "empty ContentFormat must not clobber existing value")
+	assert.Equal(t, "Updated Title", got2.Title)
+}
+
+// TestWikiBlocks_UpdateExplicitFormat verifies that explicitly setting
+// ContentFormat in Update does change it.
+func TestWikiBlocks_UpdateExplicitFormat(t *testing.T) {
+	db := setupUserDB(t)
+	repo := NewWikiRepository(db)
+	ctx := context.Background()
+
+	page := createTestPage(t, repo, "wb-format-explicit")
+
+	// Explicitly set to "blocks".
+	got, err := repo.GetByID(ctx, page.ID)
+	require.NoError(t, err)
+	got.ContentFormat = "blocks"
+	err = repo.Update(ctx, got)
+	require.NoError(t, err)
+
+	got2, err := repo.GetByID(ctx, page.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "blocks", got2.ContentFormat)
+}
+
 // TestWikiBlocks_ReplaceAndGetBlocks round-trips blocks through
 // ReplaceBlocks → GetBlocks. Validates ordering, nesting (ParentBlockID),
 // Props/Content preservation, and the flat sort by parent_block_id, position.

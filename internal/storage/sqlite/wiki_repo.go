@@ -29,6 +29,13 @@ func (r *wikiRepo) Create(ctx context.Context, p *wiki.Page) (*wiki.Page, error)
 		p.ID = newUUID()
 	}
 
+	// Normalize empty content_format to "markdown" so the NOT NULL
+	// column always receives a valid value.
+	cf := p.ContentFormat
+	if cf == "" {
+		cf = "markdown"
+	}
+
 	// number comes from the wiki_page_number_seq high-watermark, not from
 	// MAX(wiki_pages.number): a MAX+1 would re-issue the newest page's
 	// number after that page is deleted, and a "W42" reference in a
@@ -49,26 +56,13 @@ func (r *wikiRepo) Create(ctx context.Context, p *wiki.Page) (*wiki.Page, error)
 		return nil, fmt.Errorf("wiki.Create: draw number: %w", err)
 	}
 
-	// Include content_format only when set; omitting it lets the column
-	// default ("markdown") apply and keeps the repo compatible with
-	// schemas where migration 040 hasn't run yet.
-	if p.ContentFormat != "" {
-		const q = `
-			INSERT INTO wiki_pages (id, parent_id, slug, title, content_md, content_format, position, number, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-		`
-		_, err = tx.ExecContext(ctx, q,
-			p.ID, nullString(p.ParentID), p.Slug, p.Title, p.ContentMD, p.ContentFormat, p.Position, number,
-		)
-	} else {
-		const q = `
-			INSERT INTO wiki_pages (id, parent_id, slug, title, content_md, position, number, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-		`
-		_, err = tx.ExecContext(ctx, q,
-			p.ID, nullString(p.ParentID), p.Slug, p.Title, p.ContentMD, p.Position, number,
-		)
-	}
+	const q = `
+		INSERT INTO wiki_pages (id, parent_id, slug, title, content_md, content_format, position, number, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+	`
+	_, err = tx.ExecContext(ctx, q,
+		p.ID, nullString(p.ParentID), p.Slug, p.Title, p.ContentMD, cf, p.Position, number,
+	)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return nil, wiki.ErrSlugTaken
@@ -121,14 +115,21 @@ func (r *wikiRepo) Update(ctx context.Context, p *wiki.Page) error {
 	if err := p.Validate(); err != nil {
 		return err
 	}
+	// Only overwrite content_format when explicitly set; callers that
+	// don't populate ContentFormat (e.g. legacy markdown save) must not
+	// clobber the existing value.
 	const q = `
 		UPDATE wiki_pages
-		SET parent_id = ?, slug = ?, title = ?, content_md = ?, content_format = ?, position = ?,
+		SET parent_id = ?, slug = ?, title = ?, content_md = ?,
+		    content_format = CASE WHEN ? = '' THEN content_format ELSE ? END,
+		    position = ?,
 		    updated_at = datetime('now')
 		WHERE id = ?
 	`
 	res, err := r.db.ExecContext(ctx, q,
-		nullString(p.ParentID), p.Slug, p.Title, p.ContentMD, p.ContentFormat, p.Position, p.ID,
+		nullString(p.ParentID), p.Slug, p.Title, p.ContentMD,
+		p.ContentFormat, p.ContentFormat,
+		p.Position, p.ID,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
