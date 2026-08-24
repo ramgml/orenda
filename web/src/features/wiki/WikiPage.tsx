@@ -325,6 +325,7 @@ function PageEditor({
   onChange,
   onSave,
   onDelete,
+  onDirty,
 }: {
   page: WikiPage;
   backlinks: WikiPage[];
@@ -397,9 +398,7 @@ function PageEditor({
             initialFormat={blockView.format}
             initialContentMD={blockView.content_md}
             pagesTree={pagesTree}
-            onChange={() => {
-              /* blocks changed — handled by parent */
-            }}
+            onChange={() => onDirty()}
           />
         ) : (
           <MarkdownEditor

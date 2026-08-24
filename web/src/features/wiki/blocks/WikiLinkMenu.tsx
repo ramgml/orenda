@@ -86,11 +86,15 @@ export function WikiLinkMenu({
 
   const insertLink = useCallback(
     (item: WikiLinkItem) => {
-      // Delete the [[query text
-      // Use editor commands to replace text
+      // W1 fix: only delete [[query trigger text via transaction.
+      // The actual link insertion is done once by onInsert (editor.insertInlineContent).
+      // Using _tiptapEditor because BlockNote 0.54 has no public API for
+      // deleting arbitrary text ranges in inline content.
+      // W5: _tiptapEditor is private API — used intentionally for text range deletion
+      // (BlockNote 0.54 has no public equivalent). Safe to use until BlockNote
+      // provides a public deleteRange API.
       const state = editor._tiptapEditor.state;
       const tr = state.tr;
-      // Find the [[ in the document
       let startPos = -1;
       state.doc.descendants((node, pos) => {
         if (startPos >= 0) return false;
@@ -104,14 +108,13 @@ export function WikiLinkMenu({
         }
       });
       if (startPos >= 0) {
-        // Delete [[query and insert link
         const endPos = editor._tiptapEditor.state.selection.from;
         tr.delete(startPos, endPos);
-        tr.insertText(`[${item.title}](wiki:${item.slug})`, startPos);
         editor._tiptapEditor.view.dispatch(tr);
       }
       setIsOpen(false);
       setQuery('');
+      // Single insertion via onInsert — parent calls editor.insertInlineContent
       onInsert(`[${item.title}](wiki:${item.slug})`);
     },
     [editor, onInsert],
@@ -142,6 +145,9 @@ export function WikiLinkMenu({
     };
 
     const handleChange = (_editor: any, _ctx: any) => {
+      // W5: _tiptapEditor is private API — used intentionally for text range deletion
+      // (BlockNote 0.54 has no public equivalent). Safe to use until BlockNote
+      // provides a public deleteRange API.
       const state = editor._tiptapEditor.state;
       const { from } = state.selection;
       // Look backward from cursor for [[

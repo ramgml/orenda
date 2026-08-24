@@ -123,20 +123,6 @@ export const BlocksEditor = forwardRef<BlocksEditorHandle, BlocksEditorProps>(fu
   // B4 fix: use BlockNoteView onChange (single channel, proper cleanup)
   // No onEditorContentChange — that leaks without unsubscribe.
 
-  // Keyboard shortcut: Ctrl+S / Cmd+S triggers save
-  useEffect(() => {
-    if (!editor) return;
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-        e.preventDefault();
-        // Trigger save via the parent's save handler
-        document.dispatchEvent(new CustomEvent('wiki-blocks-save'));
-      }
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [editor]);
-
   if (!editor) {
     return <div className="p-4 text-slate-400 text-sm">Loading editor…</div>;
   }
