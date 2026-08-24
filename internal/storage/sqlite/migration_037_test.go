@@ -45,7 +45,7 @@ func TestMigrate_037WikiPageNumbers(t *testing.T) {
 	_, err = db.ExecContext(ctx,
 		`INSERT INTO wiki_pages (id, slug, title, content_md, position, created_at, updated_at) VALUES
 		 (?, 'slug-new', 'New', '', 0, '2026-08-12 10:00:00', '2026-08-12 10:00:00'),
-		 (?, 'slug-old', 'Old', '', 0, '2026-08-09 10:00:00', '2026-08-09 10:00:00'),
+		 (?, 'slug-old', 'Old', '', 0, '2026-08-08 10:00:00', '2026-08-08 10:00:00'),
 		 (?, 'slug-mid', 'Mid', '', 0, '2026-08-10 10:00:00', '2026-08-10 10:00:00')`,
 		pageNew, pageOld, pageMiddle)
 	require.NoError(t, err)
@@ -54,6 +54,13 @@ func TestMigrate_037WikiPageNumbers(t *testing.T) {
 	body, err := MigrationsFS.ReadFile("migrations/037_wiki_page_numbers.sql")
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, string(body))
+	require.NoError(t, err)
+
+	// Apply migration 040 as well so the schema includes content_format
+	// (needed by the updated repo scan).
+	body040, err := MigrationsFS.ReadFile("migrations/040_wiki_blocks.sql")
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, string(body040))
 	require.NoError(t, err)
 
 	// Contract 1: backfill in (created_at, rowid) order, 1-based.

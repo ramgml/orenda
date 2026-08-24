@@ -43,4 +43,14 @@ type Repository interface {
 
 	// Backlinks returns every page that links to the given id.
 	Backlinks(ctx context.Context, pageID string) ([]*Page, error)
+
+	// GetBlocks returns all blocks for a page, ordered by
+	// parent_block_id, position. The list is flat (no tree assembly).
+	GetBlocks(ctx context.Context, pageID string) ([]*Block, error)
+
+	// ReplaceBlocks atomically deletes all blocks for a page and inserts
+	// the provided set. Each block must already carry ParentBlockID and
+	// Position set by the caller (flatten step). An empty slice deletes
+	// all blocks.
+	ReplaceBlocks(ctx context.Context, pageID string, blocks []*Block) error
 }
