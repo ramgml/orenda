@@ -1,16 +1,19 @@
 /**
  * Wiki [[…]] autocomplete for the BlockNote editor.
  *
- * Triggers on `[` and shows matching pages when the second `[` is typed.
+ * Triggers when the user types `[[` and shows matching pages.
  * Picking an item inserts a standard `link` with `href="wiki:<slug>"` —
  * this survives the markdown round-trip (see schema.ts for rationale).
+ *
+ * Uses a simple event-driven approach rather than SuggestionMenuController
+ * because the controller doesn't reliably trigger for non-/ characters
+ * inside BlockNoteView.
  *
  * `filterItems` and `flattenWikiTree` are ported from the Tiptap-based
  * `WikiLinkSuggestion.tsx` (preserving the same test contract).
  */
-import { SuggestionMenuController } from '@blocknote/react';
-import type { DefaultReactSuggestionItem } from '@blocknote/react';
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect, useRef, useState } from 'react';
+import type { BlockNoteEditor } from '@blocknote/core';
 import type { WikiTreeNode } from '@/shared/api/client';
 
 /** Minimal item shape used by filterItems / flattenWikiTree. */
@@ -48,6 +51,8 @@ export function flattenWikiTree(tree: WikiTreeNode[]): WikiLinkItem[] {
 }
 
 interface WikiLinkMenuProps {
+  /** The BlockNote editor instance. */
+  editor: BlockNoteEditor<any, any, any>;
   /** All known wiki pages for the suggestion list. */
   pagesTree: WikiTreeNode[];
   /**
@@ -58,30 +63,150 @@ interface WikiLinkMenuProps {
 }
 
 /**
- * SuggestionMenuController that triggers on `[` and shows wiki page
- * suggestions when the user types a second `[`.
+ * Wiki [[ autocomplete popup. Listens for `[[` input in the editor
+ * and shows a filtered list of wiki pages. Selecting an item inserts
+ * a standard link with wiki: protocol href.
  */
-export function WikiLinkMenu({ pagesTree, onInsert }: WikiLinkMenuProps): JSX.Element | null {
+export function WikiLinkMenu({
+  editor,
+  pagesTree,
+  onInsert,
+}: WikiLinkMenuProps): JSX.Element | null {
   const allPages = useMemo(() => flattenWikiTree(pagesTree), [pagesTree]);
+  const [query, setQuery] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const popupRef = useRef<HTMLDivElement>(null);
+  const triggerPosRef = useRef<number>(0);
 
-  const getItems = useCallback(
-    async (query: string): Promise<DefaultReactSuggestionItem[]> => {
-      // Only show suggestions when query starts with a second `[`
-      if (!query.startsWith('[')) return [];
-      const q = query.slice(1); // Strip leading `[`
-      const matched = filterItems(q, allPages);
-      return matched.map((p) => ({
-        title: p.title,
-        subtext: p.slug,
-        onItemClick: () => {
-          onInsert(`[${p.title}](wiki:${p.slug})`);
-        },
-      }));
+  const matched = useMemo(() => {
+    if (!query) return allPages.slice(0, 8);
+    return filterItems(query, allPages);
+  }, [query, allPages]);
+
+  const insertLink = useCallback(
+    (item: WikiLinkItem) => {
+      // Delete the [[query text
+      // Use editor commands to replace text
+      const state = editor._tiptapEditor.state;
+      const tr = state.tr;
+      // Find the [[ in the document
+      let startPos = -1;
+      state.doc.descendants((node, pos) => {
+        if (startPos >= 0) return false;
+        if (node.isText) {
+          const text = node.text || '';
+          const idx = text.indexOf('[[');
+          if (idx >= 0) {
+            startPos = pos + idx;
+            return false;
+          }
+        }
+      });
+      if (startPos >= 0) {
+        // Delete [[query and insert link
+        const endPos = editor._tiptapEditor.state.selection.from;
+        tr.delete(startPos, endPos);
+        tr.insertText(`[${item.title}](wiki:${item.slug})`, startPos);
+        editor._tiptapEditor.view.dispatch(tr);
+      }
+      setIsOpen(false);
+      setQuery('');
+      onInsert(`[${item.title}](wiki:${item.slug})`);
     },
-    [allPages, onInsert],
+    [editor, onInsert],
   );
 
-  if (allPages.length === 0) return null;
+  // Listen for keyboard input in the editor
+  useEffect(() => {
+    if (!editor) return;
 
-  return <SuggestionMenuController triggerCharacter="[" minQueryLength={1} getItems={getItems} />;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isOpen) return;
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setSelectedIndex((i) => Math.min(i + 1, matched.length - 1));
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setSelectedIndex((i) => Math.max(i - 1, 0));
+      } else if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        if (matched[selectedIndex]) {
+          insertLink(matched[selectedIndex]);
+        }
+      } else if (event.key === 'Escape') {
+        setIsOpen(false);
+        setQuery('');
+      }
+    };
+
+    const handleChange = (_editor: any, _ctx: any) => {
+      const state = editor._tiptapEditor.state;
+      const { from } = state.selection;
+      // Look backward from cursor for [[
+      const textBefore = state.doc.textBetween(Math.max(0, from - 50), from, '');
+      const doubleBracketIdx = textBefore.lastIndexOf('[[');
+      if (doubleBracketIdx >= 0) {
+        const afterBracket = textBefore.slice(doubleBracketIdx + 2);
+        // Only trigger if no newline between [[ and cursor
+        if (!afterBracket.includes('\n')) {
+          setQuery(afterBracket);
+          setIsOpen(true);
+          setSelectedIndex(0);
+          triggerPosRef.current = from - afterBracket.length - 2;
+          return;
+        }
+      }
+      setIsOpen(false);
+      setQuery('');
+    };
+
+    const unsub = editor.onChange(handleChange);
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      unsub();
+      document.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [editor, isOpen, matched, selectedIndex, insertLink]);
+
+  if (!isOpen || matched.length === 0) return null;
+
+  // Position near cursor
+  const from = editor._tiptapEditor.state.selection.from;
+  // Approximate position from editor view
+  const editorView = editor._tiptapEditor.view;
+  const coords = editorView.coordsAtPos(from);
+
+  return (
+    <div
+      ref={popupRef}
+      className="fixed z-50 rounded border border-border bg-card shadow-lg py-1 text-sm min-w-[180px] max-w-[320px]"
+      style={{ top: coords.bottom + 4, left: coords.left }}
+      role="listbox"
+    >
+      {matched.map((item, idx) => (
+        <button
+          key={item.slug}
+          type="button"
+          role="option"
+          aria-selected={idx === selectedIndex}
+          data-testid={`wiki-link-item-${item.slug}`}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            insertLink(item);
+          }}
+          onMouseEnter={() => setSelectedIndex(idx)}
+          className={`w-full text-left px-3 py-1.5 ${
+            idx === selectedIndex
+              ? 'bg-orenda-100 dark:bg-orenda-900/40 text-orenda-700 dark:text-orenda-300'
+              : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <div className="font-medium truncate">{item.title}</div>
+          <div className="text-[10px] text-slate-400 font-mono truncate">{item.slug}</div>
+        </button>
+      ))}
+    </div>
+  );
 }

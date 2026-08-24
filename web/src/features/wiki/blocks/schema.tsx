@@ -36,6 +36,40 @@ const wikiLinkSpec = createReactInlineContentSpec(
  * BlockSpecs use defaults — the slash menu filter in BlocksEditor
  * restricts to the postanovka whitelist.
  */
-export const schema = BlockNoteSchema.create().extend({
-  inlineContentSpecs: { wikiLink: wikiLinkSpec },
+import { defaultBlockSpecs, defaultInlineContentSpecs, defaultStyleSpecs } from '@blocknote/core';
+
+/**
+ * Block specs filtered to the postanovka whitelist.
+ * Excludes: audio, video, toggleListItem (not in slash menu whitelist).
+ */
+const {
+  paragraph,
+  heading,
+  bulletListItem,
+  numberedListItem,
+  checkListItem,
+  quote,
+  codeBlock,
+  table,
+  image,
+  file,
+  divider,
+} = defaultBlockSpecs;
+
+export const schema = BlockNoteSchema.create({
+  blockSpecs: {
+    paragraph,
+    heading,
+    bulletListItem,
+    numberedListItem,
+    checkListItem,
+    quote,
+    codeBlock,
+    table,
+    image,
+    file,
+    divider,
+  },
+  inlineContentSpecs: { ...defaultInlineContentSpecs, wikiLink: wikiLinkSpec },
+  styleSpecs: defaultStyleSpecs,
 });

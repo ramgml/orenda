@@ -60,15 +60,12 @@ export function WikiPage(): JSX.Element {
       const bl = await api.getPageBacklinks(slugVal);
       setPage(p);
       setBacklinks(bl.backlinks ?? []);
-      // Load block view if the page uses blocks format
-      if (p.content_format === 'blocks') {
-        try {
-          const bv = await api.getPageBlocks(slugVal);
-          setBlockView(bv);
-        } catch {
-          setBlockView(null);
-        }
-      } else {
+      // B2 fix: always fetch blocks — legacy markdown pages get
+      // format="markdown" + content_md; blocks pages get format="blocks" + blocks
+      try {
+        const bv = await api.getPageBlocks(slugVal);
+        setBlockView(bv);
+      } catch {
         setBlockView(null);
       }
       setError(null);
