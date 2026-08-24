@@ -718,6 +718,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	tokens := sqlite.NewAPITokenRepository(db)
 	usersRaw := users // *userRepo for FirstID; api takes the domain interface
 
+	// Signal-aware ctx created early so the backup scheduler
+	// (and every other goroutine below) receives SIGINT/SIGTERM
+	// for graceful shutdown.
+	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 	// Backup service + scheduler (Phase 7) — constructed before the other
 	// services so task/wiki services can hold a reference to the mirror.
 	var backupSvc *backup.Service
@@ -767,7 +772,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		// from booting.
 		applyStartupBackupSettings(cmd.Context(), backupSvc, db, logger)
 		scheduler := backup.NewScheduler(backupSvc)
-		go scheduler.Run(cmd.Context())
+		go scheduler.Run(ctx)
 		logger.Info("backup scheduler started",
 			zap.String("mirror_dir", cfg.Backup.MirrorDir),
 			zap.String("snapshot_dir", cfg.Backup.SnapshotDir),
@@ -1117,9 +1122,6 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 	}
-
-	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
 
 	// Kick off the recurring-event reminder scheduler. It loops on
 	// ctx.Done() and exits with the server.
