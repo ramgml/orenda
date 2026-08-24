@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
@@ -15,15 +16,16 @@ type unknownErr struct{}
 
 func (unknownErr) Error() string { return "something broke" }
 
+// NOTE: these tests mutate the shared package-level apiLogger and must NOT
+// run in parallel — sequential execution is required for correctness.
+
 func TestSetAPILogger_NilDoesNotPanic(t *testing.T) {
-	t.Parallel()
 	assert.NotPanics(t, func() {
 		SetAPILogger(nil)
 	})
 }
 
 func TestWriteError_NilLoggerReturns500(t *testing.T) {
-	t.Parallel()
 	SetAPILogger(nil) // nop logger installed
 
 	w := httptest.NewRecorder()
@@ -34,8 +36,6 @@ func TestWriteError_NilLoggerReturns500(t *testing.T) {
 }
 
 func TestWriteError_NonNilLoggerLogs(t *testing.T) {
-	t.Parallel()
-
 	core, logs := observer.New(zap.ErrorLevel)
 	l := zap.New(core)
 
@@ -46,6 +46,6 @@ func TestWriteError_NonNilLoggerLogs(t *testing.T) {
 	writeError(w, unknownErr{})
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, 1, logs.Len(), "expected exactly one log entry")
+	require.Len(t, logs.All(), 1, "expected exactly one log entry")
 	assert.Contains(t, logs.All()[0].Message, "api internal error")
 }
