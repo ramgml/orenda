@@ -110,6 +110,20 @@ func renderBlock(b *strings.Builder, block *wiki.Block, depth int) {
 			b.WriteString("\n")
 		}
 	}
+
+	// Render children for non-list types. List types (bullet/numbered/
+	// check) handle their own children with depth+1 in renderListItem.
+	// Markdown has no generic nesting, so children render as siblings
+	// at the same depth — preserving content, losing structural relation
+	// (acceptable for derived projection).
+	if len(block.Children) > 0 {
+		switch block.Type {
+		case "bulletListItem", "numberedListItem", "checkListItem":
+			// already handled inside renderListItem
+		default:
+			renderBlocks(b, block.Children, depth)
+		}
+	}
 }
 
 // renderHeading writes "# heading\n\n" (level 1-3).

@@ -363,3 +363,111 @@ func TestBlocksToMarkdown_PanicSafety(t *testing.T) {
 		})
 	})
 }
+
+// TestBlocksToMarkdown_ChildrenRendering verifies that non-list blocks
+// render their children as siblings (markdown has no generic nesting).
+func TestBlocksToMarkdown_ChildrenRendering(t *testing.T) {
+	tests := []struct {
+		name     string
+		blocks   []*wiki.Block
+		expected string
+	}{
+		{
+			name: "paragraph with paragraph child",
+			blocks: []*wiki.Block{
+				block("paragraph", nil, []inlineItem{inlineText("parent")},
+					block("paragraph", nil, []inlineItem{inlineText("child")}),
+				),
+			},
+			expected: "parent\n\nchild\n\n",
+		},
+		{
+			name: "quote with child",
+			blocks: []*wiki.Block{
+				block("quote", nil, []inlineItem{inlineText("quoted")},
+					block("paragraph", nil, []inlineItem{inlineText("extra")}),
+				),
+			},
+			expected: "> quoted\nextra\n\n",
+		},
+		{
+			name: "image with child",
+			blocks: []*wiki.Block{
+				block("image", inlineProps{URL: "u", Caption: "c"}, nil,
+					block("paragraph", nil, []inlineItem{inlineText("alt text")}),
+				),
+			},
+			expected: "![c](u)\n\nalt text\n\n",
+		},
+		{
+			name: "unknown type with child",
+			blocks: []*wiki.Block{
+				block("futureWidget", nil, []inlineItem{inlineText("widget")},
+					block("paragraph", nil, []inlineItem{inlineText("detail")}),
+				),
+			},
+			expected: "widget\ndetail\n\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, BlocksToMarkdown(tt.blocks))
+		})
+	}
+}
+
+// TestBlocksToMarkdown_WireFormat tests with literal JSON matching
+// BlockNote's actual wire format (json.RawMessage). This catches struct-tag
+// drift that Go-struct-based tests miss — the same class of bug as the
+// codeBlock content:string vs content:inlineArray issue in v1.
+func TestBlocksToMarkdown_WireFormat(t *testing.T) {
+	tests := []struct {
+		name     string
+		blocks   string // JSON array of Block objects
+		expected string
+	}{
+		{
+			name: "paragraph with bold+italic styles",
+			blocks: `[{
+				"type": "paragraph",
+				"content": [
+					{"type": "text", "text": "hello ", "styles": {}},
+					{"type": "text", "text": "world", "styles": {"bold": true, "italic": true}}
+				]
+			}]`,
+			expected: "hello ***world***\n\n",
+		},
+		{
+			name: "table from wire JSON",
+			blocks: `[{
+				"type": "table",
+				"content": {
+					"type": "tableContent",
+					"rows": [
+						{"cells": [[{"type": "text", "text": "A"}], [{"type": "text", "text": "B"}]]},
+						{"cells": [[{"type": "text", "text": "1|2"}], [{"type": "text", "text": "3"}]]}
+					]
+				}
+			}]`,
+			expected: "| A | B |\n| --- | --- |\n| 1\\|2 | 3 |\n\n",
+		},
+		{
+			name: "codeBlock wire format (inline-array content)",
+			blocks: `[{
+				"type": "codeBlock",
+				"props": {"language": "js"},
+				"content": [
+					{"type": "text", "text": "const x = 1;", "styles": {}}
+				]
+			}]`,
+			expected: "```js\nconst x = 1;\n```\n\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var blocks []*wiki.Block
+			require.NoError(t, json.Unmarshal([]byte(tt.blocks), &blocks))
+			assert.Equal(t, tt.expected, BlocksToMarkdown(blocks))
+		})
+	}
+}
