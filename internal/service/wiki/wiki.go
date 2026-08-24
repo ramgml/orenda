@@ -63,11 +63,16 @@ func (s *Service) Save(ctx context.Context, p *wiki.Page) (*wiki.Page, error) {
 	var got *wiki.Page
 	var err error
 	if p.ID == "" {
+		p.ContentFormat = "markdown"
 		got, err = s.Repo.Create(ctx, p)
 	} else {
+		p.ContentFormat = "markdown"
 		if err := s.Repo.Update(ctx, p); err != nil {
 			return nil, err
 		}
+		// Markdown save: wipe any stored blocks (format='markdown'
+		// is the single source of truth for markdown content).
+		_ = s.Repo.ReplaceBlocks(ctx, p.ID, nil)
 		got, err = s.Repo.GetByID(ctx, p.ID)
 	}
 	if err != nil {

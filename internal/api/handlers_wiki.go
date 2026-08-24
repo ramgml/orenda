@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/ramgml/orenda/internal/domain/attachment"
 	"github.com/ramgml/orenda/internal/domain/wiki"
 	"github.com/ramgml/orenda/internal/service/search"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
@@ -287,4 +289,142 @@ func parseLimitParam(s string, def, maxVal int) int {
 		return maxVal
 	}
 	return n
+}
+
+// ----------------------------------------------------------------------------
+// Wiki blocks
+// ----------------------------------------------------------------------------
+
+// getPageBlocksHandler returns the block view for a page.
+func getPageBlocksHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.WikiService == nil {
+			http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		slug, err := resolveWikiRef(r.Context(), deps, chi.URLParam(r, "slug"))
+		if err != nil {
+			writeWikiResolveError(w, err)
+			return
+		}
+		bv, err := deps.WikiService.GetBlockView(r.Context(), slug)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, bv)
+	}
+}
+
+// putPageBlocksRequest is the JSON body for PUT /pages/{slug}/blocks.
+type putPageBlocksRequest struct {
+	Blocks json.RawMessage `json:"blocks"`
+}
+
+// putPageBlocksHandler replaces the block tree of a page.
+func putPageBlocksHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.WikiService == nil {
+			http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		slug, err := resolveWikiRef(r.Context(), deps, chi.URLParam(r, "slug"))
+		if err != nil {
+			writeWikiResolveError(w, err)
+			return
+		}
+		var in putPageBlocksRequest
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		if len(in.Blocks) == 0 || string(in.Blocks) == "null" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_blocks"})
+			return
+		}
+		var blocks []*wiki.Block
+		if err := json.Unmarshal(in.Blocks, &blocks); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_blocks_json"})
+			return
+		}
+		got, err := deps.WikiService.ReplaceBlockTree(r.Context(), slug, blocks)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, got)
+	}
+}
+
+// addPageAttachmentHandler accepts multipart/form-data with a
+// `file` field and stores it against the wiki page. Behaviour mirrors
+// addProjectAttachmentHandler; only the TargetType differs.
+func addPageAttachmentHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.Attachments == nil {
+			http.Error(w, "attachment service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		slug, err := resolveWikiRef(r.Context(), deps, chi.URLParam(r, "slug"))
+		if err != nil {
+			writeWikiResolveError(w, err)
+			return
+		}
+		p, err := deps.WikiService.GetBySlug(r.Context(), slug)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		const maxMem = 32 << 20
+		if err := r.ParseMultipartForm(maxMem); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_multipart"})
+			return
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_file"})
+			return
+		}
+		defer file.Close()
+
+		mimeType := header.Header.Get("Content-Type")
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		filename := filepath.Base(header.Filename)
+		if filename == "." || filename == "/" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad_filename"})
+			return
+		}
+
+		uploaderID := ""
+		if id, ok := IdentityFrom(r.Context()); ok {
+			uploaderID = id.UserID
+		}
+
+		res, err := deps.Attachments.StoreFromBytes(
+			r.Context(),
+			attachment.TargetPage,
+			p.ID,
+			filename, mimeType,
+			attachment.UploaderUser, uploaderID,
+			file,
+		)
+		if err != nil {
+			if strings.Contains(err.Error(), "too large") {
+				writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "too_large"})
+				return
+			}
+			if strings.Contains(err.Error(), "mime type not allowed") {
+				writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "mime_rejected"})
+				return
+			}
+			writeError(w, err)
+			return
+		}
+		if res.Duplicate {
+			w.Header().Set("X-Attachment-Duplicate", "true")
+		}
+		writeJSON(w, http.StatusCreated, res.Attachment)
+	}
 }
