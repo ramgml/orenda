@@ -56,6 +56,13 @@ func TestMigrate_037WikiPageNumbers(t *testing.T) {
 	_, err = db.ExecContext(ctx, string(body))
 	require.NoError(t, err)
 
+	// Apply migration 040 as well so the schema includes content_format
+	// (needed by the updated repo scan).
+	body040, err := MigrationsFS.ReadFile("migrations/040_wiki_blocks.sql")
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, string(body040))
+	require.NoError(t, err)
+
 	// Contract 1: backfill in (created_at, rowid) order, 1-based.
 	numberOf := func(id string) int {
 		t.Helper()
