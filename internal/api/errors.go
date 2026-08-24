@@ -26,8 +26,14 @@ import (
 var apiLogger atomic.Value // *zap.Logger
 
 // SetAPILogger installs the logger used by writeError for 500-class
-// errors. Pass nil to disable logging.
-func SetAPILogger(l *zap.Logger) { apiLogger.Store(l) }
+// errors. Pass nil to disable logging (sets a nop logger internally;
+// atomic.Value does not accept nil).
+func SetAPILogger(l *zap.Logger) {
+	if l == nil {
+		l = zap.NewNop()
+	}
+	apiLogger.Store(l)
+}
 
 // writeError translates a domain error into the appropriate HTTP status code
 // and writes a small JSON body. Unknown errors become 500.
