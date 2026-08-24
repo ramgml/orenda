@@ -56,27 +56,18 @@ export function WikiLinkMenu({
 
   const insertLink = useCallback(
     (item: WikiLinkItem) => {
-      // Delete [[query trigger text. Using _tiptapEditor because BlockNote 0.54
-      // has no public API for deleting arbitrary text ranges.
+      // Delete ONLY the [[query range using tracked trigger position.
+      // Never search the whole document — that destroys unrelated content.
       const state = editor._tiptapEditor.state;
-      let startPos = -1;
-      state.doc.descendants((node, pos) => {
-        if (startPos >= 0) return false;
-        if (node.isText) {
-          const idx = (node.text || '').indexOf('[[');
-          if (idx >= 0) {
-            startPos = pos + idx;
-            return false;
-          }
-        }
-      });
-      if (startPos >= 0) {
-        const endPos = editor._tiptapEditor.state.selection.from;
-        editor._tiptapEditor.view.dispatch(state.tr.delete(startPos, endPos));
+      const start = triggerPosRef.current;
+      const end = editor._tiptapEditor.state.selection.from;
+      if (start >= 0 && start < end) {
+        editor._tiptapEditor.view.dispatch(state.tr.delete(start, end));
       }
       isOpenRef.current = false;
       queryRef.current = '';
       forceRender((n) => n + 1);
+      // Single insertion via onInsert — parent calls editor.insertInlineContent
       onInsert(`[${item.title}](wiki:${item.slug})`);
     },
     [editor, onInsert],
