@@ -19,6 +19,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-08-24
+
+Seventh pre-alpha release. Focus: graceful-shutdown correctness (rate limiter + backup scheduler), test-suite health (hang fix, 50x speedup of `internal/api`), the status↔column invariant centralized in the service layer, mobile UI fixes (header overflow, Sign out in the drawer, ReviewRow overflow), and local-gate hardening (`tsc` in pre-push, deletion-only push skip).
+
+### Added
+- **Task 57 (PR #72):** Sign out is now available on mobile — a `Sign out` action added to the sidebar drawer, which is reachable at xs widths where the header button was hidden after the Task 56 overflow fix.
+- **Task 44 (PR #67):** `tsc --noEmit` (`make web-typecheck`) is now part of the everyday local gate: it runs in the pre-push hook and in the CI backstop on push to `dev`, catching TS errors that would otherwise surface only in the release-gate build job.
+- **Task 55 (PR #68):** Pre-push gates are skipped on deletion-only pushes (`git push origin --delete <branch>`) — no code crosses the wire, so there is nothing to gate. Mixed pushes (any code update alongside a deletion) still run the full gate.
+
+### Changed
+- **Task 46 (PR #69):** The status↔column invariant (`task.status ≡ column.status`, Phase 27.8) is now enforced centrally in the service layer instead of being replicated across handlers — writes that previously could silently desync card status and board column now go through one sync path with activity recording. Review follow-ups: Logger wiring, conditional sync, actorType attribution.
+- **Docs (PR #73):** README split into an all-English `README.md` (main version) and a complete Russian translation `README.ru.md`, cross-linked at the top of both files.
+
+### Fixed
+- **Task 64 (PR #74):** `make test` no longer hangs — leaking `rateLimiter` `cleanupLoop` goroutines were blocking test process exit; the limiter now shuts down cleanly.
+- **Task 66 (PR #75):** `internal/api` test suite speedup 431s → 8.7s (50x), restoring the cached fast-gate semantics of `make test` (Task 40).
+- **Task 67 (PR #76):** `SetAPILogger(nil)` panicked on `atomic.Value.Store` — now guarded; the nil-observer flaky test fixed (parallel dropped, observer slice guarded).
+- **Task 65 (PR #77):** Graceful shutdown now calls `deps.RateLimitClose` on server stop, closing the rate limiter instead of leaving it to die with the process.
+- **Task 68 (PR #78):** Backup scheduler now receives the signal-aware context in `runServe` instead of `cmd.Context()`, so in-flight backup work observes SIGTERM/SIGINT during graceful shutdown.
+- **Task 52 (PR #70):** ReviewRow overflow on long titles and assignee ids — review-queue cards stay within their column (before/after screenshots attached to the PR).
+- **Task 56 (PR #71):** Header overflow at ≤375px — the health badge with a long dev version string (`ok · v0.6.0-12-g73fe483-dirty`) pushed `document.body.scrollWidth` to 400px; the badge is now width-constrained in the flex layout.
+
 ## [0.6.0] — 2026-08-22
 
 Sixth pre-alpha release. Focus: human-readable ref formats across all surfaces (tasks T-refs, projects P-refs, wiki W-refs, courses C-refs, lessons L-refs), URL path-parameter escaping in MCP/CLI, and breaking cutover from legacy task ref forms.
