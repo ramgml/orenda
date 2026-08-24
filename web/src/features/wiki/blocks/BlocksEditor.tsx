@@ -19,7 +19,7 @@ import { useCreateBlockNote } from '@blocknote/react';
 import type { PartialBlock } from '@blocknote/core';
 
 import { BlockNoteView } from '@blocknote/mantine';
-import { useEffect, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { api, type WikiBlock } from '@/shared/api/client';
 import { schema } from './schema';
 import { WikiLinkMenu } from './WikiLinkMenu';
@@ -28,6 +28,15 @@ import type { WikiTreeNode } from '@/shared/api/client';
 /**
  * Detect current dark mode from the DOM (set by ThemeToggle).
  */
+const ALLOWED_URI_REGEX =
+  /^(?:(?:http|https|ftp|ftps|mailto|tel|callto|sms|cid|xmpp):|[^a-z]|[a-z0-9+.\-]+(?:[^a-z+.\-:]|$))/i;
+
+/** BlockNote's default URI validator + wiki: protocol for internal links. */
+function isValidWikiLink(href: string | undefined | null): boolean {
+  if (!href) return true;
+  return ALLOWED_URI_REGEX.test(href) || href.startsWith('wiki:');
+}
+
 function getIsDark(): 'light' | 'dark' {
   return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
 }
@@ -61,11 +70,17 @@ export const BlocksEditor = forwardRef<BlocksEditorHandle, BlocksEditorProps>(fu
   ref,
 ) {
   const [theme, setTheme] = useState<'light' | 'dark'>(getIsDark);
+  const initializedRef = useRef(false);
   const [markdownLoaded, setMarkdownLoaded] = useState(initialFormat !== 'markdown');
 
   // B3 fix: compute initial content synchronously from props.
   // For blocks format: pass directly. For markdown/empty: start empty,
   // load via effect after editor mount.
+  // For blocks format, mark as initialized immediately
+  if (initialFormat === 'blocks') {
+    initializedRef.current = true;
+  }
+
   const initialContent =
     initialFormat === 'blocks' && initialBlocks
       ? (initialBlocks as unknown as PartialBlock[])
@@ -93,7 +108,15 @@ export const BlocksEditor = forwardRef<BlocksEditorHandle, BlocksEditorProps>(fu
 
   // B3 fix: key by pageId so editor remounts on page change,
   // getting fresh initialContent from props.
-  const editor = useCreateBlockNote({ schema, initialContent, uploadFile }, [pageId]);
+  const editor = useCreateBlockNote(
+    {
+      schema,
+      initialContent,
+      uploadFile,
+      links: { isValidLink: isValidWikiLink },
+    },
+    [pageId],
+  );
 
   // Expose getDocument to parent via ref
   useImperativeHandle(
@@ -118,6 +141,10 @@ export const BlocksEditor = forwardRef<BlocksEditorHandle, BlocksEditorProps>(fu
       }
     }
     setMarkdownLoaded(true);
+    // Mark as initialized after first load — subsequent onChange = user edits
+    setTimeout(() => {
+      initializedRef.current = true;
+    }, 100);
   }, [markdownLoaded, initialFormat, initialContentMD, editor]);
 
   // B4 fix: use BlockNoteView onChange (single channel, proper cleanup)
@@ -133,7 +160,9 @@ export const BlocksEditor = forwardRef<BlocksEditorHandle, BlocksEditorProps>(fu
         editor={editor}
         theme={theme}
         // B4 fix: single onChange channel (no onEditorContentChange)
-        onChange={() => onChange?.()}
+        onChange={() => {
+          if (initializedRef.current) onChange?.();
+        }}
         // B1: default slash menu shows blocks from schema (no video/audio/embed)
         className="wiki-blocks-editor min-h-[300px]"
       >
