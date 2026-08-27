@@ -10,7 +10,6 @@ import { Button } from '@/shared/ui/button';
 import { Input } from '@/shared/ui/input';
 import { Textarea } from '@/shared/ui/textarea';
 
-import { MarkdownEditor } from './MarkdownEditor';
 import { BlocksEditor, type BlocksEditorHandle } from './blocks/BlocksEditor';
 import { WikiNumberChip } from './WikiNumberChip';
 
@@ -388,26 +387,17 @@ function PageEditor({
         </TabBtn>
       </div>
 
-      {tab === 'edit' ? (
-        blockView ? (
-          <BlocksEditor
-            ref={blocksEditorRef as React.RefObject<BlocksEditorHandle>}
-            slug={page.slug}
-            pageId={page.id}
-            initialBlocks={blockView.blocks}
-            initialFormat={blockView.format}
-            initialContentMD={blockView.content_md}
-            pagesTree={pagesTree}
-            onChange={() => onDirty()}
-          />
-        ) : (
-          <MarkdownEditor
-            value={page.content_md ?? ''}
-            onChange={(md) => onChange({ ...page, content_md: md })}
-            placeholder="Type / for commands…"
-            pages={pagesTree}
-          />
-        )
+      {tab === 'edit' && blockView ? (
+        <BlocksEditor
+          ref={blocksEditorRef as React.RefObject<BlocksEditorHandle>}
+          slug={page.slug}
+          pageId={page.id}
+          initialBlocks={blockView.blocks}
+          initialFormat={blockView.format}
+          initialContentMD={blockView.content_md}
+          pagesTree={pagesTree}
+          onChange={() => onDirty()}
+        />
       ) : tab === 'preview' ? (
         <div className="rounded border border-border bg-background px-6 py-5 min-h-[300px]">
           {page.content_md ? (
