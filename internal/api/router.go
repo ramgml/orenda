@@ -573,6 +573,10 @@ func NewRouter(deps *Dependencies) http.Handler {
 					r.Delete("/", deletePageHandler(deps))
 					r.Patch("/move", movePageHandler(deps))
 					r.Get("/backlinks", getPageBacklinksHandler(deps))
+					// Phase T61: blocks API + page attachments.
+					r.Get("/blocks", getPageBlocksHandler(deps))
+					r.Put("/blocks", putPageBlocksHandler(deps))
+					r.Post("/attachments", addPageAttachmentHandler(deps))
 				})
 			})
 

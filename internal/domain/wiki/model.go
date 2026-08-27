@@ -15,15 +15,16 @@ var (
 
 // Page is a wiki page.
 type Page struct {
-	ID        string    `json:"id"`
-	ParentID  string    `json:"parent_id,omitempty"`
-	Slug      string    `json:"slug"`
-	Title     string    `json:"title"`
-	ContentMD string    `json:"content_md"`
-	Position  int       `json:"position"`
-	Number    int       `json:"number"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            string    `json:"id"`
+	ParentID      string    `json:"parent_id,omitempty"`
+	Slug          string    `json:"slug"`
+	Title         string    `json:"title"`
+	ContentMD     string    `json:"content_md"`
+	ContentFormat string    `json:"content_format"`
+	Position      int       `json:"position"`
+	Number        int       `json:"number"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // Validate enforces invariants.

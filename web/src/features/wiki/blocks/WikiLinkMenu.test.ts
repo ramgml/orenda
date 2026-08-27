@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { filterItems, flattenWikiTree, type WikiLinkItem } from './WikiLinkSuggestion';
+import type { WikiTreeNode } from '@/shared/api/client';
+import { filterItems, flattenWikiTree, type WikiLinkItem } from './wikiLinkUtils';
+
+const node = (slug: string, title: string, children?: WikiTreeNode[]): WikiTreeNode => ({
+  page: { slug, title } as WikiTreeNode['page'],
+  children,
+});
 
 const pages: WikiLinkItem[] = [
   { slug: 'architecture', title: 'Architecture' },
@@ -70,17 +76,11 @@ describe('filterItems', () => {
 
 describe('flattenWikiTree', () => {
   it('flattens a hierarchical tree', () => {
-    const tree = [
-      {
-        page: { slug: 'parent', title: 'Parent' },
-        children: [
-          { page: { slug: 'child-a', title: 'Child A' } },
-          {
-            page: { slug: 'child-b', title: 'Child B' },
-            children: [{ page: { slug: 'grandchild', title: 'Grandchild' } }],
-          },
-        ],
-      },
+    const tree: WikiTreeNode[] = [
+      node('parent', 'Parent', [
+        node('child-a', 'Child A'),
+        node('child-b', 'Child B', [node('grandchild', 'Grandchild')]),
+      ]),
     ];
     const out = flattenWikiTree(tree);
     expect(out).toEqual([
@@ -96,8 +96,6 @@ describe('flattenWikiTree', () => {
   });
 
   it('skips nodes with no children field', () => {
-    expect(flattenWikiTree([{ page: { slug: 'leaf', title: 'Leaf' } }])).toEqual([
-      { slug: 'leaf', title: 'Leaf' },
-    ]);
+    expect(flattenWikiTree([node('leaf', 'Leaf')])).toEqual([{ slug: 'leaf', title: 'Leaf' }]);
   });
 });

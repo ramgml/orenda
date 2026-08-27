@@ -369,6 +369,42 @@ components:
 # -----------------------------------------------------------------------------
 # Paths
 # -----------------------------------------------------------------------------
+    WikiPage:
+      type: object
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        content_md: { type: string }
+        content_format: { type: string, enum: [markdown, blocks] }
+        parent_id: { type: string }
+        position: { type: integer }
+        number: { type: integer }
+        created_at: { type: string }
+        updated_at: { type: string }
+
+    Block:
+      type: object
+      required: [id, type]
+      properties:
+        id: { type: string }
+        type: { type: string }
+        props: { type: object }
+        content: { type: array, items: {} }
+        children:
+          type: array
+          items: { $ref: '#/components/schemas/Block' }
+
+    BlockView:
+      type: object
+      required: [format]
+      properties:
+        format: { type: string, enum: [markdown, blocks] }
+        content_md: { type: string }
+        blocks:
+          type: array
+          items: { $ref: '#/components/schemas/Block' }
+
 paths:
 
   # ---- meta ----
@@ -1533,6 +1569,58 @@ paths:
       summary: Delete a wiki page.
       security: [{ bearerAuth-cookie: [] }]
       responses: { '204': { description: deleted } }
+
+  /api/v1/pages/{slug}/blocks:
+    get:
+      tags: [wiki]
+      summary: Get block view for a page.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200':
+          description: Block view
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BlockView' }
+    put:
+      tags: [wiki]
+      summary: Replace the block tree of a page.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blocks]
+              properties:
+                blocks:
+                  type: array
+                  items: { $ref: '#/components/schemas/Block' }
+      responses:
+        '200':
+          description: Updated page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WikiPage' }
+        '400': { description: invalid input }
+
+  /api/v1/pages/{slug}/attachments:
+    post:
+      tags: [wiki]
+      summary: Upload an attachment to a wiki page.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201': { description: attachment created }
+        '400': { description: invalid multipart or missing file }
 
   /api/v1/pages/{slug}/backlinks:
     get:

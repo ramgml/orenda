@@ -45,6 +45,10 @@ func New(repo Repository, hub ws.Hub) *Service {
 // dashes and underscores.
 var slugLinkRE = regexp.MustCompile(`\[\[([A-Za-z0-9_-]+)\]\]`)
 
+// mdWikiLinkRE matches the markdown projection of a UI wiki-link chip:
+// [title](wiki:slug) — produced by BlocksEditor (see web blocks/schema.ts).
+var mdWikiLinkRE = regexp.MustCompile(`\]\(wiki:([A-Za-z0-9_-]+)\)`)
+
 // Save creates or updates a page. On update the service re-extracts
 // [[slug]] tokens from content_md and updates wiki_links in a single
 // transaction.
@@ -63,11 +67,16 @@ func (s *Service) Save(ctx context.Context, p *wiki.Page) (*wiki.Page, error) {
 	var got *wiki.Page
 	var err error
 	if p.ID == "" {
+		p.ContentFormat = "markdown"
 		got, err = s.Repo.Create(ctx, p)
 	} else {
+		p.ContentFormat = "markdown"
 		if err := s.Repo.Update(ctx, p); err != nil {
 			return nil, err
 		}
+		// Markdown save: wipe any stored blocks (format='markdown'
+		// is the single source of truth for markdown content).
+		_ = s.Repo.ReplaceBlocks(ctx, p.ID, nil)
 		got, err = s.Repo.GetByID(ctx, p.ID)
 	}
 	if err != nil {
@@ -205,17 +214,23 @@ func buildTree(byParent map[string][]*wiki.Page, parentID string) []*wiki.TreeNo
 	return out
 }
 
-// extractSlugs returns every [[slug]] token in body.
+// extractSlugs returns every [[slug]] token plus the slugs inside
+// markdown wiki-links ([title](wiki:slug)) in body.
 func extractSlugs(body string) []string {
+	out := []string{}
 	seen := make(map[string]struct{})
-	matches := slugLinkRE.FindAllStringSubmatch(body, -1)
-	out := make([]string, 0, len(matches))
-	for _, m := range matches {
-		if _, ok := seen[m[1]]; ok {
-			continue
+	var add = func(slug string) {
+		if _, ok := seen[slug]; ok {
+			return
 		}
-		seen[m[1]] = struct{}{}
-		out = append(out, m[1])
+		seen[slug] = struct{}{}
+		out = append(out, slug)
+	}
+	for _, m := range slugLinkRE.FindAllStringSubmatch(body, -1) {
+		add(m[1])
+	}
+	for _, m := range mdWikiLinkRE.FindAllStringSubmatch(body, -1) {
+		add(m[1])
 	}
 	return out
 }
