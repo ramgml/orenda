@@ -29,7 +29,7 @@ import type { WikiTreeNode } from '@/shared/api/client';
  * Detect current dark mode from the DOM (set by ThemeToggle).
  */
 const ALLOWED_URI_REGEX =
-  /^(?:(?:http|https|ftp|ftps|mailto|tel|callto|sms|cid|xmpp):|[^a-z]|[a-z0-9+.\-]+(?:[^a-z+.\-:]|$))/i;
+  /^(?:(?:http|https|ftp|ftps|mailto|tel|callto|sms|cid|xmpp):|[^a-z]|[a-z0-9+.]+(?:[^a-z+.:]|$))/i;
 
 /** BlockNote's default URI validator + wiki: protocol for internal links. */
 function isValidWikiLink(href: string | undefined | null): boolean {
