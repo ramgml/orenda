@@ -96,7 +96,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			title, _ := params["title"].(string)
 			desc, _ := params["description_md"].(string)
 			if projectID == "" || title == "" || strings.TrimSpace(desc) == "" {
-				return nil, fmt.Errorf("orenda_task_propose: project_id, title and description_md are required")
+				return nil, fmt.Errorf("project_id, title and description_md are required")
 			}
 			body := map[string]any{
 				"project_id":     projectID,
@@ -143,7 +143,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			id, _ := params["task_id"].(string)
 			if id == "" {
-				return nil, fmt.Errorf("orenda_task_update: task_id is required")
+				return nil, fmt.Errorf("task_id is required")
 			}
 			body := map[string]any{}
 			for _, k := range []string{"title", "description_md", "priority", "due_at", "parent_task_id", "agent_notes"} {
@@ -168,7 +168,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			id, _ := params["task_id"].(string)
 			if id == "" {
-				return nil, fmt.Errorf("orenda_task_retract: task_id is required")
+				return nil, fmt.Errorf("task_id is required")
 			}
 			return agentDelete(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id))
 		},
@@ -187,7 +187,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			id, _ := params["task_id"].(string)
 			if id == "" {
-				return nil, fmt.Errorf("orenda_claim: task_id is required")
+				return nil, fmt.Errorf("task_id is required")
 			}
 			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/claim", nil)
 		},
@@ -206,7 +206,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			id, _ := params["task_id"].(string)
 			if id == "" {
-				return nil, fmt.Errorf("orenda_release: task_id is required")
+				return nil, fmt.Errorf("task_id is required")
 			}
 			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/release", nil)
 		},
@@ -226,7 +226,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			id, _ := params["task_id"].(string)
 			if id == "" {
-				return nil, fmt.Errorf("orenda_submit: task_id is required")
+				return nil, fmt.Errorf("task_id is required")
 			}
 			body := map[string]any{}
 			if n, _ := params["note"].(string); n != "" {
@@ -249,7 +249,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			id, _ := params["task_id"].(string)
 			if id == "" {
-				return nil, fmt.Errorf("orenda_context: task_id is required")
+				return nil, fmt.Errorf("task_id is required")
 			}
 			return agentGet(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/context")
 		},
@@ -311,7 +311,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			slug, _ := params["slug"].(string)
 			if slug == "" {
-				return nil, fmt.Errorf("orenda_pages_get: slug is required")
+				return nil, fmt.Errorf("slug is required")
 			}
 			return agentGet(ctx, httpc, cfg, "/api/v1/agent/pages/"+url.PathEscape(slug))
 		},
@@ -334,7 +334,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			slug, _ := params["slug"].(string)
 			title, _ := params["title"].(string)
 			if slug == "" || title == "" {
-				return nil, fmt.Errorf("orenda_pages_save: slug and title are required")
+				return nil, fmt.Errorf("slug and title are required")
 			}
 			body := map[string]any{
 				"slug":       slug,
@@ -361,7 +361,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			slug, _ := params["slug"].(string)
 			if slug == "" {
-				return nil, fmt.Errorf("orenda_pages_delete: slug is required")
+				return nil, fmt.Errorf("slug is required")
 			}
 			return agentDelete(ctx, httpc, cfg, "/api/v1/agent/pages/"+url.PathEscape(slug))
 		},
@@ -382,7 +382,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			slug, _ := params["slug"].(string)
 			parent, ok := params["parent_id"].(string)
 			if slug == "" || !ok {
-				return nil, fmt.Errorf("orenda_pages_move: slug and parent_id are required")
+				return nil, fmt.Errorf("slug and parent_id are required")
 			}
 			return agentPatch(ctx, httpc, cfg,
 				"/api/v1/agent/pages/"+url.PathEscape(slug)+"/move",
@@ -405,7 +405,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			q, _ := params["query"].(string)
 			if q == "" {
-				return nil, fmt.Errorf("orenda_search: query is required")
+				return nil, fmt.Errorf("query is required")
 			}
 			v := url.Values{}
 			v.Set("q", q)
@@ -468,7 +468,7 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			title, _ := params["title"].(string)
 			targetDate, _ := params["target_date"].(string)
 			if title == "" || targetDate == "" {
-				return nil, fmt.Errorf("orenda_study_propose: title and target_date are required")
+				return nil, fmt.Errorf("title and target_date are required")
 			}
 			body := map[string]any{
 				"title":       title,
@@ -506,26 +506,6 @@ func agentGet(ctx context.Context, c *http.Client, cfg ServerConfig, path string
 	return readBody(resp)
 }
 
-func agentPost(
-	ctx context.Context, c *http.Client, cfg ServerConfig, path string, body any,
-) (any, error) {
-	return agentWrite(ctx, c, cfg, http.MethodPost, path, body)
-}
-
-// agentPut / agentPatch / agentDelete complete the verb set for the
-// Phase 29.3 wiki tools.
-func agentPut(ctx context.Context, c *http.Client, cfg ServerConfig, path string, body any) (any, error) {
-	return agentWrite(ctx, c, cfg, http.MethodPut, path, body)
-}
-
-func agentPatch(ctx context.Context, c *http.Client, cfg ServerConfig, path string, body any) (any, error) {
-	return agentWrite(ctx, c, cfg, http.MethodPatch, path, body)
-}
-
-func agentDelete(ctx context.Context, c *http.Client, cfg ServerConfig, path string) (any, error) {
-	return agentWrite(ctx, c, cfg, http.MethodDelete, path, nil)
-}
-
 func agentWrite(
 	ctx context.Context, c *http.Client, cfg ServerConfig, method, path string, body any,
 ) (any, error) {
@@ -553,25 +533,48 @@ func agentWrite(
 	return readBody(resp)
 }
 
+func agentPost(
+	ctx context.Context, c *http.Client, cfg ServerConfig, path string, body any,
+) (any, error) {
+	return agentWrite(ctx, c, cfg, http.MethodPost, path, body)
+}
+
+// agentPut / agentPatch / agentDelete complete the verb set for the
+// Phase 29.3 wiki tools.
+func agentPut(ctx context.Context, c *http.Client, cfg ServerConfig, path string, body any) (any, error) {
+	return agentWrite(ctx, c, cfg, http.MethodPut, path, body)
+}
+
+func agentPatch(ctx context.Context, c *http.Client, cfg ServerConfig, path string, body any) (any, error) {
+	return agentWrite(ctx, c, cfg, http.MethodPatch, path, body)
+}
+
+func agentDelete(ctx context.Context, c *http.Client, cfg ServerConfig, path string) (any, error) {
+	return agentWrite(ctx, c, cfg, http.MethodDelete, path, nil)
+}
+
+// maxErrBody caps how much of an error response body is embedded
+// in the error string — enough to carry the JSON error object,
+// not enough to flood the agent's context with an HTML 500 page.
+const maxErrBody = 500
+
 func readBody(resp *http.Response) (any, error) {
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode >= 400 {
-		// Surface a structured error so the agent sees a real reason
-		// (HTTP 409 lock_taken, 422 task_blocked) instead of a
-		// useless "tool error" line.
-		body := map[string]any{
-			"status": resp.StatusCode,
-			"body":   string(raw),
+		// Surface the server's own words: status line + body, e.g.
+		// "server returned 422 Unprocessable Entity:
+		// {"error":"invalid_project"}". The tool name is prefixed by
+		// the JSON-RPC dispatcher, not here — readBody has no idea
+		// which tool triggered the call.
+		body := strings.TrimSpace(string(raw))
+		if len(body) > maxErrBody {
+			body = body[:maxErrBody] + "…(truncated)"
 		}
-		// Try to parse as JSON so the body shows structured.
-		var asJSON any
-		if json.Unmarshal(raw, &asJSON) == nil {
-			body["body_parsed"] = asJSON
-		}
-		return nil, fmt.Errorf("orenda: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+		return nil, fmt.Errorf("server returned %s: %s",
+			resp.Status, body)
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return map[string]any{"status": resp.StatusCode}, nil
