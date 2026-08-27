@@ -17,10 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
-## [Unreleased]
+## [0.9.0] — 2026-08-27
+
+Ninth pre-alpha release. Focus: MCP error transparency — HTTP status and response body from the Orenda server now reach the agent verbatim instead of collapsing into a generic JSON-RPC "tool error" line; plus documentation realignment for the CSP `style-src` policy.
+
+### Changed
+- **Task 73 (PR #94):** MCP tool errors now carry the server's own words. `readBody` (all `agentGet`/`agentPost`/`agentPut`/`agentPatch`/`agentDelete` helpers) turns a non-2xx response into `server returned 422 Unprocessable Entity: {"error":"invalid_project"}` — status line + body, truncated at 500 characters for oversized payloads. The JSON-RPC dispatcher (`handleToolsCall`) prefixes the tool name into the error `message` (`orenda_task_propose: server returned 404 Not Found: …`); previously the reason lived only in the `data` field while `message` was a static "tool error" string most clients render instead. 13 manual `orenda_*:` prefixes in tool validators removed — the dispatcher adds the name uniformly.
 
 ### Fixed
-- **Task 76:** Docs realigned with reality: since Task 74 (PR #88) the production CSP allows inline styles (`style-src 'self' 'unsafe-inline'`) — the SPA legitimately injects `<style>` tags at runtime (the react-style-singleton scroll-lock chain pulled in by overlay/editor UIs, and BlockNote editor styles). Shipped Phase 28.10 entries above remain as-is: they document what that phase did at the time.
+- **Task 76 (PR #91):** Docs realigned with reality: since Task 74 (PR #88) the production CSP allows inline styles (`style-src 'self' 'unsafe-inline'`) — the SPA legitimately injects `<style>` tags at runtime (the react-style-singleton scroll-lock chain pulled in by overlay/editor UIs, and BlockNote editor styles). Shipped Phase 28.10 entries above remain as-is: they document what that phase did at the time.
 
 ## [0.8.0] — 2026-08-27
 

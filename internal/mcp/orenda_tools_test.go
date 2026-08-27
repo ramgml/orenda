@@ -7,6 +7,7 @@
 package mcp
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -407,4 +408,78 @@ func mustMarshal(t *testing.T, v any) string {
 	raw, err := json.Marshal(v)
 	require.NoError(t, err)
 	return string(raw)
+}
+
+// ------------------------------------------------------------------
+// Task 73: HTTP error detail propagation. A non-2xx from the Orenda
+// server must reach the agent with status + body, and the tool name
+// must prefix the JSON-RPC message (many clients render only
+// `message`, never `data`).
+// ------------------------------------------------------------------
+
+// TestOrendaTools_ServerErrorShowsStatusAndBody — fake backend
+// answers 404/422 with a JSON body; the tool error must carry the
+// status line and the body verbatim.
+func TestOrendaTools_ServerErrorShowsStatusAndBody(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		status     int
+		body       string
+		wantSubstr []string
+	}{
+		{
+			name:       "not found",
+			status:     http.StatusNotFound,
+			body:       `{"error":"not_found"}`,
+			wantSubstr: []string{"404 Not Found", `{"error":"not_found"}`},
+		},
+		{
+			name:       "unprocessable",
+			status:     http.StatusUnprocessableEntity,
+			body:       `{"error":"invalid_project"}`,
+			wantSubstr: []string{"422 Unprocessable Entity", `{"error":"invalid_project"}`},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _ := newToolServer(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			})
+			resp := call(t, srv, fmt.Sprintf(
+				`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"orenda_task_propose","arguments":%s}}`,
+				mustMarshal(t, map[string]any{
+					"project_id": "nope", "title": "T", "description_md": "D",
+				})))
+			errObj, ok := resp["error"].(map[string]any)
+			require.True(t, ok, "tool should return an error, got %v", resp)
+			// The reason is in `message` (what clients render)...
+			msg, _ := errObj["message"].(string)
+			assert.Contains(t, msg, "orenda_task_propose:")
+			for _, want := range tc.wantSubstr {
+				assert.Contains(t, msg, want)
+			}
+			// ...and duplicated in `data` (what data-aware clients read).
+			data, _ := errObj["data"].(string)
+			assert.Equal(t, msg, data)
+			// The static "tool error" line is gone.
+			assert.NotEqual(t, "tool error", msg)
+		})
+	}
+}
+
+// TestOrendaTools_ServerErrorBodyTruncated — an oversized error
+// body is cut at maxErrBody so an HTML 500 page cannot flood the
+// agent's context.
+func TestOrendaTools_ServerErrorBodyTruncated(t *testing.T) {
+	srv, _ := newToolServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write(bytes.Repeat([]byte("x"), 5000))
+	})
+	resp := call(t, srv, `{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"orenda_me","arguments":{}}}`)
+	errObj, ok := resp["error"].(map[string]any)
+	require.True(t, ok, "tool should return an error, got %v", resp)
+	msg, _ := errObj["message"].(string)
+	assert.Contains(t, msg, "500 Internal Server Error")
+	assert.Contains(t, msg, "(truncated)")
+	assert.Less(t, len(msg), 700, "message must be capped, got %d chars", len(msg))
 }
