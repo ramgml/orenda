@@ -70,36 +70,47 @@ func TestSecurityHeaders_FontSrcAllowsBlobAndData(t *testing.T) {
 		"CSP must include data:/blob: so cached/embedded fonts load")
 }
 
-// Phase 28.10: inline styles are no longer permitted. The SPA build
-// pipeline (Vite + postcss + tailwind) emits all styles into
-// /assets/index-*.css — there are zero `<style>` tags in the
-// production index.html. Pinning the absence of 'unsafe-inline'
-// stops a future contributor from quietly re-allowing the
-// canonical CSS exfiltration channel (attribute-selector
-// side-channels that read sensitive values via style.background).
-//
-// We also keep `style-src 'self'` rather than `style-src-attr 'none'`
-// because some legacy browsers still need `style="..."` inline on
-// individual DOM elements. Tightening further is a separate change.
-func TestSecurityHeaders_StyleSrcNoUnsafeInline(t *testing.T) {
+// cspDirective extracts a single directive's value from the
+// serialized Content-Security-Policy header ("style-src 'self' ..."
+// → "'self' ..."). Failing on a missing directive keeps an
+// accidentally dropped policy line from passing as "no assertion
+// violated".
+func cspDirective(t *testing.T, csp, name string) string {
+	t.Helper()
+	for _, part := range strings.Split(csp, ";") {
+		fields := strings.Fields(strings.TrimSpace(part))
+		if len(fields) > 0 && fields[0] == name {
+			return strings.Join(fields[1:], " ")
+		}
+	}
+	t.Fatalf("CSP has no %q directive: %q", name, csp)
+	return ""
+}
+
+// T74: `style-src 'self' 'unsafe-inline'` is the deliberate,
+// documented trade-off (see security.go — runtime <style> injection
+// from the react-style-singleton scroll-lock chain pulled in by
+// @mantine/@blocknote and Radix overlays, plus React style={{...}}
+// props). This test pins the exact directive shape so a future
+// contributor cannot quietly drop the relaxation (breaking the
+// editor/calendar) nor widen it further.
+func TestSecurityHeaders_StyleSrcAllowsUnsafeInline(t *testing.T) {
 	t.Parallel()
 	router := api.NewRouter(withRateLimitDeps())
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
 
-	csp := rr.Header().Get("Content-Security-Policy")
-	assert.Contains(t, csp, "style-src 'self'",
-		"CSP must allow self-hosted stylesheets")
-	assert.NotContains(t, strings.ToLower(csp), "'unsafe-inline'",
-		"Phase 28.10: inline styles are forbidden — exfiltration vector")
+	directive := cspDirective(t, rr.Header().Get("Content-Security-Policy"), "style-src")
+	assert.Equal(t, "'self' 'unsafe-inline'", directive,
+		"T74: style-src must be exactly 'self' 'unsafe-inline'")
 }
 
-// Phase 28.10: script-src stays locked to 'self'. The Vite SW
-// registration is `<script src="/registerSW.js" ...>` (an external
-// reference served by the SPA), which satisfies `'self'` without a
-// nonce or hash. We pin this so a future contributor can't add
-// inline event handlers (e.g. via a UI plugin) without first
+// Phase 28.10, reaffirmed by T74: script-src stays locked to 'self'.
+// The Vite SW registration is `<script src="/registerSW.js" ...>` (an
+// external reference served by the SPA), which satisfies `'self'`
+// without a nonce or hash. We pin this so a future contributor can't
+// add inline event handlers (e.g. via a UI plugin) without first
 // either inlining them with explicit hashes or wrapping via a
 // nonce-aware render pass.
 func TestSecurityHeaders_ScriptSrcSelfOnly(t *testing.T) {
@@ -109,14 +120,9 @@ func TestSecurityHeaders_ScriptSrcSelfOnly(t *testing.T) {
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
 
-	csp := rr.Header().Get("Content-Security-Policy")
-	// We accept either bare 'self' (production shape) or
-	// 'self' followed by a nonce on dev/proxied paths. 'unsafe-inline'
-	// remains the only forbidden token.
-	assert.Contains(t, csp, "script-src 'self'",
-		"script-src must keep 'self' as the base directive")
-	assert.NotContains(t, strings.ToLower(csp), "'unsafe-inline'",
-		"Phase 28.10: no inline scripts either")
+	directive := cspDirective(t, rr.Header().Get("Content-Security-Policy"), "script-src")
+	assert.Equal(t, "'self'", directive,
+		"T74 reaffirms Phase 28.10: script-src keeps 'self', no inline scripts")
 }
 
 func TestRateLimit_Anonymous429(t *testing.T) {
