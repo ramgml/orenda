@@ -51,6 +51,16 @@ func inlineWikiLink(slug string) inlineItem {
 	return inlineItem{Type: "wikiLink", Props: &inlineProps{Slug: slug}}
 }
 
+// cellRows marshals inline items as a tableCell-wrapped row (BlockNote ≥0.54 shape).
+func cellRows(items ...inlineItem) []json.RawMessage {
+	out := make([]json.RawMessage, len(items))
+	for i, it := range items {
+		raw, _ := json.Marshal(inlineItem{Type: "tableCell", Content: []inlineItem{it}})
+		out[i] = raw
+	}
+	return out
+}
+
 func TestBlocksToMarkdown(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -176,14 +186,8 @@ func TestBlocksToMarkdown(t *testing.T) {
 			blocks: []*wiki.Block{
 				block("table", nil, tableContent{
 					Rows: []tableRow{
-						{Cells: [][]inlineItem{
-							{inlineText("Name")},
-							{inlineText("Age")},
-						}},
-						{Cells: [][]inlineItem{
-							{inlineText("Alice")},
-							{inlineText("30")},
-						}},
+						{Cells: cellRows(inlineText("Name"), inlineText("Age"))},
+						{Cells: cellRows(inlineText("Alice"), inlineText("30"))},
 					},
 				}),
 			},
@@ -194,9 +198,7 @@ func TestBlocksToMarkdown(t *testing.T) {
 			blocks: []*wiki.Block{
 				block("table", nil, tableContent{
 					Rows: []tableRow{
-						{Cells: [][]inlineItem{
-							{inlineText("a|b")},
-						}},
+						{Cells: cellRows(inlineText("a|b"))},
 					},
 				}),
 			},
@@ -291,8 +293,8 @@ func TestBlocksToMarkdown(t *testing.T) {
 				block("bulletListItem", nil, []inlineItem{inlineText("Item 2")}),
 				block("table", nil, tableContent{
 					Rows: []tableRow{
-						{Cells: [][]inlineItem{{inlineText("Col")}}},
-						{Cells: [][]inlineItem{{inlineText("Val")}}},
+						{Cells: cellRows(inlineText("Col"))},
+						{Cells: cellRows(inlineText("Val"))},
 					},
 				}),
 			},
@@ -340,9 +342,9 @@ func TestBlocksToMarkdown_TableMultiRow(t *testing.T) {
 	tree := []*wiki.Block{
 		block("table", nil, tableContent{
 			Rows: []tableRow{
-				{Cells: [][]inlineItem{{inlineText("H1")}, {inlineText("H2")}}},
-				{Cells: [][]inlineItem{{inlineText("a")}, {inlineText("b")}}},
-				{Cells: [][]inlineItem{{inlineText("c")}, {inlineText("d")}}},
+				{Cells: cellRows(inlineText("H1"), inlineText("H2"))},
+				{Cells: cellRows(inlineText("a"), inlineText("b"))},
+				{Cells: cellRows(inlineText("c"), inlineText("d"))},
 			},
 		}),
 	}
