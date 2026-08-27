@@ -19,6 +19,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-08-27
+
+Eighth pre-alpha release. Focus: the wiki gets a native block-based editor — BlockNote replaces the Tiptap rich-text path (T62/T63 cutover), backed by a per-page block tree in SQLite (migration `040`, T59), a server-side blocks→GFM projection (T60), a blocks service + REST API (T61), and front-end integration with `[[wiki:` autocomplete (T62); plus the CSP fix that allows runtime-injected inline styles (`style-src 'unsafe-inline'`, T74) and wiki-link projection into markdown `[[slug]]` references (T69).
+
+### Added
+- **Task 59 (PR #82):** Wiki pages can now store a structured block tree. Migration `040_wiki_blocks` adds the `wiki_blocks` table (flat rows ordered by `parent_block_id`/`position`, `ON DELETE CASCADE`) and a `content_format` column on `wiki_pages` (`markdown` | `blocks`). Domain gains `wiki.Block` with a type whitelist; `wiki.Repository` gains `GetBlocks`/`ReplaceBlocks` (transactional delete+insert). A review blocker fixed latent data corruption: an empty `content_format` on update now preserves the stored value via `CASE WHEN`.
+- **Task 60 (PR #83):** Server-side `BlocksToMarkdown` projection — recursive renderer mapping every whitelisted BlockNote block type (paragraph, headings, bullet/numbered/check lists, quote, codeBlock, divider, GFM table, image, file) to GitHub-Flavored Markdown, including nested-list indentation and pipe escaping. Unknown block types are silently skipped instead of panicking. Two wire-format follow-ups: codeBlock content is parsed as an inline-item array (matching BlockNote 0.54 serialization), and children of non-list blocks render as siblings so no content is lost.
+- **Task 61 (PR #84):** Blocks service + API: `GET/PUT /api/v1/pages/{slug}/blocks` get/replace the whole page block tree (recursive-count validation caps block count) and `POST /api/v1/pages/{slug}/attachments` uploads page attachments. OpenAPI specs updated in sync.
+- **Task 62 (PR #85):** BlockNote 0.54 editor integrated into WikiPage: extended schema whitelists only approved block types for the slash menu; `[[` opens the WikiLinkMenu autocomplete near the cursor; dirty tracking, image upload, theme support, and dispatch of saves through the new `updatePageBlocks` API when the blocks editor is active. Legacy markdown pages keep editing through the same surface via markdown parse-in.
+- **Task 74 (PR #88):** CSP `style-src` now allows inline styles (`style-src 'self' 'unsafe-inline'`). BlockNote injects component styles at runtime into `<style>` tags, which the previous `'self'`-only policy blocked, breaking editor rendering.
+
+### Changed
+- **Task 63 (PR #86):** Cutover — the Tiptap editor is removed; the BlockNote blocks path is the single editing surface for the wiki. Projection fixes as part of the cutover: the BlockNote 0.54 `tableCell` wrapper is handled correctly and `extractSlugs` now recognizes `link[href^="wiki:"]`.
+- **Docs (PR #81):** Back-merge of `main` → `dev` after v0.7.0 — the 0.7.0 release-prep commits landed only on `main`; this folds them back so `dev` carries the full history again.
+
+### Fixed
+- **Task 62 (PR #85):** Review blockers in the new editor: `insertLink` deletes only the tracked `[[query` range (previously a document-wide search destroyed unrelated content on pages containing existing links); BlockNote's URI validation now accepts the `wiki:` protocol, so wiki links render with a real href instead of an empty one; dirty tracking no longer fires during initial load and works for block edits; Vite HMR compatibility restored by splitting pure functions out of `WikiLinkMenu.tsx`.
+- **Task 69 (PR #87):** The markdown projection now converts `link[href^="wiki:"]` inline elements to `[[slug]]` references instead of leaving raw `[title](wiki:slug)` links, keeping wiki-link syntax consistent across the blocks↔markdown boundary.
+
 ## [0.7.0] — 2026-08-24
 
 Seventh pre-alpha release. Focus: graceful-shutdown correctness (rate limiter + backup scheduler), test-suite health (hang fix, 50x speedup of `internal/api`), the status↔column invariant centralized in the service layer, mobile UI fixes (header overflow, Sign out in the drawer, ReviewRow overflow), and local-gate hardening (`tsc` in pre-push, deletion-only push skip).
