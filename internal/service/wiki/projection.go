@@ -14,7 +14,7 @@ type tableContent struct {
 }
 
 type tableRow struct {
-	Cells [][]inlineItem `json:"cells"`
+	Cells []json.RawMessage `json:"cells"`
 }
 
 // inlineItem is one element of a block's inline content array.
@@ -220,7 +220,9 @@ func renderTable(b *strings.Builder, block *wiki.Block) {
 		if i > 0 {
 			b.WriteString(" | ")
 		}
-		b.WriteString(escapePipes(renderCellInline(cell)))
+		var cb strings.Builder
+		renderCell(&cb, cell)
+		b.WriteString(escapePipes(cb.String()))
 	}
 	b.WriteString(" |\n")
 
@@ -241,7 +243,9 @@ func renderTable(b *strings.Builder, block *wiki.Block) {
 			if i > 0 {
 				b.WriteString(" | ")
 			}
-			b.WriteString(escapePipes(renderCellInline(cell)))
+			var cb strings.Builder
+			renderCell(&cb, cell)
+			b.WriteString(escapePipes(cb.String()))
 		}
 		b.WriteString(" |\n")
 	}
@@ -312,11 +316,34 @@ func renderInlineItem(b *strings.Builder, item inlineItem) {
 		if item.Props != nil {
 			b.WriteString("[[" + item.Props.Slug + "]]")
 		}
+	case "tableCell":
+		// BlockNote ≥0.54 wraps cell content in a tableCell inline item;
+		// its Content holds the actual text/link items.
+		for _, c := range item.Content {
+			renderInlineItem(b, c)
+		}
 	default:
 		// Unknown inline: render nested content if present.
 		for _, c := range item.Content {
 			renderInlineItem(b, c)
 		}
+	}
+}
+
+// renderCell renders one table cell. BlockNote ≥0.54 wraps the inline
+// items in a {type:"tableCell", content:[...]} object; older payloads
+// may carry a bare inline array.
+func renderCell(b *strings.Builder, raw json.RawMessage) {
+	var cell inlineItem
+	if json.Unmarshal(raw, &cell) == nil && cell.Type == "tableCell" {
+		for _, c := range cell.Content {
+			renderInlineItem(b, c)
+		}
+		return
+	}
+	var items []inlineItem
+	if json.Unmarshal(raw, &items) == nil {
+		b.WriteString(renderCellInline(items))
 	}
 }
 
