@@ -489,9 +489,11 @@ tied to file system paths the Service opens at `New()`.
   eval'd in the Go side.
 - Rate limit: token bucket per IP for anon, per JWT for authed
   routes. 429 with `Retry-After`.
-- CSP: see `internal/api/security.go`. After Phase 28.10:
-  no `unsafe-inline` for styles; `script-src 'self'`; HSTS
-  delegated to reverse proxy.
+- CSP: see `internal/api/security.go` (source of truth). Since
+  Task 74 / PR #88: `style-src 'self' 'unsafe-inline'` — the SPA
+  legitimately injects `<style>` tags at runtime (react-style-singleton
+  scroll-lock chain; BlockNote editor styles); `script-src 'self'`;
+  HSTS delegated to reverse proxy.
 - Webhook signatures: HMAC-SHA256, timestamp + nonce replay
   protection.
 
