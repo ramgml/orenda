@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Task 76:** Docs realigned with reality: since Task 74 (PR #88) the production CSP allows inline styles (`style-src 'self' 'unsafe-inline'`) — the SPA legitimately injects `<style>` tags at runtime (the react-style-singleton scroll-lock chain pulled in by overlay/editor UIs, and BlockNote editor styles). Shipped Phase 28.10 entries above remain as-is: they document what that phase did at the time.
+
 ## [0.8.0] — 2026-08-27
 
 Eighth pre-alpha release. Focus: the wiki gets a native block-based editor — BlockNote replaces the Tiptap rich-text path (T62/T63 cutover), backed by a per-page block tree in SQLite (migration `040`, T59), a server-side blocks→GFM projection (T60), a blocks service + REST API (T61), and front-end integration with `[[wiki:` autocomplete (T62); plus the CSP fix that allows runtime-injected inline styles (`style-src 'unsafe-inline'`, T74) and wiki-link projection into markdown `[[slug]]` references (T69).
