@@ -307,6 +307,16 @@ func renderInlineItem(b *strings.Builder, item inlineItem) {
 		}
 		b.WriteString(text)
 	case "link":
+		// BlocksEditor stores UI wiki-link chips as standard BlockNote
+		// links with href="wiki:<slug>" (BlockNote 0.54 does not
+		// serialize custom inline content). The projection must emit the
+		// canonical [[slug]] so backlinks, the markdown mirror and MCP
+		// stay consistent; the inner link text is display-only, the
+		// slug from href wins.
+		if slug, ok := strings.CutPrefix(item.Href, "wiki:"); ok {
+			b.WriteString("[[" + slug + "]]")
+			break
+		}
 		var inner strings.Builder
 		for _, c := range item.Content {
 			renderInlineItem(&inner, c)

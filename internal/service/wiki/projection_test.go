@@ -266,6 +266,20 @@ func TestBlocksToMarkdown(t *testing.T) {
 			expected: "[[other-page]]\n\n",
 		},
 		{
+			name: "link with wiki: href projects to [[slug]]",
+			blocks: []*wiki.Block{
+				block("paragraph", nil, []inlineItem{inlineLink("Other Page", "wiki:other")}),
+			},
+			expected: "[[other]]\n\n",
+		},
+		{
+			name: "link with non-wiki href unchanged",
+			blocks: []*wiki.Block{
+				block("paragraph", nil, []inlineItem{inlineLink("click", "https://example.com")}),
+			},
+			expected: "[click](https://example.com)\n\n",
+		},
+		{
 			name: "unknown type with inline content renders",
 			blocks: []*wiki.Block{
 				block("futureBlock", nil, []inlineItem{inlineText("still here")}),
@@ -452,6 +466,18 @@ func TestBlocksToMarkdown_WireFormat(t *testing.T) {
 				}
 			}]`,
 			expected: "| A | B |\n| --- | --- |\n| 1\\|2 | 3 |\n\n",
+		},
+		{
+			name: "wire format: wiki-link chip as standard link with wiki: href",
+			blocks: `[{
+				"type": "paragraph",
+				"content": [
+					{"type": "link", "href": "wiki:other", "content": [
+						{"type": "text", "text": "Other Page", "styles": {}}
+					]}
+				]
+			}]`,
+			expected: "[[other]]\n\n",
 		},
 		{
 			name: "codeBlock wire format (inline-array content)",
