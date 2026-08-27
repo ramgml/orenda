@@ -227,7 +227,12 @@ func (s *Server) handleToolsCall(
 	}
 	result, err := t.Handler(ctx, params.Arguments)
 	if err != nil {
-		return errorResponse(id, -32603, "tool error", err.Error())
+		// Prefix the tool name into the JSON-RPC message itself, not
+		// just the `data` field: many clients (and agents) render
+		// only `message`, so a bare "tool error" hides the actual
+		// reason. The full detail stays in `data` as well.
+		detail := fmt.Sprintf("%s: %v", t.Name, err)
+		return errorResponse(id, -32603, detail, detail)
 	}
 	return okResponse(id, map[string]any{
 		"content": []map[string]any{
