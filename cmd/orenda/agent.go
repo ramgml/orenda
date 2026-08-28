@@ -268,6 +268,7 @@ Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
 	cmd.AddCommand(newAgentReleaseCmd())
 	cmd.AddCommand(newAgentSubmitCmd())
 	cmd.AddCommand(newAgentTimeCmd())
+	cmd.AddCommand(newAgentCommentCmd())
 	cmd.AddCommand(newAgentUpdateCmd())
 	cmd.AddCommand(newAgentRetractCmd())
 	cmd.AddCommand(newAgentProjectsCmd())
