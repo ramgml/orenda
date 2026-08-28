@@ -748,6 +748,11 @@ func NewRouter(deps *Dependencies) http.Handler {
 						// /api/v1/attachments/{attId}/download route.
 						r.Post("/attachments", addPageAttachmentHandler(deps))
 						r.Get("/attachments", listPageAttachmentsHandler(deps))
+						// T81: block view get/replace — the same
+						// handlers the user side mounts; slug or
+						// W<N> both resolve.
+						r.Get("/blocks", getPageBlocksHandler(deps))
+						r.Put("/blocks", putPageBlocksHandler(deps))
 					})
 				})
 				r.Get("/agent/search", searchHandler(deps))
