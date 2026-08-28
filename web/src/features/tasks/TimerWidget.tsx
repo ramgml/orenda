@@ -101,10 +101,15 @@ export function TimerWidget(): JSX.Element {
     return `${h}:${m}:${sec}`;
   };
 
+  // The fixed container spans a viewport corner, so it would swallow
+  // clicks aimed at UI underneath (e.g. TaskViewBody's "Start timer"
+  // button — T86). The container is click-transparent; only the active
+  // card opts back into pointer events. The empty card stays visible
+  // but inert — clicks fall through to whatever is under it.
   return (
-    <div className="fixed bottom-4 right-4 z-40">
+    <div className="pointer-events-none fixed bottom-4 right-4 z-40">
       {active ? (
-        <div className="rounded-lg shadow-lg border border-border bg-card p-3 w-72">
+        <div className="pointer-events-auto rounded-lg shadow-lg border border-border bg-card p-3 w-72">
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
               <p className="text-xs text-slate-500 mb-1">Timer on</p>

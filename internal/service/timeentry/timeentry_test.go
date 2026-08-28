@@ -38,7 +38,7 @@ func (r *memRecorder) Record(_ context.Context, _ string, _ string) error {
 	return nil
 }
 
-func setupTimeSvc(t *testing.T) (*timeentrysvc.Service, string, string) {
+func setupTimeSvc(t *testing.T) (*timeentrysvc.Service, string, string, task.Repository) {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/ts.db"), sqlite.OpenConfig{
@@ -75,7 +75,7 @@ func setupTimeSvc(t *testing.T) (*timeentrysvc.Service, string, string) {
 
 	hub := &memHub{}
 	svc := timeentrysvc.New(sqlite.NewTimeEntryRepository(db), hub, &memRecorder{})
-	return svc, tr.ID, a.ID
+	return svc, tr.ID, a.ID, tasks
 }
 
 func newIDLite() string {
@@ -92,7 +92,7 @@ func newIDLite() string {
 }
 
 func TestTimeEntryService_StartStop(t *testing.T) {
-	svc, taskID, agentID := setupTimeSvc(t)
+	svc, taskID, agentID, _ := setupTimeSvc(t)
 
 	got, err := svc.Start(context.Background(), taskID, agentID)
 	require.NoError(t, err)
@@ -111,7 +111,7 @@ func TestTimeEntryService_StartStop(t *testing.T) {
 }
 
 func TestTimeEntryService_StartWhenAlreadyOpen(t *testing.T) {
-	svc, taskID, agentID := setupTimeSvc(t)
+	svc, taskID, agentID, _ := setupTimeSvc(t)
 	_, err := svc.Start(context.Background(), taskID, agentID)
 	require.NoError(t, err)
 	_, err = svc.Start(context.Background(), taskID, agentID)
@@ -119,13 +119,13 @@ func TestTimeEntryService_StartWhenAlreadyOpen(t *testing.T) {
 }
 
 func TestTimeEntryService_StopWithoutOpen(t *testing.T) {
-	svc, _, agentID := setupTimeSvc(t)
+	svc, _, agentID, _ := setupTimeSvc(t)
 	_, err := svc.Stop(context.Background(), agentID)
 	assert.ErrorIs(t, err, timeentrysvc.ErrNotFound)
 }
 
 func TestTimeEntryService_ManualAdd(t *testing.T) {
-	svc, taskID, agentID := setupTimeSvc(t)
+	svc, taskID, agentID, _ := setupTimeSvc(t)
 	start := time.Now().Add(-time.Hour).Truncate(time.Second)
 	end := start.Add(30 * time.Minute)
 	got, err := svc.ManualAdd(context.Background(), taskID, agentID, start, end)
@@ -136,14 +136,14 @@ func TestTimeEntryService_ManualAdd(t *testing.T) {
 }
 
 func TestTimeEntryService_ManualAdd_RejectsBadRange(t *testing.T) {
-	svc, taskID, agentID := setupTimeSvc(t)
+	svc, taskID, agentID, _ := setupTimeSvc(t)
 	now := time.Now()
 	_, err := svc.ManualAdd(context.Background(), taskID, agentID, now, now.Add(-time.Hour))
 	assert.ErrorIs(t, err, timeentrysvc.ErrInvalid)
 }
 
 func TestTimeEntryService_ReportAggregatesPerTask(t *testing.T) {
-	svc, taskID, agentID := setupTimeSvc(t)
+	svc, taskID, agentID, _ := setupTimeSvc(t)
 	now := time.Now().Truncate(time.Second)
 
 	// Add 3 entries on the same task, 30 minutes each.
@@ -164,7 +164,7 @@ func TestTimeEntryService_ReportAggregatesPerTask(t *testing.T) {
 }
 
 func TestTimeEntryService_ListByDay(t *testing.T) {
-	svc, taskID, agentID := setupTimeSvc(t)
+	svc, taskID, agentID, _ := setupTimeSvc(t)
 	now := time.Now().Truncate(time.Second)
 	end := now.Add(30 * time.Minute)
 	_, err := svc.ManualAdd(context.Background(), taskID, agentID, now, end)
@@ -197,7 +197,7 @@ func (f *fakeTitleLookup) TitlesByIDs(_ context.Context, ids []string) (map[stri
 // title using a single call to TitlesByIDs (no N+1), and missing
 // titles fall back to an empty title (caller renders the id slice).
 func TestTimeEntryService_Report_PopulatesTitles(t *testing.T) {
-	svc, taskID, agentID := setupTimeSvc(t)
+	svc, taskID, agentID, _ := setupTimeSvc(t)
 	now := time.Now().Truncate(time.Second)
 	end := now.Add(30 * time.Minute)
 	_, err := svc.ManualAdd(context.Background(), taskID, agentID, now, end)
@@ -225,4 +225,63 @@ func TestTimeEntryService_Report_PopulatesTitles(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rep.Tasks, 1)
 	assert.Equal(t, "", rep.Tasks[0].Title, "missing lookup key → empty title (caller falls back to id)")
+}
+
+// spentS reads the task's stored time_spent_s counter.
+func spentS(t *testing.T, tasks task.Repository, taskID string) int {
+	t.Helper()
+	got, err := tasks.GetByID(context.Background(), taskID)
+	require.NoError(t, err)
+	return got.TimeSpentS
+}
+
+// TestTimeEntryService_StopAccruesTimeSpent (T86) pins the accounting
+// contract: closing a timer adds its duration_s to tasks.time_spent_s
+// in the same transaction. The service bug this guards against left
+// the counter at 0 forever while time_entries filled up.
+func TestTimeEntryService_StopAccruesTimeSpent(t *testing.T) {
+	svc, taskID, agentID, tasks := setupTimeSvc(t)
+	assert.Equal(t, 0, spentS(t, tasks, taskID), "fresh task starts at 0")
+
+	_, err := svc.Start(context.Background(), taskID, agentID)
+	require.NoError(t, err)
+	time.Sleep(1100 * time.Millisecond) // >1s so duration is non-zero
+	closed, err := svc.Stop(context.Background(), agentID)
+	require.NoError(t, err)
+	require.NotNil(t, closed.DurationS)
+
+	assert.Equal(t, int(*closed.DurationS), spentS(t, tasks, taskID),
+		"time_spent_s must grow by exactly the closed duration")
+
+	// A second timer on the same task accumulates on top.
+	_, err = svc.Start(context.Background(), taskID, agentID)
+	require.NoError(t, err)
+	time.Sleep(1100 * time.Millisecond)
+	second, err := svc.Stop(context.Background(), agentID)
+	require.NoError(t, err)
+	require.NotNil(t, second.DurationS)
+
+	assert.Equal(t, int(*closed.DurationS+*second.DurationS), spentS(t, tasks, taskID),
+		"time_spent_s accumulates across timer sessions")
+}
+
+// TestTimeEntryService_ManualAddAccruesTimeSpent (T86): manual entries
+// must land on tasks.time_spent_s too — POST /tasks/:id/time is the
+// retrospective-import path.
+func TestTimeEntryService_ManualAddAccruesTimeSpent(t *testing.T) {
+	svc, taskID, agentID, tasks := setupTimeSvc(t)
+
+	start := time.Now().Add(-time.Hour).Truncate(time.Second)
+	got, err := svc.ManualAdd(context.Background(), taskID, agentID, start, start.Add(30*time.Minute))
+	require.NoError(t, err)
+	require.NotNil(t, got.DurationS)
+
+	assert.Equal(t, 30*60, spentS(t, tasks, taskID),
+		"manual interval must land on time_spent_s")
+
+	// A second manual entry accumulates.
+	_, err = svc.ManualAdd(context.Background(), taskID, agentID, start.Add(time.Hour), start.Add(90*time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, 60*60, spentS(t, tasks, taskID),
+		"time_spent_s accumulates across manual entries")
 }
