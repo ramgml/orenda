@@ -5,12 +5,13 @@ package api_test
 // The wiki handlers never read the user session, so they mount
 // verbatim under RequireAgent. These tests pin the contract:
 //
-//   - Full CRUD round-trip with an agent bearer token
-//     (create → read → update → tree → move → backlinks → delete).
 //   - 401 without a token, with a user cookie, and with a bad token.
 //   - FTS5 search finds agent-written content.
 //   - The user-side routes keep working unchanged (same handlers,
 //     two auth surfaces).
+//   - T80: page attachment upload/list under the agent bearer token,
+//     with namespace split assertions (cookie on agent routes → 401,
+//     agent token on the user route → 401).
 
 import (
 	"bytes"
@@ -18,6 +19,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -31,6 +33,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/user"
 	"github.com/ramgml/orenda/internal/domain/wiki"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
+	attachmentsvc "github.com/ramgml/orenda/internal/service/attachment"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
@@ -79,9 +82,15 @@ func newAgentWikiFixture(t *testing.T) *agentWikiFixture {
 		AgentService:  agentSvc,
 		WikiService:   wikiservice.New(sqlite.NewWikiRepository(db), hub),
 		SearchService: searchservice.New(sqlite.NewSearchRepository(db), hub),
-		WSHub:         hub,
 		CookieName:    "orenda_session",
 	}
+	uploadsDir := filepath.Join(t.TempDir(), "uploads")
+	deps.Attachments = attachmentTestAdapter{inner: attachmentsvc.New(
+		sqlite.NewAttachmentRepository(db), attachmentsvc.Config{
+			UploadDir:    uploadsDir,
+			MaxSizeBytes: 1 << 20,
+			AllowedMimes: []string{"image/*", "text/*"},
+		}, hub)}
 	router := api.NewRouter(&deps)
 	t.Cleanup(deps.RateLimitClose)
 

@@ -228,6 +228,7 @@ subcommands:
 orenda_me / orenda_list_projects / orenda_list_tasks / orenda_claim
 orenda_release / orenda_submit / orenda_context / orenda_await
 orenda_task_propose / orenda_pages_list / orenda_pages_get / orenda_pages_save
+orenda_page_attachment_upload / orenda_page_attachments_list  # T80: wiki attachments
 ```
 
 ### 4.4 "Build me a course on X" — end-to-end, no human clicks (Phase 29)
@@ -427,6 +428,8 @@ be self-sufficient — see rule 3). Optional: `priority`,
 | DELETE | `/api/v1/agent/pages/{slug}` | Delete a page (children cascade). |
 | PATCH | `/api/v1/agent/pages/{slug}/move` | Reparent (`{parent_id}`, empty = root). |
 | GET | `/api/v1/agent/pages/{slug}/backlinks` | Pages linking here. |
+| GET | `/api/v1/agent/pages/{slug}/attachments` | T80: list the page's attached files — check `filename` here before re-uploading (idempotent migration scripts). |
+| POST | `/api/v1/agent/pages/{slug}/attachments` | T80: upload a file (multipart `file`). Uploader = your agent id. Reference the result as `![...](/api/v1/attachments/{id}/download)` in page content. Same-bytes re-upload returns the existing row + `X-Attachment-Duplicate: true`. |
 | GET | `/api/v1/agent/search?q=&type=&limit=` | FTS5 across pages/tasks/comments. |
 | GET | `/api/v1/agent/courses?status=active` | Phase 31.5: list courses. With `?status=active` the row carries a `progress` sub-object (lessons_total / lessons_done / open_lessons[]) and `pace_notes_md` so the planner has everything in one round-trip. |
 | POST | `/api/v1/agent/courses/{id}/curriculum` | (Also Phase 18 — see above.) |
