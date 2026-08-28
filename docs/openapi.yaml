@@ -1957,6 +1957,15 @@ paths:
       security: [{ bearerAuth-agent: [] }]
       responses: { '200': { description: ok } }
 
+  /api/v1/agent/projects:
+    get:
+      tags: [agent]
+      summary: List all projects (single-owner) — source of project_id for task proposal.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '401': { description: invalid_token }
+
   # wiki:agent-project-description — agent read/write of the project
   # description. v1 exposes only the description field (name/color/
   # archived stay user-only); wiki_slug joins with wiki:project-wiki-link.

@@ -270,6 +270,7 @@ Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
 	cmd.AddCommand(newAgentCommentCmd())
 	cmd.AddCommand(newAgentUpdateCmd())
 	cmd.AddCommand(newAgentRetractCmd())
+	cmd.AddCommand(newAgentProjectsCmd())
 	cmd.AddCommand(newAgentAwaitCmd())
 	cmd.AddCommand(newAgentPagesCmd())
 	cmd.AddCommand(newAgentSearchCmd())
@@ -302,6 +303,42 @@ func newAgentMeCmd() *cobra.Command {
 			return printJSON(cmd, v)
 		},
 	}
+}
+
+// newAgentProjectsCmd wires `orenda agent projects list`.
+//
+// The list is the agent's programmatic source of project_id —
+// required by `orenda agent propose` / `orenda_task_propose` — plus
+// the project name for branch naming. Single-owner store, so the
+// list is the full project table.
+func newAgentProjectsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "projects",
+		Short: "Inspect projects (list)",
+	}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "Print all projects (id/name — source of project_id for propose)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			raw, code, err := ctx.agentGet(cmd.Context(), "/api/v1/agent/projects")
+			if err != nil {
+				return err
+			}
+			if code != http.StatusOK {
+				return fmt.Errorf("agent projects: HTTP %d: %s", code, raw)
+			}
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		},
+	})
+	return cmd
 }
 
 func newAgentNextCmd() *cobra.Command {

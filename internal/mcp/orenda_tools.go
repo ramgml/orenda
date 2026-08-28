@@ -55,6 +55,15 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 	})
 
 	s.Register(Tool{
+		Name:        "orenda_list_projects",
+		Description: "List all projects (id/name) — the programmatic source of project_id for task proposal (orenda_task_propose) and of the project name for branch naming.",
+		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+			return agentGet(ctx, httpc, cfg, "/api/v1/agent/projects")
+		},
+	})
+
+	s.Register(Tool{
 		Name:        "orenda_list_tasks",
 		Description: "List claimable tasks. ?ready=true filters to unblocked, unclaimed, open tasks (the agent's ready-list). Each task carries a human `number` ('T42') alongside its UUID — use the T-prefixed form wherever a task_id is taken.",
 		InputSchema: map[string]any{

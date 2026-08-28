@@ -160,6 +160,29 @@ func (fx *agentProjectFixture) agentReq(method, path string, body any) *httptest
 	return rr
 }
 
+// T72: the bare list route returns the full project list under the
+// agent token — the programmatic source of project_id for task
+// proposal.
+func TestAgentProjects_ListReturnsProjects(t *testing.T) {
+	t.Parallel()
+	fx := newAgentProjectFixture(t)
+	rr := fx.agentReq(http.MethodGet, "/api/v1/agent/projects", nil)
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+	var out struct {
+		Projects []project.Project `json:"projects"`
+	}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&out))
+	require.NotEmpty(t, out.Projects, "fixture project must be listed")
+	var found bool
+	for _, p := range out.Projects {
+		if p.ID == fx.projectID {
+			found = true
+			assert.Equal(t, "Agent Proj", p.Name)
+		}
+	}
+	assert.True(t, found, "fixture project %s must appear in the list", fx.projectID)
+}
+
 func TestAgentProjects_GetReturnsProject(t *testing.T) {
 	t.Parallel()
 	fx := newAgentProjectFixture(t)
@@ -267,6 +290,7 @@ func TestAgentProjects_CookieRejectedOnAgentRoute(t *testing.T) {
 		method, path string
 		body         any
 	}{
+		{http.MethodGet, "/api/v1/agent/projects", nil},
 		{http.MethodGet, "/api/v1/agent/projects/" + fx.projectID, nil},
 		{http.MethodPatch, "/api/v1/agent/projects/" + fx.projectID, map[string]any{"description": "x"}},
 	} {
@@ -292,6 +316,7 @@ func TestAgentProjects_AgentTokenRejectedOnUserRoute(t *testing.T) {
 		method, path string
 		body         any
 	}{
+		{http.MethodGet, "/api/v1/projects", nil},
 		{http.MethodGet, "/api/v1/projects/" + fx.projectID, nil},
 		{http.MethodPatch, "/api/v1/projects/" + fx.projectID, map[string]any{"description": "x"}},
 	} {
@@ -308,14 +333,19 @@ func TestAgentProjects_AgentTokenRejectedOnUserRoute(t *testing.T) {
 	}
 }
 
-// No token at all → 401.
+// No token at all → 401 (both list and per-id routes).
 func TestAgentProjects_RequiresToken(t *testing.T) {
 	t.Parallel()
 	fx := newAgentProjectFixture(t)
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/projects/"+fx.projectID, nil)
-	rr := httptest.NewRecorder()
-	fx.router.ServeHTTP(rr, req)
-	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	for _, path := range []string{
+		"/api/v1/agent/projects",
+		"/api/v1/agent/projects/" + fx.projectID,
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rr := httptest.NewRecorder()
+		fx.router.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusUnauthorized, rr.Code, "path=%s", path)
+	}
 }
 
 // WS: PATCH publishes a project.updated event on the "projects" topic.
