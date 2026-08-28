@@ -73,6 +73,7 @@ Then drive the workflow with subcommands:
 
 ```bash
 orenda agent me           # confirm the token works
+orenda agent projects list  # list projects (source of --project for propose)
 orenda agent next          # await + claim a task in one shot
 orenda agent propose --project <id> --title "..." --description-file task.md
                            # file NEW work (lands in the human's review queue)
@@ -224,10 +225,9 @@ Run `orenda mcp-proxy` (stdio JSON-RPC 2.0). Tools map to the CLI
 subcommands:
 
 ```
-orenda_me / orenda_list_tasks / orenda_claim / orenda_release
-orenda_submit / orenda_context / orenda_await / orenda_task_propose
-orenda_pages_list / orenda_pages_get / orenda_pages_save
-orenda_pages_delete / orenda_pages_move / orenda_search   # Phase 29.3
+orenda_me / orenda_list_projects / orenda_list_tasks / orenda_claim
+orenda_release / orenda_submit / orenda_context / orenda_await
+orenda_task_propose / orenda_pages_list / orenda_pages_get / orenda_pages_save
 ```
 
 ### 4.4 "Build me a course on X" — end-to-end, no human clicks (Phase 29)
@@ -406,6 +406,7 @@ be self-sufficient — see rule 3). Optional: `priority`,
 | GET | `/api/v1/agent/me` | Confirm the token, see scan state. |
 | POST | `/api/v1/agent/heartbeat` | Mark online; refresh `last_seen_at`. |
 | GET | `/api/v1/agent/tasks?ready=true&limit=N` | List claimable tasks. |
+| GET | `/api/v1/agent/projects` | List all projects (single-owner) — your source of `project_id` for `propose`; the name feeds branch naming. |
 | POST | `/api/v1/agent/tasks` | Phase 33.1: propose a NEW task. Body: `{project_id, title, description_md, priority?, blocked_by?, parent_task_id?}`. Lands `backlog` + `awaiting=human` (the owner's review queue triages it). 400 on missing required fields, 404 on unknown project/parent/blocker. |
 | POST | `/api/v1/agent/tasks/{id}/claim` | Atomic claim. 409 / 422 on failure. |
 | POST | `/api/v1/agent/tasks/{id}/release` | Drop a claim. |

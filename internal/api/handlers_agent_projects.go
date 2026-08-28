@@ -61,6 +61,31 @@ func agentGetProjectHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
+// agentListProjectsHandler returns the project list to the bearer
+// agent — same shape as the user-side listProjectsHandler
+// ({"projects": [...]}). The agent needs the full id/name list:
+// project_id is required for `orenda_task_propose` / agent task
+// proposal and the name feeds the branch-naming convention. The
+// single-owner store ignores the owner filter (inbox visibility),
+// which is what the agent wants here; id.UserID is passed for shape
+// parity with the user handler. Unlike the user route this lives
+// under RequireAgent, so a cookie session 401s.
+func agentListProjectsHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := IdentityFrom(r.Context())
+		if !ok || id == nil || id.AgentID == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		projects, err := deps.Projects.ListProjects(r.Context(), id.UserID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
+	}
+}
+
 // agentPatchProjectRequest is the JSON body of
 // PATCH /api/v1/agent/projects/{id}.
 //

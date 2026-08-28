@@ -645,6 +645,10 @@ func NewRouter(deps *Dependencies) http.Handler {
 				// project description. v1 exposes only description; the
 				// project-wiki-link task adds wiki_slug on top.
 				r.Route("/agent/projects", func(r chi.Router) {
+					// List first — the agent's source of project_id
+					// for task proposal (needed before it can resolve
+					// a project by name via /{id}).
+					r.Get("/", agentListProjectsHandler(deps))
 					r.Route("/{id}", func(r chi.Router) {
 						r.Get("/", agentGetProjectHandler(deps))
 						r.Patch("/", agentPatchProjectHandler(deps))

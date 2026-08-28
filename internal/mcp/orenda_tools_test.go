@@ -94,9 +94,29 @@ func TestOrendaTools_ListIncludesWikiAndSearch(t *testing.T) {
 		"orenda_courses_list", "orenda_study_propose",
 		// Phase 33.1 addition.
 		"orenda_task_propose",
+		// T72 addition.
+		"orenda_list_projects",
 	} {
 		assert.True(t, names[want], "tools/list must include %s", want)
 	}
+}
+
+// T72: the projects tool is a bare GET on the agent namespace —
+// no arguments, no query string, response passed through verbatim.
+func TestOrendaTools_ListProjectsSendsGET(t *testing.T) {
+	srv, rec := newToolServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"projects":[{"id":"p-1","name":"Agent Proj"}]}`))
+	})
+	result := callTool(t, srv, "orenda_list_projects", map[string]any{})
+	assert.Equal(t, http.MethodGet, rec.method)
+	assert.Equal(t, "/api/v1/agent/projects", rec.path)
+	assert.Equal(t, "Bearer tok-abc", rec.authHdr)
+	assert.Empty(t, rec.query.Encode(), "no arguments must produce a clean URL")
+	content, ok := result["content"].([]any)
+	require.True(t, ok, "result must carry content blocks, got %v", result)
+	require.Len(t, content, 1)
+	text := content[0].(map[string]any)["text"].(string)
+	assert.Contains(t, text, `"Agent Proj"`, "response body must pass through")
 }
 
 func TestOrendaTools_PagesSaveSendsPUT(t *testing.T) {
