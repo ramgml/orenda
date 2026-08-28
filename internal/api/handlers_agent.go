@@ -290,6 +290,13 @@ func checkTimeLogged(ctx context.Context, deps *Dependencies, taskID, agentID st
 	if deps.TimeService == nil {
 		return nil
 	}
+	// A recorded entry with zero duration (the documented 0-minute
+	// bypass for trivial tasks) leaves time_spent_s at 0, so the
+	// presence of any entry on the task counts as logged time too.
+	entries, err := deps.TimeService.ListByTask(ctx, taskID)
+	if err == nil && len(entries) > 0 {
+		return nil
+	}
 	open, err := deps.TimeService.OpenFor(ctx, agentID, taskID)
 	if err != nil {
 		return err
