@@ -230,8 +230,16 @@ describe('NotificationsBell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Notifications' }));
     expect(screen.getByText('No notifications.')).toBeTruthy();
 
-    // Click outside the bell's wrapping div.
-    fireEvent.mouseDown(document.body);
+    // Radix attaches its native `pointerdown` dismissal listener in a
+    // macrotask after the content mounts — flush it first. Then replay a
+    // real outside click: `pointerdown` outside the content, followed by
+    // the `click` that completes the deferred (left-button) dismissal.
+    // Macrotask flush (repo TS lib predates Promise.withResolvers).
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    fireEvent.pointerDown(document.body);
+    fireEvent.click(document.body);
 
     expect(screen.queryByText('No notifications.')).toBeNull();
   });
