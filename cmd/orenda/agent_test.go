@@ -259,6 +259,162 @@ func TestAgentPagesMove_SendsPATCH(t *testing.T) {
 	assert.Contains(t, out, "moved")
 }
 
+// T83: `agent pages blocks get|put` — CLI shim over
+// GET/PUT /api/v1/agent/pages/{slug}/blocks (the T81 REST surface).
+// The server resolves the reference as a slug OR a W<N>, so the CLI
+// must pass it through verbatim; the put→get round-trip mirrors the
+// server-side TestAgentWikiBlocks_PutReplacesTree.
+
+func TestAgentPagesBlocksGet_RefFormsAndJSONFlag(t *testing.T) {
+	blockView := `{"format":"markdown","content_md":"Alpha content"}`
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(blockView))
+	}))
+	t.Cleanup(srv.Close)
+
+	// Plain slug: pretty JSON.
+	out, err := runAgentCLI(t, srv, "pages", "blocks", "get", "alpha")
+	require.NoError(t, err)
+	assert.Equal(t, "/api/v1/agent/pages/alpha/blocks", gotPath)
+	assert.Contains(t, out, "Alpha content")
+
+	// W<N> reference goes into the path as-is (server resolves it).
+	out, err = runAgentCLI(t, srv, "pages", "blocks", "get", "W15")
+	require.NoError(t, err)
+	assert.Equal(t, "/api/v1/agent/pages/W15/blocks", gotPath)
+	assert.Contains(t, out, "Alpha content")
+
+	// --json: compact single-line output, like the sibling commands.
+	out, err = runAgentCLI(t, srv, "pages", "blocks", "get", "alpha", "--json")
+	require.NoError(t, err)
+	assert.JSONEq(t, blockView, strings.TrimSpace(out))
+}
+
+func TestAgentPagesBlocksGet_UnknownSlugIsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"page_not_found"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := runAgentCLI(t, srv, "pages", "blocks", "get", "no-such-page")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "404")
+	assert.Contains(t, err.Error(), "page_not_found")
+}
+
+func TestAgentPagesBlocksPut_StdinRoundTrip(t *testing.T) {
+	in := `[{"id":"c1","type":"paragraph","content":[{"type":"text","text":"Replaced"}]}]`
+	var (
+		gotMethod      string
+		gotPath        string
+		gotContentType string
+		gotBlocks      []any
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		gotContentType = r.Header.Get("Content-Type")
+		if r.Method == http.MethodPut {
+			var body struct {
+				Blocks []any `json:"blocks"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			gotBlocks = body.Blocks
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":"p-1","slug":"p1","content_format":"blocks"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"format":"blocks","blocks":[{"id":"c1","type":"paragraph"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	// put from stdin replaces the tree.
+	root := newAgentCmd()
+	var out strings.Builder
+	root.SetOut(&out)
+	root.SetIn(strings.NewReader(in))
+	root.SetArgs([]string{"--url", srv.URL, "--token", "test-token",
+		"pages", "blocks", "put", "p1"})
+	require.NoError(t, root.Execute())
+	assert.Equal(t, http.MethodPut, gotMethod)
+	assert.Equal(t, "/api/v1/agent/pages/p1/blocks", gotPath)
+	assert.Contains(t, gotContentType, "application/json")
+	require.Len(t, gotBlocks, 1)
+	assert.Equal(t, "c1", gotBlocks[0].(map[string]any)["id"])
+
+	// The reverse get confirms the replacement took.
+	getOut, err := runAgentCLI(t, srv, "pages", "blocks", "get", "p1")
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodGet, gotMethod)
+	assert.Contains(t, getOut, "blocks")
+	assert.Contains(t, getOut, "c1")
+}
+
+func TestAgentPagesBlocksPut_FileFlag(t *testing.T) {
+	bf := filepath.Join(t.TempDir(), "blocks.json")
+	require.NoError(t, os.WriteFile(bf,
+		[]byte(`[{"id":"b1","type":"heading","props":{"level":2}}]`), 0o600))
+	var gotBlocks []any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Blocks []any `json:"blocks"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		gotBlocks = body.Blocks
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"p-1"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := runAgentCLI(t, srv, "pages", "blocks", "put", "p1", "--file", bf)
+	require.NoError(t, err)
+	require.Len(t, gotBlocks, 1)
+	assert.Equal(t, "b1", gotBlocks[0].(map[string]any)["id"])
+}
+
+func TestAgentPagesBlocksPut_InvalidBodyNotSent(t *testing.T) {
+	hit := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hit = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	root := newAgentCmd()
+	var out strings.Builder
+	root.SetOut(&out)
+	root.SetIn(strings.NewReader("not json at all"))
+	root.SetArgs([]string{"--url", srv.URL, "--token", "test-token",
+		"pages", "blocks", "put", "p1"})
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "JSON array of blocks")
+	assert.False(t, hit, "a non-JSON body must fail client-side, before the request")
+}
+
+func TestAgentPagesBlocksPut_Server404IsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"not_found"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	root := newAgentCmd()
+	var out strings.Builder
+	root.SetOut(&out)
+	root.SetIn(strings.NewReader(`[{"id":"c1","type":"paragraph"}]`))
+	root.SetArgs([]string{"--url", srv.URL, "--token", "test-token",
+		"pages", "blocks", "put", "missing-slug"})
+	err := root.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "404")
+	assert.Contains(t, err.Error(), "not_found")
+}
+
 func TestAgentSearch_EncodesQuery(t *testing.T) {
 	var gotQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
