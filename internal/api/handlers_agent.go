@@ -6,11 +6,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
-
 	"github.com/go-chi/chi/v5"
+	"net/http"
+	"time"
 
 	"github.com/ramgml/orenda/internal/api/ws"
 
@@ -174,6 +175,14 @@ func agentSubmitTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeResolveError(w, rerr)
 			return
 		}
+		// Task 87: a submit must carry evidence of time spent. The
+		// auto-timer keeps an entry open while the task is in
+		// in_progress, so an open timer counts; otherwise the task's
+		// accrued total must be non-zero (manual entries included).
+		if err := checkTimeLogged(r.Context(), deps, taskID, id.AgentID); err != nil {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "time_not_logged"})
+			return
+		}
 		tr, err := deps.TaskService.Submit(r.Context(), taskID, id.AgentID, in.Note)
 		if err != nil {
 			writeError(w, err)
@@ -259,4 +268,78 @@ func filterActivityForAgent(acts []*activity.Activity, agentID string, tr task.T
 		out = append(out, a)
 	}
 	return out
+}
+
+// checkTimeLogged implements the Task 87 submit gate: the task must
+// carry evidence of spent time before it can enter review. Time
+// counts when the task's accrued total (tasks.time_spent_s — fed by
+// the auto-timer close and manual entries) is non-zero, or when the
+// agent still has an open timer on this task (an in_progress claim
+// without a single closed interval yet).
+//
+// A nil TimeService (partial installs without the timer routes)
+// fails open — the gate degrades to the pre-T87 behaviour.
+func checkTimeLogged(ctx context.Context, deps *Dependencies, taskID, agentID string) error {
+	tr, err := deps.Tasks.GetByID(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if tr.TimeSpentS > 0 {
+		return nil
+	}
+	if deps.TimeService == nil {
+		return nil
+	}
+	open, err := deps.TimeService.OpenFor(ctx, agentID, taskID)
+	if err != nil {
+		return err
+	}
+	if open != nil {
+		return nil
+	}
+	return errors.New("time_not_logged")
+}
+
+// agentAddManualTimeHandler records time the auto-timer missed
+// (offline work, imports, "this took no real time" zeroes). Minutes
+// must be >= 0; 0 is valid and is the documented bypass for trivial
+// tasks that must still pass the submit gate.
+func agentAddManualTimeHandler(deps *Dependencies) http.HandlerFunc {
+	type req struct {
+		Minutes float64 `json:"minutes"`
+		Note    string  `json:"note"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.TimeService == nil {
+			http.Error(w, "time service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		id, ok := IdentityFrom(r.Context())
+		if !ok || id.AgentID == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var in req
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		if in.Minutes < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "minutes_must_be_non_negative"})
+			return
+		}
+		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if rerr != nil {
+			writeResolveError(w, rerr)
+			return
+		}
+		end := time.Now().UTC()
+		start := end.Add(-time.Duration(in.Minutes * float64(time.Minute)))
+		got, err := deps.TimeService.ManualAdd(r.Context(), taskID, id.AgentID, start, end)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, got)
+	}
 }

@@ -669,6 +669,11 @@ func NewRouter(deps *Dependencies) http.Handler {
 						r.Post("/claim", agentClaimTaskHandler(deps))
 						r.Post("/release", agentReleaseTaskHandler(deps))
 						r.Post("/submit", agentSubmitTaskHandler(deps))
+						// Task 87: manual time entry — the
+						// documented bypass for the submit gate
+						// (minutes >= 0; 0 marks the task
+						// time-tracked-trivial).
+						r.Post("/time", agentAddManualTimeHandler(deps))
 						r.Get("/context", agentTaskContextHandler(deps))
 						// Phase 27.11: agent-author comments. Pre-27.11
 						// the agent CLI posted to the user-cookie
