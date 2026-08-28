@@ -7,6 +7,13 @@
 # restarts the systemd unit. The pull is `--ff-only` so the channel
 # stays linear: no merge commits, no diverged history, no surprises.
 #
+# Release tags are fetched explicitly before the pull (`git fetch
+# --tags --prune-tags origin`): the version stamp baked into the
+# binary comes from `git describe --tags`, and annotated release tags
+# do not reliably arrive with a plain branch pull. Observed
+# 2026-08-27: right after the v0.9.0 release, the dogfood binary
+# reported v0.8.0-12-g… until the tags were fetched by hand.
+#
 # Pre-flight: refuses to run unless we're on `main` with a clean tree.
 # The whole point of the dev/dogfood split (Phase 28.20) is that the
 # usage channel never sees unreleased code by accident; this script
@@ -34,6 +41,9 @@ if [[ -n "$(git status --porcelain)" ]]; then
   git status --porcelain
   exit 1
 fi
+
+echo "==> Fetching release tags from origin"
+git fetch --tags --prune-tags origin
 
 echo "==> Pulling latest from origin/main"
 git pull --ff-only origin main
