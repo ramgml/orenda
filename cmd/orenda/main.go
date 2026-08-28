@@ -803,8 +803,13 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		hub,
 		nil, // task_service.Recorder would be a circular adapter; accept/dismiss don't audit-row
 	)
+	// Task 87: the raw time-entry repo is shared — the timeentry
+	// service wraps it for the timer API, the task service uses it
+	// directly for the status-driven auto-timer.
+	timeEntryRepo := sqlite.NewTimeEntryRepository(db)
 	taskSvc := taskservice.New(tasksRepo, taskLocks, taskRecorderFor(activityRecorder), commentAdderFor(commentSvc), hub)
 	taskSvc.Logger = logger
+	taskSvc.Time = timeEntryRepo // Task 87: status-driven auto-timer
 	taskSvc.Mirror = mirrorSvc
 	taskSvc.Columns = projects // Phase 23.1 + 16.7: WIP lookup + inbox→project filing
 	// Phase Wave 4 PR 2: wire CommentLister so the markdown
@@ -840,7 +845,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// eventService facade still exists for API compatibility, but it
 	// reads and writes the tasks table now.
 	eventSvc := eventservice.New(sqlite.NewTaskRepository(db), hub, nil)
-	timeSvc := timeentryservice.New(sqlite.NewTimeEntryRepository(db), hub, nil).
+	timeSvc := timeentryservice.New(timeEntryRepo, hub, nil).
 		WithTitles(sqlite.NewTaskRepository(db))
 
 	// Wiki + Search services (Phase 5).

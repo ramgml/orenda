@@ -18,10 +18,12 @@ import (
 	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
+	timeentry "github.com/ramgml/orenda/internal/domain/timeentry"
 	"github.com/ramgml/orenda/internal/domain/user"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
+	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 )
 
@@ -59,6 +61,11 @@ func newAgentFixture(t *testing.T) *agentFixture {
 		sqlite.NewTaskLockRepository(db),
 		nil, nil, hub,
 	)
+	// Task 87: the auto-timer needs the time-entry repo and the
+	// columns repo (status -> column sync), otherwise the submit
+	// gate fails open and claim never opens an interval.
+	taskSvc.Time = sqlite.NewTimeEntryRepository(db)
+	taskSvc.Columns = sqlite.NewProjectRepository(db)
 
 	tokens := sqlite.NewAPITokenRepository(db)
 	agents := sqlite.NewAgentRepository(db)
@@ -77,6 +84,7 @@ func newAgentFixture(t *testing.T) *agentFixture {
 		Tasks:       sqlite.NewTaskRepository(db),
 		Tokens:      tokens,
 		TaskService: taskSvc,
+		TimeService: timeentryservice.New(sqlite.NewTimeEntryRepository(db), hub, nil),
 		Agents:      agents,
 		Comments:    commentSvc,
 		Activities:  sqlite.NewActivityRepository(db),
@@ -237,6 +245,134 @@ func TestAgent_ClaimReleaseSubmitRoundTrip(t *testing.T) {
 	rr = httptest.NewRecorder()
 	fx.router.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
+}
+
+// Task 87: the submit gate. A freshly claimed task has no spent
+// time and no closed interval -> submit returns 422
+// time_not_logged. POST /time (0-minute bypass) then satisfies the
+// gate and the same submit returns 200.
+func TestAgent_SubmitGate422AndManualBypass(t *testing.T) {
+	t.Parallel()
+	fx := newAgentFixture(t)
+
+	row := fx.db.QueryRow("SELECT id FROM users LIMIT 1")
+	var ownerID string
+	require.NoError(t, row.Scan(&ownerID))
+	projects := sqlite.NewProjectRepository(fx.db)
+	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
+		Name: "AgentGateTest", OwnerID: ownerID,
+	})
+	require.NoError(t, err)
+	tasks := sqlite.NewTaskRepository(fx.db)
+	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "gated"}
+	require.NoError(t, tasks.Create(context.Background(), tr))
+
+	post := func(path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader([]byte(body)))
+		req.Header.Set("Authorization", "Bearer "+fx.token)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		fx.router.ServeHTTP(rr, req)
+		return rr
+	}
+
+	// Gate on a task the agent never claimed: no spent time, no open
+	// timer on it -> 422 time_not_logged.
+	rr := post("/api/v1/agent/tasks/"+tr.ID+"/submit", `{}`)
+	require.Equal(t, http.StatusUnprocessableEntity, rr.Code, "body=%s", rr.Body.String())
+	assert.JSONEq(t, `{"error":"time_not_logged"}`, rr.Body.String())
+
+	// 0-minute manual entry: the documented bypass.
+	rr = post("/api/v1/agent/tasks/"+tr.ID+"/time", `{"minutes":0}`)
+	require.Equal(t, http.StatusCreated, rr.Code, "body=%s", rr.Body.String())
+
+	// Gate satisfied -> submit now goes through.
+	rr = post("/api/v1/agent/tasks/"+tr.ID+"/submit", `{"note":"done"}`)
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+}
+
+// Task 87 (review MINOR 4): an entry recorded by a different agent
+// does not satisfy the submitting agent's gate.
+func TestAgent_SubmitGateForeignEntryDoesNotPass(t *testing.T) {
+	t.Parallel()
+	fx := newAgentFixture(t)
+
+	row := fx.db.QueryRow("SELECT id FROM users LIMIT 1")
+	var ownerID string
+	require.NoError(t, row.Scan(&ownerID))
+	projects := sqlite.NewProjectRepository(fx.db)
+	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
+		Name: "AgentGateForeign", OwnerID: ownerID,
+	})
+	require.NoError(t, err)
+	tasks := sqlite.NewTaskRepository(fx.db)
+	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "foreign"}
+	require.NoError(t, tasks.Create(context.Background(), tr))
+
+	// Another agent logs time on the task.
+	other := newAgentFixture(t)
+	repo := sqlite.NewTimeEntryRepository(fx.db)
+	now := time.Now().UTC()
+	_, err = repo.Create(context.Background(), &timeentry.TimeEntry{
+		TaskID: tr.ID, AgentID: other.agentID,
+		StartedAt: now.Add(-time.Minute), EndedAt: &now,
+	})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/agent/tasks/"+tr.ID+"/submit", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Authorization", "Bearer "+fx.token)
+	rr := httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusUnprocessableEntity, rr.Code, "body=%s", rr.Body.String())
+	assert.JSONEq(t, `{"error":"time_not_logged"}`, rr.Body.String())
+}
+
+// Task 87: submitting a claimed task with a running auto-timer
+// passes the gate without a manual entry (open interval counts).
+func TestAgent_SubmitGateOpenTimerPasses(t *testing.T) {
+	t.Parallel()
+	fx := newAgentFixture(t)
+
+	row := fx.db.QueryRow("SELECT id FROM users LIMIT 1")
+	var ownerID string
+	require.NoError(t, row.Scan(&ownerID))
+	projects := sqlite.NewProjectRepository(fx.db)
+	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
+		Name: "AgentGateTimer", OwnerID: ownerID,
+	})
+	require.NoError(t, err)
+	tasks := sqlite.NewTaskRepository(fx.db)
+	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "running"}
+	require.NoError(t, tasks.Create(context.Background(), tr))
+
+	post := func(path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader([]byte(body)))
+		req.Header.Set("Authorization", "Bearer "+fx.token)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		fx.router.ServeHTTP(rr, req)
+		return rr
+	}
+
+	require.Equal(t, http.StatusOK, post("/api/v1/agent/tasks/"+tr.ID+"/claim", `{}`).Code)
+	rr := post("/api/v1/agent/tasks/"+tr.ID+"/submit", `{"note":"open timer"}`)
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+}
+
+// Task 87: negative minutes are rejected before the task lookup.
+func TestAgent_AddManualTimeRejectsNegative(t *testing.T) {
+	t.Parallel()
+
+	fx := newAgentFixture(t)
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/agent/tasks/whatever/time", bytes.NewReader([]byte(`{"minutes":-5}`)))
+	req.Header.Set("Authorization", "Bearer "+fx.token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.JSONEq(t, `{"error":"minutes_must_be_non_negative"}`, rr.Body.String())
 }
 
 // Phase 27.11: agent-side comment endpoint writes the comment as
