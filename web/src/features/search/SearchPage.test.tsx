@@ -7,8 +7,10 @@
  *   - Empty results render "No matches."
  *   - Page hits render as <Link> to /wiki/:slug; task/comment hits
  *     use TaskLink (we just assert the title appears).
- *   - Search button is disabled while busy.
- *   - Cmd+K focuses the input.
+ *   - Snippets render as plain text with `<mark>`/`</mark>` markers
+ *     turned into highlight elements; HTML-ish content (e.g. an
+ *     `<img onerror=...>` from a document body) must be escaped, not
+ *     interpreted — raw HTML injection is gone for good.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -71,7 +73,7 @@ function makeHit(
     type: overrides.type ?? 'page',
     title: overrides.title ?? 'Result',
     score: overrides.score ?? 1.23,
-    snippet: overrides.snippet ?? '<em>match</em> text',
+    snippet: overrides.snippet ?? '<mark>match</mark> text',
   };
 }
 
@@ -175,5 +177,56 @@ describe('SearchPage', () => {
     const input = screen.getByRole('textbox', { name: '' });
     fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
     expect(document.activeElement).toBe(input);
+  });
+
+  it('renders mark markers as highlight elements with plain-text neighbours', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        hits: [makeHit({ title: 'Highlight page', snippet: 'plain <mark>match</mark> tail' })],
+      },
+    });
+
+    mount();
+    fireEvent.change(screen.getByRole('textbox', { name: '' }), {
+      target: { value: 'match' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /search/i }));
+
+    expect(await screen.findByText('match').then((el) => el.closest('mark'))).not.toBeNull();
+    expect(screen.getByText(/plain/)).toBeTruthy();
+    expect(screen.getByText(/tail/)).toBeTruthy();
+  });
+
+  it('escapes HTML in snippet text while keeping the mark highlight', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        hits: [
+          makeHit({
+            title: 'XSS page',
+            // What FTS5 snippet() emits when the document body itself
+            // contains markup: content verbatim + the fixed markers.
+            snippet: '<img src=x onerror=alert(1)> <mark>term</mark> <script>alert(2)</script>',
+          }),
+        ],
+      },
+    });
+
+    const { container } = mount();
+    fireEvent.change(screen.getByRole('textbox', { name: '' }), {
+      target: { value: 'term' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /search/i }));
+
+    expect(await screen.findByText('term')).toBeTruthy();
+    // Highlight survives as a real element...
+    const mark = container.querySelector('mark');
+    expect(mark).not.toBeNull();
+    expect(mark?.textContent).toBe('term');
+    // ...while hostile content never becomes markup.
+    expect(container.querySelector('img')).toBeNull();
+    expect(container.querySelector('script')).toBeNull();
+    const snippet = container.querySelector('p.text-sm') as HTMLElement;
+    expect(snippet.innerHTML).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(snippet.innerHTML).toContain('&lt;script&gt;alert(2)&lt;/script&gt;');
   });
 });

@@ -1,10 +1,32 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { TaskLink } from '@/features/tasks/TaskModal';
 import { api, type SearchHit } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
 import { Input } from '@/shared/ui/input';
+
+/**
+ * Renders an FTS5 snippet as React elements. The backend (Go sqlite
+ * search repo) wraps matched terms in the literal markers `<mark>` and
+ * `</mark>`; everything else in the string is source content that may
+ * contain arbitrary text, including things that look like HTML.
+ *
+ * Splitting on the fixed markers — instead of injecting raw HTML —
+ * guarantees content text reaches the DOM only as plain text nodes:
+ * React escapes it, so `<img src=x onerror=...>` in a wiki page or
+ * comment can never execute.
+ */
+function SnippetText({ text }: { text: string }): JSX.Element {
+  const parts = text.split(/<\/?mark>/);
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 1 ? <mark key={i}>{part}</mark> : <Fragment key={i}>{part}</Fragment>,
+      )}
+    </>
+  );
+}
 
 /**
  * /search — full-text search results across pages, tasks, comments.
@@ -99,10 +121,9 @@ export function SearchPage(): JSX.Element {
                   {h.type} · {h.score.toFixed(2)}
                 </span>
               </div>
-              <p
-                className="text-sm text-foreground"
-                dangerouslySetInnerHTML={{ __html: h.snippet }}
-              />
+              <p className="text-sm text-foreground">
+                <SnippetText text={h.snippet} />
+              </p>
             </li>
           ))}
         </ul>
