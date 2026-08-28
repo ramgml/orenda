@@ -9,10 +9,13 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"os"
 	"strings"
@@ -51,6 +54,15 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
 			return agentGet(ctx, httpc, cfg, "/api/v1/agent/me")
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_list_projects",
+		Description: "List all projects (id/name) — the programmatic source of project_id for task proposal (orenda_task_propose) and of the project name for branch naming.",
+		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
+			return agentGet(ctx, httpc, cfg, "/api/v1/agent/projects")
 		},
 	})
 
@@ -391,6 +403,106 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 	})
 
 	s.Register(Tool{
+		Name: "orenda_pages_blocks",
+		Description: "Read or replace the block tree of a wiki page (by slug or W-ref, e.g. 'W15'). " +
+			"Without `blocks`: returns the BlockView {format, content_md, blocks}. " +
+			"With `blocks`: REPLACES the ENTIRE block tree of the page — anything not included in the call is lost; GET first and send back the edited tree. " +
+			"Block format: {id: string (required), type: string (required), props: object (optional), content: array (optional inline content), children: array of Block (optional nested)}",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"slug"},
+			"properties": map[string]any{
+				"slug": map[string]any{"type": "string", "description": "Page slug or W-ref (e.g. 'W15')"},
+				"blocks": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "object"},
+					"description": "Full replacement tree ({id, type} required; props, content, children optional). " +
+						"Omit to read the current BlockView; present = the whole tree is replaced",
+				},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			slug, _ := params["slug"].(string)
+			if slug == "" {
+				return nil, fmt.Errorf("slug is required")
+			}
+			path := "/api/v1/agent/pages/" + url.PathEscape(slug) + "/blocks"
+			if blocks, ok := params["blocks"]; ok {
+				// Replace mode: the agent endpoint takes the tree
+				// wrapped as {"blocks": [...]} and swaps the whole tree.
+				return agentPut(ctx, httpc, cfg, path, map[string]any{"blocks": blocks})
+			}
+			return agentGet(ctx, httpc, cfg, path)
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_page_attachment_upload",
+		Description: "Upload a file (bytes or base64) as an attachment to a wiki page (by slug or W-ref). Returns the attachment row (id, filename, mime) — reference it as /api/v1/attachments/{id}/download in page content.",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"slug", "filename"},
+			"properties": map[string]any{
+				"slug":     map[string]any{"type": "string", "description": "Page slug or W-ref (e.g. 'W15')"},
+				"filename": map[string]any{"type": "string"},
+				"content_b64": map[string]any{
+					"type":        "string",
+					"description": "Base64-encoded file bytes. Omit with content_utf8 empty to probe the endpoint.",
+				},
+				"content_utf8": map[string]any{
+					"type":        "string",
+					"description": "File content as UTF-8 text (used when content_b64 is empty)",
+				},
+				"mime": map[string]any{"type": "string", "description": "MIME type (default: application/octet-stream)"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			slug, _ := params["slug"].(string)
+			filename, _ := params["filename"].(string)
+			if slug == "" || filename == "" {
+				return nil, fmt.Errorf("slug and filename are required")
+			}
+			mime := stringParam(params, "mime")
+			if mime == "" {
+				mime = "application/octet-stream"
+			}
+			var data []byte
+			if b64 := stringParam(params, "content_b64"); b64 != "" {
+				raw, err := base64.StdEncoding.DecodeString(b64)
+				if err != nil {
+					return nil, fmt.Errorf("content_b64 is not valid base64: %w", err)
+				}
+				data = raw
+			} else {
+				data = []byte(stringParam(params, "content_utf8"))
+			}
+			return agentUploadFile(ctx, httpc, cfg,
+				"/api/v1/agent/pages/"+url.PathEscape(slug)+"/attachments",
+				filename, mime, data)
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_page_attachments_list",
+		Description: "List the files attached to a wiki page (by slug or W-ref). Use it before re-uploading: uploading the same bytes again returns the existing attachment (dedup), and the filename column lets a script skip already-migrated files.",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"slug"},
+			"properties": map[string]any{
+				"slug": map[string]any{"type": "string", "description": "Page slug or W-ref (e.g. 'W15')"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			slug, _ := params["slug"].(string)
+			if slug == "" {
+				return nil, fmt.Errorf("slug is required")
+			}
+			return agentGet(ctx, httpc, cfg,
+				"/api/v1/agent/pages/"+url.PathEscape(slug)+"/attachments")
+		},
+	})
+
+	s.Register(Tool{
 		Name:        "orenda_search",
 		Description: "Full-text search across wiki pages, tasks, and comments (FTS5, snippet-highlighted).",
 		InputSchema: map[string]any{
@@ -498,6 +610,42 @@ func agentGet(ctx context.Context, c *http.Client, cfg ServerConfig, path string
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+cfg.AgentToken)
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return readBody(resp)
+}
+
+// agentUploadFile POSTs a multipart/form-data body with a single
+// `file` part. The agent bearer header rides along like in the JSON
+// helpers; non-2xx maps through readBody's error formatting.
+func agentUploadFile(
+	ctx context.Context, c *http.Client, cfg ServerConfig,
+	path, filename, mime string, data []byte,
+) (any, error) {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	hdr := make(textproto.MIMEHeader)
+	hdr.Set("Content-Disposition", `form-data; name="file"; filename="`+filename+`"`)
+	hdr.Set("Content-Type", mime)
+	part, err := mw.CreatePart(hdr)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := part.Write(data); err != nil {
+		return nil, err
+	}
+	if err := mw.Close(); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.OrendaBaseURL+path, &buf)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.AgentToken)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
 	resp, err := c.Do(req)
 	if err != nil {
 		return nil, err

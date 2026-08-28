@@ -359,6 +359,13 @@ func putPageBlocksHandler(deps *Dependencies) http.HandlerFunc {
 // addPageAttachmentHandler accepts multipart/form-data with a
 // `file` field and stores it against the wiki page. Behaviour mirrors
 // addProjectAttachmentHandler; only the TargetType differs.
+//
+// Mounted in BOTH auth namespaces (user pages + agent pages). The
+// uploader attribution follows the identity resolved by whichever
+// middleware admitted the request: a user session stores
+// UploaderUser/UserID, an agent bearer token stores
+// UploaderAgent/AgentID. A request with neither → 401 (there is no
+// anonymous attribution to put on the row).
 func addPageAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.Attachments == nil {
@@ -397,9 +404,16 @@ func addPageAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		uploaderID := ""
-		if id, ok := IdentityFrom(r.Context()); ok {
-			uploaderID = id.UserID
+		id, ok := IdentityFrom(r.Context())
+		if !ok || id == nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		uploaderType := attachment.UploaderUser
+		uploaderID := id.UserID
+		if id.AgentID != "" {
+			uploaderType = attachment.UploaderAgent
+			uploaderID = id.AgentID
 		}
 
 		res, err := deps.Attachments.StoreFromBytes(
@@ -407,7 +421,7 @@ func addPageAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 			attachment.TargetPage,
 			p.ID,
 			filename, mimeType,
-			attachment.UploaderUser, uploaderID,
+			uploaderType, uploaderID,
 			file,
 		)
 		if err != nil {
@@ -426,5 +440,35 @@ func addPageAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 			w.Header().Set("X-Attachment-Duplicate", "true")
 		}
 		writeJSON(w, http.StatusCreated, res.Attachment)
+	}
+}
+
+// listPageAttachmentsHandler returns the attachments stored against
+// a wiki page. Agent-side surface (GET /api/v1/agent/pages/{slug}/
+// attachments) — migration scripts use it for idempotency: list by
+// filename before re-uploading. The same handler also backs a
+// user-side listing if one is ever wired.
+func listPageAttachmentsHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.Attachments == nil {
+			http.Error(w, "attachment service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		slug, err := resolveWikiRef(r.Context(), deps, chi.URLParam(r, "slug"))
+		if err != nil {
+			writeWikiResolveError(w, err)
+			return
+		}
+		p, err := deps.WikiService.GetBySlug(r.Context(), slug)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		got, err := deps.Attachments.ListByTarget(r.Context(), attachment.TargetPage, p.ID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"attachments": got})
 	}
 }

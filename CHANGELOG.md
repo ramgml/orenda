@@ -17,6 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [0.10.0] — 2026-08-28
+
+Tenth pre-alpha release. Focus: the agent namespace catches up with the wiki blocks era — agents can now read and write page block trees (REST + MCP + CLI), upload page attachments, and list projects — plus a stored-XSS fix in search snippets and a dogfood-update fix for release-tag freshness.
+
+### Added
+- **Task 72 (PR #99):** Agents can list projects. New bearer-token route `GET /api/v1/agent/projects`, MCP tool `orenda_list_projects`, and CLI `orenda agent projects list`; previously the `project_id` needed for task proposals had to be obtained out-of-band. Namespace split pinned by tests: agent token → 401 on user-side `/api/v1/projects`, cookie → 401 on the agent route.
+- **Task 81 (PR #100):** Wiki blocks API in the agent namespace — `GET /api/v1/agent/pages/{slug}/blocks` (by slug or W-ref; markdown pages return `format:"markdown"` + `content_md`) and `PUT .../blocks` (whole-tree replace; bad bodies → 400 `invalid_json`/`missing_blocks`, unknown type/duplicate IDs → 400). 404 on unknown slug/W-ref; 401 without an agent token (user cookie does not authorize). OpenAPI specs updated.
+- **Task 80 (PR #101):** Page attachments for agents — `POST /api/v1/agent/pages/{slug}/attachments` (multipart upload, 201) with the uploaded file downloadable via the existing `/api/v1/attachments/{id}/download`; re-upload with the same filename is detected by the dedupe script listing. Namespace-split behavior (cookie → 401 on agent route, agent token → 401 on user route and on download) is pinned by tests.
+- **Task 82 (PR #104):** MCP tool `orenda_pages_blocks` (get/save) over the T81 REST surface — get passes `BlockView` through, save PUTs the same payload; presence pinned in `tools/list` tests.
+- **Task 83 (PR #103):** CLI `orenda agent pages blocks get/put` — get accepts slug or W-ref (`--json` parity), put reads the block tree from stdin and replaces it; round-trip (put → get returns the same tree) and error paths (unknown slug → non-zero exit + stderr) pinned by tests and binary smoke.
+
+### Fixed
+- **Task 75 (PR #98):** Stored-XSS sink removed — the search page no longer renders the FTS5 `snippet()` output via `dangerouslySetInnerHTML`; it is split on the literal `<mark>`/`</mark>` markers the backend inserts and rendered as React elements, so page/task/comment HTML in content can never execute as markup (highlight preserved; `dangerouslySetInnerHTML` count in `web/src` is now 0).
+- **Task 79 (PR #97):** `scripts/update-dogfood.sh` now runs `git fetch --tags --prune-tags origin` before pulling `main`, so `make build` (`git describe`) sees the fresh release tag — fixes the 2026-08-27 incident where v0.9.0's dogfood binary reported `v0.8.0-12-g…`.
+- **Task 78 (PR #102):** Main↔dev content divergence hygiene — the `ALLOWED_URI_REGEX` escape fix that had landed only on `main` is cherry-picked into `dev` verbatim, clearing a phantom uncommitted diff in main checkouts.
+
 ## [0.9.0] — 2026-08-27
 
 Ninth pre-alpha release. Focus: MCP error transparency — HTTP status and response body from the Orenda server now reach the agent verbatim instead of collapsing into a generic JSON-RPC "tool error" line; plus documentation realignment for the CSP `style-src` policy.

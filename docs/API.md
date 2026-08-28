@@ -132,6 +132,7 @@ Inline accept / return goes through the standard review endpoint (`POST /api/v1/
 |---|---|---|
 | GET | `/api/v1/agent/me` | the bound agent |
 | POST | `/api/v1/agent/heartbeat` | marks online |
+| GET | `/api/v1/agent/projects` | list all projects (single-owner) — the source of `project_id` for task proposal; name feeds branch naming. Same shape as the user-side list. |
 | GET | `/api/v1/agent/tasks?ready=true&limit=N` | list work surface (Phase 15); `ready` filters out blocked + claimed |
 | POST | `/api/v1/agent/tasks` | propose a NEW task (Phase 33.1): `{project_id, title, description_md, priority?, blocked_by?, parent_task_id?}` → 201, lands `backlog` + `awaiting=human` (review-queue triage); 400 missing fields, 404 unknown project/parent/blocker |
 | POST | `/api/v1/agent/tasks/{id}/claim` | atomic claim; 409 `lock_taken`; 422 `task_blocked` + `unfinished_blockers` (Phase 15) |

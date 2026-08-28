@@ -2616,6 +2616,86 @@ paths:
       security: [{ bearerAuth-agent: [] }]
       responses: { '200': { description: ok } }
 
+  # T80: page attachments on the agent surface. Upload attribution
+  # follows the bearer identity (uploaded_by_type=agent); downloads
+  # stay on the user-side global /api/v1/attachments/{attId}/download.
+  /api/v1/agent/pages/{slug}/attachments:
+    get:
+      tags: [agent, wiki]
+      summary: List the files attached to a wiki page (agent side). Use before re-uploading to stay idempotent by filename.
+      security: [{ bearerAuth-agent: [] }]
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: ok }
+        '401': { description: unauthorized }
+        '404': { description: page not found }
+    post:
+      tags: [agent, wiki]
+      summary: Upload an attachment to a wiki page (agent side). Multipart `file`; same handler as the user route — uploader = the agent from the bearer token.
+      security: [{ bearerAuth-agent: [] }]
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201': { description: created (X-Attachment-Duplicate: true when sha256 dedup returned an existing row) }
+        '400': { description: invalid_multipart | missing_file | bad_filename }
+        '401': { description: unauthorized }
+        '404': { description: page not found }
+        '413': { description: too_large }
+        '415': { description: mime_rejected }
+
+  /api/v1/agent/pages/{slug}/blocks:
+    get:
+      tags: [agent, wiki]
+      summary: Get block view for a page (agent side). Slug or W<N> reference.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200':
+          description: Block view
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BlockView' }
+        '404': { description: page not found }
+    put:
+      tags: [agent, wiki]
+      summary: Replace the block tree of a page (agent side). Slug or W<N> reference.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blocks]
+              properties:
+                blocks:
+                  type: array
+                  items: { $ref: '#/components/schemas/Block' }
+      responses:
+        '200':
+          description: Updated page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WikiPage' }
+        '400': { description: invalid_json / missing_blocks / invalid_blocks_json }
+        '404': { description: page not found }
+
   /api/v1/agent/search:
     get:
       tags: [agent, wiki]

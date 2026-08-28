@@ -270,6 +270,7 @@ Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
 	cmd.AddCommand(newAgentCommentCmd())
 	cmd.AddCommand(newAgentUpdateCmd())
 	cmd.AddCommand(newAgentRetractCmd())
+	cmd.AddCommand(newAgentProjectsCmd())
 	cmd.AddCommand(newAgentAwaitCmd())
 	cmd.AddCommand(newAgentPagesCmd())
 	cmd.AddCommand(newAgentSearchCmd())
@@ -302,6 +303,42 @@ func newAgentMeCmd() *cobra.Command {
 			return printJSON(cmd, v)
 		},
 	}
+}
+
+// newAgentProjectsCmd wires `orenda agent projects list`.
+//
+// The list is the agent's programmatic source of project_id —
+// required by `orenda agent propose` / `orenda_task_propose` — plus
+// the project name for branch naming. Single-owner store, so the
+// list is the full project table.
+func newAgentProjectsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "projects",
+		Short: "Inspect projects (list)",
+	}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "list",
+		Short: "Print all projects (id/name — source of project_id for propose)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			raw, code, err := ctx.agentGet(cmd.Context(), "/api/v1/agent/projects")
+			if err != nil {
+				return err
+			}
+			if code != http.StatusOK {
+				return fmt.Errorf("agent projects: HTTP %d: %s", code, raw)
+			}
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		},
+	})
+	return cmd
 }
 
 func newAgentNextCmd() *cobra.Command {
@@ -814,7 +851,7 @@ func newAgentAwaitCmd() *cobra.Command {
 func newAgentPagesCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pages",
-		Short: "Manage wiki pages (list/get/put/delete/move/backlinks)",
+		Short: "Manage wiki pages and blocks (list/get/put/delete/move/backlinks/blocks)",
 	}
 	cmd.AddCommand(newAgentPagesListCmd())
 	cmd.AddCommand(newAgentPagesGetCmd())
@@ -822,6 +859,7 @@ func newAgentPagesCmd() *cobra.Command {
 	cmd.AddCommand(newAgentPagesDeleteCmd())
 	cmd.AddCommand(newAgentPagesMoveCmd())
 	cmd.AddCommand(newAgentPagesBacklinksCmd())
+	cmd.AddCommand(newAgentPagesBlocksCmd())
 	return cmd
 }
 
@@ -1002,6 +1040,80 @@ func newAgentPagesBacklinksCmd() *cobra.Command {
 				"/api/v1/agent/pages/"+url.PathEscape(args[0])+"/backlinks", http.StatusOK)
 		},
 	}
+}
+
+// newAgentPagesBlocksCmd wires `orenda agent pages blocks <get|put>`
+// — the CLI shim over GET/PUT /api/v1/agent/pages/{slug}/blocks.
+// The server resolves {slug} as a slug OR a W<N> reference, so the
+// CLI passes the argument through verbatim (PathEscape'd).
+func newAgentPagesBlocksCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "blocks",
+		Short: "Read and replace the block tree of a page (get/put)",
+	}
+	cmd.AddCommand(newAgentPagesBlocksGetCmd())
+	cmd.AddCommand(newAgentPagesBlocksPutCmd())
+	return cmd
+}
+
+func newAgentPagesBlocksGetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "get <slug>",
+		Short: "Print the block view of a page (slug or W<N> reference)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return agentPagesGet(cmd,
+				"/api/v1/agent/pages/"+url.PathEscape(args[0])+"/blocks", http.StatusOK)
+		},
+	}
+}
+
+func newAgentPagesBlocksPutCmd() *cobra.Command {
+	var file string
+	cmd := &cobra.Command{
+		Use:   "put <slug>",
+		Short: "Replace the block tree of a page (block JSON from --file or stdin)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			var content []byte
+			if file != "" && file != "-" {
+				content, err = os.ReadFile(file)
+				if err != nil {
+					return fmt.Errorf("agent pages blocks put: read %s: %w", file, err)
+				}
+			} else {
+				content, err = io.ReadAll(cmd.InOrStdin())
+				if err != nil {
+					return fmt.Errorf("agent pages blocks put: read stdin: %w", err)
+				}
+			}
+			var blocks []any
+			if err := json.Unmarshal(content, &blocks); err != nil {
+				return fmt.Errorf("agent pages blocks put: body must be a JSON array of blocks: %w", err)
+			}
+			body, _ := json.Marshal(map[string]any{"blocks": blocks})
+			respBody, code, err := ctx.doRaw(cmd.Context(), http.MethodPut,
+				"/api/v1/agent/pages/"+url.PathEscape(args[0])+"/blocks",
+				bytes.NewReader(body), "application/json")
+			if err != nil {
+				return err
+			}
+			if code != http.StatusOK && code != http.StatusCreated {
+				return fmt.Errorf("agent pages blocks put: HTTP %d: %s", code, respBody)
+			}
+			var v any
+			if err := json.Unmarshal(respBody, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		},
+	}
+	cmd.Flags().StringVar(&file, "file", "", "JSON block-array file ('-' or empty = stdin)")
+	return cmd
 }
 
 func newAgentSearchCmd() *cobra.Command {

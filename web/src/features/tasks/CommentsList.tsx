@@ -33,7 +33,7 @@ export function CommentsList({ comments }: { comments: Comment[] }): JSX.Element
 
 // renderBody highlights @user:<id> / @agent:<id> tokens with a different
 // colour. We keep it as a string-rewrite so the rendered HTML stays
-// safe (no dangerouslySetInnerHTML).
+// safe (no raw-HTML injection).
 function renderBody(body: string): JSX.Element {
   const parts: Array<string | { kind: string; id: string }> = [];
   let lastIndex = 0;
