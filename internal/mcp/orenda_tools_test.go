@@ -97,6 +97,8 @@ func TestOrendaTools_ListIncludesWikiAndSearch(t *testing.T) {
 		"orenda_task_propose",
 		// T72 addition.
 		"orenda_list_projects",
+		// T82: page blocks get/save tool.
+		"orenda_pages_blocks",
 	} {
 		assert.True(t, names[want], "tools/list must include %s", want)
 	}
@@ -172,6 +174,117 @@ func TestOrendaTools_PagesGetEscapesSlug(t *testing.T) {
 	// r.URL.Path is decoded server-side; the wire form is what matters.
 	assert.Equal(t, "/api/v1/agent/pages/with%20space", rec.escapedPath,
 		"slug must be path-escaped on the wire")
+}
+
+// ------------------------------------------------------------------
+// T82: orenda_pages_blocks — one tool, two modes. Absence of the
+// `blocks` argument reads the BlockView (GET); presence replaces the
+// whole tree (PUT). Both hit the same agent-namespace path, and the
+// slug (or W-ref) must stay path-escaped like the other page tools.
+// ------------------------------------------------------------------
+
+func TestOrendaTools_PagesBlocksGetSendsGET(t *testing.T) {
+	srv, rec := newToolServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"format":"blocks","blocks":[
+			{"id":"b1","type":"paragraph","content":[{"type":"text","text":"Hello"}]}
+		]}`))
+	})
+	result := callTool(t, srv, "orenda_pages_blocks", map[string]any{"slug": "W15"})
+	assert.Equal(t, http.MethodGet, rec.method)
+	assert.Equal(t, "/api/v1/agent/pages/W15/blocks", rec.path)
+	assert.Equal(t, "Bearer tok-abc", rec.authHdr)
+	assert.Nil(t, rec.body, "read mode must send no request body")
+	// The BlockView passes through verbatim.
+	content, ok := result["content"].([]any)
+	require.True(t, ok, "result must carry content blocks, got %v", result)
+	require.Len(t, content, 1)
+	text := content[0].(map[string]any)["text"].(string)
+	assert.Contains(t, text, `"format": "blocks"`, "BlockView must pass through")
+	assert.Contains(t, text, "Hello")
+}
+
+func TestOrendaTools_PagesBlocksPutSendsWrappedTree(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_pages_blocks", map[string]any{
+		"slug": "guide",
+		"blocks": []any{
+			map[string]any{
+				"id": "b1", "type": "paragraph",
+				"content": []any{map[string]any{"type": "text", "text": "Hello"}},
+			},
+			map[string]any{"id": "b2", "type": "heading", "props": map[string]any{"level": 2}},
+		},
+	})
+	assert.Equal(t, http.MethodPut, rec.method)
+	assert.Equal(t, "/api/v1/agent/pages/guide/blocks", rec.path)
+	assert.Equal(t, "Bearer tok-abc", rec.authHdr)
+	// The tree rides in the {"blocks": [...]} envelope the server parses.
+	blocks, ok := rec.body["blocks"].([]any)
+	require.True(t, ok, "body must wrap the tree as {blocks: [...]}, got %v", rec.body)
+	require.Len(t, blocks, 2)
+	b1 := blocks[0].(map[string]any)
+	assert.Equal(t, "b1", b1["id"])
+	assert.Equal(t, "paragraph", b1["type"])
+	assert.Equal(t, []any{map[string]any{"type": "text", "text": "Hello"}}, b1["content"])
+	b2 := blocks[1].(map[string]any)
+	assert.Equal(t, map[string]any{"level": float64(2)}, b2["props"])
+}
+
+func TestOrendaTools_PagesBlocksPutEscapesSlug(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_pages_blocks", map[string]any{
+		"slug":   "with space",
+		"blocks": []any{map[string]any{"id": "b1", "type": "paragraph"}},
+	})
+	assert.Equal(t, "/api/v1/agent/pages/with%20space/blocks", rec.escapedPath,
+		"slug must be path-escaped on the wire")
+}
+
+// TestOrendaTools_PagesBlocksServerError — 400/404 from the backend
+// must surface with status line + body text, not be swallowed.
+func TestOrendaTools_PagesBlocksServerError(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		status     int
+		body       string
+		args       map[string]any
+		wantSubstr []string
+	}{
+		{
+			name:       "read: unknown page",
+			status:     http.StatusNotFound,
+			body:       `{"error":"not_found"}`,
+			args:       map[string]any{"slug": "nope"},
+			wantSubstr: []string{"404 Not Found", `{"error":"not_found"}`},
+		},
+		{
+			name:   "write: invalid blocks",
+			status: http.StatusBadRequest,
+			body:   `{"error":"invalid_blocks_json"}`,
+			args: map[string]any{
+				"slug":   "guide",
+				"blocks": []any{map[string]any{"id": "b1", "type": "paragraph"}},
+			},
+			wantSubstr: []string{"400 Bad Request", `{"error":"invalid_blocks_json"}`},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _ := newToolServer(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			})
+			resp := call(t, srv, fmt.Sprintf(
+				`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"orenda_pages_blocks","arguments":%s}}`,
+				mustMarshal(t, tc.args)))
+			errObj, ok := resp["error"].(map[string]any)
+			require.True(t, ok, "tool should return an error, got %v", resp)
+			msg, _ := errObj["message"].(string)
+			assert.Contains(t, msg, "orenda_pages_blocks:")
+			for _, want := range tc.wantSubstr {
+				assert.Contains(t, msg, want)
+			}
+		})
+	}
 }
 
 func TestOrendaTools_PageAttachmentUploadSendsMultipart(t *testing.T) {

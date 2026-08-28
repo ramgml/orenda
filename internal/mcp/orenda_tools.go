@@ -403,6 +403,40 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 	})
 
 	s.Register(Tool{
+		Name: "orenda_pages_blocks",
+		Description: "Read or replace the block tree of a wiki page (by slug or W-ref, e.g. 'W15'). " +
+			"Without `blocks`: returns the BlockView {format, content_md, blocks}. " +
+			"With `blocks`: REPLACES the ENTIRE block tree of the page — anything not included in the call is lost; GET first and send back the edited tree. " +
+			"Block format: {id: string (required), type: string (required), props: object (optional), content: array (optional inline content), children: array of Block (optional nested)}",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"slug"},
+			"properties": map[string]any{
+				"slug": map[string]any{"type": "string", "description": "Page slug or W-ref (e.g. 'W15')"},
+				"blocks": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "object"},
+					"description": "Full replacement tree ({id, type} required; props, content, children optional). " +
+						"Omit to read the current BlockView; present = the whole tree is replaced",
+				},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			slug, _ := params["slug"].(string)
+			if slug == "" {
+				return nil, fmt.Errorf("slug is required")
+			}
+			path := "/api/v1/agent/pages/" + url.PathEscape(slug) + "/blocks"
+			if blocks, ok := params["blocks"]; ok {
+				// Replace mode: the agent endpoint takes the tree
+				// wrapped as {"blocks": [...]} and swaps the whole tree.
+				return agentPut(ctx, httpc, cfg, path, map[string]any{"blocks": blocks})
+			}
+			return agentGet(ctx, httpc, cfg, path)
+		},
+	})
+
+	s.Register(Tool{
 		Name:        "orenda_page_attachment_upload",
 		Description: "Upload a file (bytes or base64) as an attachment to a wiki page (by slug or W-ref). Returns the attachment row (id, filename, mime) — reference it as /api/v1/attachments/{id}/download in page content.",
 		InputSchema: map[string]any{
