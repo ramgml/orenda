@@ -9,9 +9,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/go-chi/chi/v5"
 	"net/http"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/ramgml/orenda/internal/api/ws"
 
@@ -179,7 +180,14 @@ func agentSubmitTaskHandler(deps *Dependencies) http.HandlerFunc {
 		// auto-timer keeps an entry open while the task is in
 		// in_progress, so an open timer counts; otherwise the task's
 		// accrued total must be non-zero (manual entries included).
-		if err := checkTimeLogged(r.Context(), deps, taskID, id.AgentID); err != nil {
+		// Lookup failures surface as errors (404/5xx) — 422 is only
+		// for the genuine "no time recorded" case.
+		logged, err := checkTimeLogged(r.Context(), deps, taskID, id.AgentID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if !logged {
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "time_not_logged"})
 			return
 		}
@@ -270,41 +278,44 @@ func filterActivityForAgent(acts []*activity.Activity, agentID string, tr task.T
 	return out
 }
 
-// checkTimeLogged implements the Task 87 submit gate: the task must
-// carry evidence of spent time before it can enter review. Time
-// counts when the task's accrued total (tasks.time_spent_s — fed by
-// the auto-timer close and manual entries) is non-zero, or when the
-// agent still has an open timer on this task (an in_progress claim
-// without a single closed interval yet).
+// checkTimeLogged implements the Task 87 submit gate. It reports
+// whether the task carries evidence of spent time: a non-zero
+// accrued total (tasks.time_spent_s — fed by the auto-timer close
+// and manual entries), any recorded entry by the submitting agent
+// (a 0-minute bypass leaves the counter at 0), or an open timer of
+// theirs on this task (an in_progress claim without a single closed
+// interval yet).
 //
-// A nil TimeService (partial installs without the timer routes)
-// fails open — the gate degrades to the pre-T87 behaviour.
-func checkTimeLogged(ctx context.Context, deps *Dependencies, taskID, agentID string) error {
+// Lookup failures are returned as errors — they must surface as
+// 5xx/404, never as the 422 "not logged" answer, otherwise agents
+// would try to fix a backend failure by logging time. A nil
+// TimeService (partial installs without the timer routes) fails
+// open — the gate degrades to the pre-T87 behaviour.
+func checkTimeLogged(ctx context.Context, deps *Dependencies, taskID, agentID string) (bool, error) {
 	tr, err := deps.Tasks.GetByID(ctx, taskID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if tr.TimeSpentS > 0 {
-		return nil
+		return true, nil
 	}
 	if deps.TimeService == nil {
-		return nil
+		return true, nil
 	}
-	// A recorded entry with zero duration (the documented 0-minute
-	// bypass for trivial tasks) leaves time_spent_s at 0, so the
-	// presence of any entry on the task counts as logged time too.
 	entries, err := deps.TimeService.ListByTask(ctx, taskID)
-	if err == nil && len(entries) > 0 {
-		return nil
+	if err != nil {
+		return false, err
+	}
+	for _, e := range entries {
+		if e.AgentID == agentID {
+			return true, nil
+		}
 	}
 	open, err := deps.TimeService.OpenFor(ctx, agentID, taskID)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if open != nil {
-		return nil
-	}
-	return errors.New("time_not_logged")
+	return open != nil, nil
 }
 
 // agentAddManualTimeHandler records time the auto-timer missed
@@ -314,7 +325,6 @@ func checkTimeLogged(ctx context.Context, deps *Dependencies, taskID, agentID st
 func agentAddManualTimeHandler(deps *Dependencies) http.HandlerFunc {
 	type req struct {
 		Minutes float64 `json:"minutes"`
-		Note    string  `json:"note"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.TimeService == nil {

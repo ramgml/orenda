@@ -18,6 +18,7 @@ import (
 	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
+	timeentry "github.com/ramgml/orenda/internal/domain/timeentry"
 	"github.com/ramgml/orenda/internal/domain/user"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
@@ -282,12 +283,49 @@ func TestAgent_SubmitGate422AndManualBypass(t *testing.T) {
 	assert.JSONEq(t, `{"error":"time_not_logged"}`, rr.Body.String())
 
 	// 0-minute manual entry: the documented bypass.
-	rr = post("/api/v1/agent/tasks/"+tr.ID+"/time", `{"minutes":0,"note":"trivial"}`)
+	rr = post("/api/v1/agent/tasks/"+tr.ID+"/time", `{"minutes":0}`)
 	require.Equal(t, http.StatusCreated, rr.Code, "body=%s", rr.Body.String())
 
 	// Gate satisfied -> submit now goes through.
 	rr = post("/api/v1/agent/tasks/"+tr.ID+"/submit", `{"note":"done"}`)
 	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+}
+
+// Task 87 (review MINOR 4): an entry recorded by a different agent
+// does not satisfy the submitting agent's gate.
+func TestAgent_SubmitGateForeignEntryDoesNotPass(t *testing.T) {
+	t.Parallel()
+	fx := newAgentFixture(t)
+
+	row := fx.db.QueryRow("SELECT id FROM users LIMIT 1")
+	var ownerID string
+	require.NoError(t, row.Scan(&ownerID))
+	projects := sqlite.NewProjectRepository(fx.db)
+	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
+		Name: "AgentGateForeign", OwnerID: ownerID,
+	})
+	require.NoError(t, err)
+	tasks := sqlite.NewTaskRepository(fx.db)
+	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "foreign"}
+	require.NoError(t, tasks.Create(context.Background(), tr))
+
+	// Another agent logs time on the task.
+	other := newAgentFixture(t)
+	repo := sqlite.NewTimeEntryRepository(fx.db)
+	now := time.Now().UTC()
+	_, err = repo.Create(context.Background(), &timeentry.TimeEntry{
+		TaskID: tr.ID, AgentID: other.agentID,
+		StartedAt: now.Add(-time.Minute), EndedAt: &now,
+	})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/agent/tasks/"+tr.ID+"/submit", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Authorization", "Bearer "+fx.token)
+	rr := httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusUnprocessableEntity, rr.Code, "body=%s", rr.Body.String())
+	assert.JSONEq(t, `{"error":"time_not_logged"}`, rr.Body.String())
 }
 
 // Task 87: submitting a claimed task with a running auto-timer

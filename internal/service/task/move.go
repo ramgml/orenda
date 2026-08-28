@@ -364,6 +364,7 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return nil, fmt.Errorf("task service: update: %w", err)
 	}
+	s.mirrorSave(ctx, tr)
 	// Task 87: a kanban drag that crosses the in_progress boundary
 	// opens/closes the actor's auto-timer entry.
 	s.syncTimer(ctx, tr, prevStatus)

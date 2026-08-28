@@ -2094,6 +2094,7 @@ paths:
       responses:
         '200': { description: ok }
         '404': { description: 'not_found — includes task #N not found for numeric refs' }
+        '422': { description: 'time_not_logged — submit gate: zero spent time and no open auto-timer for the agent (Task 87)' }
 
   /api/v1/agent/tasks/{id}/time:
     post:
@@ -2114,7 +2115,6 @@ paths:
               required: [minutes]
               properties:
                 minutes: { type: number, description: 'minutes spent (>= 0; 0 = trivial)' }
-                note: { type: string }
       responses:
         '201': { description: created }
         '400': { description: 'invalid_json | minutes_must_be_non_negative' }

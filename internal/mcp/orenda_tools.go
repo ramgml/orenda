@@ -257,7 +257,6 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			"properties": map[string]any{
 				"task_id": map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
 				"minutes": map[string]any{"type": "number", "description": "Minutes spent (>= 0; 0 = trivial, passes the submit gate)"},
-				"note":    map[string]any{"type": "string", "description": "Optional note stored with the entry"},
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
@@ -267,9 +266,6 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			}
 			minutes, _ := params["minutes"].(float64)
 			body := map[string]any{"minutes": minutes}
-			if n, _ := params["note"].(string); n != "" {
-				body["note"] = n
-			}
 			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/time", body)
 		},
 	})

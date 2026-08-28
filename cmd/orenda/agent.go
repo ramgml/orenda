@@ -635,7 +635,6 @@ func newAgentSubmitCmd() *cobra.Command {
 
 func newAgentTimeCmd() *cobra.Command {
 	var minutes float64
-	var note string
 	cmd := &cobra.Command{
 		Use:   "time <task-id|#N>",
 		Short: "Log manual time on a task (minutes >= 0; 0 passes the submit gate)",
@@ -646,9 +645,6 @@ func newAgentTimeCmd() *cobra.Command {
 				return err
 			}
 			body := map[string]any{"minutes": minutes}
-			if note != "" {
-				body["note"] = note
-			}
 			raw, code, err := ctx.agentPost(cmd.Context(),
 				"/api/v1/agent/tasks/"+url.PathEscape(args[0])+"/time", body)
 			if err != nil {
@@ -665,7 +661,6 @@ func newAgentTimeCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Float64Var(&minutes, "minutes", 0, "minutes spent (>= 0; 0 marks the task time-tracked-trivial)")
-	cmd.Flags().StringVar(&note, "note", "", "optional note stored with the entry")
 	return cmd
 }
 

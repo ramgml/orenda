@@ -106,7 +106,7 @@ func (s *Service) startTimerOnTask(ctx context.Context, taskID, actorID string) 
 			// Already tracking this task — keep the running interval.
 			return
 		}
-		if !closeOpenEntry(ctx, s.Time, open) {
+		if !s.closeOpenEntry(ctx, open) {
 			// Could not close the stale interval; creating a new one
 			// would violate the invariant, so bail out this round.
 			return
@@ -136,22 +136,22 @@ func (s *Service) stopTimerOnTask(ctx context.Context, taskID, actorID string) {
 	if open == nil || open.TaskID != taskID {
 		return
 	}
-	if !closeOpenEntry(ctx, s.Time, open) {
+	if !s.closeOpenEntry(ctx, open) {
 		return
 	}
 }
 
 // closeOpenEntry stamps end=now, computes duration_s and persists both
 // with the atomic accrual onto tasks.time_spent_s. Reports failure via
-// the boolean so callers can react (stale-guard must not double-open).
-func closeOpenEntry(ctx context.Context, repo TimeEntries, open *timeentry.TimeEntry) bool {
+// the boolean so callers can react (stale-guard must not double-open);
+// the error itself is warn-logged per the best-effort contract.
+func (s *Service) closeOpenEntry(ctx context.Context, open *timeentry.TimeEntry) bool {
 	now := time.Now().UTC()
 	open.EndedAt = &now
 	dur := int64(now.Sub(open.StartedAt).Seconds())
 	open.DurationS = &dur
-	if err := repo.CloseAndAccrue(ctx, open); err != nil {
-		// No structured logger dependency at this depth — callers log.
-		_ = err
+	if err := s.Time.CloseAndAccrue(ctx, open); err != nil {
+		s.logTimerWarn("closeOpenEntry: CloseAndAccrue", open.AgentID, open.TaskID, err)
 		return false
 	}
 	return true
