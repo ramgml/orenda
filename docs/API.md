@@ -137,7 +137,8 @@ Inline accept / return goes through the standard review endpoint (`POST /api/v1/
 | POST | `/api/v1/agent/tasks` | propose a NEW task (Phase 33.1): `{project_id, title, description_md, priority?, blocked_by?, parent_task_id?}` → 201, lands `backlog` + `awaiting=human` (review-queue triage); 400 missing fields, 404 unknown project/parent/blocker |
 | POST | `/api/v1/agent/tasks/{id}/claim` | atomic claim; 409 `lock_taken`; 422 `task_blocked` + `unfinished_blockers` (Phase 15) |
 | POST | `/api/v1/agent/tasks/{id}/release` | |
-| POST | `/api/v1/agent/tasks/{id}/submit` | |
+| POST | `/api/v1/agent/tasks/{id}/submit` | Task 87 gate: 422 `time_not_logged` while the task has zero spent time and the bearer agent has no open timer on it; passes with a running auto-timer or after any manual entry |
+| POST | `/api/v1/agent/tasks/{id}/time` | Task 87: manual entry `{minutes >= 0, note?}` → 201, closed `source=manual` row + `time_spent_s` accrual; 0 minutes = time-tracked-trivial bypass |
 | GET | `/api/v1/agent/tasks/{id}/context` | 403 if not assigned |
 | GET | `/api/v1/agent/courses?status=draft` | Phase 18: list courses the tutor can claim |
 | PUT | `/api/v1/agent/courses/{id}/curriculum` | body `{modules: [{title, description?, position, lessons: [{title, position, content_md?, quizzes?: [{position, question_md, expected_md?, kind}]}]}]}` — atomic swap (Phase 27.6 added per-lesson `quizzes` and per-module `description`) |
