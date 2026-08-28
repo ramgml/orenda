@@ -124,7 +124,10 @@ func (s *Service) Stop(ctx context.Context, agentID string) (*timeentry.TimeEntr
 	open.EndedAt = &now
 	dur := int64(now.Sub(open.StartedAt).Seconds())
 	open.DurationS = &dur
-	if err := s.Repo.Update(ctx, open); err != nil {
+	// Close the entry and accrue its duration onto tasks.time_spent_s
+	// in one transaction (Repository.CloseAndAccrue) — the stored
+	// per-task total must never drift from the entries behind it.
+	if err := s.Repo.CloseAndAccrue(ctx, open); err != nil {
 		return nil, err
 	}
 	s.publish(ctx, "timer.stopped", open)
@@ -150,7 +153,9 @@ func (s *Service) ManualAdd(ctx context.Context, taskID, agentID string, start, 
 		DurationS: &dur,
 		Source:    timeentry.SourceManual,
 	}
-	got, err := s.Repo.Create(ctx, e)
+	// Insert the closed manual entry and accrue its duration onto
+	// tasks.time_spent_s in one transaction (Repository.CreateAndAccrue).
+	got, err := s.Repo.CreateAndAccrue(ctx, e)
 	if err != nil {
 		return nil, err
 	}

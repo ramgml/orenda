@@ -6,6 +6,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from './App';
 import { registerOfflineHandlers } from '@/shared/offline/outbox';
 import './index.css';
+import '@blocknote/core/style.css';
+import '@blocknote/mantine/style.css';
 
 // Self-hosted fonts (NFR-11: no external requests). latin + cyrillic subsets.
 import '@fontsource/inter/latin-400.css';

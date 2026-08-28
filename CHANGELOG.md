@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [0.11.0] — 2026-08-28
+
+Eleventh pre-alpha release. Focus: UI polish fixes — BlockNote editor popovers and the notifications dropdown render correctly again (CSS imports + Radix Popover portal), and the kanban timer actually accrues `time_spent_s` while its Start button became clickable.
+
+### Fixed
+- **Task 84 (PR #107):** BlockNote editor styles are imported in `main.tsx` (`@blocknote/core/style.css`, then `@blocknote/mantine/style.css`) — slash menus, link popovers, and color pickers in the wiki editor render with a background again instead of unstyled boxes.
+- **Task 85 (PR #108):** The notifications bell dropdown renders through a shadcn Popover (Radix Portal) instead of an absolutely-positioned div inside `<header class="h-12 overflow-hidden">` — previously the header's `overflow-hidden` clipped the whole dropdown.
+- **Task 86 (PR #109):** The timer widget finally earns its keep. The fixed bottom-right container is `pointer-events-none` (both states), the active card re-enables itself via `pointer-events-auto`, so the «Start timer» click reaches the button instead of being swallowed by the widget; and stopping a session or adding a manual entry accrues `tasks.time_spent_s` atomically — new `CloseAndAccrue`/`CreateAndAccrue` repo methods run `INSERT time_entries` + `UPDATE tasks SET time_spent_s = time_spent_s + ?` in one transaction; `Repository.Update()` is removed entirely (cannot close an entry bypassing accrual). Go tests `StopAccruesTimeSpent`/`ManualAddAccruesTimeSpent` + 4 vitest cases pin the contract.
+
 ## [0.10.0] — 2026-08-28
 
 Tenth pre-alpha release. Focus: the agent namespace catches up with the wiki blocks era — agents can now read and write page block trees (REST + MCP + CLI), upload page attachments, and list projects — plus a stored-XSS fix in search snippets and a dogfood-update fix for release-tag freshness.

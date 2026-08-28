@@ -81,12 +81,12 @@ func TestTimeEntryRepo_StartStopSingleActive(t *testing.T) {
 	require.NotNil(t, openFound)
 	assert.Equal(t, got.ID, openFound.ID)
 
-	// Stop the timer.
+	// Stop the timer (close + accrue in one tx).
 	ended := now.Add(30 * time.Minute)
 	duration := int64(ended.Sub(now).Seconds())
 	got.EndedAt = &ended
 	got.DurationS = &duration
-	require.NoError(t, repo.Update(context.Background(), got))
+	require.NoError(t, repo.CloseAndAccrue(context.Background(), got))
 
 	// Now we can open another one.
 	second := &timeentry.TimeEntry{

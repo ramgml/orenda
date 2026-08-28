@@ -66,31 +66,87 @@ func (r *timeEntryRepo) GetByID(ctx context.Context, id string) (*timeentry.Time
 	return scanTimeEntry(row)
 }
 
-func (r *timeEntryRepo) Update(ctx context.Context, e *timeentry.TimeEntry) error {
+// CloseAndAccrue implements timeentry.Repository. The UPDATE of the
+// time_entries row and the increment of tasks.time_spent_s share one
+// transaction: either both land or neither does, so the stored
+// per-task total can never drift from the entries behind it. The
+// accrual is a relative UPDATE (time_spent_s = time_spent_s + ?) so
+// concurrent closes on the same task cannot lose an increment.
+func (r *timeEntryRepo) CloseAndAccrue(ctx context.Context, e *timeentry.TimeEntry) error {
 	if err := e.Validate(); err != nil {
 		return err
 	}
-	const q = `
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("timeentry.CloseAndAccrue: begin: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err = tx.ExecContext(ctx, `
 		UPDATE time_entries
 		SET task_id = ?, agent_id = ?, started_at = ?, ended_at = ?, duration_s = ?, source = ?
 		WHERE id = ?
-	`
-	res, err := r.db.ExecContext(ctx, q,
-		e.TaskID, e.AgentID, formatTime(e.StartedAt),
+	`, e.TaskID, e.AgentID, formatTime(e.StartedAt),
 		nullString(formatTimePtr(e.EndedAt)), nullInt64Ptr(e.DurationS),
-		string(e.Source), e.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("timeentry.Update: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
+		string(e.Source), e.ID); err != nil {
+		err = fmt.Errorf("timeentry.CloseAndAccrue: update: %w", err)
 		return err
 	}
-	if n == 0 {
-		return timeentry.ErrNotFound
+	if _, err = tx.ExecContext(ctx,
+		`UPDATE tasks SET time_spent_s = time_spent_s + ? WHERE id = ?`,
+		entryDuration(e), e.TaskID); err != nil {
+		err = fmt.Errorf("timeentry.CloseAndAccrue: accrue: %w", err)
+		return err
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("timeentry.CloseAndAccrue: commit: %w", err)
 	}
 	return nil
+}
+
+// CreateAndAccrue implements timeentry.Repository. The INSERT of the
+// closed manual entry and the task accrual share one transaction —
+// same atomicity contract as CloseAndAccrue. A non-nil FK error on a
+// missing task rolls the tx back and surfaces as a plain wrapped
+// error; the caller sees no partial state.
+func (r *timeEntryRepo) CreateAndAccrue(ctx context.Context, e *timeentry.TimeEntry) (*timeentry.TimeEntry, error) {
+	if err := e.Validate(); err != nil {
+		return nil, err
+	}
+	if e.ID == "" {
+		e.ID = newUUID()
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("timeentry.CreateAndAccrue: begin: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO time_entries (id, task_id, agent_id, started_at, ended_at, duration_s, source)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, e.ID, e.TaskID, e.AgentID, formatTime(e.StartedAt),
+		nullString(formatTimePtr(e.EndedAt)), nullInt64Ptr(e.DurationS),
+		string(e.Source)); err != nil {
+		err = fmt.Errorf("timeentry.CreateAndAccrue: insert: %w", err)
+		return nil, err
+	}
+	if _, err = tx.ExecContext(ctx,
+		`UPDATE tasks SET time_spent_s = time_spent_s + ? WHERE id = ?`,
+		entryDuration(e), e.TaskID); err != nil {
+		err = fmt.Errorf("timeentry.CreateAndAccrue: accrue: %w", err)
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, fmt.Errorf("timeentry.CreateAndAccrue: commit: %w", err)
+	}
+	return r.GetByID(ctx, e.ID)
 }
 
 func (r *timeEntryRepo) Delete(ctx context.Context, id string) error {
@@ -210,4 +266,14 @@ func nullInt64Ptr(p *int64) sql.NullInt64 {
 		return sql.NullInt64{}
 	}
 	return sql.NullInt64{Int64: *p, Valid: true}
+}
+
+// entryDuration returns the entry duration in seconds, or 0 when the
+// entry is still open (nil DurationS). Open entries carry no time to
+// accrue.
+func entryDuration(e *timeentry.TimeEntry) int64 {
+	if e.DurationS == nil {
+		return 0
+	}
+	return *e.DurationS
 }
