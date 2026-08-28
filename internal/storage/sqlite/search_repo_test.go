@@ -131,3 +131,34 @@ func TestSearchRepo_EmptyReturnsEmpty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, hits)
 }
+
+// TestSearchRepo_SnippetMarkersWithHTMLContent pins the snippet contract
+// the frontend renderer relies on: FTS5 emits the fixed <mark>/</mark>
+// markers around matches while the document body passes through
+// verbatim. The frontend splits on those markers and renders the rest
+// as plain text, so markup embedded in content (e.g. an <img onerror>)
+// must never be interpreted as HTML.
+func TestSearchRepo_SnippetMarkersWithHTMLContent(t *testing.T) {
+	db := setupSearchDB(t)
+	seedSearchData(t, db)
+
+	wikis := NewWikiRepository(db)
+	page := &wiki.Page{
+		Slug:      "xss-probe",
+		Title:     "XSS probe",
+		ContentMD: "body with <img src=x onerror=alert(1)> and gadget here",
+	}
+	_, err := wikis.Create(context.Background(), page)
+	require.NoError(t, err)
+
+	repo := NewSearchRepository(db)
+	hits, err := repo.SearchPages(context.Background(), "gadget", 10)
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+
+	snippet := hits[0].Snippet
+	// The matched term is wrapped in the fixed markers.
+	assert.Contains(t, snippet, "<mark>gadget</mark>")
+	// Content passes through verbatim (frontend treats it as text).
+	assert.Contains(t, snippet, "<img src=x onerror=alert(1)>")
+}
