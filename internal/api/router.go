@@ -741,6 +741,11 @@ func NewRouter(deps *Dependencies) http.Handler {
 						r.Delete("/", deletePageHandler(deps))
 						r.Patch("/move", movePageHandler(deps))
 						r.Get("/backlinks", getPageBacklinksHandler(deps))
+						// T81: block view get/replace — the same
+						// handlers the user side mounts; slug or
+						// W<N> both resolve.
+						r.Get("/blocks", getPageBlocksHandler(deps))
+						r.Put("/blocks", putPageBlocksHandler(deps))
 					})
 				})
 				r.Get("/agent/search", searchHandler(deps))
