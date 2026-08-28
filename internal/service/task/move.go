@@ -837,6 +837,11 @@ func (s *Service) Review(ctx context.Context, taskID, userID string, decision Re
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return nil, err
 	}
+	s.mirrorSave(ctx, tr)
+	if s.Recorder != nil {
+		_ = s.Recorder.Record(ctx, taskID, activity.ActorUser, userID, activity.ActionReviewed,
+			fmt.Sprintf(`{"decision":%q}`, decision))
+	}
 	// Task 87: the review decision flips the status both ways —
 	// approve (→ done) closes the assignee's open entry; reject
 	// (→ in_progress) re-opens the timer so rework time is tracked.
