@@ -570,16 +570,24 @@ func (s *Service) Release(ctx context.Context, taskID, agentID string) (*task.Ta
 		return nil, err
 	}
 	// Task 87: release drops the task to todo and lets go of the
-	// work — close the agent's open auto-timer entry (if any) before
-	// the assignee is cleared, so the interval is attributed and
-	// accrued rather than orphaned on the row.
-	s.syncTimerAs(ctx, tr, task.StatusInProgress, agentID)
+	// work — the auto-timer closes the agent's open entry so the
+	// interval is attributed and accrued rather than orphaned. The
+	// actor is the releasing agent even though the row's assignee is
+	// being cleared; the mutation lands first so the transition
+	// (in_progress → todo) is visible to the timer sync.
 	tr.AssigneeType = ""
 	tr.AssigneeID = ""
 	tr.Status = task.StatusTodo
 	tr.Awaiting = task.AwaitingNone
+	s.syncTimerAs(ctx, tr, task.StatusInProgress, agentID)
 	// Phase 27.8: drop the card back onto the "todo" column.
 	s.syncColumnToStatus(ctx, tr)
+	// The timer sync accrued a closed entry (+time_spent_s) behind
+	// this back's read; refresh the counter so the full-row Update
+	// below cannot clobber the accrual with the stale value.
+	if fresh, ferr := s.Tasks.GetByID(ctx, tr.ID); ferr == nil {
+		tr.TimeSpentS = fresh.TimeSpentS
+	}
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return nil, err
 	}
