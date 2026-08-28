@@ -118,6 +118,11 @@ type Service struct {
 	// dragged onto a real board gets filed under that project
 	// (Phase 16.7).
 	Columns project.Repository
+	// Time is the auto-timer backend (Task 87): when wired, every
+	// status transition opens/closes a time entry for the actor so
+	// tracked time flows from the task lifecycle instead of a manual
+	// timer. nil-safe — the timer simply stays off.
+	Time TimeEntries
 	// Logger is used for warn/error logs in the service layer.
 	// nil-safe — callers that don't set it get silent degradation.
 	Logger *zap.Logger
@@ -271,6 +276,10 @@ func (s *Service) SyncAndSave(ctx context.Context, tr *task.Task, actorID string
 		_ = s.Recorder.Record(ctx, tr.ID, actorType, actorID, activity.ActionStatusChanged,
 			fmt.Sprintf(`{"from":%q,"to":%q}`, prevStatus, tr.Status))
 	}
+	// Task 87: PATCH/kanban-move is a first-class transition point —
+	// entering in_progress opens the actor's entry, leaving closes
+	// it. Uses the recorded prevStatus; no-op when nothing changed.
+	s.syncTimer(ctx, tr, prevStatus)
 	return nil
 }
 
@@ -293,6 +302,7 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 	if err != nil {
 		return nil, ErrNotFound
 	}
+	prevStatus := tr.Status
 
 	// WIP-limit check (count tasks in target column, excluding self).
 	if limit, ok := s.lookupWIPLimit(ctx, opts.TargetColumnID); ok && limit > 0 {
@@ -354,7 +364,9 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return nil, fmt.Errorf("task service: update: %w", err)
 	}
-	s.mirrorSave(ctx, tr)
+	// Task 87: a kanban drag that crosses the in_progress boundary
+	// opens/closes the actor's auto-timer entry.
+	s.syncTimer(ctx, tr, prevStatus)
 
 	if s.Recorder != nil {
 		_ = s.Recorder.Record(ctx, taskID, activity.ActorUser, "", activity.ActionMoved,
@@ -535,6 +547,9 @@ func (s *Service) Claim(ctx context.Context, taskID, agentID string) (*task.Task
 		_ = s.Recorder.Record(ctx, taskID, activity.ActorAgent, agentID, activity.ActionClaimed, "")
 	}
 	s.publishTask(ctx, "task.claimed", tr, agentID, map[string]any{"agent_id": agentID})
+	// Task 87: the claim flips the task into in_progress — the
+	// auto-timer opens an entry for the new assignee.
+	s.syncTimer(ctx, tr, task.StatusTodo)
 	return tr, nil
 }
 
@@ -554,6 +569,11 @@ func (s *Service) Release(ctx context.Context, taskID, agentID string) (*task.Ta
 	if err != nil {
 		return nil, err
 	}
+	// Task 87: release drops the task to todo and lets go of the
+	// work — close the agent's open auto-timer entry (if any) before
+	// the assignee is cleared, so the interval is attributed and
+	// accrued rather than orphaned on the row.
+	s.syncTimerAs(ctx, tr, task.StatusInProgress, agentID)
 	tr.AssigneeType = ""
 	tr.AssigneeID = ""
 	tr.Status = task.StatusTodo
@@ -738,6 +758,9 @@ func (s *Service) Submit(ctx context.Context, taskID, agentID, note string) (*ta
 	}
 	s.mirrorSave(ctx, tr)
 
+	// Task 87: submit moves the task out of in_progress (→ review)
+	// — the auto-timer closes the agent's entry and accrues it.
+	s.syncTimerAs(ctx, tr, task.StatusInProgress, agentID)
 	s.publishTask(ctx, "task.submitted", tr, agentID, map[string]any{
 		"agent_id": agentID,
 		"note":     note,
@@ -806,11 +829,12 @@ func (s *Service) Review(ctx context.Context, taskID, userID string, decision Re
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return nil, err
 	}
-	s.mirrorSave(ctx, tr)
-	if s.Recorder != nil {
-		_ = s.Recorder.Record(ctx, taskID, activity.ActorUser, userID, activity.ActionReviewed,
-			fmt.Sprintf(`{"decision":%q}`, decision))
-	}
+	// Task 87: the review decision flips the status both ways —
+	// approve (→ done) closes the assignee's open entry; reject
+	// (→ in_progress) re-opens the timer so rework time is tracked.
+	// The actor is the assignee when agent-assigned, otherwise the
+	// project owner (single-owner installs).
+	s.syncTimer(ctx, tr, task.StatusReview)
 	s.publishTask(ctx, "task.reviewed", tr, userID, map[string]any{
 		"decision": string(decision),
 		"comment":  comment,
