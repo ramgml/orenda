@@ -121,7 +121,9 @@ func (s *Service) OpenFor(ctx context.Context, agentID, taskID string) (*timeent
 		return nil, err
 	}
 	if open == nil || open.TaskID != taskID {
-		return nil, nil
+		// (nil, nil) is the documented "no open timer on this task"
+		// result — the submit gate treats it as "not yet logged".
+		return nil, nil //nolint:nilnil // nil entry is a valid "no timer" answer
 	}
 	return open, nil
 }
