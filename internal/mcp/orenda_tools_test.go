@@ -90,7 +90,8 @@ func TestOrendaTools_ListIncludesWikiAndSearch(t *testing.T) {
 		// Phase 29.3 additions.
 		"orenda_pages_list", "orenda_pages_get", "orenda_pages_save",
 		"orenda_pages_delete", "orenda_pages_move", "orenda_search",
-		// Phase 31.8 additions.
+		// T80: page attachment tools.
+		"orenda_page_attachment_upload", "orenda_page_attachments_list",
 		"orenda_courses_list", "orenda_study_propose",
 		// Phase 33.1 addition.
 		"orenda_task_propose",
@@ -171,6 +172,42 @@ func TestOrendaTools_PagesGetEscapesSlug(t *testing.T) {
 	// r.URL.Path is decoded server-side; the wire form is what matters.
 	assert.Equal(t, "/api/v1/agent/pages/with%20space", rec.escapedPath,
 		"slug must be path-escaped on the wire")
+}
+
+func TestOrendaTools_PageAttachmentUploadSendsMultipart(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_page_attachment_upload", map[string]any{
+		"slug":         "vpn setup",
+		"filename":     "topology.png",
+		"content_utf8": "png-bytes",
+		"mime":         "image/png",
+	})
+	assert.Equal(t, http.MethodPost, rec.method)
+	assert.Equal(t, "/api/v1/agent/pages/vpn%20setup/attachments", rec.escapedPath,
+		"slug must be path-escaped on the wire")
+	assert.Equal(t, "Bearer tok-abc", rec.authHdr)
+	assert.Contains(t, rec.escapedPath, "/attachments", "must hit the agent attachment route")
+}
+
+func TestOrendaTools_PageAttachmentUploadValidatesInput(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	raw := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"orenda_page_attachment_upload","arguments":{"slug":"x"}}}`
+	resp := call(t, srv, raw)
+	assert.NotNil(t, resp["error"], "missing filename must be a tool error")
+	assert.Empty(t, rec.method, "backend must not be called on invalid input")
+
+	raw = `{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"orenda_page_attachment_upload","arguments":{"slug":"x","filename":"f.png","content_b64":"!!!"}}}`
+	resp = call(t, srv, raw)
+	assert.NotNil(t, resp["error"], "invalid base64 must be a tool error")
+	assert.Empty(t, rec.method, "backend must not be called on invalid base64")
+}
+
+func TestOrendaTools_PageAttachmentsListSendsGET(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_page_attachments_list", map[string]any{"slug": "W15"})
+	assert.Equal(t, http.MethodGet, rec.method)
+	assert.Equal(t, "/api/v1/agent/pages/W15/attachments", rec.path)
+	assert.Equal(t, "Bearer tok-abc", rec.authHdr)
 }
 
 func TestOrendaTools_SearchEncodesParams(t *testing.T) {

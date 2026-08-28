@@ -741,6 +741,13 @@ func NewRouter(deps *Dependencies) http.Handler {
 						r.Delete("/", deletePageHandler(deps))
 						r.Patch("/move", movePageHandler(deps))
 						r.Get("/backlinks", getPageBacklinksHandler(deps))
+						// T80: page attachments for agents — the same
+						// handlers the user pages mount (namespace-
+						// agnostic; uploader attribution follows the
+						// identity). Download stays on the global
+						// /api/v1/attachments/{attId}/download route.
+						r.Post("/attachments", addPageAttachmentHandler(deps))
+						r.Get("/attachments", listPageAttachmentsHandler(deps))
 					})
 				})
 				r.Get("/agent/search", searchHandler(deps))
