@@ -241,6 +241,7 @@ Workflow shape:
   orenda agent propose --project <id> --title ... --description-file task.md
                                        # propose a NEW task (human triages it)
   orenda agent context <task-id>       # pull the full snapshot
+  orenda agent comment <task-id> <md>  # add a comment (not-blocking)
   orenda agent checklist-add <task-id> <title>  # QA checklists (T96)
   orenda agent submit <task-id>       # mark ready for human review
   orenda agent release <task-id>      # drop a claim

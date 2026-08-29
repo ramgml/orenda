@@ -2079,7 +2079,7 @@ paths:
   # T96: agent-namespace checklists. Read mirrors the checklist
   # payload of the task context; mutations are holder-only (the
   # server answers 403 not_lock_holder, same gate as agent_notes).
-  # {id} accepts the task UUID or the human number ("42" / "#42").
+  # {id} accepts the task UUID or T-prefixed number ("T42").
   /api/v1/agent/tasks/{id}/checklists:
     get:
       tags: [agent]
