@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { api, type TimeReport } from '@/shared/api/client';
+import { useAgents } from '@/shared/hooks/useAgents';
 import { Input } from '@/shared/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
 
 /**
  * /reports — time aggregation per task over a window.
@@ -22,14 +24,20 @@ export function ReportsPage(): JSX.Element {
   const [to, setTo] = useState(today);
   const [report, setReport] = useState<TimeReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Radix Select forbids empty string values, so "no filter" is a
+  // sentinel: it is never sent to the API.
+  const ALL_AGENTS = '__all__';
+  const [actorID, setActorID] = useState(ALL_AGENTS);
+  const { data: agents } = useAgents();
 
   async function load(): Promise<void> {
-    setError(null);
     try {
-      const r = await api.getTimeReport({
+      const params: { agent_id?: string; from: string; to: string } = {
         from: `${from}T00:00:00Z`,
         to: `${to}T23:59:59Z`,
-      });
+      };
+      if (actorID !== ALL_AGENTS) params.agent_id = actorID;
+      const r = await api.getTimeReport(params);
       setReport(r);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -39,7 +47,7 @@ export function ReportsPage(): JSX.Element {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to]);
+  }, [from, to, actorID]);
 
   const tasks = report?.tasks ?? [];
   const max = tasks.reduce((m, t) => Math.max(m, t.total_sec), 0);
@@ -75,6 +83,22 @@ export function ReportsPage(): JSX.Element {
             onChange={(e) => setTo(e.target.value)}
             className="h-9 text-sm"
           />
+        </label>
+        <label className="block">
+          <span className="block text-slate-500 text-xs">Agent</span>
+          <Select value={actorID} onValueChange={setActorID}>
+            <SelectTrigger className="h-9 w-48 text-sm">
+              <SelectValue placeholder="All agents & users" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_AGENTS}>All agents & users</SelectItem>
+              {(agents ?? []).map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
         <div className="ml-auto text-xs text-slate-500">
           Total: <span className="font-mono">{formatHM(report?.total_sec ?? 0)}</span>

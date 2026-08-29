@@ -218,14 +218,25 @@ type AggregateReportTask struct {
 	TotalSec int64  `json:"total_sec"`
 }
 
-// Report builds a per-task aggregation for [from, to) on the given agent.
+// Report builds a per-task aggregation for [from, to).
+//
+// An empty agentID means "all actors" (Repo.ListAll): time_entries
+// agent_id carries both agent UUIDs and user ids, and the report must
+// show every entry unless the caller filters by one actor. A non-empty
+// agentID restricts the aggregation to that actor (ListByAgent).
 //
 // Phase 27.9: enriches each row with the task title when a Title
 // lookup is wired (via WithTitles). The lookup is one batch query
 // for all distinct task ids — no N+1. Missing ids (deleted tasks)
 // fall back to a slice of the id so the row stays identifiable.
 func (s *Service) Report(ctx context.Context, agentID string, from, to time.Time) (*AggregateReport, error) {
-	entries, err := s.Repo.ListByAgent(ctx, agentID, from, to)
+	var entries []*timeentry.TimeEntry
+	var err error
+	if agentID == "" {
+		entries, err = s.Repo.ListAll(ctx, from, to)
+	} else {
+		entries, err = s.Repo.ListByAgent(ctx, agentID, from, to)
+	}
 	if err != nil {
 		return nil, err
 	}

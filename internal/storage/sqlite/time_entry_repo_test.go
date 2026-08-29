@@ -174,3 +174,54 @@ func TestTimeEntryRepo_ListByDay(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, list, 1)
 }
+
+// TestTimeEntryRepo_ListAll (T98): ListAll returns entries of every
+// actor in the window — the report's "no agent filter" path.
+func TestTimeEntryRepo_ListAll(t *testing.T) {
+	db, taskID, agentID := setupTimeEntryDB(t)
+	repo := NewTimeEntryRepository(db)
+	now := time.Now().Truncate(time.Second)
+
+	// Two entries from the agent, one from a user-id-shaped actor.
+	userActor := "00000000-0000-7000-8000-0000000000aa"
+	seeded := []struct {
+		actor  string
+		start  time.Time
+		closed bool
+	}{
+		{agentID, now.Add(-3 * time.Hour), true},
+		{agentID, now.Add(-time.Hour), true},
+		{userActor, now.Add(-30 * time.Minute), true},
+	}
+	for i, s := range seeded {
+		ended := s.start.Add(20 * time.Minute)
+		_, err := repo.Create(context.Background(), &timeentry.TimeEntry{
+			TaskID:    taskID,
+			AgentID:   s.actor,
+			StartedAt: s.start,
+			EndedAt:   &ended,
+			DurationS: ptrInt64(1200 + int64(i)),
+			Source:    timeentry.SourceManual,
+		})
+		require.NoError(t, err)
+	}
+
+	all, err := repo.ListAll(context.Background(), now.Add(-4*time.Hour), now)
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+
+	actors := map[string]int{}
+	for _, e := range all {
+		actors[e.AgentID]++
+	}
+	assert.Equal(t, 2, actors[agentID], "both agent entries returned")
+	assert.Equal(t, 1, actors[userActor], "user-attributed entry returned")
+
+	// Window still applies: a narrow window keeps only the newest entry.
+	narrow, err := repo.ListAll(context.Background(), now.Add(-40*time.Minute), now.Add(-25*time.Minute))
+	require.NoError(t, err)
+	assert.Len(t, narrow, 1)
+	assert.Equal(t, userActor, narrow[0].AgentID)
+}
+
+func ptrInt64(v int64) *int64 { return &v }

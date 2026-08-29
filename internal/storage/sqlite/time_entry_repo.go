@@ -197,6 +197,19 @@ func (r *timeEntryRepo) ListByAgent(ctx context.Context, agentID string, from, t
 	return scanTimeEntryList(rows)
 }
 
+// ListAll implements timeentry.Repository. Same window predicate as
+// ListByAgent, minus the actor filter: agent_id carries both agent
+// UUIDs and user ids, so the unfiltered variant is "all actors".
+func (r *timeEntryRepo) ListAll(ctx context.Context, from, to time.Time) ([]*timeentry.TimeEntry, error) {
+	const q = timeEntrySelectColumns +
+		" WHERE started_at < ? AND (ended_at IS NULL OR ended_at > ?) ORDER BY started_at DESC"
+	rows, err := r.db.QueryContext(ctx, q, formatTime(to), formatTime(from))
+	if err != nil {
+		return nil, fmt.Errorf("timeentry.ListAll: %w", err)
+	}
+	return scanTimeEntryList(rows)
+}
+
 func (r *timeEntryRepo) ListByDay(ctx context.Context, agentID string, day time.Time) ([]*timeentry.TimeEntry, error) {
 	dayStart := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location())
 	dayEnd := dayStart.Add(24 * time.Hour)
