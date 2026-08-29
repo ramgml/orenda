@@ -285,3 +285,38 @@ func TestTimeEntryService_ManualAddAccruesTimeSpent(t *testing.T) {
 	assert.Equal(t, 60*60, spentS(t, tasks, taskID),
 		"time_spent_s accumulates across manual entries")
 }
+
+// TestTimeEntryService_ReportAllActors (T98): an empty agentID
+// aggregates entries of every actor — agent UUIDs and user ids alike —
+// while a non-empty agentID still filters to that one actor.
+func TestTimeEntryService_ReportAllActors(t *testing.T) {
+	svc, taskID, agentID, _ := setupTimeSvc(t)
+	now := time.Now().Truncate(time.Second)
+
+	// Entry attributed to the agent.
+	_, err := svc.ManualAdd(context.Background(), taskID, agentID,
+		now.Add(-2*time.Hour), now.Add(-90*time.Minute))
+	require.NoError(t, err)
+
+	// Entry attributed to a user-id-shaped actor (manual entries from
+	// the UI write the user's id into agent_id).
+	userActor := "00000000-0000-7000-8000-0000000000aa"
+	_, err = svc.ManualAdd(context.Background(), taskID, userActor,
+		now.Add(-time.Hour), now.Add(-30*time.Minute))
+	require.NoError(t, err)
+
+	// Empty agentID = all actors: both entries aggregate.
+	all, err := svc.Report(context.Background(), "", now.Add(-3*time.Hour), now)
+	require.NoError(t, err)
+	assert.Empty(t, all.AgentID)
+	assert.Len(t, all.Tasks, 1)
+	assert.Equal(t, int64(60*60), all.TotalSec,
+		"report without agent filter must include agent + user entries")
+
+	// Explicit agentID still scopes to one actor.
+	onlyAgent, err := svc.Report(context.Background(), agentID, now.Add(-3*time.Hour), now)
+	require.NoError(t, err)
+	assert.Equal(t, agentID, onlyAgent.AgentID)
+	assert.Len(t, onlyAgent.Tasks, 1)
+	assert.Equal(t, int64(30*60), onlyAgent.TotalSec)
+}
