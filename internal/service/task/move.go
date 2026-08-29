@@ -583,14 +583,20 @@ func (s *Service) Release(ctx context.Context, taskID, agentID string) (*task.Ta
 	s.syncTimerAs(ctx, tr, task.StatusInProgress, agentID)
 	// Phase 27.8: drop the card back onto the "todo" column.
 	s.syncColumnToStatus(ctx, tr)
-	// The timer sync accrued a closed entry (+time_spent_s) behind
-	// this back's read; refresh the counter so the full-row Update
-	// below cannot clobber the accrual with the stale value.
+	// Task 92: persist the release through the partial UPDATE — the
+	// timer sync above accrued a closed entry (+time_spent_s) via an
+	// atomic relative UPDATE behind this function's read; the
+	// pre-92 full-row Update rewrote time_spent_s from that stale
+	// read, so an accrual committing between the re-read and the
+	// write was silently lost. ClearAssigneeToTodo never touches the
+	// counter, so the accrual survives. The in-memory tr keeps its
+	// stale TimeSpentS for the caller; the mirror and the publish
+	// below read the authoritative row.
+	if err := s.Tasks.ClearAssigneeToTodo(ctx, tr.ID, tr); err != nil {
+		return nil, err
+	}
 	if fresh, ferr := s.Tasks.GetByID(ctx, tr.ID); ferr == nil {
 		tr.TimeSpentS = fresh.TimeSpentS
-	}
-	if err := s.Tasks.Update(ctx, tr); err != nil {
-		return nil, err
 	}
 	s.mirrorSave(ctx, tr)
 

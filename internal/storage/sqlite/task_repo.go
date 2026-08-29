@@ -550,6 +550,41 @@ func (r *taskRepo) UpdateAgentNotesField(ctx context.Context, taskID, agentID, n
 	return nil
 }
 
+// ClearAssigneeToTodo is the partial UPDATE for the Release flow
+// (Task 92). It writes ONLY the release-mutation columns — assignee
+// pair, status, awaiting, column_id (the Phase 27.8 card drop to
+// the status's column, synced by the caller), updated_at — and
+// NEVER time_spent_s, so a CloseAndAccrue that commits between the
+// service's read of the task row and this UPDATE cannot be
+// clobbered by a stale counter (the pre-92 full-row Update could
+// lose an accrual). Not gate-protected on the holder pair: the
+// assignee pair in the SET is the release itself, and the lock has
+// already been released by the time the service calls this — a
+// WHERE on the holder would race the lock drop. ErrNotFound on
+// RowsAffected()==0 keeps the "task vanished mid-flight" contract
+// of Update.
+func (r *taskRepo) ClearAssigneeToTodo(ctx context.Context, taskID string, t *task.Task) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE tasks SET
+			assignee_type = ?, assignee_id = ?,
+			status = ?, awaiting = ?, column_id = ?,
+			updated_at = datetime('now')
+		WHERE id = ?
+	`, nullString(string(t.AssigneeType)), nullString(t.AssigneeID),
+		string(t.Status), string(t.Awaiting), nullString(t.ColumnID), taskID)
+	if err != nil {
+		return fmt.Errorf("task.ClearAssigneeToTodo: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return task.ErrNotFound
+	}
+	return nil
+}
+
 // DeleteWithProposalGate hard-deletes only when the proposal-gate
 // still holds. Phase 33.2.1: paired with the tombstone write in
 // the retract path so the audit survives even when the row is
