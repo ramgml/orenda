@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Docs (workflow):** QA-гейт перед `orenda agent submit` — перевод задачи в review только после того, как PM подготовил manual QA-чеклист «Как протестировать» (новая секция в PR-шаблоне) и поднял preview-инстанс из worktree задачи (порт из 21400–21499, отдельный `data/`, тестовый юзер; docs-only диффы — без инстанса). Детали: wiki «Decision log» 2026-08-29, `docs/DOGFOOD.md` «QA-гейт перед submit».
+- **Task 92:** `Release` больше не перезатирает `tasks.time_spent_s` — запись релиза идёт через частичный UPDATE (`Repository.ClearAssigneeToTodo`: assignee, status, awaiting, column_id; счётчик вне SET-списка), поэтому атомарный аккруал `CloseAndAccrue`, закоммиченный между re-read и записью, не теряется (гоночное окно из ревью PR #113, NIT 8). Контакт закреплён тестами: детерминированная инжекция аккруала в окно релиза + repo-тест «метод не пишет счётчик».
 
 ## [0.12.0] — 2026-08-29
 
