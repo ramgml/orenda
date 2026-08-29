@@ -140,6 +140,11 @@ Inline accept / return goes through the standard review endpoint (`POST /api/v1/
 | POST | `/api/v1/agent/tasks/{id}/submit` | Task 87 gate: 422 `time_not_logged` while the task has zero spent time and the bearer agent has no open timer on it; passes with a running auto-timer or after any manual entry |
 | POST | `/api/v1/agent/tasks/{id}/time` | Task 87: manual entry `{minutes >= 0}` → 201, closed `source=manual` row + `time_spent_s` accrual; 0 minutes = time-tracked-trivial bypass |
 | GET | `/api/v1/agent/tasks/{id}/context` | 403 if not assigned |
+| GET | `/api/v1/agent/tasks/{id}/checklists` | T96: list the task's checklists with their items (`{checklists, checklist_items}` — items keyed by checklist id). Open read: claimable or held. |
+| POST | `/api/v1/agent/tasks/{id}/checklists` | T96: create a checklist `{title}` → 201. Lock holder only; 403 `not_lock_holder` otherwise. |
+| POST | `/api/v1/agent/tasks/{id}/checklists/{clId}/items` | T96: append an item `{title}` → 201. Holder only; a `clId` outside the path task → 404. |
+| PATCH | `/api/v1/agent/tasks/{id}/checklists/{clId}/items/{itemId}` | T96: partial update `{done?, title?}` → 204. Holder only. Ticking done emits `task.checklist_item_done` with the agent as actor. |
+| DELETE | `/api/v1/agent/tasks/{id}/checklists/{clId}/items/{itemId}` | T96: delete an item → 204. Holder only. |
 | GET | `/api/v1/agent/courses?status=draft` | Phase 18: list courses the tutor can claim |
 | PUT | `/api/v1/agent/courses/{id}/curriculum` | body `{modules: [{title, description?, position, lessons: [{title, position, content_md?, quizzes?: [{position, question_md, expected_md?, kind}]}]}]}` — atomic swap (Phase 27.6 added per-lesson `quizzes` and per-module `description`) |
 | POST | `/api/v1/agent/lessons/{id}/materialize` | Phase 27.4: tutor writes content + unlocks the lesson |
