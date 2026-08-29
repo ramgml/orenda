@@ -9,10 +9,13 @@
 # go test -race, vitest) live in pre-push.
 #
 # Checks:
-#   staged *.go          → gofmt -l  (non-empty output = blocks commit)
+#   staged path matching .gitignore → blocks commit (only reachable via
+#                              `git add -f`; catches force-added files
+#                              the ignore rules were meant to exclude)
 #   staged *.ts/*.tsx/*.css → prettier --check  (skip with warning if
 #                              web/node_modules is missing — fresh clone
 #                              before `npm install`)
+#   staged *.go          → gofmt -l  (non-empty output = blocks commit)
 #
 # Exits non-zero to block the commit. Set SKIP_ORENDA_HOOKS=1 to bypass
 # the whole hook (e.g. mid-edit WIP commit). The repo-wide rule against
@@ -45,6 +48,28 @@ mapfile -d '' WEB_FILES < <(
   git diff --cached --name-only --diff-filter=ACMR -z \
     -- '*.ts' '*.tsx' '*.css' || true
 )
+
+# --- staged-but-ignored guard ---------------------------------------------
+# A staged path that matches .gitignore can only get there through
+# `git add -f` (T97: the bare `orenda` pattern silently swallowed new files
+# under cmd/orenda/ until someone noticed "nothing to commit"). Refuse the
+# commit instead of letting a force-added file slip in unnoticed.
+# Runs before the go/web early-exit: it applies to every staged path.
+mapfile -d '' STAGED_FILES < <(
+  git diff --cached --name-only --diff-filter=ACMR -z || true
+)
+if (( ${#STAGED_FILES[@]} > 0 )); then
+  mapfile -d '' IGNORED_FILES < <(
+    printf '%s\0' "${STAGED_FILES[@]}" |
+      git check-ignore --no-index -z --stdin || true
+  )
+  if (( ${#IGNORED_FILES[@]} > 0 )); then
+    echo "pre-commit: staged file(s) match .gitignore (staged via git add -f?):" >&2
+    printf '  %s\n' "${IGNORED_FILES[@]}" >&2
+    echo "  fix: git restore --staged <file>, or correct the .gitignore pattern" >&2
+    exit 1
+  fi
+fi
 
 if (( ${#GO_FILES[@]} == 0 && ${#WEB_FILES[@]} == 0 )); then
   exit 0
