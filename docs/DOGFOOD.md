@@ -52,6 +52,12 @@
   (2137 — usage, 2138 — dev, 21371 — E2E заняты), создаёт тестового юзера
   (`./bin/orenda user create`). Процесс — долгоживущий (`hub start review-t<N>`, persist), гасится
   гигиен-сканом PM после мержа.
+- **Чеклист читается воркером нативно (T96)**: чеклисты задачи видны агенту через
+  `orenda agent checklists <task>` / MCP `orenda_checklists_list`, а держатель лока может
+  дополнять их (`checklist-item-add`, `orenda_checklist_item_add`) и отмечать пункты
+  `--done` / `orenda_checklist_item_update` — владельцу видно в таймлайне, что именно
+  воркер проверил. Чтение открыто любому агенту (в т.ч. до claim), мутации — только
+  держателю лока (403 `not_lock_holder`).
 
 ## Правило новой работы
 
