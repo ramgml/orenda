@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [Unreleased]
+
+### Changed
+- **Docs (workflow):** QA-гейт перед `orenda agent submit` — перевод задачи в review только после того, как PM подготовил manual QA-чеклист «Как протестировать» (новая секция в PR-шаблоне) и поднял preview-инстанс из worktree задачи (порт из 21400–21499, отдельный `data/`, тестовый юзер; docs-only диффы — без инстанса). Детали: wiki «Decision log» 2026-08-29, `docs/DOGFOOD.md` «QA-гейт перед submit».
+
 ## [0.12.0] — 2026-08-29
 
 Twelfth pre-alpha release. Focus: agent time tracking — time now flows as a consequence of the task status itself. The delegation loop finally produces time records (status-driven auto-timer across claim → submit → review → release), submit is gated on logged time, and manual minutes are loggable via REST, CLI, and MCP.
