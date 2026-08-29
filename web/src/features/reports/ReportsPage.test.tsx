@@ -141,6 +141,19 @@ describe('ReportsPage', () => {
     mountWithProviders(<ReportsPage />);
 
     expect(await screen.findByText('boom')).toBeTruthy();
+
+    // A later successful refetch (e.g. window or agent change) must
+    // clear the stale error banner.
+    stubHttp.get.mockImplementation((url: string) => {
+      if (url === '/api/v1/reports/time') {
+        return Promise.resolve({ data: makeReport() });
+      }
+      return Promise.resolve({ data: { agents: [] } });
+    });
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-01-01' } });
+
+    await waitFor(() => expect(screen.queryByText('boom')).toBeNull());
+    expect(await screen.findByText('Spec writing')).toBeTruthy();
   });
 
   it('renders the formatted "m" only when total is sub-hour', async () => {

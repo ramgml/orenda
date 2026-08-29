@@ -31,6 +31,7 @@ export function ReportsPage(): JSX.Element {
   const { data: agents } = useAgents();
 
   async function load(): Promise<void> {
+    setError(null);
     try {
       const params: { agent_id?: string; from: string; to: string } = {
         from: `${from}T00:00:00Z`,
