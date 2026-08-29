@@ -249,6 +249,28 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 	})
 
 	s.Register(Tool{
+		Name:        "orenda_time",
+		Description: "Log manual time on a task (minutes >= 0). Required evidence for orenda_submit when no timer ran; 0 minutes marks the task time-tracked-trivial and passes the submit gate.",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"task_id", "minutes"},
+			"properties": map[string]any{
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
+				"minutes": map[string]any{"type": "number", "description": "Minutes spent (>= 0; 0 = trivial, passes the submit gate)"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			id, _ := params["task_id"].(string)
+			if id == "" {
+				return nil, fmt.Errorf("task_id is required")
+			}
+			minutes, _ := params["minutes"].(float64)
+			body := map[string]any{"minutes": minutes}
+			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/time", body)
+		},
+	})
+
+	s.Register(Tool{
 		Name:        "orenda_context",
 		Description: "Full task snapshot: task + comments + activity + children + checklists. Use to resume work after a restart.",
 		InputSchema: map[string]any{

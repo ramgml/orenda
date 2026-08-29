@@ -267,6 +267,7 @@ Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
 	cmd.AddCommand(newAgentClaimCmd())
 	cmd.AddCommand(newAgentReleaseCmd())
 	cmd.AddCommand(newAgentSubmitCmd())
+	cmd.AddCommand(newAgentTimeCmd())
 	cmd.AddCommand(newAgentCommentCmd())
 	cmd.AddCommand(newAgentUpdateCmd())
 	cmd.AddCommand(newAgentRetractCmd())
@@ -629,6 +630,37 @@ func newAgentSubmitCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&note, "note", "", "optional note for the human reviewer")
+	return cmd
+}
+
+func newAgentTimeCmd() *cobra.Command {
+	var minutes float64
+	cmd := &cobra.Command{
+		Use:   "time <task-id|#N>",
+		Short: "Log manual time on a task (minutes >= 0; 0 passes the submit gate)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			body := map[string]any{"minutes": minutes}
+			raw, code, err := ctx.agentPost(cmd.Context(),
+				"/api/v1/agent/tasks/"+url.PathEscape(args[0])+"/time", body)
+			if err != nil {
+				return err
+			}
+			if code != http.StatusCreated {
+				return fmt.Errorf("agent time: HTTP %d: %s", code, raw)
+			}
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		},
+	}
+	cmd.Flags().Float64Var(&minutes, "minutes", 0, "minutes spent (>= 0; 0 marks the task time-tracked-trivial)")
 	return cmd
 }
 

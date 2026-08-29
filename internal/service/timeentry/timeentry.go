@@ -107,6 +107,27 @@ func (s *Service) ActiveTimer(ctx context.Context, agentID string) (*timeentry.T
 	return s.findOpen(ctx, agentID)
 }
 
+// OpenFor reports the agent's open timer entry when it belongs to the
+// given task. Task 87's submit gate treats an open entry on the task
+// as time already logged (the auto-timer holds one while the task is
+// in in_progress). Returns nil when no timer is open or the open
+// entry points at a different task.
+func (s *Service) OpenFor(ctx context.Context, agentID, taskID string) (*timeentry.TimeEntry, error) {
+	if agentID == "" {
+		return nil, ErrInvalid
+	}
+	open, err := s.findOpen(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if open == nil || open.TaskID != taskID {
+		// (nil, nil) is the documented "no open timer on this task"
+		// result — the submit gate treats it as "not yet logged".
+		return nil, nil //nolint:nilnil // nil entry is a valid "no timer" answer
+	}
+	return open, nil
+}
+
 // Stop closes the agent's open timer. Returns ErrNotFound if there is
 // no open timer.
 func (s *Service) Stop(ctx context.Context, agentID string) (*timeentry.TimeEntry, error) {

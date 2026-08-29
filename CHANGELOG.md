@@ -17,6 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [0.12.0] — 2026-08-29
+
+Twelfth pre-alpha release. Focus: agent time tracking — time now flows as a consequence of the task status itself. The delegation loop finally produces time records (status-driven auto-timer across claim → submit → review → release), submit is gated on logged time, and manual minutes are loggable via REST, CLI, and MCP.
+
+### Added
+- **Task 87 (PR #113):** Status-driven auto-timer — entering `in_progress` opens a time entry for the actor, leaving it closes the entry via `CloseAndAccrue` (`ended_at` + `duration_s` + atomic `time_spent_s` accrual). The transition logic lives in the task service (`syncTimer`) and is hooked into every write path that flips status: `Claim`, `Submit`, `Review`, `Release`, `SyncStatusAndColumn` (PATCH), and `Move`. A stale-guard closes an already-open interval and accrues it before opening a new one, so the one-open-timer invariant survives with no time lost; `Release` captures the actor before clearing the assignee, so the close no longer clobbers a stale counter. Best-effort by design: a timer failure is logged, never fails the task write. 7 transition scenarios pinned by tests.
+- **Task 87 (PR #113):** Submit gate — `POST /api/v1/agent/tasks/{id}/submit` returns 422 `time_not_logged` while the task has zero spent time and the bearer agent has no open timer on it; a running auto-timer passes, and a 0-minute manual entry marks the task time-tracked-trivial (bypass). The gate counts any entry, not just timer rows.
+- **Task 87 (PR #113):** Manual time route — `POST /api/v1/agent/tasks/{id}/time` with `{minutes >= 0}` → 201: records a closed `source=manual` entry and accrues `tasks.time_spent_s` atomically (`CreateAndAccrue`); 400 `invalid_json`/`minutes_must_be_non_negative`, 404 on unknown task.
+- **Task 87 (PR #113):** CLI `orenda agent time <task> --minutes N` and MCP tool `orenda_time` over the same route — manual minutes double as the submit-gate bypass.
+- **Task 87 (PR #113):** Docs — `docs/API.md` and `docs/openapi.yaml` document the new `/agent/tasks/{id}/time` route and the 422 `time_not_logged` submit-gate response.
+
+### Changed
+- **Docs (PR #112):** Back-merge of `main` → `dev` after v0.11.0, so `dev` carries the full history again (release-prep commits landed only on `main`).
+
 ## [0.11.0] — 2026-08-28
 
 Eleventh pre-alpha release. Focus: UI polish fixes — BlockNote editor popovers and the notifications dropdown render correctly again (CSS imports + Radix Popover portal), and the kanban timer actually accrues `time_spent_s` while its Start button became clickable.
