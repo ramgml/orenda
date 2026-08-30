@@ -778,7 +778,9 @@ function EventModal({
    * Phase 11 fold: timed tasks are edited through the event
    * round-trip (PATCH /events/{id} merges into the task), so the
    * event id IS the task id. When provided, the modal offers an
-   * "Open task" link to that task view.
+   * "Open task" link to that task view. Recurring events carry a
+   * synthetic "::N" occurrence suffix (listEventsHandler) — the
+   * link strips it to the master id.
    */
   taskId?: string;
 }): JSX.Element {
@@ -920,7 +922,10 @@ function EventModal({
           <div className="flex items-center justify-between pt-2">
             <div>
               {taskId && (
-                <Link to={`/tasks/${taskId}`} className="text-sm text-orenda-600 hover:underline">
+                <Link
+                  to={`/tasks/${taskId.split('::')[0]}`}
+                  className="text-sm text-orenda-600 hover:underline"
+                >
                   Open task
                 </Link>
               )}
