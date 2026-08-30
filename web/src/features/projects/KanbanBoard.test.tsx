@@ -180,3 +180,94 @@ describe('KanbanBoard — card density toggle', () => {
     });
   });
 });
+
+describe('KanbanBoard — T106 board task search', () => {
+  function type(query: string): void {
+    const input = screen.getByLabelText('Search tasks');
+    fireEvent.change(input, { target: { value: query } });
+  }
+
+  it('empty query shows every card', async () => {
+    mountBoard([makeTask({ title: 'Alpha' }), makeTask({ id: 'task-2', title: 'Beta' })]);
+    expect(await screen.findByText('Alpha')).toBeTruthy();
+    expect(screen.getByText('Beta')).toBeTruthy();
+    expect(screen.queryByText(/\d+ найдено/)).toBeNull();
+  });
+
+  it('filters by title substring, case-insensitively', async () => {
+    mountBoard([makeTask({ title: 'Alpha' }), makeTask({ id: 'task-2', title: 'Beta' })]);
+    await screen.findByText('Alpha');
+    type('bet');
+    expect(screen.queryByText('Alpha')).toBeNull();
+    expect(screen.getByText('Beta')).toBeTruthy();
+  });
+
+  it('filters by T<number> (full token, not a digit prefix match)', async () => {
+    mountBoard([
+      makeTask({ id: 'task-4', number: 4, title: 'Fix login' }),
+      makeTask({ id: 'task-40', number: 40, title: 'Add export' }),
+    ]);
+    await screen.findByText('Fix login');
+    type('t4');
+    // "t4" matches the full token t4 but not t40 — only T4 stays.
+    expect(screen.getByText('Fix login')).toBeTruthy();
+    expect(screen.queryByText('Add export')).toBeNull();
+  });
+
+  it('filters by tag name', async () => {
+    const tagged = makeTask({
+      id: 'task-3',
+      title: 'Untitledbecause',
+      tags: [{ id: 'tag-1', name: 'infra' }],
+    });
+    const other = makeTask({ id: 'task-5', title: 'Something else', tags: [] });
+    mountBoard([tagged, other]);
+    await screen.findByText('Untitledbecause');
+    type('infra');
+    expect(screen.getByText('Untitledbecause')).toBeTruthy();
+    expect(screen.queryByText('Something else')).toBeNull();
+  });
+
+  it('filters by description substring', async () => {
+    mountBoard([
+      makeTask({ id: 'task-6', title: 'One', description: 'migrate the database' }),
+      makeTask({ id: 'task-7', title: 'Two' }),
+    ]);
+    await screen.findByText('One');
+    type('database');
+    expect(screen.getByText('One')).toBeTruthy();
+    expect(screen.queryByText('Two')).toBeNull();
+  });
+
+  it('shows a result counter and empty-column state when nothing matches', async () => {
+    mountBoard([makeTask({ title: 'Alpha' })]);
+    await screen.findByText('Alpha');
+    type('zzz-no-match');
+    expect(screen.getByText('0 найдено')).toBeTruthy();
+    expect(screen.getAllByTestId('column-empty').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Alpha')).toBeNull();
+  });
+
+  it('clearing the query restores the full board', async () => {
+    mountBoard([makeTask({ title: 'Alpha' }), makeTask({ id: 'task-2', title: 'Beta' })]);
+    await screen.findByText('Alpha');
+    type('zzz');
+    expect(screen.queryByText('Beta')).toBeNull();
+    type('');
+    expect(screen.getByText('Alpha')).toBeTruthy();
+    expect(screen.getByText('Beta')).toBeTruthy();
+  });
+
+  it('"Select tasks" selects only visible (matching) tasks', async () => {
+    const a = makeTask({ title: 'Alpha' });
+    const b = makeTask({ id: 'task-2', title: 'Beta' });
+    mountBoard([a, b]);
+    await screen.findByText('Alpha');
+    type('alpha');
+    fireEvent.click(screen.getByRole('button', { name: 'Select tasks' }));
+    // Only Alpha is on the board, so the bulk bar shows 1 selected.
+    expect(await screen.findByText('1 selected')).toBeTruthy();
+    // The hidden Beta has no checkbox on the board at all.
+    expect(screen.queryByRole('checkbox', { name: /select beta/i })).toBeNull();
+  });
+});

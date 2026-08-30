@@ -57,7 +57,44 @@ import { TaskCard } from './TaskCard';
  * column instead of disappearing entirely. The backend's
  * `createTaskHandler` also defaults new child tasks to the parent's
  * column so this fallback should be rare in practice.
+ *
+ * T106: the header search filters the board client-side (title,
+ * description, T<number>, tag names — case-insensitive substring).
+ * It's plain component state: it survives WS re-fetches (applied to
+ * the fresh list) and resets on unmount when the user leaves the
+ * page. "Select tasks" and the drop logic both operate on real task
+ * ids, so filtering only changes which cards are VISIBLE — a drag
+ * while filtered still moves the real task, and selection can't
+ * sweep up hidden cards.
  */
+
+/**
+ * T106: does the task match the board's search query? Case-
+ * insensitive substring over title, description and tag names, plus
+ * a whole-token match on the human task number. Empty/whitespace
+ * query matches everything, so a cleared input always restores the
+ * board.
+ *
+ * Number matching: "t4", "4" and "#4" hit task T4 only — never
+ * T40/T41/T42 (the number must be a complete token in the query).
+ */
+function taskMatchesQuery(task: Task, rawQuery: string): boolean {
+  const q = rawQuery.trim().toLowerCase();
+  if (!q) return true;
+  if (task.title.toLowerCase().includes(q)) return true;
+  if (task.description && task.description.toLowerCase().includes(q)) return true;
+  if (task.tags?.some((tag) => tag.name.toLowerCase().includes(q))) return true;
+  // T<number>: "t4" / "4" / "#4" must match task number 4 exactly —
+  // not 40 or 41. Anchored regex: the number has to end right there
+  // (so "t4 fix" still matches by continuing into other text), but a
+  // bare "t4" never drags in T40/T41/T42.
+  if (task.number > 0) {
+    const re = new RegExp(`(?:^|[^0-9a-z])t?0*${task.number}(?:[^0-9a-z]|$)`);
+    if (re.test(q)) return true;
+  }
+  return false;
+}
+
 export function KanbanBoard({
   projectId,
   columns,
@@ -76,6 +113,12 @@ export function KanbanBoard({
   const [bulkAssignee, setBulkAssignee] = useState('');
   const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // T106: client-side task search. Local board state on purpose —
+  // no URL sync (the постановка explicitly keeps routing untouched)
+  // and no persistence: the query resets when the user leaves the
+  // page, but survives WS-driven re-fetches because it's applied to
+  // whatever the fresh task list is at render time.
+  const [query, setQuery] = useState('');
   // Persist the toggle in localStorage so the user's choice survives
   // navigation. Defaults to true (show) per Phase 14 UX request.
   const [showChildren, setShowChildren] = useState<boolean>(() => {
@@ -299,13 +342,25 @@ export function KanbanBoard({
     }
   }
 
-  // Build per-column buckets. Tasks without a column land in the first
-  // column so they're still visible (defensive — should be rare
-  // since the backend defaults child tasks to the parent's column).
+  // T106: the search filter — applied AFTER the child-task toggle so
+  // the two are independent (a match inside a hidden child never
+  // reveals it; the child toggle governs visibility first). Both the
+  // column buckets and the "Select tasks" bulk operation derive from
+  // this list, so hidden tasks can't be swept into a bulk edit.
+  const filteredTasks = useMemo(
+    () => tasks.filter((t) => taskMatchesQuery(t, query)),
+    [tasks, query],
+  );
+
+  // Build per-column buckets from the FILTERED task list (T106):
+  // non-matching cards disappear from their columns, columns left
+  // with no matching cards show their empty state. Legacy tasks
+  // without a column still fall back to the first column — they go
+  // through the same filter, so they're findable like any other card.
   const tasksByCol = useMemo(() => {
     const map = new Map<string, Task[]>();
     const fallback = cols[0]?.id;
-    const visible = showChildren ? tasks : tasks.filter((t) => !t.parent_task_id);
+    const visible = showChildren ? filteredTasks : filteredTasks.filter((t) => !t.parent_task_id);
     for (const t of visible) {
       const k = t.column_id ?? fallback ?? '';
       if (!k) continue;
@@ -314,7 +369,7 @@ export function KanbanBoard({
       map.set(k, list);
     }
     return map;
-  }, [tasks, cols, showChildren]);
+  }, [filteredTasks, cols, showChildren]);
 
   const childCount = useMemo(() => tasks.filter((t) => !!t.parent_task_id).length, [tasks]);
 
@@ -333,11 +388,24 @@ export function KanbanBoard({
               Show child tasks <span className="text-slate-400">({childCount})</span>
             </span>
           </label>
+          <Input
+            aria-label="Search tasks"
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Поиск задач…"
+            className="h-8 w-48 text-xs"
+          />
+          {query.trim() !== '' && (
+            <span className="text-xs text-slate-500 whitespace-nowrap">
+              {filteredTasks.length} найдено
+            </span>
+          )}
           <Button
             type="button"
             onClick={() =>
               setSelectedTaskIds((current) =>
-                current.size > 0 ? new Set() : new Set(tasks.map((task) => task.id)),
+                current.size > 0 ? new Set() : new Set(filteredTasks.map((task) => task.id)),
               )
             }
             variant="outline"

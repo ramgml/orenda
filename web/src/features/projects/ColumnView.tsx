@@ -160,8 +160,12 @@ export function ColumnView({
           </button>
         </div>
       </div>
-
       <ul className="space-y-2 flex-1">
+        {tasks.length === 0 && (
+          <li className="text-xs text-slate-400 italic py-2 select-none" data-testid="column-empty">
+            Ничего не найдено
+          </li>
+        )}
         {tasks.map((t) => (
           <li key={t.id} className="flex items-start gap-1 min-w-0">
             {onToggleTask && (
