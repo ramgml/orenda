@@ -56,6 +56,7 @@ function mount() {
 function makeHit(
   overrides: {
     id?: string;
+    slug?: string;
     type?: 'page' | 'task' | 'comment';
     title?: string;
     score?: number;
@@ -63,6 +64,7 @@ function makeHit(
   } = {},
 ): {
   id: string;
+  slug?: string;
   type: 'page' | 'task' | 'comment';
   title: string;
   score: number;
@@ -70,6 +72,7 @@ function makeHit(
 } {
   return {
     id: overrides.id ?? 'h-1',
+    slug: overrides.slug,
     type: overrides.type ?? 'page',
     title: overrides.title ?? 'Result',
     score: overrides.score ?? 1.23,
@@ -139,11 +142,12 @@ describe('SearchPage', () => {
     expect(await screen.findByText('No matches.')).toBeTruthy();
   });
 
-  it('page hits link to /wiki/:slug; task/comment hits use the TaskLink path', async () => {
+  it('page hits link to /wiki/:slug (id fallback); task hits use the task path', async () => {
     stubHttp.get.mockResolvedValueOnce({
       data: {
         hits: [
-          makeHit({ id: 'page-slug', type: 'page', title: 'Wiki Result' }),
+          makeHit({ id: 'page-uuid', slug: 'page-slug', type: 'page', title: 'Wiki Result' }),
+          makeHit({ id: 'fallback-id', type: 'page', title: 'Legacy Result' }),
           makeHit({ id: 'task-1', type: 'task', title: 'Task Result' }),
         ],
       },
@@ -154,12 +158,16 @@ describe('SearchPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /search/i }));
 
     expect(await screen.findByText('Wiki Result')).toBeTruthy();
+    expect(screen.getByText('Legacy Result')).toBeTruthy();
     expect(screen.getByText('Task Result')).toBeTruthy();
-    // Page hit becomes a plain Link (anchor with href); task hits
-    // use TaskLink which is also an anchor. Either way we should
-    // see at least one anchor per hit.
-    const pageLink = screen.getByText('Wiki Result').closest('a');
-    expect(pageLink?.getAttribute('href')).toBe('/wiki/page-slug');
+    // Page hits are plain links; slug wins when present, otherwise
+    // the raw id is the fallback.
+    expect(screen.getByText('Wiki Result').closest('a')?.getAttribute('href')).toBe(
+      '/wiki/page-slug',
+    );
+    expect(screen.getByText('Legacy Result').closest('a')?.getAttribute('href')).toBe(
+      '/wiki/fallback-id',
+    );
   });
 
   it('surfaces an inline error when /search rejects', async () => {

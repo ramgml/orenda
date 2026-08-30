@@ -1,15 +1,22 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-import { api, type WikiPage, type WikiTreeNode, type WikiBlock } from '@/shared/api/client';
+import {
+  api,
+  type SearchHit,
+  type WikiPage,
+  type WikiTreeNode,
+  type WikiBlock,
+} from '@/shared/api/client';
 import { useWebSocketTopic } from '@/shared/ws';
 import { slugify } from '@/shared/util/slug';
 import { Button } from '@/shared/ui/button';
 import { Input } from '@/shared/ui/input';
 import { Textarea } from '@/shared/ui/textarea';
 
+import { SnippetText } from '@/features/search/SearchPage';
 import { BlocksEditor, type BlocksEditorHandle } from './blocks/BlocksEditor';
 import { WikiNumberChip } from './WikiNumberChip';
 
@@ -206,6 +213,7 @@ function WikiSidebar({
   onCreated: (newSlug: string) => void;
   onRefresh: () => void;
 }): JSX.Element {
+  const navigate = useNavigate();
   // The form accepts a free-text title (any language). We auto-derive
   // the slug via slugify() and let the user override it if they want a
   // custom URL. Once the user touches the slug field we stop
@@ -217,6 +225,61 @@ function WikiSidebar({
 
   const autoSlug = slugify(title);
   const slug = (slugOverride ?? autoSlug).trim().toLowerCase();
+
+  // --- Sidebar search (tree filter + FTS content matches) -------------
+  // One input, two modes: an instant client-side title filter over the
+  // tree, and a debounced FTS query that appends a "Content matches"
+  // section under the tree. The URL is deliberately left alone — the
+  // search is a sidebar-local affordance, not a route.
+  const [query, setQuery] = useState('');
+  const trimmedQuery = query.trim();
+  const [ftsHits, setFtsHits] = useState<SearchHit[] | null>(null);
+  const [searchErr, setSearchErr] = useState<string | null>(null);
+  // Monotonic id of the in-flight request; only the latest response is
+  // applied, so a slow earlier reply can never overwrite a newer one.
+  const requestIdRef = useRef(0);
+
+  const filteredTree = useMemo(() => {
+    if (!trimmedQuery) return tree;
+    const q = trimmedQuery.toLowerCase();
+    const keep = (nodes: WikiTreeNode[]): WikiTreeNode[] =>
+      nodes
+        .map((node): WikiTreeNode | null => {
+          const children = keep(node.children ?? []);
+          const self = node.page.title.toLowerCase().includes(q);
+          if (!self && children.length === 0) return null;
+          return { ...node, children };
+        })
+        .filter((n): n is WikiTreeNode => n !== null);
+    return keep(tree);
+  }, [tree, trimmedQuery]);
+
+  useEffect(() => {
+    if (!trimmedQuery) {
+      // Empty query: hide the FTS section and drop any stale request.
+      requestIdRef.current += 1;
+      setFtsHits(null);
+      setSearchErr(null);
+      return;
+    }
+    const id = ++requestIdRef.current;
+    const timer = setTimeout(() => {
+      api
+        .search({ q: trimmedQuery, type: 'page', limit: 20 })
+        .then((res) => {
+          if (requestIdRef.current === id) {
+            setFtsHits(res.hits);
+            setSearchErr(null);
+          }
+        })
+        .catch((e: unknown) => {
+          if (requestIdRef.current === id) {
+            setSearchErr(e instanceof Error ? e.message : String(e));
+          }
+        });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [trimmedQuery]);
 
   async function submitNewPage(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
@@ -286,11 +349,52 @@ function WikiSidebar({
         </Button>
         {err && <p className="text-xs text-red-600">{err}</p>}
       </form>
-
       <div>
         <h2 className="text-sm font-semibold text-slate-500 mb-1">Pages</h2>
-        <WikiTree tree={tree} current={current} onRefresh={onRefresh} />
+        <Input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Filter pages…"
+          aria-label="Search wiki"
+          className="text-sm mb-1"
+        />
+        <WikiTree tree={filteredTree} current={current} onRefresh={onRefresh} />
       </div>
+
+      {searchErr && (
+        <p className="text-xs text-red-600" role="alert">
+          {searchErr}
+        </p>
+      )}
+
+      {trimmedQuery && ftsHits !== null && (
+        <div>
+          <h2 className="text-sm font-semibold text-slate-500 mb-1">Content matches</h2>
+          {ftsHits.length === 0 ? (
+            <p className="text-xs text-slate-500">No matches.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {ftsHits.map((hit) => (
+                <li key={hit.id}>
+                  <button
+                    type="button"
+                    className="text-sm text-left w-full hover:underline"
+                    onClick={() => {
+                      navigate(`/wiki/${hit.slug ?? hit.id}`);
+                    }}
+                  >
+                    {hit.title || hit.slug || hit.id}
+                  </button>
+                  <p className="text-xs text-slate-500">
+                    <SnippetText text={hit.snippet} />
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </aside>
   );
 }
