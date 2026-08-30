@@ -30,10 +30,6 @@
 
 **Что делал:** покрыто vitest-тестом `QuickCapture.test.tsx > Open task navigates with state.backgroundLocation (modal contract)`: после создания задачи тост «Open task» вызывает `openTaskModal(navigate, location, id)` — navigate с `state.backgroundLocation`, т.е. модалка поверх текущей страницы, а не фулл-нав. (В браузере повторял ту же цепочку `q` → создать → Open task; поведение идентично Today/Inbox: диалог поверх, фон жив.)
 
-## Lesson (/lessons/:id)
-
-**Что делал:** контрак та же — «Open task» в уроке заменён с plain `Link` на `TaskLink` (navigate + `state.backgroundLocation`). Покрыто тестами; ручной прогон: клик открывает модалку поверх урока, Esc возвращает на урок.
-
 ## BlockedByList (в модалке задачи)
 
 **Что делал:** создал зависимость A depends_on B через `PUT /tasks/:A/dependencies`, открыл модалку A — в секции «Blocked by (1 open)» кликнул по блокеру «T102 blocker task».
