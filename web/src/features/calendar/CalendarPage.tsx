@@ -332,8 +332,13 @@ export function CalendarPage(): JSX.Element {
     const deadline = taskDeadlineOf(args.event);
     if (deadline) {
       const day = args.start instanceof Date ? args.start : new Date(args.start);
-      await dropDeadline(deadline.id, day);
-      await load();
+      try {
+        await dropDeadline(deadline.id, day);
+        await load();
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
       return;
     }
     const e = args.event.resource as CalendarEvent;
