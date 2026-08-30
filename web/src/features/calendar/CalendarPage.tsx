@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Calendar,
   dateFnsLocalizer,
@@ -25,7 +26,7 @@ import { enUS } from 'date-fns/locale';
 
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 
-import { api, type CalendarEvent } from '@/shared/api/client';
+import { api, type CalendarEvent, type Task } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
 import { Checkbox } from '@/shared/ui/checkbox';
 import { Dialog, DialogContent } from '@/shared/ui/dialog';
@@ -83,6 +84,44 @@ function DefaultEventComponent({
   );
 }
 
+// Deadline events (Phase 30.8) wrap their Task in `resource` with
+// `kind: 'task'`; regular calendar events keep the raw CalendarEvent
+// there. The helpers below discriminate the two shapes — before T90
+// every handler cast resource to CalendarEvent, so clicking/dragging
+// a deadline PATCHed a nonexistent `task-<uuid>` event id (404).
+interface TaskDeadlineResource {
+  task: Pick<Task, 'id' | 'title' | 'status' | 'due_at'>;
+  kind: 'task';
+}
+
+function taskDeadlineOf(rbEvent: RBCEvent): TaskDeadlineResource['task'] | null {
+  const r = rbEvent.resource as TaskDeadlineResource | CalendarEvent | undefined;
+  return r && (r as TaskDeadlineResource).kind === 'task' ? (r as TaskDeadlineResource).task : null;
+}
+
+// dueAtForDay maps a drop day to the due_at wire format: local
+// midnight → ISO 8601 (QuickCapture convention, Phase 30.10) —
+// date-only drops are TZ-naive so "the 15th" resolves to the 15th in
+// the operator's browser, and the server renders it as an all-day
+// deadline on that day.
+function dueAtForDay(day: Date): string {
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate()).toISOString();
+}
+
+// initialCursorFrom resolves the ?date= deep link ("Show in
+// calendar") into the initial cursor. Invalid or missing values fall
+// back to today; a year outside 2000–2100 is treated as invalid.
+function initialCursorFrom(search: URLSearchParams): Date {
+  const raw = search.get('date');
+  if (!raw) return new Date();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return new Date();
+  const [y, m, d] = raw.split('-').map(Number);
+  const parsed = new Date(y, m - 1, d);
+  if (parsed.getFullYear() !== y || parsed.getMonth() !== m - 1 || parsed.getDate() !== d) {
+    return new Date();
+  }
+  return parsed;
+}
 type View = 'month' | 'week' | 'day' | 'agenda';
 
 const PRESET_COLORS = [
@@ -116,6 +155,8 @@ const PRESET_COLORS = [
  *   - Mini calendar on the left lets the user jump to any month/day.
  */
 export function CalendarPage(): JSX.Element {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   // Phase 30.8: tasks with a due_at are projected into the calendar
   // as all-day events. We only carry the fields the calendar needs;
@@ -131,7 +172,9 @@ export function CalendarPage(): JSX.Element {
   >([]);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [view, setView] = useState<View>('week');
-  const [cursor, setCursor] = useState<Date>(new Date());
+  // ?date=YYYY-MM-DD deep link ("Show in calendar" from a task view)
+  // seeds the initial cursor; no/invalid param keeps today.
+  const [cursor, setCursor] = useState<Date>(() => initialCursorFrom(searchParams));
   const [error, setError] = useState<string | null>(null);
 
   // Modal: 'create' | 'edit' | null. `draft` carries pre-filled
@@ -189,10 +232,9 @@ export function CalendarPage(): JSX.Element {
         resource: e,
       })),
       // Phase 30.8: tasks with a due_at become all-day deadlines on
-      // their due date. Click routes to the task modal via the
-      // existing resource pattern. Done tasks render with reduced
-      // opacity so the calendar still lists them but operators can
-      // distinguish at a glance.
+      // their due date, tagged with kind: 'task' so the handlers can
+      // discriminate (click → task view, drag → patchTask due_at,
+      // muted styling for done — see taskDeadlineOf/eventStyleGetter).
       ...tasksByDue
         .filter((t) => !!t.due_at)
         .map((t) => {
@@ -211,6 +253,24 @@ export function CalendarPage(): JSX.Element {
   );
 
   function eventStyleGetter(rbEvent: RBCEvent): { style: React.CSSProperties } {
+    const deadline = taskDeadlineOf(rbEvent);
+    if (deadline) {
+      // Deadlines are not colored events — a neutral slate chip sets
+      // them apart from the project-colored calendar events. Done
+      // tasks get reduced opacity so the calendar still lists them
+      // but operators can tell them apart at a glance (the promise
+      // the Phase 30.8 comment made and T90 finally keeps).
+      return {
+        style: {
+          backgroundColor: deadline.status === 'done' ? '#e2e8f0' : '#f1f5f9',
+          borderColor: '#94a3b8',
+          color: deadline.status === 'done' ? '#94a3b8' : '#334155',
+          borderRadius: '4px',
+          fontSize: '0.85em',
+          ...(deadline.status === 'done' ? { opacity: 0.55 } : {}),
+        },
+      };
+    }
     const e = rbEvent.resource as CalendarEvent;
     const color = e.color ?? PRESET_COLORS[0];
     return {
@@ -247,18 +307,39 @@ export function CalendarPage(): JSX.Element {
   }
 
   function onSelectEvent(rbEvent: RBCEvent): void {
+    // Deadlines deep-link to the task view; only real calendar
+    // events open the EventModal.
+    const deadline = taskDeadlineOf(rbEvent);
+    if (deadline) {
+      navigate(`/tasks/${deadline.id}`);
+      return;
+    }
     setMode({ kind: 'edit', event: rbEvent.resource as CalendarEvent });
   }
 
   // onEventDrop fires when the user drags an event to a different
-  // time/day. We PATCH the task's start_at/end_at and reload so the
-  // server-side change becomes visible immediately. The move keeps
-  // the project's column and color intact.
+  // time/day. For calendar events we PATCH the event's start_at/end_at;
+  // for task deadlines we PATCH the task's due_at (local midnight of
+  // the drop day — deadlines are date-anchored, not time-anchored).
+  // Both paths reload so the server-side change becomes visible
+  // immediately.
   async function onEventDrop(args: {
     event: RBCEvent;
     start: Date | string;
     end: Date | string;
   }): Promise<void> {
+    const deadline = taskDeadlineOf(args.event);
+    if (deadline) {
+      const day = args.start instanceof Date ? args.start : new Date(args.start);
+      try {
+        await api.patchTask(deadline.id, { due_at: dueAtForDay(day) });
+        await load();
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+      return;
+    }
     const e = args.event.resource as CalendarEvent;
     if (!e.id) return;
     const startStr = typeof args.start === 'string' ? args.start : args.start.toISOString();
@@ -362,6 +443,9 @@ export function CalendarPage(): JSX.Element {
           title="Edit event"
           draft={modeDraftFromEvent(mode.event)}
           projects={projects}
+          // Phase 11 fold: for timed tasks the event id equals the
+          // task id, so the modal can link straight to the task.
+          taskId={mode.event.id}
           onCancel={closeModal}
           onDelete={
             mode.event.id
@@ -676,6 +760,7 @@ function EventModal({
   onSubmit,
   onCancel,
   onDelete,
+  taskId,
 }: {
   title: string;
   draft: EventDraft;
@@ -683,6 +768,13 @@ function EventModal({
   onSubmit: (d: EventDraft) => Promise<void>;
   onCancel: () => void;
   onDelete?: () => Promise<void>;
+  /**
+   * Phase 11 fold: timed tasks are edited through the event
+   * round-trip (PATCH /events/{id} merges into the task), so the
+   * event id IS the task id. When provided, the modal offers an
+   * "Open task" link to that task view.
+   */
+  taskId?: string;
 }): JSX.Element {
   const [form, setForm] = useState<EventDraft>(draft);
   const [busy, setBusy] = useState(false);
@@ -821,6 +913,11 @@ function EventModal({
 
           <div className="flex items-center justify-between pt-2">
             <div>
+              {taskId && (
+                <Link to={`/tasks/${taskId}`} className="text-sm text-orenda-600 hover:underline">
+                  Open task
+                </Link>
+              )}
               {onDelete && (
                 <Button
                   type="button"
