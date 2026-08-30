@@ -270,4 +270,105 @@ describe('KanbanBoard — T106 board task search', () => {
     // The hidden Beta has no checkbox on the board at all.
     expect(screen.queryByRole('checkbox', { name: /select beta/i })).toBeNull();
   });
+
+  it('naturally empty column does NOT show the hint while the filter is active', async () => {
+    // Column "Empty" never had tasks; column "Todo" holds the only task.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    stubHttp.get.mockImplementation((url: string) => {
+      if (url === '/api/v1/agents') return Promise.resolve({ data: { agents: [] } });
+      if (url === '/api/v1/projects/p1/tasks')
+        return Promise.resolve({ data: { tasks: [makeTask({ title: 'Alpha' })] } });
+      return Promise.reject(new Error(`unexpected GET ${url}`));
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <KanbanBoard
+            projectId="p1"
+            columns={[makeColumn(), makeColumn({ id: 'col-empty', name: 'Empty', position: 2 })]}
+          />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByText('Alpha');
+
+    // No filter → no hint anywhere (there are no matching-hiding going on).
+    expect(screen.queryByTestId('column-empty')).toBeNull();
+
+    // Filtering to a non-match hides Alpha's column content AND marks
+    // the naturally empty column with the hint.
+    type('zzz');
+    expect(screen.getAllByTestId('column-empty').length).toBe(2);
+
+    // Clearing the filter removes the hint from both columns.
+    type('');
+    expect(screen.queryByTestId('column-empty')).toBeNull();
+  });
+
+  it('legacy task without column_id is found by search and shown in the first column', async () => {
+    const legacy = makeTask({
+      id: 'task-legacy',
+      number: 99,
+      title: 'Legacy orphan',
+      column_id: undefined,
+    });
+    mountBoard([makeTask({ title: 'Alpha' }), legacy]);
+    await screen.findByText('Alpha');
+
+    // The orphan renders in the first column next to regular tasks.
+    expect(screen.getByText('Legacy orphan')).toBeTruthy();
+
+    // Search finds it by title and by T-number.
+    type('orphan');
+    expect(screen.getByText('Legacy orphan')).toBeTruthy();
+    expect(screen.queryByText('Alpha')).toBeNull();
+    type('t99');
+    expect(screen.getByText('Legacy orphan')).toBeTruthy();
+    type('');
+    expect(screen.getByText('Legacy orphan')).toBeTruthy();
+  });
+
+  it('filter survives a WS re-fetch and applies to the fresh task list', async () => {
+    mountBoard([makeTask({ title: 'Alpha' })]);
+    await screen.findByText('Alpha');
+    type('alpha');
+    expect(screen.getByText('Alpha')).toBeTruthy();
+
+    // The 'tasks' WS topic re-fetches; the fresh list brings a new task.
+    stubHttp.get.mockImplementation((url: string) => {
+      if (url === '/api/v1/agents') return Promise.resolve({ data: { agents: [] } });
+      if (url === '/api/v1/projects/p1/tasks')
+        return Promise.resolve({
+          data: {
+            tasks: [
+              makeTask({ title: 'Alpha' }),
+              makeTask({ id: 'task-2', number: 2, title: 'Beta fresh' }),
+            ],
+          },
+        });
+      return Promise.reject(new Error(`unexpected GET ${url}`));
+    });
+
+    // Re-trigger load() through the real WS dispatch path: the
+    // component's listener is registered on the singleton for topic
+    // 'tasks'; drive the underlying socket's onmessage exactly as a
+    // server frame would (jsdom's WebSocket never connects, but
+    // openSocket assigns onmessage synchronously).
+    const { wsClient } = await import('@/shared/ws');
+    wsClient.connect();
+    const sock = (wsClient as unknown as { ws?: { onmessage?: (ev: { data: string }) => void } })
+      .ws;
+    sock?.onmessage?.({ data: JSON.stringify({ topic: 'tasks', body: {} }) });
+    wsClient.disconnect();
+
+    // Beta arrived but stays hidden — the query is still active.
+    await waitFor(() => {
+      expect(screen.queryByText('Beta fresh')).toBeNull();
+      expect(screen.getByText('Alpha')).toBeTruthy();
+    });
+
+    // Clearing reveals it — the filter applies to the fresh list, not a snapshot.
+    type('');
+    expect(screen.getByText('Beta fresh')).toBeTruthy();
+  });
 });

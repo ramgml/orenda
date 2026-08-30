@@ -352,6 +352,12 @@ export function KanbanBoard({
     [tasks, query],
   );
 
+  // T106: "the user is actively filtering" — a non-empty query. Gates
+  // the per-column filtered-empty hint: a naturally empty column
+  // (nothing ever in it, or the last card dragged out) must not claim
+  // "Ничего не найдено" once the query is cleared.
+  const filterActive = query.trim() !== '';
+
   // Build per-column buckets from the FILTERED task list (T106):
   // non-matching cards disappear from their columns, columns left
   // with no matching cards show their empty state. Legacy tasks
@@ -450,6 +456,7 @@ export function KanbanBoard({
                 }}
                 selectedTaskIds={selectedTaskIds}
                 onToggleTask={toggleTaskSelection}
+                filterActive={filterActive}
               />
             ))}
             <AddColumnTile projectId={projectId} onCreated={(c) => setCols((cur) => [...cur, c])} />
@@ -529,6 +536,7 @@ function SortableColumnView({
   onColumnDeleted,
   selectedTaskIds,
   onToggleTask,
+  filterActive,
 }: {
   column: Column;
   projectId: string;
@@ -538,6 +546,7 @@ function SortableColumnView({
   onColumnDeleted: (colId: string) => void;
   selectedTaskIds: ReadonlySet<string>;
   onToggleTask: (taskId: string) => void;
+  filterActive: boolean;
 }): JSX.Element {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: column.id,
@@ -563,6 +572,7 @@ function SortableColumnView({
         status={column.status}
         selectedTaskIds={selectedTaskIds}
         onToggleTask={onToggleTask}
+        filterActive={filterActive}
         onCreate={onCreate}
         onColumnUpdated={onColumnUpdated}
         onColumnDeleted={onColumnDeleted}
