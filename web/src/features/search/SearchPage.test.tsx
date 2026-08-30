@@ -142,13 +142,14 @@ describe('SearchPage', () => {
     expect(await screen.findByText('No matches.')).toBeTruthy();
   });
 
-  it('page hits link to /wiki/:slug (id fallback); task hits use the task path', async () => {
+  it('page hits link to /wiki/:slug (id fallback); task/comment hits use the task path', async () => {
     stubHttp.get.mockResolvedValueOnce({
       data: {
         hits: [
           makeHit({ id: 'page-uuid', slug: 'page-slug', type: 'page', title: 'Wiki Result' }),
           makeHit({ id: 'fallback-id', type: 'page', title: 'Legacy Result' }),
           makeHit({ id: 'task-1', type: 'task', title: 'Task Result' }),
+          makeHit({ id: 'comment-1', type: 'comment', title: 'Comment Result' }),
         ],
       },
     });
@@ -159,7 +160,7 @@ describe('SearchPage', () => {
 
     expect(await screen.findByText('Wiki Result')).toBeTruthy();
     expect(screen.getByText('Legacy Result')).toBeTruthy();
-    expect(screen.getByText('Task Result')).toBeTruthy();
+    expect(screen.getByText('Comment Result')).toBeTruthy();
     // Page hits are plain links; slug wins when present, otherwise
     // the raw id is the fallback.
     expect(screen.getByText('Wiki Result').closest('a')?.getAttribute('href')).toBe(
@@ -167,6 +168,10 @@ describe('SearchPage', () => {
     );
     expect(screen.getByText('Legacy Result').closest('a')?.getAttribute('href')).toBe(
       '/wiki/fallback-id',
+    );
+    // Comment hits link to the parent task (no dedicated route).
+    expect(screen.getByText('Comment Result').closest('a')?.getAttribute('href')).toBe(
+      '/tasks/comment-1',
     );
   });
 

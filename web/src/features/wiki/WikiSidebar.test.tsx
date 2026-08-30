@@ -204,6 +204,29 @@ describe('WikiSidebar search', () => {
     });
   });
 
+  it('falls back to /wiki/<id> when a hit has no slug', async () => {
+    stubTree();
+    stubSearch([
+      {
+        type: 'page',
+        id: 'p9',
+        title: 'Legacy orphan',
+        snippet: 'no slug here',
+        score: 1,
+      },
+    ]);
+    mount('/wiki');
+    await screen.findByText('Orenda architecture');
+
+    fireEvent.change(searchInput(), { target: { value: 'legacy' } });
+    expect(await screen.findByText('Content matches')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Legacy orphan'));
+    await waitFor(() => {
+      expect(screen.getByTestId('location').textContent).toBe('/wiki/p9');
+    });
+  });
+
   it('hides the Content matches section when the query is cleared', async () => {
     stubTree();
     stubSearch([
