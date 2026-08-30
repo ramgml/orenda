@@ -46,9 +46,21 @@
 
 **Что увидел:** фулл-страница `TaskViewPage` (заголовок задачи как `h1` страницы, никакого `[role=dialog]`: `hasDialog=false`). F5 на этом URL — та же фулл-страница. Модальный роутинг включается **только** при переходе через `openTaskModal`/`TaskLink`.
 
+## Колокольчик (NotificationsBell)
+
+**Что делал:** агент `t102-bot`.claim задачи (POST `/tasks/:id/claim`) → юзеру пришла нотификация `task.assigned_to_me` с `payload.link=/tasks/<uuid>`. Открыл поповер колокольчика на `/review`, кликнул «open». Скриншоты: `bell-open.webp` → `bell-modal.webp`.
+
+**Что увидел:** модалка открылась поверх Review, поповер закрылся (`onClick` на TaskLink), полной перезагрузки нет (SPA-флаг `window.__t102bell` жив после клика). Task-ссылка отрендерилась через TaskLink (navigate + `state.backgroundLocation`); не-task ссылки (wiki/project/легаси `/tasks/42`) покрыты юнит-тестом `NotificationsBell.test.tsx > renders non-task links … as plain links` и сохраняют прежний plain-Link рендер.
+
+## Lesson (/lessons/:id)
+
+**Что делал:** создал курс → модуль → урок, материализовал его с `task_id` (POST `/api/v1/agent/lessons/:id/materialize`, agent-токен). Открыл `/lessons/<id>`, кликнул «Open task» в секции Exercise. Скриншоты: `lesson-before.webp` → `lesson-modal.webp`.
+
+**Что увидел:** модалка задачи поверх урока, урок остался смонтирован (SPA-флаг жив), Esc закрывает и возвращает на урок.
+
 ## Итог по DoD
 
-1. Клик из Today/Inbox/Review/колокольчика/QuickCapture-toast/Lesson/BlockedBy → модалка поверх, без ухода со страницы — да (скриншоты выше; колокольчик покрыт тестами `NotificationsBell.test.tsx`, т.к. генерация task-нотификации в smoke-инстансе требует агента).
+1. Клик из Today/Inbox/Review/колокольчика/QuickCapture-toast/Lesson/BlockedBy → модалка поверх, без ухода со страницы — да, все поверхности проверены вручную (скриншоты выше) + юнит-тесты.
 2. Esc/клик-вне/× закрывают, скролл фона сохранён — да (`today-after-esc.webp`, scrollY 41 → 41 → 41).
 3. Прямой URL /tasks/:id и F5 → фулл-страница — да (`direct-url-fullpage.webp`, `hasDialog=false`).
 4. Inbox без полной перезагрузки — да (нет `window.location.href` в коде; SPA-флаг живёт после клика).
