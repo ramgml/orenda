@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 
+import { TaskLink } from '@/features/tasks/TaskModal';
 import { api, type BlockerRow } from '@/shared/api/client';
+
 import { Button } from '@/shared/ui/button';
 import { Checkbox } from '@/shared/ui/checkbox';
 import { useWebSocketTopic } from '@/shared/ws';
@@ -99,9 +100,9 @@ export function BlockedByList({
               data-testid="blocker-row"
               className={`text-xs ${b.done ? 'line-through text-slate-400' : 'text-foreground'}`}
             >
-              <Link to={`/tasks/${b.blocker_id}`} className="hover:underline">
+              <TaskLink taskId={b.blocker_id} className="hover:underline">
                 {b.title}
-              </Link>
+              </TaskLink>
               <span className="ml-2 text-[10px] text-slate-400 font-mono">{b.status}</span>
             </li>
           ))}

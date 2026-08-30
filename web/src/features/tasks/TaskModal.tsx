@@ -197,18 +197,21 @@ export function openTaskModal(
  *   <TaskLink taskId={hit.id} className="hover:underline">View</TaskLink>
  *
  * Same push-vs-replace rule as `openTaskModal` — see its doc
- * comment.
+ * comment. Optional `onClick` still fires (e.g. to dismiss the
+ * popover hosting the link) before the router handles navigation.
  */
 export function TaskLink({
   taskId,
   children,
   className,
   title,
+  onClick,
 }: {
   taskId: string;
   children: ReactNode;
   className?: string;
   title?: string;
+  onClick?: () => void;
 }): JSX.Element {
   const location = useLocation();
   const replace = isInModal(location);
@@ -219,6 +222,7 @@ export function TaskLink({
       state={{ backgroundLocation: location } satisfies BackgroundState}
       className={className}
       title={title}
+      onClick={onClick}
     >
       {children}
     </Link>

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
+import { openTaskModal } from '@/features/tasks/TaskModal';
 import { api, type ReviewQueueItem, type Task } from '@/shared/api/client';
 import { TaskNumberChip } from '@/features/tasks/TaskNumberChip';
 import { Button } from '@/shared/ui/button';
@@ -24,6 +26,8 @@ import { useWebSocketTopic } from '@/shared/ws';
  * an empty queue is the steady state.
  */
 export function ReviewPage(): JSX.Element {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [items, setItems] = useState<ReviewQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,9 +89,10 @@ export function ReviewPage(): JSX.Element {
   }
 
   function openTask(t: Task): void {
-    // Inline navigation; the queue page itself doesn't preserve scroll
-    // across modal closes, so a full nav is fine here.
-    window.location.href = `/tasks/${t.id}`;
+    // Task 102: open as a modal overlay (SPA navigation with
+    // state.backgroundLocation) instead of a full page reload — the
+    // queue stays mounted behind the dialog, same as everywhere else.
+    openTaskModal(navigate, location, t.id);
   }
 
   return (

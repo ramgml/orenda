@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+
+import { openTaskModal } from '@/features/tasks/TaskModal';
 
 import { Dialog, DialogContent } from '@/shared/ui/dialog';
 import { api, type Task } from '@/shared/api/client';
@@ -37,6 +39,7 @@ export function QuickCapture() {
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<Task | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const close = useCallback(() => {
     setOpen(false);
@@ -102,7 +105,9 @@ export function QuickCapture() {
 
   function openTaskAndClose(): void {
     if (created) {
-      navigate(`/tasks/${created.id}`);
+      // Task 102: open the freshly captured task as a modal overlay
+      // (keeps the current page behind it) instead of a full-page nav.
+      openTaskModal(navigate, location, created.id);
     }
     setCreated(null);
     close();

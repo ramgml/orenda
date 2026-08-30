@@ -11,15 +11,13 @@
  *     drops the row when filed under a project.
  *   - The delete button asks window.confirm and removes the row
  *     on accept; cancel is a no-op.
- *   - Errors from listInboxTasks / listProjects surface inline.
- *
- * Clicking on the row link would fire openTaskModal — that path is
- * hard to drive from jsdom and is covered by the E2E suite; here we
- * just render the rows.
+ *   - Clicking a card navigates via the router with
+ *     state.backgroundLocation (TaskModal contract) — never via
+ *     window.location (a full reload would tear down the SPA).
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InboxPage } from '@/features/inbox/InboxPage';
@@ -308,5 +306,58 @@ describe('InboxPage', () => {
 
     expect(stubHttp.delete).not.toHaveBeenCalled();
     expect(screen.getByText('Alpha')).toBeTruthy();
+  });
+
+  // Task 102: clicking a card must open the task modal via the
+  // router (state.backgroundLocation) — not window.location.href,
+  // which used to full-reload the page and tear down the SPA.
+  it('card click navigates via the router with backgroundLocation, never window.location', async () => {
+    stubHttp.get.mockImplementation((url: string) => {
+      if (url === '/api/v1/inbox/tasks')
+        return Promise.resolve({ data: { tasks: [makeTask('modal-9', 'Modal me')] } });
+      if (url === '/api/v1/projects') return Promise.resolve({ data: { projects: [] } });
+      return Promise.resolve({ data: {} });
+    });
+
+    const navigations: Array<{ pathname: string; state: unknown }> = [];
+    function Probe() {
+      const location = useLocation();
+      navigations.push({ pathname: location.pathname, state: location.state });
+      return null;
+    }
+    const hrefSpy = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: {
+        ...window.location,
+        get href() {
+          return 'http://localhost/inbox';
+        },
+        set href(v: string) {
+          hrefSpy(v);
+        },
+      },
+    });
+
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={['/inbox']}>
+          <Probe />
+          <InboxPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByTestId('task-card'));
+
+    const last = navigations[navigations.length - 1];
+    expect(last.pathname).toBe('/tasks/modal-9');
+    expect(last.state).toEqual({
+      backgroundLocation: expect.objectContaining({ pathname: '/inbox' }),
+    });
+    expect(hrefSpy).not.toHaveBeenCalled();
   });
 });
