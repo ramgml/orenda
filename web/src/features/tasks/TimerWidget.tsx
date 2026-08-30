@@ -101,14 +101,20 @@ export function TimerWidget(): JSX.Element {
     return `${h}:${m}:${sec}`;
   };
 
+  // T95: the widget renders only when it has something to say — an
+  // active timer or an error. The old always-visible "No active
+  // timer" empty card occupied the same fixed bottom-right corner as
+  // the QuickCapture FAB (+) and visually covered it. With no idle
+  // card, the corner belongs to the FAB whenever the timer is off.
+  if (!active && !error) return <></>;
+
   // The fixed container spans a viewport corner, so it would swallow
   // clicks aimed at UI underneath (e.g. TaskViewBody's "Start timer"
-  // button — T86). The container is click-transparent; only the active
-  // card opts back into pointer events. The empty card stays visible
-  // but inert — clicks fall through to whatever is under it.
+  // button — T86). The container is click-transparent; only the
+  // active card opts back into pointer events.
   return (
     <div className="pointer-events-none fixed bottom-4 right-4 z-40">
-      {active ? (
+      {active && (
         <div className="pointer-events-auto rounded-lg shadow-lg border border-border bg-card p-3 w-72">
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
@@ -127,13 +133,9 @@ export function TimerWidget(): JSX.Element {
             </Button>
           </div>
         </div>
-      ) : (
-        <div className="rounded-lg shadow-lg border border-border bg-card p-3 text-sm text-slate-500">
-          No active timer — start one from a task.
-        </div>
       )}
       {error && (
-        <div className="mt-2 rounded border border-red-300 bg-red-50 text-red-800 px-2 py-1 text-xs">
+        <div className="pointer-events-auto mt-2 rounded border border-red-300 bg-red-50 text-red-800 px-2 py-1 text-xs">
           {error}
         </div>
       )}
