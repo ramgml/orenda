@@ -168,15 +168,15 @@ function InboxRow({
 }): JSX.Element {
   // Phase Wave 4 PR 2: delegate rendering to the shared TaskCard
   // (priority border, due badge, counters, awaiting/blocked/child
-  // counts). The file/delete controls live in a sibling column so
-  // they don't fight with the card's own click target.
+  // counts). The file/delete controls sit in a horizontal row to
+  // the right of the card, vertically centered.
   //
   // We pass `onOpen` so the card routes to the modal overlay (same
   // path as the kanban). Without `onOpen`, the card would use
   // the global modal helper, which is fine too — but the explicit
   // hook here keeps the inbox inline with the rest of the app.
   return (
-    <li className="flex gap-3 items-start">
+    <li className="flex gap-3 items-center">
       <div className="flex-1 min-w-0">
         <TaskCard
           task={task}
@@ -193,8 +193,7 @@ function InboxRow({
           }
         />
       </div>
-      <div className="flex flex-col gap-1 items-end shrink-0 pt-2">
-        <label className="text-[10px] text-slate-500">File under</label>
+      <div className="flex gap-2 items-center shrink-0">
         <Select
           value=""
           onValueChange={(v) => {
