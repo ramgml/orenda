@@ -643,7 +643,7 @@ export function DescriptionEditor({
  * start_at); with neither field set there is nothing to show, so
  * the link is not rendered.
  */
-function DueEditor({
+export function DueEditor({
   task,
   busy,
   onSaveDue,

@@ -318,26 +318,22 @@ export function CalendarPage(): JSX.Element {
   }
 
   // onEventDrop fires when the user drags an event to a different
-  // time/day. For calendar events we PATCH the event's start_at/end_at;
-  // for task deadlines we PATCH the task's due_at (local midnight of
-  // the drop day — deadlines are date-anchored, not time-anchored).
-  // Both paths reload so the server-side change becomes visible
-  // immediately.
+  // time/day. Deadlines are date-anchored (due_at PATCH), calendar
+  // events time-anchored (start_at/end_at PATCH); see dropDeadline.
   async function onEventDrop(args: {
     event: RBCEvent;
     start: Date | string;
     end: Date | string;
   }): Promise<void> {
+    // Deadlines are date-anchored: a drop PATCHes the task's due_at
+    // (local midnight of the drop day), never the projected
+    // `task-<id>` event row. Calendar events keep the start/end
+    // PATCH. Both paths reload so the change shows immediately.
     const deadline = taskDeadlineOf(args.event);
     if (deadline) {
       const day = args.start instanceof Date ? args.start : new Date(args.start);
-      try {
-        await api.patchTask(deadline.id, { due_at: dueAtForDay(day) });
-        await load();
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
+      await dropDeadline(deadline.id, day);
+      await load();
       return;
     }
     const e = args.event.resource as CalendarEvent;
@@ -353,14 +349,14 @@ export function CalendarPage(): JSX.Element {
     }
   }
 
-  function closeModal(): void {
-    setMode(null);
-  }
-
   // Drag-to-reschedule is live: the calendar is wrapped in
   // withDragAndDrop (react-big-calendar addon) and onEventDrop PATCHes
   // the event's start_at/end_at on drop. Click-to-edit and the
   // Edit-modal time pickers remain as the precise-input alternative.
+
+  function closeModal(): void {
+    setMode(null);
+  }
 
   return (
     <section className="grid grid-cols-[260px,1fr] gap-4">
@@ -473,6 +469,16 @@ export function CalendarPage(): JSX.Element {
       )}
     </section>
   );
+}
+
+/**
+ * dropDeadline is the observable contract of a deadline drag: PATCH
+ * the task's due_at to local midnight of the drop day. Exported for
+ * the jsdom suite — rbc's pointer-drag machinery is E2E territory,
+ * but the PATCH routing is the unit-level promise.
+ */
+export async function dropDeadline(taskId: string, day: Date): Promise<void> {
+  await api.patchTask(taskId, { due_at: dueAtForDay(day) });
 }
 
 interface EventDraft {
