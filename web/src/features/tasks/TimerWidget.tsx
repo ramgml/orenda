@@ -108,12 +108,17 @@ export function TimerWidget(): JSX.Element {
   // card, the corner belongs to the FAB whenever the timer is off.
   if (!active && !error) return <></>;
 
-  // The fixed container spans a viewport corner, so it would swallow
-  // clicks aimed at UI underneath (e.g. TaskViewBody's "Start timer"
-  // button — T86). The container is click-transparent; only the
-  // active card opts back into pointer events.
+  // The container sits one FAB-height above the corner (bottom-20):
+  // the active card / error banner must never overlap the FAB, which
+  // stays at bottom-4 in any widget state.
+  //
+  // The fixed container spans a viewport corner area, so it would
+  // otherwise swallow clicks aimed at UI underneath (e.g.
+  // TaskViewBody's "Start timer" button — T86). The container is
+  // click-transparent; only the active card opts back into pointer
+  // events.
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-40">
+    <div className="pointer-events-none fixed bottom-20 right-4 z-40">
       {active && (
         <div className="pointer-events-auto rounded-lg shadow-lg border border-border bg-card p-3 w-72">
           <div className="flex items-start justify-between gap-2">
