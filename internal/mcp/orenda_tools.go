@@ -289,6 +289,141 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 		},
 	})
 
+	// ------------------------------------------------------------------
+	// T96: checklist tools. Thin facades over the agent-namespace
+	// checklist routes: list (any agent) + holder-only mutations —
+	// the REST layer enforces the 403 not_lock_holder gate, these
+	// wrappers just frame the calls.
+	// ------------------------------------------------------------------
+
+	s.Register(Tool{
+		Name:        "orenda_checklists_list",
+		Description: "List a task's checklists with their items (keyed by checklist id). Read any task — use to find the PM's 'Как протестировать' QA checklist before submitting.",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"task_id"},
+			"properties": map[string]any{
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			id, _ := params["task_id"].(string)
+			if id == "" {
+				return nil, fmt.Errorf("task_id is required")
+			}
+			return agentGet(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/checklists")
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_checklist_add",
+		Description: "Create a checklist on a task (lock holder only; 403 not_lock_holder otherwise).",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"task_id", "title"},
+			"properties": map[string]any{
+				"task_id": map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
+				"title":   map[string]any{"type": "string"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			id, _ := params["task_id"].(string)
+			title, _ := params["title"].(string)
+			if id == "" || title == "" {
+				return nil, fmt.Errorf("task_id and title are required")
+			}
+			return agentPost(ctx, httpc, cfg,
+				"/api/v1/agent/tasks/"+url.PathEscape(id)+"/checklists",
+				map[string]any{"title": title})
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_checklist_item_add",
+		Description: "Append an item to a checklist (lock holder only). Get checklist ids from orenda_checklists_list.",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"task_id", "checklist_id", "title"},
+			"properties": map[string]any{
+				"task_id":      map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
+				"checklist_id": map[string]any{"type": "string"},
+				"title":        map[string]any{"type": "string"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			id, _ := params["task_id"].(string)
+			listID, _ := params["checklist_id"].(string)
+			title, _ := params["title"].(string)
+			if id == "" || listID == "" || title == "" {
+				return nil, fmt.Errorf("task_id, checklist_id and title are required")
+			}
+			return agentPost(ctx, httpc, cfg,
+				"/api/v1/agent/tasks/"+url.PathEscape(id)+"/checklists/"+url.PathEscape(listID)+"/items",
+				map[string]any{"title": title})
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_checklist_item_update",
+		Description: "Update a checklist item: tick done or edit the title (lock holder only). Ticking done tells the owner the step was verified.",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"task_id", "checklist_id", "item_id"},
+			"properties": map[string]any{
+				"task_id":      map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
+				"checklist_id": map[string]any{"type": "string"},
+				"item_id":      map[string]any{"type": "string"},
+				"done":         map[string]any{"type": "boolean", "description": "Tick / untick the item"},
+				"title":        map[string]any{"type": "string", "description": "Replace the item title"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			id, _ := params["task_id"].(string)
+			listID, _ := params["checklist_id"].(string)
+			itemID, _ := params["item_id"].(string)
+			if id == "" || listID == "" || itemID == "" {
+				return nil, fmt.Errorf("task_id, checklist_id and item_id are required")
+			}
+			body := map[string]any{}
+			if done, ok := params["done"].(bool); ok {
+				body["done"] = done
+			}
+			if t, _ := params["title"].(string); t != "" {
+				body["title"] = t
+			}
+			if len(body) == 0 {
+				return nil, fmt.Errorf("nothing to update: pass done and/or title")
+			}
+			return agentPatch(ctx, httpc, cfg,
+				"/api/v1/agent/tasks/"+url.PathEscape(id)+"/checklists/"+url.PathEscape(listID)+"/items/"+url.PathEscape(itemID),
+				body)
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_checklist_item_delete",
+		Description: "Delete a checklist item (lock holder only).",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"task_id", "checklist_id", "item_id"},
+			"properties": map[string]any{
+				"task_id":      map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
+				"checklist_id": map[string]any{"type": "string"},
+				"item_id":      map[string]any{"type": "string"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			id, _ := params["task_id"].(string)
+			listID, _ := params["checklist_id"].(string)
+			itemID, _ := params["item_id"].(string)
+			if id == "" || listID == "" || itemID == "" {
+				return nil, fmt.Errorf("task_id, checklist_id and item_id are required")
+			}
+			return agentDelete(ctx, httpc, cfg,
+				"/api/v1/agent/tasks/"+url.PathEscape(id)+"/checklists/"+url.PathEscape(listID)+"/items/"+url.PathEscape(itemID))
+		},
+	})
+
 	s.Register(Tool{
 		Name:        "orenda_await",
 		Description: "Long-poll for the next event (task.created, task.reviewed, mention.created, etc.). Returns the event or empty when the timeout elapses.",

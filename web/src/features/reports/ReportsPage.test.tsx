@@ -10,6 +10,7 @@
  *   - Inline error when the endpoint rejects.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ReportsPage } from '@/features/reports/ReportsPage';
@@ -70,9 +71,19 @@ function mount() {
     if (url === '/api/v1/reports/time') {
       return Promise.resolve({ data: makeReport() });
     }
-    return Promise.resolve({ data: {} });
+    // ReportsPage also lists agents for its Agent filter.
+    return Promise.resolve({ data: { agents: [] } });
   });
-  return render(<ReportsPage />);
+  return mountWithProviders(<ReportsPage />);
+}
+
+// ReportsPage calls useAgents() (React Query) for the Agent filter;
+// every render must sit inside a QueryClientProvider.
+function mountWithProviders(node: React.ReactElement) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  return render(<QueryClientProvider client={qc}>{node}</QueryClientProvider>);
 }
 
 describe('ReportsPage', () => {
@@ -84,51 +95,65 @@ describe('ReportsPage', () => {
     // Total = 5400s = 1h 30m; both 1h 30m (total) and per-task totals show.
     expect(screen.getAllByText('1h 30m').length).toBeGreaterThanOrEqual(1);
   });
-
   it('renders the "No time logged" empty state', async () => {
     stubHttp.get.mockImplementation((url: string) => {
       if (url === '/api/v1/reports/time') {
         return Promise.resolve({ data: makeReport({ tasks: [], total_sec: 0 }) });
       }
-      return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: { agents: [] } });
     });
 
-    render(<ReportsPage />);
+    mountWithProviders(<ReportsPage />);
 
     expect(await screen.findByText('No time logged in this window.')).toBeTruthy();
   });
 
   it('changing From refetches the report with the updated window', async () => {
-    const calls: string[] = [];
-    stubHttp.get.mockImplementation((url: string) => {
-      if (url === '/api/v1/reports/time') {
-        calls.push(url);
-        return Promise.resolve({ data: makeReport() });
-      }
-      return Promise.resolve({ data: {} });
-    });
+    let lastParams: { from?: string; to?: string } | undefined;
+    stubHttp.get.mockImplementation(
+      (url: string, cfg?: { params?: { from: string; to: string } }) => {
+        if (url === '/api/v1/reports/time') {
+          lastParams = cfg?.params;
+          return Promise.resolve({ data: makeReport() });
+        }
+        return Promise.resolve({ data: { agents: [] } });
+      },
+    );
 
-    render(<ReportsPage />);
+    mountWithProviders(<ReportsPage />);
     await screen.findByText('Spec writing');
-    expect(calls.length).toBe(1);
+    expect(lastParams?.from).not.toBe('2026-01-01T00:00:00Z');
 
     const fromInput = screen.getByLabelText('From') as HTMLInputElement;
     fireEvent.change(fromInput, { target: { value: '2026-01-01' } });
 
-    await waitFor(() => expect(calls.length).toBeGreaterThan(1));
-    const lastCall = stubHttp.get.mock.calls[calls.length - 1] as [
-      string,
-      { params: { from: string; to: string } },
-    ];
-    expect(lastCall[1].params.from).toBe('2026-01-01T00:00:00Z');
+    await waitFor(() => expect(lastParams?.from).toBe('2026-01-01T00:00:00Z'));
   });
 
   it('surfaces an inline error when /reports/time rejects', async () => {
-    stubHttp.get.mockRejectedValueOnce(new Error('boom'));
+    stubHttp.get.mockImplementation((url: string) => {
+      if (url === '/api/v1/reports/time') {
+        return Promise.reject(new Error('boom'));
+      }
+      return Promise.resolve({ data: { agents: [] } });
+    });
 
-    render(<ReportsPage />);
+    mountWithProviders(<ReportsPage />);
 
     expect(await screen.findByText('boom')).toBeTruthy();
+
+    // A later successful refetch (e.g. window or agent change) must
+    // clear the stale error banner.
+    stubHttp.get.mockImplementation((url: string) => {
+      if (url === '/api/v1/reports/time') {
+        return Promise.resolve({ data: makeReport() });
+      }
+      return Promise.resolve({ data: { agents: [] } });
+    });
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-01-01' } });
+
+    await waitFor(() => expect(screen.queryByText('boom')).toBeNull());
+    expect(await screen.findByText('Spec writing')).toBeTruthy();
   });
 
   it('renders the formatted "m" only when total is sub-hour', async () => {
@@ -141,10 +166,10 @@ describe('ReportsPage', () => {
           }),
         });
       }
-      return Promise.resolve({ data: {} });
+      return Promise.resolve({ data: { agents: [] } });
     });
 
-    render(<ReportsPage />);
+    mountWithProviders(<ReportsPage />);
 
     expect(await screen.findByText('Quick task')).toBeTruthy();
     // 600s = 10m; the cell uses `${m}m` format because h === 0.

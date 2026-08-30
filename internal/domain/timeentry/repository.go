@@ -29,6 +29,12 @@ type Repository interface {
 	// window, ordered by started_at DESC. Used by the time report.
 	ListByAgent(ctx context.Context, agentID string, from, to time.Time) ([]*TimeEntry, error)
 
+	// ListAll returns every entry (any agent or user) in the [from, to)
+	// window, ordered by started_at DESC. Used by the time report when
+	// no actor filter is given: agent_id mixes agent UUIDs and user ids,
+	// so "no filter" means "all actors".
+	ListAll(ctx context.Context, from, to time.Time) ([]*TimeEntry, error)
+
 	// ListByDay is a convenience for the per-day report view: same as
 	// ListByAgent with from=dayStart, to=dayEnd.
 	ListByDay(ctx context.Context, agentID string, day time.Time) ([]*TimeEntry, error)

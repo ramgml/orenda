@@ -682,6 +682,23 @@ func NewRouter(deps *Dependencies) http.Handler {
 						// handler but writes AuthorAgent + uses
 						// Identity.AgentID as the author id.
 						r.Post("/comments", agentCreateTaskCommentHandler(deps))
+						// T96: agent-namespace checklists —
+						// read the PM's QA checklist, tick
+						// items off. Read is open (same
+						// posture as /context); mutations
+						// are holder-only (403
+						// not_lock_holder otherwise), the
+						// checklist/item ids must belong
+						// to the path task (404).
+						r.Get("/checklists", agentListChecklistsHandler(deps))
+						r.Post("/checklists", agentAddChecklistHandler(deps))
+						r.Route("/checklists/{clId}/items", func(r chi.Router) {
+							r.Post("/", agentAddChecklistItemHandler(deps))
+							r.Route("/{itemId}", func(r chi.Router) {
+								r.Patch("/", agentUpdateChecklistItemHandler(deps))
+								r.Delete("/", agentDeleteChecklistItemHandler(deps))
+							})
+						})
 					})
 				})
 				// Phase 27.11: agent-namespace long-poll. The user-side

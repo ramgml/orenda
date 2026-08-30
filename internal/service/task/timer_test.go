@@ -303,3 +303,104 @@ func TestAutoTimer_NoStatusChange_NoChurn(t *testing.T) {
 	require.Len(t, entries, 1)
 	assert.Nil(t, entries[0].EndedAt, "same-status sync must keep the interval")
 }
+
+// Task 92: the Release persist must not clobber time_spent_s. The
+// pre-92 path re-read the counter (after the timer sync) and wrote
+// it back through the full-row Update, so a CloseAndAccrue
+// committing between that re-read and the write was silently lost.
+//
+// The race is simulated deterministically through the Service.Tasks
+// seam: a wrapper injects the concurrent accrual (the same relative
+// UPDATE the repo issues) right after the third interface-level
+// GetByID — which on the pre-92 code is the post-sync re-read whose
+// value the full-row Update then clobbers. On the fixed code the
+// third GetByID is the post-persist refresh, the injected accrual
+// lands after it and must survive to the final read.
+type accrualAfterNthRead struct {
+	task.Repository
+	db     *sql.DB
+	taskID string
+	n      int // inject after the n-th GetByID (1-based)
+	seen   int
+	err    error
+}
+
+func (r *accrualAfterNthRead) GetByID(ctx context.Context, id string) (*task.Task, error) {
+	tr, err := r.Repository.GetByID(ctx, id)
+	if err == nil && id == r.taskID {
+		r.seen++
+		if r.seen == r.n {
+			// A concurrent actor's CloseAndAccrue commits now.
+			_, r.err = r.db.Exec(
+				`UPDATE tasks SET time_spent_s = time_spent_s + 45 WHERE id = ?`, id)
+		}
+	}
+	return tr, err
+}
+
+func TestAutoTimer_Release_DoesNotClobberConcurrentAccrual(t *testing.T) {
+	db, svc, p, col := setupTimerDB(t)
+	tr := seedTimerTask(t, db, p, col, "release-race-timer")
+	agentID := seedTimerAgent(t, db, "c7")
+
+	wrapped := &accrualAfterNthRead{
+		Repository: sqlite.NewTaskRepository(db),
+		db:         db, taskID: tr.ID,
+		n: 3, // claim fetch, release fetch, release last counter read
+	}
+	svc.Tasks = wrapped
+
+	_, err := svc.Claim(context.Background(), tr.ID, agentID)
+	require.NoError(t, err)
+	entries := listEntries(t, db, tr.ID)
+	require.Len(t, entries, 1)
+	require.NoError(t, backdateEntry(db, entries[0].ID, -60*time.Second))
+
+	_, err = svc.Release(context.Background(), tr.ID, agentID)
+	require.NoError(t, err)
+	require.NoError(t, wrapped.err, "concurrent accrual injection must succeed")
+	require.Equal(t, 3, wrapped.seen, "Release must re-read the row exactly once")
+
+	got := timeSpent(t, db, tr.ID)
+	assert.GreaterOrEqual(t, got, 60+45,
+		"release persist must not clobber a concurrently accrued time_spent_s")
+}
+
+// Repo-level pin: ClearAssigneeToTodo writes the release columns
+// and nothing else — time_spent_s is out of its SET list by
+// contract.
+func TestTaskRepo_ClearAssigneeToTodo_LeavesCounterAlone(t *testing.T) {
+	db, svc, p, col := setupTimerDB(t)
+	tr := seedTimerTask(t, db, p, col, "partial-update-timer")
+	agentID := seedTimerAgent(t, db, "c8")
+
+	_, err := svc.Claim(context.Background(), tr.ID, agentID)
+	require.NoError(t, err)
+	require.NoError(t, backdateEntry(db, listEntries(t, db, tr.ID)[0].ID, -30*time.Second))
+	_, err = svc.Submit(context.Background(), tr.ID, agentID, "")
+	require.NoError(t, err)
+	before := timeSpent(t, db, tr.ID)
+	require.Positive(t, before)
+
+	repo := sqlite.NewTaskRepository(db)
+	stale, err := repo.GetByID(context.Background(), tr.ID)
+	require.NoError(t, err)
+	stale.AssigneeType = ""
+	stale.AssigneeID = ""
+	stale.Status = task.StatusTodo
+	stale.Awaiting = task.AwaitingNone
+	stale.TimeSpentS = 999999 // would be persisted by the full-row Update
+	require.NoError(t, repo.ClearAssigneeToTodo(context.Background(), tr.ID, stale))
+
+	assert.Equal(t, before, timeSpent(t, db, tr.ID),
+		"ClearAssigneeToTodo must not write time_spent_s")
+	got, err := repo.GetByID(context.Background(), tr.ID)
+	require.NoError(t, err)
+	assert.Equal(t, task.StatusTodo, got.Status)
+	assert.Empty(t, got.AssigneeID)
+	assert.Equal(t, task.AwaitingNone, got.Awaiting)
+
+	// Release-contract parity: a nonexistent id surfaces ErrNotFound.
+	err = repo.ClearAssigneeToTodo(context.Background(), "no-such", stale)
+	assert.ErrorIs(t, err, task.ErrNotFound)
+}

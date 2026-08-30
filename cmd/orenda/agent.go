@@ -242,6 +242,7 @@ Workflow shape:
                                        # propose a NEW task (human triages it)
   orenda agent context <task-id>       # pull the full snapshot
   orenda agent comment <task-id> <md>  # add a comment (not-blocking)
+  orenda agent checklist-add <task-id> <title>  # QA checklists (T96)
   orenda agent submit <task-id>       # mark ready for human review
   orenda agent release <task-id>      # drop a claim
   orenda agent await                   # long-poll for the next event
@@ -269,6 +270,11 @@ Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
 	cmd.AddCommand(newAgentSubmitCmd())
 	cmd.AddCommand(newAgentTimeCmd())
 	cmd.AddCommand(newAgentCommentCmd())
+	cmd.AddCommand(newAgentChecklistsCmd())
+	cmd.AddCommand(newAgentChecklistAddCmd())
+	cmd.AddCommand(newAgentChecklistItemAddCmd())
+	cmd.AddCommand(newAgentChecklistItemUpdateCmd())
+	cmd.AddCommand(newAgentChecklistItemDeleteCmd())
 	cmd.AddCommand(newAgentUpdateCmd())
 	cmd.AddCommand(newAgentRetractCmd())
 	cmd.AddCommand(newAgentProjectsCmd())
@@ -693,6 +699,168 @@ func newAgentCommentCmd() *cobra.Command {
 				return err
 			}
 			return printJSON(cmd, v)
+		},
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T96: checklist subcommands — the CLI twin of the agent-namespace
+// checklist routes. The task argument accepts the UUID or the human
+// number ("42" / "#42"), like every other `agent` task command.
+// ---------------------------------------------------------------------------
+
+func newAgentChecklistsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "checklists <task-id|#N>",
+		Short: "List a task's checklists with their items",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			raw, code, err := ctx.agentGet(cmd.Context(),
+				"/api/v1/agent/tasks/"+url.PathEscape(args[0])+"/checklists")
+			if err != nil {
+				return err
+			}
+			if code != http.StatusOK {
+				return fmt.Errorf("agent checklists: HTTP %d: %s", code, raw)
+			}
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		},
+	}
+}
+
+func newAgentChecklistAddCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "checklist-add <task-id|#N> <title>",
+		Short: "Create a checklist on a task (lock holder only)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			raw, code, err := ctx.agentPost(cmd.Context(),
+				"/api/v1/agent/tasks/"+url.PathEscape(args[0])+"/checklists",
+				map[string]any{"title": args[1]})
+			if err != nil {
+				return err
+			}
+			if code != http.StatusCreated {
+				return fmt.Errorf("agent checklist-add: HTTP %d: %s", code, raw)
+			}
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		},
+	}
+}
+
+func newAgentChecklistItemAddCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "checklist-item-add <task-id|#N> <checklist-id> <title>",
+		Short: "Append an item to a checklist (lock holder only)",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			raw, code, err := ctx.agentPost(cmd.Context(),
+				"/api/v1/agent/tasks/"+url.PathEscape(args[0])+"/checklists/"+url.PathEscape(args[1])+"/items",
+				map[string]any{"title": args[2]})
+			if err != nil {
+				return err
+			}
+			if code != http.StatusCreated {
+				return fmt.Errorf("agent checklist-item-add: HTTP %d: %s", code, raw)
+			}
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		},
+	}
+}
+
+func newAgentChecklistItemUpdateCmd() *cobra.Command {
+	var (
+		done  bool
+		title string
+	)
+	cmd := &cobra.Command{
+		Use:   "checklist-item-update <task-id|#N> <checklist-id> <item-id>",
+		Short: "Update a checklist item: --done to tick, --title to rename (lock holder only)",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			body := map[string]any{}
+			if cmd.Flags().Changed("done") {
+				body["done"] = done
+			}
+			if title != "" {
+				body["title"] = title
+			}
+			if len(body) == 0 {
+				return fmt.Errorf("agent checklist-item-update: nothing to update — pass --done and/or --title")
+			}
+			raw, code, err := ctx.agentPatch(cmd.Context(),
+				"/api/v1/agent/tasks/"+url.PathEscape(args[0])+"/checklists/"+url.PathEscape(args[1])+"/items/"+url.PathEscape(args[2]),
+				body)
+			if err != nil {
+				return err
+			}
+			if code != http.StatusNoContent && code != http.StatusOK {
+				return fmt.Errorf("agent checklist-item-update: HTTP %d: %s", code, raw)
+			}
+			if code == http.StatusNoContent {
+				fmt.Fprintln(cmd.OutOrStdout(), "updated")
+				return nil
+			}
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		},
+	}
+	cmd.Flags().BoolVar(&done, "done", false, "set the item's done flag (pass --done=false to untick)")
+	cmd.Flags().StringVar(&title, "title", "", "replace the item title")
+	return cmd
+}
+
+func newAgentChecklistItemDeleteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "checklist-item-delete <task-id|#N> <checklist-id> <item-id>",
+		Short: "Delete a checklist item (lock holder only)",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			raw, code, err := ctx.agentDelete(cmd.Context(),
+				"/api/v1/agent/tasks/"+url.PathEscape(args[0])+"/checklists/"+url.PathEscape(args[1])+"/items/"+url.PathEscape(args[2]))
+			if err != nil {
+				return err
+			}
+			if code != http.StatusNoContent && code != http.StatusOK {
+				return fmt.Errorf("agent checklist-item-delete: HTTP %d: %s", code, raw)
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "deleted")
+			return nil
 		},
 	}
 }

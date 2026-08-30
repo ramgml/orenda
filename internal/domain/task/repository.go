@@ -121,6 +121,15 @@ type Repository interface {
 	// assignee makes RowsAffected()==0.
 	UpdateAgentNotesField(ctx context.Context, taskID, agentID, notes string) error
 
+	// ClearAssigneeToTodo is the partial UPDATE for the Release flow
+	// (Task 92): writes ONLY the assignee pair, status and awaiting.
+	// time_spent_s is deliberately out of the SET list — Release
+	// runs syncTimerAs (CloseAndAccrue, an atomic relative
+	// UPDATE) before persisting, so a full-row Update here could
+	// clobber a concurrent accrual with a stale counter. The caller
+	// reads back via GetByID.
+	ClearAssigneeToTodo(ctx context.Context, taskID string, t *Task) error
+
 	// DeleteWithProposalGate is the gate-protected DELETE for the
 	// retract flow (Phase 33.2.1). Same gate as
 	// UpdateProposalFields. The tombstone row is written BEFORE

@@ -386,8 +386,13 @@ func addManualTimeHandler(deps *Dependencies) http.HandlerFunc {
 
 // reportTimeHandler returns the per-task aggregation for a window.
 //
-// Query params: agent_id (optional, defaults to current user), from, to
-// (RFC3339). If from/to are missing, the current day is used.
+// Query params: agent_id (optional), from, to (RFC3339). If from/to
+// are missing, the current day is used.
+//
+// An absent agent_id means "all actors": time_entries agent_id carries
+// agent UUIDs as well as user ids, so filtering by the viewer's user
+// id hides auto-timer and manual entries logged by agents (Task 98).
+// Pass ?agent_id= explicitly to scope the report to a single actor.
 func reportTimeHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.TimeService == nil {
@@ -395,15 +400,6 @@ func reportTimeHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 		actorID := r.URL.Query().Get("agent_id")
-		if actorID == "" {
-			if id, ok := IdentityFrom(r.Context()); ok {
-				actorID = id.UserID
-			}
-		}
-		if actorID == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "agent_id_required"})
-			return
-		}
 		from := parseOptionalTime(r.URL.Query().Get("from"))
 		to := parseOptionalTime(r.URL.Query().Get("to"))
 		if from == nil || to == nil {

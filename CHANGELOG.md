@@ -17,11 +17,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [0.13.0] — 2026-08-30
+
+Thirteenth pre-alpha release. Focus: agent task checklists over REST/MCP/CLI (the delegation loop can now manage step-by-step acceptance criteria on held tasks), a fix for empty time reports when entries are attributed to agents, and toolchain/workflow hygiene (Node 24 LTS engines guard, current GitHub Actions majors, gitignore anchor).
+
+### Added
+- **Task 96 (PR #120):** Agent task checklists over REST + MCP + CLI. On tasks the bearer agent holds (claim-lock holder): `POST /api/v1/agent/tasks/{id}/checklists` (create), `POST .../checklists/{cid}/items` (add), `PATCH/DELETE .../items/{iid}` (toggle/edit/remove) and list via task payload; MCP tools `orenda_checklist_add` / `orenda_checklist_item_add` / `orenda_checklist_item_update` (+list) and CLI `orenda agent checklists …` over the same routes. Non-holders → 403 `not_lock_holder`, unknown refs → 404. OpenAPI specs updated.
+
+### Changed
+- **Docs (workflow):** QA-гейт перед `orenda agent submit` — перевод задачи в review только после того, как PM подготовил manual QA-чеклист «Как протестировать» (новая секция в PR-шаблоне) и поднял preview-инстанс из worktree задачи (порт из 21400–21499, отдельный `data/`, тестовый юзер; docs-only диффы — без инстанса). Детали: wiki «Decision log» 2026-08-29, `docs/DOGFOOD.md` «QA-гейт перед submit».
+- **Task 92:** `Release` больше не перезатирает `tasks.time_spent_s` — запись релиза идёт через частичный UPDATE (`Repository.ClearAssigneeToTodo`: assignee, status, awaiting, column_id; счётчик вне SET-списка), поэтому атомарный аккруал `CloseAndAccrue`, закоммиченный между re-read и записью, не теряется (гоночное окно из ревью PR #113, NIT 8). Контакт закреплён тестами: детерминированная инжекция аккруала в окно релиза + repo-тест «метод не пишет счётчик».
+- **Task 93 (PR #117):** Web toolchain moved to Node v24.20.0 LTS with an engines guard — `web/package.json` declares `engines: { node: ">=24.11.0" }` and the new `web/.npmrc` sets `engine-strict=true`, so a mismatched Node now fails `npm ci` hard instead of warning (the pair is deliberate: without strict, npm only prints EBADENGINE).
+- **Task 94 (PR #118):** GitHub Actions runners bumped to current major versions (`actions/checkout@v7`, `setup-go@v7`, `setup-node@v7`, `upload-artifact@v7`, `download-artifact@v8`) — eliminates deprecated Node 20 runner warnings in the release-gate workflow; rolling major tags verified as real refs via `git ls-remote --tags` before bumping.
+- **Task 97 (PR #121):** Bare `orenda` pattern in `.gitignore` anchored to `/orenda`. The bare form (shipped in the v0.2.0 merge) silently ignored new untracked files under any `orenda` directory — including `cmd/orenda/` and `docs/skills/orenda/` (T96 incident: sources had to be force-added). `bin/` already covers the binary artifact (`git check-ignore -v bin/orenda` → `.gitignore:8:bin/`), so anchoring loses nothing.
+
+### Fixed
+- **Task 98 (PR #122):** Time report no longer comes back empty when entries are attributed to agents. `GET /api/v1/reports/time` without an `agent_id` filter implicitly matched entries to the viewer's user id, so a window full of auto-timer entries owned by an agent rendered zero rows; without `agent_id` the report now aggregates all actors, and the UI clears the stale error banner on refetch. Pinned by `TestReportTime_NoAgentID_ShowsAllActors`.
+
 ## [0.12.0] — 2026-08-29
 
 Twelfth pre-alpha release. Focus: agent time tracking — time now flows as a consequence of the task status itself. The delegation loop finally produces time records (status-driven auto-timer across claim → submit → review → release), submit is gated on logged time, and manual minutes are loggable via REST, CLI, and MCP.
 
 ### Added
+
 - **Task 87 (PR #113):** Status-driven auto-timer — entering `in_progress` opens a time entry for the actor, leaving it closes the entry via `CloseAndAccrue` (`ended_at` + `duration_s` + atomic `time_spent_s` accrual). The transition logic lives in the task service (`syncTimer`) and is hooked into every write path that flips status: `Claim`, `Submit`, `Review`, `Release`, `SyncStatusAndColumn` (PATCH), and `Move`. A stale-guard closes an already-open interval and accrues it before opening a new one, so the one-open-timer invariant survives with no time lost; `Release` captures the actor before clearing the assignee, so the close no longer clobbers a stale counter. Best-effort by design: a timer failure is logged, never fails the task write. 7 transition scenarios pinned by tests.
 - **Task 87 (PR #113):** Submit gate — `POST /api/v1/agent/tasks/{id}/submit` returns 422 `time_not_logged` while the task has zero spent time and the bearer agent has no open timer on it; a running auto-timer passes, and a 0-minute manual entry marks the task time-tracked-trivial (bypass). The gate counts any entry, not just timer rows.
 - **Task 87 (PR #113):** Manual time route — `POST /api/v1/agent/tasks/{id}/time` with `{minutes >= 0}` → 201: records a closed `source=manual` entry and accrues `tasks.time_spent_s` atomically (`CreateAndAccrue`); 400 `invalid_json`/`minutes_must_be_non_negative`, 404 on unknown task.
