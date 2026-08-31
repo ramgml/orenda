@@ -910,6 +910,26 @@ paths:
       security: [{ bearerAuth-cookie: [] }]
       responses: { '201': { description: created } }
 
+  /api/v1/tasks/{id}/comments/{commentId}:
+    patch:
+      tags: [tasks]
+      summary: Edit own comment on a task (403 if not the author; 404 unknown comment; 400 empty body_md).
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body_md]
+              properties:
+                body_md: { type: string }
+      responses:
+        '200': { description: updated }
+        '400': { description: empty body_md }
+        '403': { description: not the comment author }
+        '404': { description: comment or task not found }
+
   /api/v1/tasks/{id}/attachments:
     get:
       tags: [tasks]
@@ -2302,6 +2322,25 @@ paths:
         '201': { description: created }
         '401': { description: missing or invalid agent token }
         '404': { description: 'not_found — includes task #N not found for numeric refs' }
+  /api/v1/agent/tasks/{id}/comments/{commentId}:
+    patch:
+      tags: [agent]
+      summary: Edit the agent's own comment (403 if authored by someone else; 404 unknown comment; 400 empty body_md; {id} accepts UUID or "#42"/"42").
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body_md]
+              properties:
+                body_md: { type: string }
+      responses:
+        '200': { description: updated }
+        '400': { description: empty body_md }
+        '403': { description: not the comment author }
+        '404': { description: comment or task not found }
 
   # Phase 27.11: agent-namespace long-poll. Mirrors the user-cookie
   # /api/v1/events/await POST but subscribes the WS hub under the
