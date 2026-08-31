@@ -45,10 +45,62 @@ make web-install               # обязательно один раз — ус
 scripts/install.sh --systemd   # собирает, ставит в ~/.local/bin, включает user service
 ```
 
+### Установка через AI-агента (промт)
+
+Вставьте этот промт вашему AI-агенту (Claude, Codex, Cursor, …), чтобы он установил и настроил Orenda:
+
+```text
+Установи Orenda (https://github.com/ramgml/orenda) на эту машину:
+1. Склонируй репозиторий в ~/opt/orenda и переключись на последний релизный тег (git describe --tags --abbrev=0 на origin/main).
+2. Запусти `make web-install` (нужен Node.js >= 24.11) для сборки веб-SPA.
+3. Запусти `make build` — получится ./bin/orenda.
+4. Запусти `./bin/orenda migrate up`.
+5. Создай пользователя: `echo "<пароль>" | ./bin/orenda user create --email <email> --display-name <имя> --password-stdin --config data/config.yaml`.
+6. Запусти сервер со сгенерированным JWT-секретом:
+   ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
+7. Для постоянной установки вместо шагов 2–6 выполни `scripts/install.sh --systemd` (ставит в ~/.local/bin и включает user service на http://127.0.0.1:2137).
+8. Проверь: `curl -s http://127.0.0.1:2137/healthz` (или открой http://127.0.0.1:2137 в браузере) — страница логина должна загрузиться.
+Не редактируй файлы в data/ вручную — используй только CLI-команды выше.
+```
+
 > `scripts/install.sh` — **единственный** санкционированный способ обновить
 > usage-бинарник. Он отказывается ставить из чего-либо, кроме чистого
 > checkout на `main` (переопределяется флагом `--force`). См.
 > [docs/ARCHITECTURE.md §12.4](docs/ARCHITECTURE.md#124-dev-vs-dogfood-instance-phase-2820).
+
+### Windows
+
+Orenda собирается и работает нативно на Windows. SQLite — pure-Go
+(`modernc.org/sqlite`, без CGO), C-тулчейн не нужен.
+
+**Сборка нативно:**
+
+```powershell
+git clone https://github.com/ramgml/orenda ~/opt/orenda
+cd ~/opt/orenda
+git checkout v0.14.0            # последний релизный тег
+make web-install                # нужен Node.js >= 24.11
+make build                      # получится bin\orenda.exe
+.\bin\orenda.exe migrate up
+"пароль" | .\bin\orenda.exe user create `
+    --email you@example.com --display-name Вы --password-stdin
+$env:ORENDA_AUTH__JWT_SECRET = [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+.\bin\orenda.exe serve          # → http://127.0.0.1:2137
+```
+
+Чтобы держать сервер как фоновую службу, оберните `orenda serve` в
+Windows-службу (например, [WinSW](https://github.com/winsw/winsw)) или
+задачу Планировщика — `scripts/install.sh` работает только на
+Unix/systemd.
+
+**Кросс-компиляция** с любой Unix-машины:
+
+```bash
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o orenda.exe ./cmd/orenda
+```
+
+**WSL2:** выполните стандартный Linux-quickstart внутри WSL —
+`http://127.0.0.1:2137` доступен из браузеров Windows.
 
 Для разработки с hot reload:
 
