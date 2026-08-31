@@ -21,6 +21,8 @@ import { useWebSocketTopic } from '@/shared/ws';
 import { StartTimer } from '@/features/tasks/TimerWidget';
 import { usePasteImage } from '@/features/attachments/usePasteImage';
 
+import { activityDetails } from './activityDetails';
+
 import { CommentsList } from './CommentsList';
 import { ChildTasksList } from './ChildTasksList';
 import { AttachmentsList } from './AttachmentsList';
@@ -857,11 +859,19 @@ export function ActivityLog({ items }: { items: TaskActivity[] }): JSX.Element {
               </span>
               <span className="text-slate-500 shrink-0 whitespace-nowrap">{actorLabel(a)}</span>
               <span className="whitespace-nowrap">{verb[a.action] ?? a.action}</span>
-              {a.payload && a.payload !== '{}' && (
-                <span className="text-xs text-slate-400 min-w-0 truncate" title={a.payload}>
-                  · {a.payload}
-                </span>
-              )}
+              {(() => {
+                // Task 113: the raw payload JSON is noise — render a
+                // short human-readable detail per action instead. The
+                // full JSON stays on hover via the title attribute.
+                const detail = activityDetails(a.action, a.payload);
+                return (
+                  detail !== '' && (
+                    <span className="text-xs text-slate-400 min-w-0 truncate" title={a.payload}>
+                      {`· ${detail}`}
+                    </span>
+                  )
+                );
+              })()}
             </li>
           ))}
         </ul>

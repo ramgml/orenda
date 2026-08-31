@@ -15,6 +15,11 @@
  *      agent's name from the cached listAgents() result (id-prefix
  *      fallback only while the cache is cold); `user:<id>` matching
  *      the authenticated user renders their display_name.
+ *   3. Task 113: payload details are human-readable per action —
+ *      commented renders nothing, attachment renders the filename,
+ *      tags_replaced renders the incoming tag set, diffs render
+ *      `from → to`. Raw payload JSON never appears in a row; it
+ *      stays on hover only.
  */
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -35,7 +40,9 @@ vi.mock('@/features/auth/AuthContext', () => ({
 // convention as TaskCard.test).
 const listAgentsMock = vi.spyOn(api, 'listAgents');
 
-const PAYLOAD_JSON = '{"author_type":"agent","comment_id":"01a0comment0000000000000000"}';
+const COMMENT_PAYLOAD = '{"author_type":"agent","comment_id":"01a0comment0000000000000000"}';
+const ATTACHMENT_PAYLOAD =
+  '{"attachment_id":"01a0attach00000000000000000","filename":"spec-v2.pdf"}';
 
 function makeItem(overrides: Partial<Omit<TaskActivity, 'task_id'>>): TaskActivity {
   return {
@@ -43,7 +50,7 @@ function makeItem(overrides: Partial<Omit<TaskActivity, 'task_id'>>): TaskActivi
     actor_type: 'agent',
     actor_id: '01a00994-0000-0000-0000-000000000000',
     action: 'task.commented',
-    payload: PAYLOAD_JSON,
+    payload: COMMENT_PAYLOAD,
     created_at: '2026-08-30T10:00:00Z',
     task_id: 'task-1',
     ...overrides,
@@ -107,7 +114,7 @@ describe('ActivityLog — task 104 layout and actor labels', () => {
         makeItem({
           id: 'act-2',
           action: 'task.attachment_added',
-          payload: '{"attachment_id":"01a0attach00000000000000000"}',
+          payload: ATTACHMENT_PAYLOAD,
           created_at: '2026-08-30T11:00:00Z',
         }),
         makeItem({ id: 'act-1' }),
@@ -139,11 +146,22 @@ describe('ActivityLog — task 104 layout and actor labels', () => {
     expect(verbSpan.textContent).toBe('left a comment');
     expect(verbSpan.className).toContain('whitespace-nowrap');
 
-    // Payload span: shrinkable + ellipsised, full JSON on hover.
-    const payloadSpan = rows[1].children[3];
+    // Task 113: the comment payload is pure noise — no payload span
+    // at all, and none of its keys leak into the row.
+    expect(rows[1].children).toHaveLength(3);
+    expect(rows[1].textContent).not.toContain('comment_id');
+    expect(rows[1].textContent).not.toContain('{');
+
+    // Payload span (attachment): shrinkable + ellipsised, shows the
+    // human filename, full JSON only on hover.
+    const payloadSpan = rows[0].children[3];
     expect(payloadSpan.className).toContain('min-w-0');
     expect(payloadSpan.className).toContain('truncate');
-    expect(payloadSpan.getAttribute('title')).toBe(PAYLOAD_JSON);
+    expect(payloadSpan.textContent).toBe('· spec-v2.pdf');
+    expect(payloadSpan.getAttribute('title')).toBe(ATTACHMENT_PAYLOAD);
+
+    // Created row has an empty `{}` payload — no payload span either.
+    expect(rows[2].children).toHaveLength(3);
   });
 
   it('resolves an agent actor to the agent name from the mocked listAgents', async () => {
@@ -173,5 +191,93 @@ describe('ActivityLog — task 104 layout and actor labels', () => {
     const actor = await screen.findByText('Alice Owner');
     expect(actor.className).toContain('shrink-0');
     expect(actor.className).toContain('whitespace-nowrap');
+  });
+});
+
+describe('ActivityLog — task 113 human-readable payload details', () => {
+  it('renders no payload for task.commented', async () => {
+    mount([makeItem({ action: 'task.commented', payload: COMMENT_PAYLOAD })]);
+
+    await screen.findByText('left a comment');
+    const row = rowItems()[0];
+    // Only timestamp, actor, verb — no payload span, no raw JSON.
+    expect(row.children).toHaveLength(3);
+    expect(row.textContent).not.toContain('{');
+    expect(row.textContent).not.toContain('comment_id');
+    expect(row.textContent).not.toContain('author_type');
+  });
+
+  it('renders the filename for task.attachment_added and nothing when missing', async () => {
+    mount([
+      makeItem({
+        id: 'act-a',
+        action: 'task.attachment_added',
+        payload: ATTACHMENT_PAYLOAD,
+        created_at: '2026-08-30T11:00:00Z',
+      }),
+      makeItem({
+        id: 'act-b',
+        action: 'task.attachment_added',
+        // id-only payload: nothing readable to show — no payload span.
+        payload: '{"attachment_id":"01a0attach00000000000000000"}',
+        created_at: '2026-08-30T10:30:00Z',
+      }),
+    ]);
+
+    const rows = await waitFor(() => rowItems());
+    expect(rows[0].textContent).toContain('· spec-v2.pdf');
+    expect(rows[0].textContent).not.toContain('attachment_id');
+    // Hover still exposes the full JSON.
+    expect(rows[0].children[3].getAttribute('title')).toBe(ATTACHMENT_PAYLOAD);
+
+    expect(rows[1].textContent).toContain('attached a file');
+    expect(rows[1].textContent).not.toContain('·');
+    expect(rows[1].children).toHaveLength(3);
+  });
+
+  it('renders the incoming tag set for task.tags_replaced', async () => {
+    mount([
+      makeItem({
+        id: 'act-t',
+        action: 'task.tags_replaced',
+        payload: '{"before":["ui"],"after":["epic"]}',
+        created_at: '2026-08-30T11:00:00Z',
+      }),
+      makeItem({
+        id: 'act-c',
+        action: 'task.tags_replaced',
+        payload: '{"before":["epic"],"after":[]}',
+        created_at: '2026-08-30T10:30:00Z',
+      }),
+    ]);
+
+    const rows = await waitFor(() => rowItems());
+    expect(rows[0].textContent).toContain('changed the tag set');
+    expect(rows[0].textContent).toContain('· → epic');
+    expect(rows[0].textContent).not.toContain('{');
+    expect(rows[0].textContent).not.toContain('before');
+    expect(rows[0].textContent).not.toContain('ui');
+
+    // Cleared tag set renders the explicit empty marker.
+    expect(rows[1].textContent).toContain('· → —');
+    expect(rows[1].textContent).not.toContain('{');
+  });
+
+  it('renders a from → to diff for scalar payloads and keeps JSON on hover', async () => {
+    const payload = '{"from":"medium","to":"high"}';
+    mount([
+      makeItem({
+        action: 'task.priority_changed',
+        payload,
+        created_at: '2026-08-30T11:00:00Z',
+      }),
+    ]);
+    await screen.findByText('changed the priority');
+    const row = rowItems()[0];
+    // Verb span is human; the detail span holds the diff.
+    expect(row.textContent).toContain('medium → high');
+    const detail = row.children[3];
+    expect(detail.textContent).toBe('· medium → high');
+    expect(detail.getAttribute('title')).toBe(payload);
   });
 });
