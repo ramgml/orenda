@@ -28,6 +28,7 @@ type CommentService interface {
 	Add(ctx context.Context, c *comment.Comment) (*comment.Comment, error)
 	ListByTarget(ctx context.Context, targetType comment.TargetType, targetID string) ([]*comment.Comment, error)
 	MentionsForComment(ctx context.Context, id string) ([]*comment.Mention, error)
+	Update(ctx context.Context, id, bodyMd string, authorType comment.AuthorType, authorID string) (*comment.Comment, error)
 }
 
 // AttachmentResult mirrors attachment.Service.StoreResult. Defined here

@@ -45,6 +45,7 @@ type stubRepo struct {
 	getByID  func(context.Context, string) (*comment.Comment, error)
 	list     func(context.Context, comment.TargetType, string) ([]*comment.Comment, error)
 	mentions func(context.Context, string) ([]*comment.Mention, error)
+	update   func(context.Context, string, string) (*comment.Comment, error)
 }
 
 func (s stubRepo) Create(ctx context.Context, c *comment.Comment) (*comment.Comment, error) {
@@ -70,6 +71,12 @@ func (s stubRepo) MentionsForComment(ctx context.Context, id string) ([]*comment
 		return s.mentions(ctx, id)
 	}
 	return nil, nil
+}
+func (s stubRepo) Update(ctx context.Context, id string, bodyMd string) (*comment.Comment, error) {
+	if s.update != nil {
+		return s.update(ctx, id, bodyMd)
+	}
+	return nil, comment.ErrNotFound
 }
 
 func TestAdd_TaskCommentEmitsNotifiedEvent(t *testing.T) {

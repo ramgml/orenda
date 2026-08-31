@@ -17,4 +17,8 @@ type Repository interface {
 
 	// MentionsForComment returns every mention extracted from the comment.
 	MentionsForComment(ctx context.Context, commentID string) ([]*Mention, error)
+
+	// Update overwrites the comment body and stamps EditedAt.
+	// Returns the updated comment or ErrNotFound when id is unknown.
+	Update(ctx context.Context, id string, bodyMd string) (*Comment, error)
 }
