@@ -20,10 +20,13 @@ func NewSearchRepository(db *sql.DB) search.Repository {
 	return &searchRepo{db: db}
 }
 
-// SearchPages queries pages_fts.
+// SearchPages queries pages_fts. Page hits carry the wiki slug so the
+// frontend can link to /wiki/<slug> (the page route resolves slugs
+// only — a bare UUID would 404).
 func (r *searchRepo) SearchPages(ctx context.Context, q string, limit int) ([]search.Hit, error) {
 	const sqlQuery = `
-		SELECT p.id, p.title, snippet(pages_fts, 1, '<mark>', '</mark>', '…', 30) AS snippet,
+		SELECT p.id, p.slug, p.title,
+		       snippet(pages_fts, 1, '<mark>', '</mark>', '…', 30) AS snippet,
 		       -bm25(pages_fts) AS score
 		FROM pages_fts
 		JOIN wiki_pages p ON p.rowid = pages_fts.rowid
@@ -31,7 +34,24 @@ func (r *searchRepo) SearchPages(ctx context.Context, q string, limit int) ([]se
 		ORDER BY score DESC
 		LIMIT ?
 	`
-	return r.runQuery(ctx, sqlQuery, q, limit, search.TypePage)
+	// Wrap user input in double quotes so FTS treats it as a phrase. This
+	// handles reserved characters (e.g. "+", "-", ":") safely.
+	safeQuery := `"` + q + `"`
+	rows, err := r.db.QueryContext(ctx, sqlQuery, safeQuery, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search.page: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]search.Hit, 0)
+	for rows.Next() {
+		var h search.Hit
+		if err := rows.Scan(&h.ID, &h.Slug, &h.Title, &h.Snippet, &h.Score); err != nil {
+			return nil, fmt.Errorf("search.page: scan: %w", err)
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
 }
 
 // SearchTasks queries tasks_fts.

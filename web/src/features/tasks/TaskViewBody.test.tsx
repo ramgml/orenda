@@ -14,9 +14,11 @@
  *   4. The empty state stays the "+ Add description" <button>.
  */
 import { cleanup, fireEvent, render, screen, type RenderResult } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 
-import { DescriptionEditor } from '@/features/tasks/TaskViewBody';
+import { DescriptionEditor, DueEditor } from '@/features/tasks/TaskViewBody';
+import type { Task } from '@/shared/api/client';
 
 const MARKDOWN = [
   '# Heading One',
@@ -79,5 +81,83 @@ describe('DescriptionEditor — markdown view mode', () => {
     const button = screen.getByRole('button', { name: '+ Add description' });
     expect(button).toBeTruthy();
     expect(button.tagName).toBe('BUTTON');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T90: editable Due field + "Show in calendar" deep link
+// ---------------------------------------------------------------------------
+
+// Minimal task fixture — DueEditor reads only the calendar fields.
+function dueTask(overrides: Partial<Task> = {}): Task {
+  return {
+    id: 't-90',
+    title: 'Task with a due',
+    status: 'todo',
+    priority: 'medium',
+    time_spent_s: 0,
+    ...overrides,
+  } as Task;
+}
+
+describe('DueEditor (T90)', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  function mountDue(task: Task): { onSaveDue: Mock } {
+    const onSaveDue = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MemoryRouter>
+        <DueEditor task={task} busy={false} onSaveDue={onSaveDue} />
+      </MemoryRouter>,
+    );
+    return { onSaveDue };
+  }
+
+  it('renders a date input prefilled with the due date', () => {
+    mountDue(dueTask({ due_at: '2030-01-15T00:00:00.000Z' }));
+
+    const input = screen.getByTitle('Due date') as HTMLInputElement;
+    expect(input.type).toBe('date');
+    expect(input.value).toBe('2030-01-15');
+  });
+
+  it('changing the date commits the new value through onSaveDue', () => {
+    const { onSaveDue } = mountDue(dueTask({ due_at: '2030-01-15T00:00:00.000Z' }));
+
+    fireEvent.change(screen.getByTitle('Due date'), { target: { value: '2030-02-20' } });
+
+    expect(onSaveDue).toHaveBeenCalledWith('2030-02-20');
+  });
+
+  it('clearing via the clear button commits the empty string', () => {
+    const { onSaveDue } = mountDue(dueTask({ due_at: '2030-01-15T00:00:00.000Z' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(onSaveDue).toHaveBeenCalledWith('');
+  });
+
+  it('shows "Show in calendar" seeded with the due date', () => {
+    mountDue(dueTask({ due_at: '2030-01-15T00:00:00.000Z' }));
+
+    const link = screen.getByRole('link', { name: 'Show in calendar' });
+    expect(link.getAttribute('href')).toBe('/calendar?date=2030-01-15');
+  });
+
+  it('falls back to start_at for the link when no due date is set', () => {
+    mountDue(dueTask({ start_at: '2031-03-02T09:00:00.000Z' }));
+
+    const link = screen.getByRole('link', { name: 'Show in calendar' });
+    expect(link.getAttribute('href')).toBe('/calendar?date=2031-03-02');
+    // No due → no clear affordance.
+    expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
+  });
+
+  it('renders no link when the task has neither due_at nor start_at', () => {
+    mountDue(dueTask());
+
+    expect(screen.queryByRole('link', { name: 'Show in calendar' })).toBeNull();
   });
 });

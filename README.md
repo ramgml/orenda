@@ -45,10 +45,60 @@ make web-install               # required once — the installer builds the SPA
 scripts/install.sh --systemd   # builds, installs to ~/.local/bin, enables user service
 ```
 
+### Install via AI agent (prompt)
+
+Paste this into your AI coding agent (Claude, Codex, Cursor, …) to have it install and set up Orenda for you:
+
+```text
+Install Orenda (https://github.com/ramgml/orenda) on this machine:
+1. Clone the repo into ~/opt/orenda and checkout the latest release tag (git describe --tags --abbrev=0 on origin/main).
+2. Run `make web-install` (Node.js >= 24.11 required) to build the web SPA.
+3. Run `make build` to produce ./bin/orenda.
+4. Run `./bin/orenda migrate up`.
+5. Create an admin user: `echo "<password>" | ./bin/orenda user create --email <email> --display-name <name> --password-stdin --config data/config.yaml`.
+6. Start the server with a generated JWT secret:
+   ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
+8. Verify: `curl -s http://127.0.0.1:2137/healthz` (or open http://127.0.0.1:2137 in a browser) and confirm the login page loads.
+Do not edit files inside data/ by hand; use the CLI commands above.
+```
+
 > `scripts/install.sh` is the **only** sanctioned way to update the
 > usage binary. It refuses to install from anything except a clean
 > checkout on `main` (override with `--force`). See
 > [docs/ARCHITECTURE.md §12.4](docs/ARCHITECTURE.md#124-dev-vs-dogfood-instance-phase-2820).
+
+### Windows
+
+Orenda builds and runs natively on Windows. SQLite is pure-Go
+(`modernc.org/sqlite`, no CGO), so no C toolchain is needed.
+
+**Native build:**
+
+```powershell
+git clone https://github.com/ramgml/orenda ~/opt/orenda
+cd ~/opt/orenda
+git checkout v0.14.0            # latest release tag
+make web-install                # Node.js >= 24.11 required
+make build                      # produces bin\orenda.exe
+.\bin\orenda.exe migrate up
+"your-password" | .\bin\orenda.exe user create `
+    --email you@example.com --display-name You --password-stdin
+$env:ORENDA_AUTH__JWT_SECRET = [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+.\bin\orenda.exe serve          # → http://127.0.0.1:2137
+```
+
+To run it as a background service, wrap `orenda serve` in a Windows
+service (e.g. [WinSW](https://github.com/winsw/winsw)) or a Task
+Scheduler job — `scripts/install.sh` is Unix/systemd-only.
+
+**Cross-compile** from any Unix box:
+
+```bash
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o orenda.exe ./cmd/orenda
+```
+
+**WSL2:** follow the standard Linux quickstart inside WSL —
+`http://127.0.0.1:2137` is reachable from Windows browsers.
 
 For development with hot reload:
 

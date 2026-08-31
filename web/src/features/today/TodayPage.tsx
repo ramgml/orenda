@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { TaskLink } from '@/features/tasks/TaskModal';
+
 import { api, type StudyProposalView, type Task } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
@@ -312,10 +314,10 @@ function TodaySection({
                 data-testid={studyLink ? 'today-study-task' : 'today-task'}
                 className="rounded border border-border p-2 text-sm bg-background"
               >
-                <Link to={`/tasks/${t.id}`} className="text-foreground hover:underline">
+                <TaskLink taskId={t.id} className="text-foreground hover:underline">
                   {studyLink ? '📖 ' : ''}
                   {t.title}
-                </Link>
+                </TaskLink>
                 {studyLink && (
                   <Link
                     to={studyLink}
@@ -374,15 +376,15 @@ function ActiveTimerRow({
           aria-hidden
         />
         Working on{' '}
-        <Link to={`/tasks/${timer.task_id}`} className="underline font-medium">
+        <TaskLink taskId={timer.task_id} className="underline font-medium">
           {timer.task_id.slice(0, 8)}
-        </Link>
+        </TaskLink>
         {' · '}
         <span className="font-mono">{elapsedLabel}</span>
       </div>
-      <Link to={`/tasks/${timer.task_id}#timer`} className="text-xs underline">
+      <TaskLink taskId={timer.task_id} className="text-xs underline">
         stop
-      </Link>
+      </TaskLink>
     </div>
   );
 }

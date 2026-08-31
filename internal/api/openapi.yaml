@@ -408,6 +408,34 @@ components:
           type: array
           items: { $ref: '#/components/schemas/Block' }
 
+    SearchHit:
+      type: object
+      description: One BM25-ranked FTS5 result row.
+      required: [type, id, snippet, score]
+      properties:
+        type: { type: string, enum: [page, task, comment] }
+        id: { type: string }
+        slug:
+          type: string
+          description: Wiki page slug — present for type=page hits. The wiki
+            page route resolves slugs only, so clients must link to
+            /wiki/<slug>.
+        title: { type: string }
+        snippet:
+          type: string
+          description: Extract with matches wrapped in literal <mark>/</mark>
+            markers (plain text, not HTML).
+        score: { type: number, format: double }
+
+    SearchResponse:
+      type: object
+      required: [hits, total]
+      properties:
+        hits:
+          type: array
+          items: { $ref: '#/components/schemas/SearchHit' }
+        total: { type: integer }
+
 paths:
 
   # ---- meta ----
@@ -1621,7 +1649,12 @@ paths:
         - in: query
           name: type
           schema: { type: string }
-      responses: { '200': { description: ok } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchResponse' }
 
   # ---- notifications ----
   /api/v1/notifications:
@@ -2790,7 +2823,12 @@ paths:
         - in: query
           name: limit
           schema: { type: integer }
-      responses: { '200': { description: ok } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchResponse' }
 
   # Phase 32.11: dashboard chat pane (commands-only MVP). User-cookie
   # surface; /plan day files a study proposal (result_ref = proposal id),

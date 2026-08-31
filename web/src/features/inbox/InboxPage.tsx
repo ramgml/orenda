@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { api, type Project, type Task } from '@/shared/api/client';
 import { TaskCard } from '@/features/projects/TaskCard';
@@ -166,35 +167,22 @@ function InboxRow({
   onFile: (id: string, projectId: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }): JSX.Element {
+  const navigate = useNavigate();
+  const location = useLocation();
   // Phase Wave 4 PR 2: delegate rendering to the shared TaskCard
   // (priority border, due badge, counters, awaiting/blocked/child
-  // counts). The file/delete controls live in a sibling column so
-  // they don't fight with the card's own click target.
+  // counts). The file/delete controls sit in a horizontal row to
+  // the right of the card, vertically centered.
   //
-  // We pass `onOpen` so the card routes to the modal overlay (same
-  // path as the kanban). Without `onOpen`, the card would use
-  // the global modal helper, which is fine too — but the explicit
-  // hook here keeps the inbox inline with the rest of the app.
+  // Task 102: the card routes to the modal overlay via the real
+  // router (navigate + state.backgroundLocation) — a full page
+  // reload here used to tear down the whole SPA state.
   return (
-    <li className="flex gap-3 items-start">
+    <li className="flex gap-3 items-center">
       <div className="flex-1 min-w-0">
-        <TaskCard
-          task={task}
-          onOpen={() =>
-            void openTaskModal(
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              ((path: string) => {
-                window.location.href = path;
-              }) as unknown as never,
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              window.location as unknown as never,
-              task.id,
-            )
-          }
-        />
+        <TaskCard task={task} onOpen={() => openTaskModal(navigate, location, task.id)} />
       </div>
-      <div className="flex flex-col gap-1 items-end shrink-0 pt-2">
-        <label className="text-[10px] text-slate-500">File under</label>
+      <div className="flex gap-2 items-center shrink-0">
         <Select
           value=""
           onValueChange={(v) => {

@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -15,6 +16,7 @@ import {
   type TaskAttachment,
 } from '@/shared/api/client';
 import { queueUpdateTask } from '@/shared/offline/outbox';
+import { useAgents } from '@/shared/hooks/useAgents';
 import { useWebSocketTopic } from '@/shared/ws';
 import { StartTimer } from '@/features/tasks/TimerWidget';
 import { usePasteImage } from '@/features/attachments/usePasteImage';
@@ -250,6 +252,25 @@ export function TaskViewBody({
     }
   };
 
+  // Due patch (T90). Empty string clears the due date — the backend
+  // parseOptionalTime("") returns nil, so the field resets. A date
+  // becomes local midnight ISO (QuickCapture convention, Phase
+  // 30.10): date-only inputs are TZ-naive so "the 15th" is the 15th
+  // in the operator's browser.
+  const onSaveDue = async (date: string): Promise<void> => {
+    if (!task) return;
+    setBusy(true);
+    try {
+      const due_at = date === '' ? '' : new Date(`${date}T00:00:00`).toISOString();
+      const t = await patchTaskOrQueue(task, { due_at });
+      setTask(t);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   async function onDelete(): Promise<void> {
     if (!window.confirm('Delete this task? This cannot be undone.')) return;
     setBusy(true);
@@ -411,7 +432,7 @@ export function TaskViewBody({
             Awaiting <span className="font-mono">{task.awaiting}</span> action
           </div>
         )}
-        {task.due_at && <SidebarField label="Due" value={task.due_at} />}
+        <DueEditor task={task} busy={busy} onSaveDue={onSaveDue} />
         <ColorPicker value={task.color} onSave={onSaveColor} busy={busy} />
         <TagsList taskId={taskId} initial={tags} />
         <BlockedByList taskId={taskId} projectId={task.project_id || ''} />
@@ -612,13 +633,83 @@ export function DescriptionEditor({
   );
 }
 
-function SidebarField({ label, value }: { label: string; value: string }): JSX.Element {
+/**
+ * Due date editor (T90) + "Show in calendar" deep link.
+ *
+ * The date input commits on change (one PATCH per picked date —
+ * native pickers already debounce implicit keystrokes) and offers a
+ * "clear" path that PATCHes the empty string, mirroring the
+ * ColorPicker's explicit-remove affordance. The link jumps to
+ * /calendar?date=… seeded with the due date (falling back to
+ * start_at); with neither field set there is nothing to show, so
+ * the link is not rendered.
+ */
+export function DueEditor({
+  task,
+  busy,
+  onSaveDue,
+}: {
+  task: Task;
+  busy: boolean;
+  onSaveDue: (date: string) => Promise<void>;
+}): JSX.Element {
+  const dateValue = toDateInputValue(task.due_at ?? task.start_at ?? '');
+
+  function commit(next: string): void {
+    const current = toDateInputValue(task.due_at ?? '');
+    if (next === current) return;
+    void onSaveDue(next);
+  }
+
   return (
-    <div className="rounded border border-border p-3">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="font-mono">{value}</p>
+    <div className="rounded border border-border p-3 space-y-2">
+      <p className="text-xs text-slate-500">Due</p>
+      <div className="flex items-center gap-2">
+        <Input
+          type="date"
+          defaultValue={dateValue}
+          key={dateValue}
+          onChange={(e) => commit(e.target.value)}
+          disabled={busy}
+          className="h-7 text-xs"
+          title="Due date"
+        />
+        {task.due_at && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => void onSaveDue('')}
+            className="h-6 px-2 text-xs"
+            title="Remove the due date"
+          >
+            clear
+          </Button>
+        )}
+      </div>
+      {(task.due_at ?? task.start_at) && (
+        <Link
+          to={`/calendar?date=${dateValue}`}
+          className="text-xs text-orenda-600 hover:underline"
+        >
+          Show in calendar
+        </Link>
+      )}
     </div>
   );
+}
+
+// toDateInputValue extracts the YYYY-MM-DD an <input type="date">
+// needs from an ISO timestamp, in the timestamp's calendar date.
+function toDateInputValue(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 /**
@@ -690,7 +781,27 @@ function ColorPicker({
   );
 }
 
-function ActivityLog({ items }: { items: TaskActivity[] }): JSX.Element {
+export function ActivityLog({ items }: { items: TaskActivity[] }): JSX.Element {
+  const { data: agents } = useAgents();
+  const { user } = useAuth();
+
+  // Resolve `actor_type:actor_id` to a human-readable label: agents
+  // through the cached agent list (fallback to the id prefix while
+  // the cache is cold), the current user through the auth session
+  // (same convention as assigneeLabel() in TaskFieldControls). A
+  // named resolver here is a stable domain concept — it maps audit
+  // actor coordinates to a display label, and the fallback rules
+  // (cold cache, unknown user) are non-obvious.
+  function actorLabel(a: TaskActivity): string {
+    if (a.actor_type === 'agent') {
+      return agents?.find((ag) => ag.id === a.actor_id)?.name ?? a.actor_id.slice(0, 8);
+    }
+    if (a.actor_type === 'user' && user && a.actor_id === user.user_id) {
+      return user.display_name || 'Me';
+    }
+    return a.actor_type;
+  }
+
   // Action verbs we render as a human label.
   //
   // Phase 27.9: pre-27.9 rows stored status/priority/assignee
@@ -744,12 +855,12 @@ function ActivityLog({ items }: { items: TaskActivity[] }): JSX.Element {
               <span className="text-xs text-slate-400 font-mono shrink-0">
                 {a.created_at.slice(0, 16).replace('T', ' ')}
               </span>
-              <span className="text-slate-500">
-                {a.actor_type}:{a.actor_id.slice(0, 8)}
-              </span>
-              <span>{verb[a.action] ?? a.action}</span>
+              <span className="text-slate-500 shrink-0 whitespace-nowrap">{actorLabel(a)}</span>
+              <span className="whitespace-nowrap">{verb[a.action] ?? a.action}</span>
               {a.payload && a.payload !== '{}' && (
-                <span className="text-xs text-slate-400 truncate">· {a.payload}</span>
+                <span className="text-xs text-slate-400 min-w-0 truncate" title={a.payload}>
+                  · {a.payload}
+                </span>
               )}
             </li>
           ))}

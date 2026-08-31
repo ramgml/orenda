@@ -36,6 +36,7 @@ var (
 type Hit struct {
 	Type    Type    `json:"type"`
 	ID      string  `json:"id"`
+	Slug    string  `json:"slug,omitempty"` // wiki page slug (empty for task/comment hits)
 	Title   string  `json:"title,omitempty"`
 	Snippet string  `json:"snippet"` // BM25-ranked extract
 	Score   float64 `json:"score"`
