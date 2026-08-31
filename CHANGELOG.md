@@ -17,6 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+
+## [0.14.0] — 2026-08-31
+
+Fourteenth pre-alpha release. Focus: task–calendar integration (editable Due dates with a calendar deep link), task modal opening from every in-app surface, client-side search on the board and in the wiki sidebar, and a batch of UI overlap/layout fixes (timer widget vs FAB, inbox triage rows, task-card activity rows).
+
+### Added
+- **Task 90 (PR #127):** Task–calendar integration. Tasks are first-class calendar items (`task` event kind with its own color and click handlers); the calendar accepts a `?date=` cursor for deep linking; the Open-task link preserves the `::N` occurrence suffix; task cards gain an editable Due field, and «Show in calendar» jumps to the due date on the calendar. Deadline drag-and-drop failures surface via ErrorBanner. Pinned by vitest coverage for deadline click/drop, due editing and the `?date=` cursor.
+- **Task 102 (PR #128):** Open tasks as a modal from all in-app surfaces — task links in wiki, search, notifications bell, lessons, and comments now open the shared task modal instead of navigating away; SMOKE.md documents the bell + lesson surfaces.
+- **Task 103 (PR #130):** Wiki sidebar search — the page tree filters by FTS query, page hits link by slug (with fallback for slug-less pages), and comment hits link to the comment anchor; covered by tests for comment-hit hrefs and slug-less fallbacks.
+- **Task 106 (PR #129):** Board task search filter — client-side filtering of the kanban board with a `filterActive` gate and WebSocket refetch support.
+
+### Fixed
+- **Task 95 (PR #127):** The idle timer card no longer covers the QuickCapture FAB, and the visible widget is lifted above the FAB corner (`bottom-20`).
+- **Task 101:** Inbox triage row layout fix.
+- **Task 104 (PR #131):** Task-card activity row layout and actor names render correctly.
+
 ## [0.13.0] — 2026-08-30
 
 Thirteenth pre-alpha release. Focus: agent task checklists over REST/MCP/CLI (the delegation loop can now manage step-by-step acceptance criteria on held tasks), a fix for empty time reports when entries are attributed to agents, and toolchain/workflow hygiene (Node 24 LTS engines guard, current GitHub Actions majors, gitignore anchor).
