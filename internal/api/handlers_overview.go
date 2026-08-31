@@ -119,7 +119,7 @@ func newActivityBuckets(start time.Time, n int) activityBuckets {
 
 // dayKey returns the YYYY-MM-DD key for t when it falls inside the
 // window [start, endExclusive).
-func dayKey(t time.Time, start, end time.Time) (string, bool) {
+func dayKey(t, start, end time.Time) (string, bool) {
 	if t.Before(start) || !t.Before(end) {
 		return "", false
 	}
