@@ -18,7 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
 
-## [0.14.1] — 2026-08-31
+## [0.14.2] — 2026-08-31
+
+Patch release. Focus: completing the dark-theme fix for native date inputs and the react-big-calendar toolbar/today highlighting, plus docs convergence (AI-agent install prompt and Windows section now in both branches).
+
+### Fixed
+- **Task 105 (PR #139):** Dark theme follow-up — `color-scheme: dark` (native `<input type="date">` picker icons are now visible in dark mode), full `.dark .rbc-*` toolbar coverage (`:hover`/`:focus`/`:active` incl. active variants), `.rbc-today` in day/week time views remapped to a muted primary tint, current-time indicator and slot selection use the primary token, gutters no longer white. Verified in headless Chromium on week/day/month views and the time report.
+
+### Changed
+- **Docs (PR #138):** README install prompts («Install via AI agent», en + ru) and the Windows install section synced into `dev` — they had landed only in `main` via the v0.14.0 promotion branch.
+
 
 Patch release on top of v0.14.0. Focus: dark-theme polish for the calendar (shadcn mini calendar + rbc overrides) and a build fix — the binary now stamps the real commit and build date via ldflags.
 
