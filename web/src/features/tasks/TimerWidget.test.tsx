@@ -1,29 +1,40 @@
 // @vitest-environment jsdom
 /**
- * T86 regression tests — the timer widget must never block the UI.
+ * T86/T95 regression tests — the timer widget must never block the UI.
  *
- * Symptom: TimerWidget is mounted globally as a fixed bottom-right
+ * T86: TimerWidget is mounted globally as a fixed bottom-right
  * element. Its container div covered the "Start timer" button in the
  * task sidebar, so the click landed on the widget and
  * POST /tasks/:id/timer/start was never sent (zero hits in 12 days
- * of access logs).
+ * of access logs). The container is click-transparent
+ * (pointer-events-none); only the active card opts back into pointer
+ * events.
+ *
+ * T95: the widget previously rendered an always-visible "No active
+ * timer" empty card in the same fixed bottom-right corner as the
+ * QuickCapture FAB (+), visually covering it. Since T95 the widget
+ * renders NOTHING when there is no active timer and no error — the
+ * corner belongs to the FAB whenever the timer is off.
  *
  * jsdom has no layout engine and does not load the Tailwind
  * stylesheet, so real hit-testing can't be exercised here — these
- * tests pin the classes the browser hit-tester consumes (the
- * compiled .pointer-events-{none,auto} utilities), plus the Stop
- * behaviour end-to-end within the component. The true
- * elementFromPoint check over the built UI lives in the PR evidence
- * (headless Chrome).
+ * tests pin the observable contract: empty-state renders nothing,
+ * the compiled .pointer-events-{none,auto} utilities on the visible
+ * states, and Stop behaviour end-to-end within the component. The
+ * true elementFromPoint check over the built UI lives in the PR
+ * evidence (headless Chrome).
  *
- *   1. The fixed container is click-transparent (pointer-events-none)
- *      in BOTH states — a click through its area can only land on the
- *      element underneath.
- *   2. The active card opts back in (pointer-events-auto) so Stop
+ *   1. Empty state (no active timer, no error) renders nothing — no
+ *      card to cover the FAB (T95).
+ *   2. The fixed container is click-transparent (pointer-events-none)
+ *      in the active state — a click through its area can only land
+ *      on the element underneath.
+ *   3. The active card opts back in (pointer-events-auto) so Stop
  *      stays clickable, and clicking it actually stops the timer.
- *   3. The empty card stays inert (no pointer-events opt-in).
+ *   4. An error renders the widget (with pointer-events-auto on the
+ *      error banner) even without an active timer.
  */
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -58,18 +69,16 @@ beforeEach(() => {
   localStorage.clear();
 });
 
-describe('TimerWidget (T86 pointer events)', () => {
-  it('container is click-transparent in the empty state', () => {
-    render(<TimerWidget />);
-    // The container is the parent of the empty card.
-    const emptyCard = screen.getByText(/No active timer/);
-    const container = emptyCard.parentElement;
-    assert(container, 'widget container not found');
-    expect(container.className).toMatch(/\bpointer-events-none\b/);
-    expect(container.className).toMatch(/\bfixed\b/);
+describe('TimerWidget (T86 pointer events / T95 no empty card)', () => {
+  it('renders nothing when there is no active timer and no error (T95)', () => {
+    const { container } = render(<TimerWidget />);
+    // No idle card at all: the fixed bottom-right corner belongs to
+    // the QuickCapture FAB.
+    expect(container.childElementCount).toBe(0);
+    expect(screen.queryByText(/No active timer/)).toBeNull();
   });
 
-  it('container is click-transparent in the active state too', () => {
+  it('container is click-transparent in the active state', () => {
     localStorage.setItem(
       'orenda.activeTimer',
       JSON.stringify({
@@ -99,20 +108,39 @@ describe('TimerWidget (T86 pointer events)', () => {
     expect(card).not.toBeNull();
 
     // And stopping actually works through the card: fires the API
-    // call and dismisses the widget to its empty state.
+    // call and dismisses the widget entirely (no empty card anymore).
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
     expect(stopTimer).toHaveBeenCalledWith('task-1');
-    // setActive(null) lands after the API promise resolves.
-    await screen.findByText(/No active timer/);
+    // setActive(null) lands after the API promise resolves; the
+    // widget then unmounts instead of showing the idle card (T95).
+    await waitFor(() => expect(document.querySelector('.fixed')).toBeNull());
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
   });
 
-  it('empty card itself stays inert (no pointer-events opt-in)', () => {
+  it('error renders the widget even without an active timer', async () => {
+    // Error state is unreachable without an API failure; simulate it
+    // by making stopTimer reject while an active timer exists, then
+    // stopping.
+    localStorage.setItem(
+      'orenda.activeTimer',
+      JSON.stringify({
+        taskId: 'task-1',
+        taskTitle: 'Tracked task',
+        startedAt: new Date(Date.now() - 65_000).toISOString(),
+      }),
+    );
+    stopTimer.mockRejectedValueOnce(new Error('backend down'));
     render(<TimerWidget />);
-    const emptyCard = screen.getByText(/No active timer/);
-    expect(emptyCard.className).not.toMatch(/\bpointer-events-auto\b/);
-    // The card sits inside the click-transparent container and opts
-    // itself out of hit-testing too.
-    expect(emptyCard.className).not.toMatch(/\bpointer-events-none\b/);
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    // Widget stays visible with the error banner, click-transparent
+    // container, pointer-events-auto banner. setState lands after the
+    // rejected promise, so wait for it.
+    const banner = await screen.findByText('backend down');
+    expect(banner.className).toMatch(/\bpointer-events-auto\b/);
+    const container = banner.closest('.fixed');
+    assert(container, 'widget container not found');
+    expect(container.className).toMatch(/\bpointer-events-none\b/);
+    // And once the error is gone the widget disappears again.
+    expect(screen.queryByText(/No active timer/)).toBeNull();
   });
 });
