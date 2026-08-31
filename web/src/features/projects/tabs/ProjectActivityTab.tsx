@@ -2,7 +2,46 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { TaskLink } from '@/features/tasks/TaskModal';
+import { activityDetails } from '@/features/tasks/activityDetails';
 import { api, type ProjectActivityItem } from '@/shared/api/client';
+
+// activityVerb maps an audit action to a human label — the same
+// table as ActivityLog in TaskViewBody, kept in sync (task 113).
+// Keys are stored unprefixed: the audit mixes `task.*` rows (27.9+)
+// with legacy unprefixed rows (`tags_replaced`, `color_changed`,
+// pre-27.9 status/priority/assignee), so both spellings normalize
+// to one lookup — mirroring activityDetails().
+const activityVerb: Record<string, string> = {
+  created: 'created the task',
+  moved: 'moved the task',
+  status_changed: 'changed the status',
+  title_changed: 'changed the title',
+  priority_changed: 'changed the priority',
+  assigned: 'assigned the task',
+  claimed: 'claimed the task',
+  released: 'released the task',
+  submitted: 'submitted the task for review',
+  approved: 'approved the task',
+  rejected: 'rejected the task',
+  reviewed: 'reviewed the task',
+  commented: 'left a comment',
+  attachment_added: 'attached a file',
+  subtask_added: 'added a subtask (legacy)',
+  subtask_done: 'completed a subtask (legacy)',
+  child_added: 'added a child task',
+  child_status_changed: 'changed child task status',
+  checklist_added: 'added a checklist',
+  checklist_item_added: 'added a checklist item',
+  checklist_item_done: 'completed a checklist item',
+  tags_replaced: 'changed the tag set',
+  color_changed: 'changed the colour label',
+};
+
+// activityVerbFor strips the `task.` prefix (see activityVerb).
+function activityVerbFor(action: string): string {
+  const key = action.startsWith('task.') ? action.slice(5) : action;
+  return activityVerb[key] ?? action;
+}
 
 /**
  * /projects/:id/activity — cross-task activity feed.
@@ -54,12 +93,24 @@ export function ProjectActivityTab(): JSX.Element {
           <span className="font-mono text-xs text-slate-400 w-32 flex-shrink-0">
             {formatRelative(it.created_at)}
           </span>
-          <span className="px-1.5 py-0.5 rounded text-xs uppercase tracking-wide bg-muted text-muted-foreground">
-            {it.action}
+          <span
+            className="px-1.5 py-0.5 rounded text-xs uppercase tracking-wide bg-muted text-muted-foreground"
+            title={it.payload}
+          >
+            {activityVerbFor(it.action)}
           </span>
           <TaskLink taskId={it.task_id} className="truncate hover:text-orenda-600 hover:underline">
             {it.task_title || it.task_id.slice(0, 8)}
           </TaskLink>
+          {(() => {
+            // Same human-detail contract as ActivityLog (task 113).
+            const detail = activityDetails(it.action, it.payload);
+            return (
+              detail !== '' && (
+                <span className="text-xs text-slate-400 min-w-0 truncate">{`· ${detail}`}</span>
+              )
+            );
+          })()}
           <span className="ml-auto text-xs text-slate-400">{it.actor_type}</span>
         </li>
       ))}
