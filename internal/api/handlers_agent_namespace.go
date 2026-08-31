@@ -123,6 +123,65 @@ func agentCreateTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
+// agentUpdateTaskCommentHandler mirrors updateTaskCommentHandler but
+// authorizes against the agent identity (Task 112): only the agent
+// that authored the comment may edit it — someone else's comment is
+// 403, an unknown one is 404, an empty body is 400.
+func agentUpdateTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
+	type req struct {
+		BodyMD string `json:"body_md"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.Comments == nil {
+			http.Error(w, "comment service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		var in req
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		id, ok := IdentityFrom(r.Context())
+		if !ok || id == nil || id.AgentID == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		// "T42" resolves to the task UUID — same convention as the
+		// other agent task routes. The task scopes the activity
+		// record; the comment id names the edit target.
+		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if rerr != nil {
+			writeResolveError(w, rerr)
+			return
+		}
+		got, err := deps.Comments.Update(r.Context(), chi.URLParam(r, "commentId"), in.BodyMD, comment.AuthorAgent, id.AgentID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if deps.ActivityRecorder != nil {
+			payload, _ := json.Marshal(map[string]any{
+				"comment_id":  got.ID,
+				"author_type": "agent",
+				"length":      len(in.BodyMD),
+				"edited":      true,
+			})
+			if rerr := deps.ActivityRecorder.RecordTask(
+				r.Context(), taskID,
+				activity.ActorAgent, id.AgentID,
+				activity.ActionCommented, string(payload),
+			); rerr != nil && deps.Logger != nil {
+				deps.Logger.Warn("activity record failed",
+					zap.String("action", string(activity.ActionCommented)),
+					zap.String("task_id", taskID),
+					zap.Error(rerr),
+				)
+			}
+		}
+		writeJSON(w, http.StatusOK, got)
+	}
+}
+
 // agentAwaitRequest is the JSON body of POST /api/v1/agent/events/await.
 //
 // Same shape as the user-side awaitRequest so the CLI doesn't need a

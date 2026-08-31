@@ -355,6 +355,62 @@ func createTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
+// updateTaskCommentHandler edits the user's own comment on a task
+// (Task 112). The author guard lives in the comment service: a
+// comment authored by someone else → 403, unknown comment → 404,
+// empty body → 400.
+func updateTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
+	type req struct {
+		BodyMD string `json:"body_md"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.Comments == nil {
+			http.Error(w, "comment service not wired", http.StatusServiceUnavailable)
+			return
+		}
+		var in req
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		userID := ""
+		if id, ok := IdentityFrom(r.Context()); ok {
+			userID = id.UserID
+		}
+		// The route carries both refs: the task scopes the
+		// activity record, the comment id names the edit target.
+		taskID, err := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeResolveError(w, err)
+			return
+		}
+		got, err := deps.Comments.Update(r.Context(), chi.URLParam(r, "commentId"), in.BodyMD, comment.AuthorUser, userID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if deps.ActivityRecorder != nil {
+			payload, _ := json.Marshal(map[string]any{
+				"comment_id": got.ID,
+				"length":     len(in.BodyMD),
+				"edited":     true,
+			})
+			if rerr := deps.ActivityRecorder.RecordTask(
+				r.Context(), taskID,
+				activity.ActorUser, userID,
+				activity.ActionCommented, string(payload),
+			); rerr != nil && deps.Logger != nil {
+				deps.Logger.Warn("activity record failed",
+					zap.String("action", string(activity.ActionCommented)),
+					zap.String("task_id", taskID),
+					zap.Error(rerr),
+				)
+			}
+		}
+		writeJSON(w, http.StatusOK, got)
+	}
+}
+
 // listTaskAttachmentsHandler returns every attachment uploaded against
 // a task. Used by the task detail page to render the file list.
 //

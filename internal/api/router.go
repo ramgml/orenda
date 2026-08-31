@@ -409,6 +409,7 @@ func NewRouter(deps *Dependencies) http.Handler {
 					})
 					r.Get("/comments", listTaskCommentsHandler(deps))
 					r.Post("/comments", createTaskCommentHandler(deps))
+					r.Patch("/comments/{commentId}", updateTaskCommentHandler(deps))
 					r.Get("/attachments", listTaskAttachmentsHandler(deps))
 					r.Post("/attachments", addTaskAttachmentHandler(deps))
 					r.Route("/attachments/{attId}", func(r chi.Router) {
@@ -687,6 +688,7 @@ func NewRouter(deps *Dependencies) http.Handler {
 						// handler but writes AuthorAgent + uses
 						// Identity.AgentID as the author id.
 						r.Post("/comments", agentCreateTaskCommentHandler(deps))
+						r.Patch("/comments/{commentId}", agentUpdateTaskCommentHandler(deps))
 						// T96: agent-namespace checklists —
 						// read the PM's QA checklist, tick
 						// items off. Read is open (same
