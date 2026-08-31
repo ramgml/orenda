@@ -1574,6 +1574,7 @@ export interface WikiTreeNode {
 export interface SearchHit {
   type: 'page' | 'task' | 'comment';
   id: string;
+  slug?: string; // wiki page slug, present for type=page hits
   title?: string;
   snippet: string;
   score: number;

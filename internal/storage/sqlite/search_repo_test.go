@@ -88,6 +88,25 @@ func TestSearchRepo_Pages(t *testing.T) {
 	}
 }
 
+// T103: page hits must carry the wiki slug so the frontend can link
+// to /wiki/<slug> — the page route resolves slugs only.
+func TestSearchRepo_PagesCarrySlug(t *testing.T) {
+	db := setupSearchDB(t)
+	seedSearchData(t, db)
+	repo := NewSearchRepository(db)
+
+	hits, err := repo.SearchPages(context.Background(), "wiki", 10)
+	require.NoError(t, err)
+	require.NotEmpty(t, hits)
+	for _, h := range hits {
+		if h.Title == "Orenda architecture" {
+			assert.Equal(t, "orenda-architecture", h.Slug)
+			return
+		}
+	}
+	t.Fatal("seeded page 'Orenda architecture' not found in page hits")
+}
+
 func TestSearchRepo_Tasks(t *testing.T) {
 	db := setupSearchDB(t)
 	seedSearchData(t, db)

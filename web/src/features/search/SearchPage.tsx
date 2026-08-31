@@ -17,7 +17,7 @@ import { Input } from '@/shared/ui/input';
  * React escapes it, so `<img src=x onerror=...>` in a wiki page or
  * comment can never execute.
  */
-function SnippetText({ text }: { text: string }): JSX.Element {
+export function SnippetText({ text }: { text: string }): JSX.Element {
   const parts = text.split(/<\/?mark>/);
   return (
     <>
@@ -135,7 +135,10 @@ export function SearchPage(): JSX.Element {
 function hitHref(h: SearchHit): string {
   switch (h.type) {
     case 'page':
-      return `/wiki/${h.id}`; // slug-vs-id: the backend returns the id for FTS rows
+      // Backend page hits carry the wiki slug (older payloads only had
+      // the id). The wiki route resolves slugs, so prefer it and fall
+      // back to the id.
+      return `/wiki/${h.slug ?? h.id}`;
     case 'task':
       return `/tasks/${h.id}`;
     case 'comment':
