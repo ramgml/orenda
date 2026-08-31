@@ -32,6 +32,7 @@ export function ColumnView({
   dragHandleProps,
   selectedTaskIds,
   onToggleTask,
+  filterActive,
 }: {
   columnId: string;
   name: string;
@@ -66,6 +67,12 @@ export function ColumnView({
   dragHandleProps?: Record<string, unknown>;
   selectedTaskIds?: ReadonlySet<string>;
   onToggleTask?: (taskId: string) => void;
+  /** T106: the board's search filter is active. Gates the
+   *  filtered-empty hint so a naturally empty column (no tasks at
+   *  all, or after a drag moved the last card out) doesn't claim
+   *  "Ничего не найдено" — the hint is ONLY about the filter hiding
+   *  cards. */
+  filterActive?: boolean;
 }): JSX.Element {
   const { setNodeRef, isOver } = useDroppable({ id: columnId });
   const navigate = useNavigate();
@@ -160,8 +167,12 @@ export function ColumnView({
           </button>
         </div>
       </div>
-
       <ul className="space-y-2 flex-1">
+        {filterActive && tasks.length === 0 && (
+          <li className="text-xs text-slate-400 italic py-2 select-none" data-testid="column-empty">
+            Ничего не найдено
+          </li>
+        )}
         {tasks.map((t) => (
           <li key={t.id} className="flex items-start gap-1 min-w-0">
             {onToggleTask && (
