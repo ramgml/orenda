@@ -313,6 +313,7 @@ export interface TaskCounters {
 // StudyProposalView — Phase 31.9: the lightweight projection the
 // Dashboard tray renders. The full Proposal entity (with body_md,
 // accepted_task_id, resolved_at) stays in the agent namespace.
+
 export interface StudyProposalView {
   id: string;
   course_id?: string;
@@ -321,6 +322,16 @@ export interface StudyProposalView {
   target_date: string; // YYYY-MM-DD
   agent_id: string;
   created_at: string;
+}
+
+// OverviewResponse — Task 107: wire shape of GET /api/v1/overview,
+// the Dashboard screen's system-level readings.
+export interface OverviewResponse {
+  projects: number;
+  tasks_by_status: Record<string, number>;
+  wiki_pages: number;
+  events: number;
+  activity: { date: string; created: number; completed: number }[];
 }
 
 // StudyProposalFull — returned by the accept/dismiss endpoints
@@ -895,6 +906,15 @@ class ApiClient {
         proposals: StudyProposalView[];
       }>(`/api/v1/today`)
       .then((r) => r.data);
+  }
+
+  // ---- Overview (Task 107) ----
+
+  // System-level readings for the Dashboard screen: entity counts
+  // plus a 30-day created/completed activity series. Distinct from
+  // getToday, which is the personal daily slice.
+  getOverview(): Promise<OverviewResponse> {
+    return this.http.get<OverviewResponse>(`/api/v1/overview`).then((r) => r.data);
   }
 
   // ---- Study proposals (Phase 31.9) ----

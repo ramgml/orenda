@@ -23,7 +23,9 @@ interface NavEntry {
 }
 
 const NAV: NavEntry[] = [
-  { to: '/', label: 'Dashboard', glyph: '◉' },
+  { to: '/', label: 'Today', glyph: '◉' },
+  // Task 107: system readings — separate from the personal Today screen.
+  { to: '/dashboard', label: 'Dashboard', glyph: '◫' },
   { to: '/calendar', label: 'Calendar', glyph: '▦' },
   { to: '/wiki', label: 'Wiki', glyph: '✎', matchPrefix: '/wiki' },
   { to: '/agents', label: 'Agents', glyph: '◐' },

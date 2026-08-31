@@ -493,6 +493,11 @@ func NewRouter(deps *Dependencies) http.Handler {
 			// due-today, scheduled-today, awaiting count, active timer.
 			r.Get("/today", getTodayHandler(deps))
 
+			// Task 107: Dashboard screen — system-level readings
+			// (entity counts + activity series). Deliberately not
+			// part of /today: that stays the personal daily slice.
+			r.Get("/overview", getOverviewHandler(deps))
+
 			// Phase 31.6: study proposals (the Dashboard tray).
 			// The proposals table is single-owner (no per-user
 			// scoping) so the user's cookie is enough — we don't
