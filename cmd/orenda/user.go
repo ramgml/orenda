@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"syscall"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -287,11 +286,12 @@ func readPassword(cmd *cobra.Command, fromStdin bool) (string, error) {
 		}
 		return strings.TrimRight(scanner.Text(), "\r\n"), nil
 	}
-	if !term.IsTerminal(syscall.Stdin) {
+	stdinFd := stdinFD()
+	if !term.IsTerminal(stdinFd) {
 		return "", errors.New("stdin is not a TTY; use --password-stdin to read from a pipe")
 	}
 	fmt.Fprint(os.Stderr, "Password: ")
-	pw, err := term.ReadPassword(syscall.Stdin)
+	pw, err := term.ReadPassword(stdinFd)
 	fmt.Fprintln(os.Stderr)
 	if err != nil {
 		return "", fmt.Errorf("read password: %w", err)
