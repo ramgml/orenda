@@ -376,6 +376,7 @@ export interface Comment {
   author_id: string;
   body_md: string;
   created_at: string;
+  edited_at?: string;
 }
 
 /**
@@ -538,6 +539,12 @@ class ApiClient {
   createTaskComment(taskId: string, body_md: string): Promise<Comment> {
     return this.http
       .post<Comment>(`/api/v1/tasks/${taskId}/comments`, { body_md })
+      .then((r) => r.data);
+  }
+
+  updateTaskComment(taskId: string, commentId: string, body_md: string): Promise<Comment> {
+    return this.http
+      .patch<Comment>(`/api/v1/tasks/${taskId}/comments/${commentId}`, { body_md })
       .then((r) => r.data);
   }
 
