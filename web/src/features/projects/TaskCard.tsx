@@ -245,7 +245,7 @@ function AssigneeChip({ task, agent }: { task: Task; agent?: Agent }): JSX.Eleme
   return (
     <span
       data-testid="assignee-user"
-      className="inline-flex items-center justify-center h-5 w-5 rounded-full text-[10px] bg-slate-200 text-slate-700 font-medium"
+      className="inline-flex items-center justify-center h-5 w-5 rounded-full text-[10px] bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 font-medium"
       title={`User: ${task.assignee_id}`}
     >
       {initials}

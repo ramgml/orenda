@@ -554,7 +554,7 @@ export function DescriptionEditor({
           type="button"
           variant="link"
           onClick={() => setEditing(true)}
-          className="block h-auto p-0 text-slate-400 text-sm italic hover:text-slate-700"
+          className="block h-auto p-0 text-slate-400 text-sm italic hover:text-slate-700 dark:hover:text-slate-300"
         >
           + Add description
         </Button>

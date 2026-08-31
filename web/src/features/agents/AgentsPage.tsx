@@ -248,7 +248,7 @@ export function AgentsPage(): JSX.Element {
                       a.status === 'online'
                         ? 'bg-green-100 text-green-800'
                         : a.status === 'disabled'
-                          ? 'bg-slate-200 text-slate-600'
+                          ? 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
                           : 'bg-amber-100 text-amber-800'
                     }`}
                   >

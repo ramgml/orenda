@@ -7,7 +7,6 @@ import {
   type SlotInfo,
 } from 'react-big-calendar';
 import withDragAndDrop from 'react-big-calendar/lib/addons/dragAndDrop';
-import 'react-big-calendar/lib/addons/dragAndDrop/styles.css';
 import {
   format,
   parse,
@@ -17,10 +16,6 @@ import {
   subMonths,
   startOfMonth,
   endOfMonth,
-  eachDayOfInterval,
-  formatISO,
-  isSameDay,
-  isSameMonth,
 } from 'date-fns';
 import { enUS } from 'date-fns/locale';
 
@@ -32,6 +27,7 @@ import { Checkbox } from '@/shared/ui/checkbox';
 import { Dialog, DialogContent } from '@/shared/ui/dialog';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 import { Input } from '@/shared/ui/input';
+import { Calendar as DayPickerCalendar } from '@/shared/ui/calendar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
 import { Textarea } from '@/shared/ui/textarea';
 import { useWebSocketTopic } from '@/shared/ws';
@@ -683,83 +679,19 @@ function MiniCalendar({
   cursor: Date;
   onPick: (d: Date) => void;
 }): JSX.Element {
-  // We show the month the cursor is in.
-  const monthStart = startOfMonth(cursor);
-  const monthEnd = endOfMonth(cursor);
-  // Pad to Monday-aligned weeks.
-  const gridStart = new Date(monthStart);
-  gridStart.setDate(gridStart.getDate() - ((gridStart.getDay() + 6) % 7));
-  const gridEnd = new Date(monthEnd);
-  gridEnd.setDate(gridEnd.getDate() + (7 - 1 - ((gridEnd.getDay() + 6) % 7)));
-  const days = eachDayOfInterval({ start: gridStart, end: gridEnd });
-  const today = new Date();
-
   return (
-    <div className="rounded border border-border bg-background p-2 text-sm">
-      <div className="flex items-center justify-between mb-2">
-        <Button
-          type="button"
-          onClick={() => onPick(subMonths(cursor, 1))}
-          variant="ghost"
-          size="sm"
-          className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-          title="Previous month"
-        >
-          ‹
-        </Button>
-        <div className="text-xs font-semibold">
-          {new Intl.DateTimeFormat('en-US', {
-            month: 'long',
-            year: 'numeric',
-          }).format(cursor)}
-        </div>
-        <Button
-          type="button"
-          onClick={() => onPick(addMonths(cursor, 1))}
-          variant="ghost"
-          size="sm"
-          className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-          title="Next month"
-        >
-          ›
-        </Button>
-      </div>
-      <div className="grid grid-cols-7 text-[10px] uppercase text-slate-400 mb-1">
-        {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
-          <div key={i} className="text-center">
-            {d}
-          </div>
-        ))}
-      </div>
-      <div className="grid grid-cols-7 gap-0.5">
-        {days.map((d) => {
-          const inMonth = isSameMonth(d, monthStart);
-          const isToday = isSameDay(d, today);
-          const isCursor = isSameDay(d, cursor);
-          return (
-            <button
-              key={formatISO(d, { representation: 'date' })}
-              type="button"
-              onClick={() => onPick(d)}
-              className={`aspect-square rounded text-xs flex items-center justify-center ${
-                isCursor
-                  ? 'bg-orenda-500 text-white'
-                  : isToday
-                    ? 'bg-orenda-100 dark:bg-orenda-900/30 text-orenda-700 dark:text-orenda-300'
-                    : inMonth
-                      ? 'hover:bg-slate-100 dark:hover:bg-slate-800 text-foreground'
-                      : 'text-slate-300 dark:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
-            >
-              {d.getDate()}
-            </button>
-          );
-        })}
-      </div>
+    <div className="rounded border border-border bg-background p-1 text-sm">
+      <DayPickerCalendar
+        mode="single"
+        month={cursor}
+        selected={cursor}
+        weekStartsOn={1}
+        onMonthChange={onPick}
+        onSelect={(d) => d && onPick(d)}
+      />
     </div>
   );
 }
-
 // ---------------------------------------------------------------------------
 // Event modal — used for both Create and Edit
 // ---------------------------------------------------------------------------
