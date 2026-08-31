@@ -16,6 +16,7 @@ import {
   type TaskAttachment,
 } from '@/shared/api/client';
 import { queueUpdateTask } from '@/shared/offline/outbox';
+import { useAgents } from '@/shared/hooks/useAgents';
 import { useWebSocketTopic } from '@/shared/ws';
 import { StartTimer } from '@/features/tasks/TimerWidget';
 import { usePasteImage } from '@/features/attachments/usePasteImage';
@@ -780,7 +781,27 @@ function ColorPicker({
   );
 }
 
-function ActivityLog({ items }: { items: TaskActivity[] }): JSX.Element {
+export function ActivityLog({ items }: { items: TaskActivity[] }): JSX.Element {
+  const { data: agents } = useAgents();
+  const { user } = useAuth();
+
+  // Resolve `actor_type:actor_id` to a human-readable label: agents
+  // through the cached agent list (fallback to the id prefix while
+  // the cache is cold), the current user through the auth session
+  // (same convention as assigneeLabel() in TaskFieldControls). A
+  // named resolver here is a stable domain concept — it maps audit
+  // actor coordinates to a display label, and the fallback rules
+  // (cold cache, unknown user) are non-obvious.
+  function actorLabel(a: TaskActivity): string {
+    if (a.actor_type === 'agent') {
+      return agents?.find((ag) => ag.id === a.actor_id)?.name ?? a.actor_id.slice(0, 8);
+    }
+    if (a.actor_type === 'user' && user && a.actor_id === user.user_id) {
+      return user.display_name || 'Me';
+    }
+    return a.actor_type;
+  }
+
   // Action verbs we render as a human label.
   //
   // Phase 27.9: pre-27.9 rows stored status/priority/assignee
@@ -834,12 +855,12 @@ function ActivityLog({ items }: { items: TaskActivity[] }): JSX.Element {
               <span className="text-xs text-slate-400 font-mono shrink-0">
                 {a.created_at.slice(0, 16).replace('T', ' ')}
               </span>
-              <span className="text-slate-500">
-                {a.actor_type}:{a.actor_id.slice(0, 8)}
-              </span>
-              <span>{verb[a.action] ?? a.action}</span>
+              <span className="text-slate-500 shrink-0 whitespace-nowrap">{actorLabel(a)}</span>
+              <span className="whitespace-nowrap">{verb[a.action] ?? a.action}</span>
               {a.payload && a.payload !== '{}' && (
-                <span className="text-xs text-slate-400 truncate">· {a.payload}</span>
+                <span className="text-xs text-slate-400 min-w-0 truncate" title={a.payload}>
+                  · {a.payload}
+                </span>
               )}
             </li>
           ))}
