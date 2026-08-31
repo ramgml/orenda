@@ -1,4 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -250,6 +251,25 @@ export function TaskViewBody({
     }
   };
 
+  // Due patch (T90). Empty string clears the due date — the backend
+  // parseOptionalTime("") returns nil, so the field resets. A date
+  // becomes local midnight ISO (QuickCapture convention, Phase
+  // 30.10): date-only inputs are TZ-naive so "the 15th" is the 15th
+  // in the operator's browser.
+  const onSaveDue = async (date: string): Promise<void> => {
+    if (!task) return;
+    setBusy(true);
+    try {
+      const due_at = date === '' ? '' : new Date(`${date}T00:00:00`).toISOString();
+      const t = await patchTaskOrQueue(task, { due_at });
+      setTask(t);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   async function onDelete(): Promise<void> {
     if (!window.confirm('Delete this task? This cannot be undone.')) return;
     setBusy(true);
@@ -411,7 +431,7 @@ export function TaskViewBody({
             Awaiting <span className="font-mono">{task.awaiting}</span> action
           </div>
         )}
-        {task.due_at && <SidebarField label="Due" value={task.due_at} />}
+        <DueEditor task={task} busy={busy} onSaveDue={onSaveDue} />
         <ColorPicker value={task.color} onSave={onSaveColor} busy={busy} />
         <TagsList taskId={taskId} initial={tags} />
         <BlockedByList taskId={taskId} projectId={task.project_id || ''} />
@@ -612,13 +632,83 @@ export function DescriptionEditor({
   );
 }
 
-function SidebarField({ label, value }: { label: string; value: string }): JSX.Element {
+/**
+ * Due date editor (T90) + "Show in calendar" deep link.
+ *
+ * The date input commits on change (one PATCH per picked date —
+ * native pickers already debounce implicit keystrokes) and offers a
+ * "clear" path that PATCHes the empty string, mirroring the
+ * ColorPicker's explicit-remove affordance. The link jumps to
+ * /calendar?date=… seeded with the due date (falling back to
+ * start_at); with neither field set there is nothing to show, so
+ * the link is not rendered.
+ */
+export function DueEditor({
+  task,
+  busy,
+  onSaveDue,
+}: {
+  task: Task;
+  busy: boolean;
+  onSaveDue: (date: string) => Promise<void>;
+}): JSX.Element {
+  const dateValue = toDateInputValue(task.due_at ?? task.start_at ?? '');
+
+  function commit(next: string): void {
+    const current = toDateInputValue(task.due_at ?? '');
+    if (next === current) return;
+    void onSaveDue(next);
+  }
+
   return (
-    <div className="rounded border border-border p-3">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="font-mono">{value}</p>
+    <div className="rounded border border-border p-3 space-y-2">
+      <p className="text-xs text-slate-500">Due</p>
+      <div className="flex items-center gap-2">
+        <Input
+          type="date"
+          defaultValue={dateValue}
+          key={dateValue}
+          onChange={(e) => commit(e.target.value)}
+          disabled={busy}
+          className="h-7 text-xs"
+          title="Due date"
+        />
+        {task.due_at && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => void onSaveDue('')}
+            className="h-6 px-2 text-xs"
+            title="Remove the due date"
+          >
+            clear
+          </Button>
+        )}
+      </div>
+      {(task.due_at ?? task.start_at) && (
+        <Link
+          to={`/calendar?date=${dateValue}`}
+          className="text-xs text-orenda-600 hover:underline"
+        >
+          Show in calendar
+        </Link>
+      )}
     </div>
   );
+}
+
+// toDateInputValue extracts the YYYY-MM-DD an <input type="date">
+// needs from an ISO timestamp, in the timestamp's calendar date.
+function toDateInputValue(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 /**
