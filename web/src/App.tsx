@@ -24,6 +24,7 @@ import { InboxPage } from '@/features/inbox/InboxPage';
 import { QuickCapture } from '@/features/inbox/QuickCapture';
 import { ReviewPage } from '@/features/review/ReviewPage';
 import { TodayPage } from '@/features/today/TodayPage';
+import { DashboardPage } from '@/features/dashboard/DashboardPage';
 import { CoursesPage } from '@/features/courses/CoursesPage';
 import { CourseDetailPage } from '@/features/courses/CourseDetailPage';
 import { LessonPage } from '@/features/courses/LessonPage';
@@ -93,7 +94,10 @@ function Shell(): JSX.Element {
             </RequireAuth>
           }
         >
+          {/* Task 107: `/` is Today (personal day); /dashboard is the
+              system readings screen. Two concerns, two routes. */}
           <Route path="/" element={<TodayPage />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/inbox" element={<InboxPage />} />
           <Route path="/review" element={<ReviewPage />} />
           <Route path="/courses" element={<CoursesPage />} />
@@ -165,10 +169,9 @@ export function RequireAuth({ children }: { children: ReactNode }): JSX.Element 
   return <>{children}</>;
 }
 
-// Phase 20: Dashboard was the home route; replaced by TodayPage
-// (overdue / due-today / scheduled / awaiting in one screen). The
-// old Stats component has been removed; the same data is reachable
-// through Reports + the project sidebar.
+// Phase 20 made Today the home route; Task 107 restored a separate
+// Dashboard at /dashboard (system readings + activity chart) while
+// `/` stays the personal daily slice (TodayPage).
 
 function Placeholder({ title }: { title: string }): JSX.Element {
   return (
