@@ -8,11 +8,12 @@
  *   - The "+" button in the corner (data-testid="quick-capture-toggle")
  *
  * Submit creates an Inbox task via api.createInboxTask, then shows a
- * success toast with two actions: "Open task" (navigates to
- * /tasks/:id) and "Dismiss". Esc closes the modal.
+ * success toast with two actions: "Open task" (opens /tasks/:id as a
+ * modal via the router's backgroundLocation contract) and "Dismiss".
+ * Esc closes the modal.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { QuickCapture } from '@/features/inbox/QuickCapture';
@@ -309,5 +310,47 @@ describe('QuickCapture', () => {
     fireEvent.click(screen.getByTestId('quick-capture-toggle'));
     const textarea = screen.getByTestId('quick-capture-input') as HTMLTextAreaElement;
     expect(document.activeElement).toBe(textarea);
+  });
+
+  // Task 102: "Open task" on the toast opens the captured task as a
+  // modal overlay (navigate + state.backgroundLocation), not a
+  // full-page jump.
+  it('Open task navigates with state.backgroundLocation (modal contract)', async () => {
+    stubHttp.post.mockResolvedValueOnce({
+      data: {
+        id: 'modal-7',
+        title: 'Toast open',
+        status: 'todo',
+        priority: 'medium',
+        awaiting: 'none',
+      },
+    });
+
+    const navigations: Array<{ pathname: string; state: unknown }> = [];
+    function Probe() {
+      const location = useLocation();
+      navigations.push({ pathname: location.pathname, state: location.state });
+      return null;
+    }
+    render(
+      <MemoryRouter initialEntries={['/today']}>
+        <Probe />
+        <QuickCapture />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByTestId('quick-capture-toggle'));
+    fireEvent.change(screen.getByTestId('quick-capture-input'), {
+      target: { value: 'Toast open' },
+    });
+    fireEvent.click(screen.getByTestId('quick-capture-submit'));
+
+    fireEvent.click(await screen.findByText('Open task'));
+
+    const last = navigations[navigations.length - 1];
+    expect(last.pathname).toBe('/tasks/modal-7');
+    expect(last.state).toEqual({
+      backgroundLocation: expect.objectContaining({ pathname: '/today' }),
+    });
   });
 });

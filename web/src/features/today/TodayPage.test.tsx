@@ -18,8 +18,8 @@
  * the same way useWebSocketTopic does and verify it gets called.
  */
 import { AxiosError } from 'axios';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TodayPage } from '@/features/today/TodayPage';
@@ -52,12 +52,27 @@ afterEach(() => {
   cleanup();
 });
 
-function mount() {
+function mount(initialEntries?: string[]) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries ?? ['/']}>
       <TodayPage />
     </MemoryRouter>,
   );
+}
+
+/**
+ * RouteProbe records the last navigation's location object (pathname
+ * + router state) so tests can assert on what a click "navigated" to.
+ * Rendered alongside the page under test inside the same router.
+ */
+function RouteProbe({
+  onNavigate,
+}: {
+  onNavigate: (loc: { pathname: string; state: unknown }) => void;
+}) {
+  const location = useLocation();
+  onNavigate({ pathname: location.pathname, state: location.state });
+  return null;
 }
 
 function makeTask(
@@ -466,5 +481,71 @@ describe('TodayPage', () => {
 
     await waitFor(() => expect(getCallCount).toBeGreaterThan(before));
     expect(await screen.findByTestId('proposal-card')).toBeTruthy();
+  });
+
+  // --- Task 102: task modal everywhere ---
+  //
+  // Clicking a task on Today must navigate with
+  // state.backgroundLocation (the TaskModal contract) so App renders
+  // the modal over the still-mounted Today page — not a full-page
+  // jump to /tasks/:id. The "stop" link in the active-timer row
+  // additionally must NOT carry the legacy `#timer` hash.
+
+  it('navigates task links with state.backgroundLocation (modal contract)', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        ...emptyToday,
+        due_today: [makeTask({ id: 'modal-1', title: 'Open me as modal' })],
+      },
+    });
+
+    const navigations: Array<{ pathname: string; state: unknown }> = [];
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <RouteProbe onNavigate={(loc) => navigations.push(loc)} />
+        <TodayPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText('Open me as modal'));
+
+    // RouteProbe re-rendered on the new location: the task route with
+    // the background location ("/") carried in router state.
+    const last = navigations[navigations.length - 1];
+    expect(last.pathname).toBe('/tasks/modal-1');
+    expect(last.state).toEqual({ backgroundLocation: expect.objectContaining({ pathname: '/' }) });
+  });
+
+  it('timer stop link drops the legacy #timer hash and keeps the modal contract', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        ...emptyToday,
+        active_timer: { task_id: 'abc12345-deadbeef', started_at: '2026-08-12T10:00:00Z' },
+      },
+    });
+
+    const navigations: Array<{ pathname: string; state: unknown; search: string }> = [];
+    function RecordingProbe() {
+      const location = useLocation();
+      navigations.push({
+        pathname: location.pathname,
+        state: location.state,
+        search: location.search,
+      });
+      return null;
+    }
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <RecordingProbe />
+        <TodayPage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByText('stop'));
+
+    const last = navigations[navigations.length - 1];
+    expect(last.pathname).toBe('/tasks/abc12345-deadbeef');
+    expect(last.search).toBe('');
+    expect(last.state).toEqual({ backgroundLocation: expect.objectContaining({ pathname: '/' }) });
   });
 });

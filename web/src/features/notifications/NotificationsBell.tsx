@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { TaskLink } from '@/features/tasks/TaskModal';
+
 import { api, type Notification } from '@/shared/api/client';
 import { useWebSocketTopic } from '@/shared/ws';
 import { Button } from '@/shared/ui/button';
@@ -113,14 +115,28 @@ export function NotificationsBell(): JSX.Element {
                       </p>
                     </div>
                     <div className="flex gap-1">
-                      {p.link && (
-                        <Link
-                          to={p.link}
+                      {/* Task 102: task payloads deep-link into the modal
+                          overlay when the link is a /tasks/<uuid> route;
+                          anything else (wiki, project, …) keeps the plain
+                          Link behaviour. */}
+                      {p.link && TASK_LINK_RE.test(p.link) ? (
+                        <TaskLink
+                          taskId={p.link.slice('/tasks/'.length)}
                           onClick={() => setOpen(false)}
                           className="text-xs text-orenda-600 hover:underline"
                         >
                           open
-                        </Link>
+                        </TaskLink>
+                      ) : (
+                        p.link && (
+                          <Link
+                            to={p.link}
+                            onClick={() => setOpen(false)}
+                            className="text-xs text-orenda-600 hover:underline"
+                          >
+                            open
+                          </Link>
+                        )
                       )}
                       {n.read_at == null && (
                         <Button
@@ -143,3 +159,9 @@ export function NotificationsBell(): JSX.Element {
     </Popover>
   );
 }
+
+// Task 102: a notification link opens the task modal only when it
+// points at a bare /tasks/<uuid> route. Legacy payloads may carry
+// other shapes (old numeric ids, extra segments, wiki/project links)
+// — those keep the plain-Link full-page behaviour.
+const TASK_LINK_RE = /^\/tasks\/[0-9a-f-]{36}$/;

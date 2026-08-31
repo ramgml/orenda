@@ -11,10 +11,12 @@
  * the task stays in the queue.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ReviewPage } from '@/features/review/ReviewPage';
 import { wsClient } from '@/shared/ws';
+
+import { ReviewPage } from '@/features/review/ReviewPage';
 
 const { stubHttp } = vi.hoisted(() => ({
   stubHttp: {
@@ -95,13 +97,21 @@ function makeItem(
 describe('ReviewPage', () => {
   it('renders the loading placeholder while the queue is in flight', () => {
     stubHttp.get.mockReturnValue(new Promise(() => {}));
-    render(<ReviewPage />);
+    render(
+      <MemoryRouter>
+        <ReviewPage />
+      </MemoryRouter>,
+    );
     expect(screen.getByText('Loading…')).toBeTruthy();
   });
 
   it('renders the empty state when the queue is empty', async () => {
     stubHttp.get.mockResolvedValueOnce({ data: { tasks: [], count: 0 } });
-    render(<ReviewPage />);
+    render(
+      <MemoryRouter>
+        <ReviewPage />
+      </MemoryRouter>,
+    );
     expect(await screen.findByText('Nothing to review — everything is up to date.')).toBeTruthy();
   });
 
@@ -109,7 +119,11 @@ describe('ReviewPage', () => {
     stubHttp.get.mockResolvedValueOnce({
       data: { tasks: [makeItem('t1', 'First'), makeItem('t2', 'Second')], count: 2 },
     });
-    render(<ReviewPage />);
+    render(
+      <MemoryRouter>
+        <ReviewPage />
+      </MemoryRouter>,
+    );
 
     const rows = await screen.findAllByTestId('review-row');
     expect(rows.length).toBe(2);
@@ -126,7 +140,11 @@ describe('ReviewPage', () => {
     });
     stubHttp.post.mockResolvedValueOnce({ data: {} });
 
-    render(<ReviewPage />);
+    render(
+      <MemoryRouter>
+        <ReviewPage />
+      </MemoryRouter>,
+    );
     await screen.findByTestId('review-row');
 
     fireEvent.click(screen.getByTestId('review-accept'));
@@ -147,7 +165,11 @@ describe('ReviewPage', () => {
     stubHttp.post.mockResolvedValueOnce({ data: {} });
     const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('Use a darker shade.');
 
-    render(<ReviewPage />);
+    render(
+      <MemoryRouter>
+        <ReviewPage />
+      </MemoryRouter>,
+    );
     await screen.findByTestId('review-row');
 
     fireEvent.click(screen.getByTestId('review-reject'));
@@ -168,7 +190,11 @@ describe('ReviewPage', () => {
     });
     vi.spyOn(window, 'prompt').mockReturnValue(null); // cancel
 
-    render(<ReviewPage />);
+    render(
+      <MemoryRouter>
+        <ReviewPage />
+      </MemoryRouter>,
+    );
     await screen.findByTestId('review-row');
 
     fireEvent.click(screen.getByTestId('review-reject'));
@@ -182,7 +208,11 @@ describe('ReviewPage', () => {
   it('surfaces an error message when the queue endpoint rejects', async () => {
     stubHttp.get.mockRejectedValueOnce(new Error('boom'));
 
-    render(<ReviewPage />);
+    render(
+      <MemoryRouter>
+        <ReviewPage />
+      </MemoryRouter>,
+    );
 
     expect(await screen.findByText('boom')).toBeTruthy();
   });
@@ -193,7 +223,11 @@ describe('ReviewPage', () => {
     });
     stubHttp.post.mockRejectedValueOnce(new Error('nope'));
 
-    render(<ReviewPage />);
+    render(
+      <MemoryRouter>
+        <ReviewPage />
+      </MemoryRouter>,
+    );
     await screen.findByTestId('review-row');
 
     fireEvent.click(screen.getByTestId('review-accept'));
@@ -208,12 +242,47 @@ describe('ReviewPage', () => {
       data: { tasks: [makeItem('t1', 'A')], count: 1 },
     });
 
-    render(<ReviewPage />);
+    render(
+      <MemoryRouter>
+        <ReviewPage />
+      </MemoryRouter>,
+    );
     await screen.findByTestId('review-row');
     const callsBefore = stubHttp.get.mock.calls.length;
 
     wsClient['listeners'].get('tasks')?.forEach((fn) => fn({ topic: 'tasks', body: {} }));
 
     await waitFor(() => expect(stubHttp.get.mock.calls.length).toBeGreaterThan(callsBefore));
+  });
+
+  // Task 102: opening a queued task must navigate via the router
+  // with state.backgroundLocation (modal overlay) — window.location
+  // full reloads are gone.
+  it('clicking a row navigates via the router with backgroundLocation (modal contract)', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: { tasks: [makeItem('modal-5', 'Queued task')], count: 1 },
+    });
+
+    const navigations: Array<{ pathname: string; state: unknown }> = [];
+    function Probe() {
+      const location = useLocation();
+      navigations.push({ pathname: location.pathname, state: location.state });
+      return null;
+    }
+    render(
+      <MemoryRouter initialEntries={['/review']}>
+        <Probe />
+        <ReviewPage />
+      </MemoryRouter>,
+    );
+
+    // The row body button (project label + title) is the open trigger.
+    fireEvent.click(await screen.findByText('Queued task'));
+
+    const last = navigations[navigations.length - 1];
+    expect(last.pathname).toBe('/tasks/modal-5');
+    expect(last.state).toEqual({
+      backgroundLocation: expect.objectContaining({ pathname: '/review' }),
+    });
   });
 });

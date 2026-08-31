@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+import { TaskLink } from '@/features/tasks/TaskModal';
+
 import { api } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
 import { Textarea } from '@/shared/ui/textarea';
@@ -241,9 +243,9 @@ export function LessonPage(): JSX.Element {
       {lesson.task_id && (
         <div className="text-xs text-slate-500">
           Exercise:{' '}
-          <Link to={`/tasks/${lesson.task_id}`} className="text-foreground hover:underline">
+          <TaskLink taskId={lesson.task_id} className="text-foreground hover:underline">
             Open task
-          </Link>
+          </TaskLink>
         </div>
       )}
 

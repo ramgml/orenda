@@ -15,7 +15,7 @@
  *   - The `link` payload renders an "open" link to that route.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { NotificationsBell } from '@/features/notifications/NotificationsBell';
@@ -278,5 +278,74 @@ describe('NotificationsBell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Notifications' }));
 
     expect(await screen.findByText('agent.offline')).toBeTruthy();
+  });
+
+  // Task 102: a /tasks/<uuid> link renders as a TaskLink (modal
+  // contract: navigate + state.backgroundLocation). Any other link
+  // shape keeps the plain-Link full-page behaviour.
+  it('renders task links as modal links carrying backgroundLocation', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        notifications: [
+          makeNotification({
+            payload: '{"title":"Review","link":"/tasks/018f6f2a-7b21-7cc2-9f3a-1f2e3d4c5b6a"}',
+          }),
+        ],
+        unread: 1,
+      },
+    });
+
+    const navigations: Array<{ pathname: string; state: unknown }> = [];
+    function Probe() {
+      const location = useLocation();
+      navigations.push({ pathname: location.pathname, state: location.state });
+      return null;
+    }
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Probe />
+        <NotificationsBell />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Notifications' }));
+    fireEvent.click(await screen.findByText('open'));
+
+    const last = navigations[navigations.length - 1];
+    expect(last.pathname).toBe('/tasks/018f6f2a-7b21-7cc2-9f3a-1f2e3d4c5b6a');
+    expect(last.state).toEqual({
+      backgroundLocation: expect.objectContaining({ pathname: '/' }),
+    });
+  });
+
+  it('renders non-task links (wiki, legacy numeric ids) as plain links without backgroundLocation', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        notifications: [
+          makeNotification({
+            id: 'wiki',
+            payload: '{"title":"Wiki","link":"/wiki/home"}',
+          }),
+          makeNotification({
+            id: 'legacy',
+            payload: '{"title":"Legacy","link":"/tasks/42"}',
+          }),
+        ],
+        unread: 2,
+      },
+    });
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <NotificationsBell />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }));
+
+    const links = await screen.findAllByText('open');
+    // Both non-task notifications render exactly one "open" plain link each.
+    expect(links.length).toBe(2);
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(
+      expect.arrayContaining(['/wiki/home', '/tasks/42']),
+    );
   });
 });
