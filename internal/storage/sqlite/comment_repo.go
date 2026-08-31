@@ -132,7 +132,7 @@ func (r *commentRepo) MentionsForComment(ctx context.Context, commentID string) 
 // Task 112: comments were immutable before this; edited_at is set to
 // datetime('now') on every successful update so the UI can badge
 // edited comments. RowsAffected==0 maps to comment.ErrNotFound.
-func (r *commentRepo) Update(ctx context.Context, id string, bodyMd string) (*comment.Comment, error) {
+func (r *commentRepo) Update(ctx context.Context, id, bodyMd string) (*comment.Comment, error) {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE comments SET body_md = ?, edited_at = datetime('now') WHERE id = ?`,
 		bodyMd, id)
