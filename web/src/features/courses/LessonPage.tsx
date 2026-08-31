@@ -146,7 +146,10 @@ export function LessonPage(): JSX.Element {
   return (
     <section className="p-6 max-w-3xl mx-auto space-y-6">
       <header className="space-y-2">
-        <Link to={`/courses/${course.id}`} className="text-xs text-slate-500 hover:text-slate-700">
+        <Link
+          to={`/courses/${course.id}`}
+          className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+        >
           ← {course.title}
         </Link>
         <div className="flex items-baseline gap-2">
@@ -160,7 +163,7 @@ export function LessonPage(): JSX.Element {
               (isDone
                 ? 'bg-emerald-100 text-emerald-700'
                 : isLocked
-                  ? 'bg-slate-200 text-slate-600'
+                  ? 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
                   : 'bg-blue-100 text-blue-700')
             }
           >
@@ -232,7 +235,7 @@ export function LessonPage(): JSX.Element {
                 data-testid="lesson-edit-content"
                 variant="ghost"
                 size="sm"
-                className="text-xs text-orenda-700 hover:underline"
+                className="text-xs text-orenda-700 dark:text-orenda-300 hover:underline"
               >
                 Edit content
               </Button>

@@ -556,7 +556,7 @@ function TabBtn({
       className={`px-3 py-1.5 text-xs font-medium ${
         active
           ? 'border-b-2 border-orenda-500 text-orenda-700 dark:text-orenda-300'
-          : 'text-slate-500 hover:text-slate-700'
+          : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
       }`}
     >
       {children}
@@ -847,7 +847,7 @@ function NewPageForm({
           onClick={onCancel}
           variant="ghost"
           size="sm"
-          className="text-xs text-slate-500 hover:text-slate-700"
+          className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
         >
           Cancel
         </Button>
@@ -929,7 +929,7 @@ function MoveTargetPicker({
           onClick={onCancel}
           variant="ghost"
           size="sm"
-          className="text-xs text-slate-500 hover:text-slate-700"
+          className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
         >
           Cancel
         </Button>

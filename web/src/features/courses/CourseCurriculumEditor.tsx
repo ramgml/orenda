@@ -483,7 +483,7 @@ function SortableLessonRow(props: {
           data-testid="editor-add-quiz"
           variant="link"
           size="sm"
-          className="mt-1 text-xs text-orenda-700 hover:underline"
+          className="mt-1 text-xs text-orenda-700 dark:text-orenda-300 hover:underline"
         >
           + Add quiz
         </Button>
@@ -555,7 +555,7 @@ function SortableModuleRow(props: { m: EditorModule; h: RowHandlers }): JSX.Elem
         data-testid="editor-add-lesson"
         variant="link"
         size="sm"
-        className="text-xs text-orenda-700 hover:underline"
+        className="text-xs text-orenda-700 dark:text-orenda-300 hover:underline"
       >
         + Add lesson
       </Button>
@@ -927,7 +927,7 @@ export function CourseCurriculumEditor(props: {
           data-testid="editor-import-toggle"
           variant="link"
           size="sm"
-          className="text-xs text-orenda-700 hover:underline"
+          className="text-xs text-orenda-700 dark:text-orenda-300 hover:underline"
         >
           {importOpen ? 'Close import' : 'Import markdown'}
         </Button>
@@ -985,7 +985,7 @@ export function CourseCurriculumEditor(props: {
         data-testid="editor-add-module"
         variant="link"
         size="sm"
-        className="text-sm text-orenda-700 hover:underline"
+        className="text-sm text-orenda-700 dark:text-orenda-300 hover:underline"
       >
         + Add module
       </Button>
