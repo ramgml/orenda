@@ -45,6 +45,24 @@ make web-install               # обязательно один раз — ус
 scripts/install.sh --systemd   # собирает, ставит в ~/.local/bin, включает user service
 ```
 
+### Установка через AI-агента (промт)
+
+Вставьте этот промт вашему AI-агенту (Claude, Codex, Cursor, …), чтобы он установил и настроил Orenda:
+
+```text
+Установи Orenda (https://github.com/ramgml/orenda) на эту машину:
+1. Склонируй репозиторий в ~/opt/orenda и переключись на последний релизный тег (git describe --tags --abbrev=0 на origin/main).
+2. Запусти `make web-install` (нужен Node.js >= 24.11) для сборки веб-SPA.
+3. Запусти `make build` — получится ./bin/orenda.
+4. Запусти `./bin/orenda migrate up`.
+5. Создай пользователя: `echo "<пароль>" | ./bin/orenda user create --email <email> --display-name <имя> --password-stdin --config data/config.yaml`.
+6. Запусти сервер со сгенерированным JWT-секретом:
+   ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
+7. Для постоянной установки вместо шагов 2–6 выполни `scripts/install.sh --systemd` (ставит в ~/.local/bin и включает user service на http://127.0.0.1:2137).
+8. Проверь: `curl -s http://127.0.0.1:2137/healthz` (или открой http://127.0.0.1:2137 в браузере) — страница логина должна загрузиться.
+Не редактируй файлы в data/ вручную — используй только CLI-команды выше.
+```
+
 > `scripts/install.sh` — **единственный** санкционированный способ обновить
 > usage-бинарник. Он отказывается ставить из чего-либо, кроме чистого
 > checkout на `main` (переопределяется флагом `--force`). См.
