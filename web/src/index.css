@@ -41,6 +41,7 @@
   }
 
   .dark {
+    color-scheme: dark;
     --background: 222 47% 11%;
     --foreground: 210 40% 98%;
 
@@ -93,17 +94,27 @@
 }
 .dark .rbc-toolbar button {
   color: hsl(var(--foreground));
+  background: transparent;
+  background-image: none;
   border-color: hsl(var(--border));
-  background-color: transparent;
 }
-.dark .rbc-toolbar button:hover {
+.dark .rbc-toolbar button:hover,
+.dark .rbc-toolbar button:focus {
+  color: hsl(var(--foreground));
   background-color: hsl(var(--accent));
-  color: hsl(var(--accent-foreground));
+  background-image: none;
+  border-color: hsl(var(--border));
 }
+.dark .rbc-toolbar button:active,
 .dark .rbc-toolbar button.rbc-active,
-.dark .rbc-toolbar button.rbc-active:hover {
-  background-color: hsl(var(--primary));
+.dark .rbc-toolbar button:active:hover,
+.dark .rbc-toolbar button:active:focus,
+.dark .rbc-toolbar button.rbc-active:hover,
+.dark .rbc-toolbar button.rbc-active:focus {
   color: hsl(var(--primary-foreground));
+  background-color: hsl(var(--primary));
+  background-image: none;
+  border-color: hsl(var(--primary));
   box-shadow: none;
 }
 .dark .rbc-month-view,
@@ -137,12 +148,34 @@
 .dark .rbc-off-range {
   color: hsl(var(--muted-foreground));
 }
-.dark .rbc-today {
-  background-color: hsl(var(--accent) / 0.5);
+.dark .rbc-today,
+.dark .rbc-time-view .rbc-today,
+.dark .rbc-day-bg.rbc-today,
+.dark .rbc-time-content .rbc-day-bg.rbc-today,
+.dark .rbc-time-view .rbc-allday-cell .rbc-day-bg.rbc-today {
+  background-color: hsl(var(--primary) / 0.18);
 }
-.dark .rbc-time-view .rbc-allday-cell .rbc-day-bg.rbc-today,
-.dark .rbc-time-content .rbc-day-bg.rbc-today {
-  background-color: hsl(var(--accent) / 0.5);
+.dark .rbc-time-view .rbc-today .rbc-date-cell,
+.dark .rbc-header.rbc-today {
+  color: hsl(var(--foreground));
+}
+.dark .rbc-current-time-indicator {
+  background-color: hsl(var(--primary));
+}
+.dark .rbc-time-gutter,
+.dark .rbc-header-gutter,
+.dark .rbc-time-header-gutter,
+.dark .rbc-time-view-resources .rbc-time-gutter,
+.dark .rbc-time-view-resources .rbc-time-header-gutter {
+  background-color: hsl(var(--background));
+  border-color: hsl(var(--border));
+}
+.dark .rbc-time-view-resources .rbc-time-header-gutter {
+  background-color: hsl(var(--background));
+}
+.dark .rbc-slot-selection {
+  background-color: hsl(var(--primary) / 0.5);
+  color: hsl(var(--primary-foreground));
 }
 .dark .rbc-time-slot .rbc-label,
 .dark .rbc-time-gutter .rbc-label,
