@@ -144,7 +144,7 @@ export function TagsList({ taskId, initial }: { taskId: string; initial: Tag[] }
 
       {catalogue.some((t) => !selected.has(t.id)) && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
+          <summary className="cursor-pointer text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
             Add existing tag ({catalogue.length - selectedList.length})
           </summary>
           <div className="mt-2 flex flex-wrap gap-1">

@@ -18,7 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
 
-## [0.14.0] — 2026-08-31
+## [0.14.1] — 2026-08-31
+
+Patch release on top of v0.14.0. Focus: dark-theme polish for the calendar (shadcn mini calendar + rbc overrides) and a build fix — the binary now stamps the real commit and build date via ldflags.
+
+### Fixed
+- **Task 105 (PR #135):** Dark theme fixes — shadcn mini calendar and react-big-calendar overrides now respect `dark:` variants, so the calendar renders correctly in dark mode.
+- **Build (PR #134):** `fix(build)`: stamp commit and buildDate via ldflags — version output (`orenda version`) shows the actual commit/build metadata instead of empty placeholders.
+
 
 Fourteenth pre-alpha release. Focus: task–calendar integration (editable Due dates with a calendar deep link), task modal opening from every in-app surface, client-side search on the board and in the wiki sidebar, and a batch of UI overlap/layout fixes (timer widget vs FAB, inbox triage rows, task-card activity rows).
 

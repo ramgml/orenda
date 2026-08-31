@@ -83,3 +83,96 @@
     color: hsl(var(--foreground));
   }
 }
+
+/* react-big-calendar ships a light-only stylesheet; in dark mode remap
+   its hardcoded whites/grays onto the shadcn tokens so the grid, header
+   strip and text follow the theme. */
+.dark .rbc-calendar {
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--background));
+}
+.dark .rbc-toolbar button {
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--border));
+  background-color: transparent;
+}
+.dark .rbc-toolbar button:hover {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+.dark .rbc-toolbar button.rbc-active,
+.dark .rbc-toolbar button.rbc-active:hover {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  box-shadow: none;
+}
+.dark .rbc-month-view,
+.dark .rbc-time-view,
+.dark .rbc-agenda-view table.rbc-agenda-table {
+  background-color: hsl(var(--background));
+  border-color: hsl(var(--border));
+}
+.dark .rbc-header,
+.dark .rbc-day-bg,
+.dark .rbc-month-row + .rbc-month-row,
+.dark .rbc-time-view .rbc-allday-cell + .rbc-allday-cell,
+.dark .rbc-time-header-content,
+.dark .rbc-time-content,
+.dark .rbc-time-content > * + * > *,
+.dark .rbc-day-slot .rbc-time-slot,
+.dark .rbc-timeslot-group,
+.dark .rbc-agenda-view table.rbc-agenda-table tbody > tr > td + td,
+.dark .rbc-agenda-view table.rbc-agenda-table thead > tr > th {
+  border-color: hsl(var(--border));
+}
+.dark .rbc-header,
+.dark .rbc-agenda-view table.rbc-agenda-table thead > tr > th,
+.dark .rbc-agenda-date-cell,
+.dark .rbc-agenda-time-cell {
+  color: hsl(var(--foreground));
+}
+.dark .rbc-off-range-bg {
+  background-color: hsl(var(--muted));
+}
+.dark .rbc-off-range {
+  color: hsl(var(--muted-foreground));
+}
+.dark .rbc-today {
+  background-color: hsl(var(--accent) / 0.5);
+}
+.dark .rbc-time-view .rbc-allday-cell .rbc-day-bg.rbc-today,
+.dark .rbc-time-content .rbc-day-bg.rbc-today {
+  background-color: hsl(var(--accent) / 0.5);
+}
+.dark .rbc-time-slot .rbc-label,
+.dark .rbc-time-gutter .rbc-label,
+.dark .rbc-time-header-gutter {
+  color: hsl(var(--muted-foreground));
+}
+.dark .rbc-event,
+.dark .rbc-day-slot .rbc-background-event,
+.dark .rbc-timeslot-group .rbc-background-event {
+  background-color: hsl(var(--primary) / 0.9);
+  color: hsl(var(--primary-foreground));
+  border: none;
+}
+.dark .rbc-event.rbc-selected,
+.dark .rbc-day-slot .rbc-selected {
+  background-color: hsl(var(--primary));
+}
+.dark .rbc-show-more {
+  color: hsl(var(--primary));
+  background-color: transparent;
+}
+.dark .rbc-overlay,
+.dark .rbc-overlay-header {
+  background-color: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border-color: hsl(var(--border));
+}
+.dark .rbc-date-cell {
+  color: hsl(var(--foreground));
+}
+.dark .rbc-button-link {
+  color: inherit;
+}
