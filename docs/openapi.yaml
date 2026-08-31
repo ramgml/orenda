@@ -323,6 +323,25 @@ components:
           description: 'Phase 31.7: pending study proposals for the Dashboard tray. Empty array when none.'
           items: { $ref: '#/components/schemas/StudyProposalView' }
 
+    # Task 107: payload returned by /overview — the system Dashboard.
+    OverviewResponse:
+      type: object
+      properties:
+        projects: { type: integer }
+        tasks_by_status:
+          type: object
+          additionalProperties: { type: integer }
+        wiki_pages: { type: integer }
+        events: { type: integer }
+        activity:
+          type: array
+          description: 30-day created-vs-completed series, oldest first.
+          items:
+            type: object
+            properties:
+              date: { type: string }
+              created: { type: integer }
+              completed: { type: integer }
 
     Agent:
       type: object
@@ -1178,6 +1197,19 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TodayResponse' }
+
+  # Task 107: system Dashboard — entity counts + activity series.
+  /api/v1/overview:
+    get:
+      tags: [today]
+      summary: System overview (project/task/page/event counts + 30-day created-vs-completed activity).
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OverviewResponse' }
 
   # Phase 32.11: Dashboard chat pane (commands-only MVP). Messages are
   # persisted to chat_messages (migration 032) for history replay and
