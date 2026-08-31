@@ -127,8 +127,30 @@ func (r *commentRepo) MentionsForComment(ctx context.Context, commentID string) 
 	return out, rows.Err()
 }
 
+// Update overwrites the comment body and stamps edited_at.
+//
+// Task 112: comments were immutable before this; edited_at is set to
+// datetime('now') on every successful update so the UI can badge
+// edited comments. RowsAffected==0 maps to comment.ErrNotFound.
+func (r *commentRepo) Update(ctx context.Context, id string, bodyMd string) (*comment.Comment, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE comments SET body_md = ?, edited_at = datetime('now') WHERE id = ?`,
+		bodyMd, id)
+	if err != nil {
+		return nil, fmt.Errorf("comment.Update: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("comment.Update: %w", err)
+	}
+	if n == 0 {
+		return nil, comment.ErrNotFound
+	}
+	return r.GetByID(ctx, id)
+}
+
 const commentSelectColumns = `
-SELECT id, target_type, target_id, author_type, author_id, body_md, created_at
+SELECT id, target_type, target_id, author_type, author_id, body_md, created_at, edited_at
 FROM comments
 `
 
@@ -138,8 +160,9 @@ func scanComment(row *sql.Row) (*comment.Comment, error) {
 		tType string
 		aType string
 		cAt   string
+		eAt   sql.NullString
 	)
-	err := row.Scan(&c.ID, &tType, &c.TargetID, &aType, &c.AuthorID, &c.BodyMD, &cAt)
+	err := row.Scan(&c.ID, &tType, &c.TargetID, &aType, &c.AuthorID, &c.BodyMD, &cAt, &eAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, comment.ErrNotFound
 	}
@@ -149,6 +172,10 @@ func scanComment(row *sql.Row) (*comment.Comment, error) {
 	c.TargetType = comment.TargetType(tType)
 	c.AuthorType = comment.AuthorType(aType)
 	c.CreatedAt = parseTime(cAt)
+	if eAt.Valid {
+		t := parseTime(eAt.String)
+		c.EditedAt = &t
+	}
 	return &c, nil
 }
 
@@ -158,12 +185,17 @@ func scanCommentRows(rows *sql.Rows) (*comment.Comment, error) {
 		tType string
 		aType string
 		cAt   string
+		eAt   sql.NullString
 	)
-	if err := rows.Scan(&c.ID, &tType, &c.TargetID, &aType, &c.AuthorID, &c.BodyMD, &cAt); err != nil {
+	if err := rows.Scan(&c.ID, &tType, &c.TargetID, &aType, &c.AuthorID, &c.BodyMD, &cAt, &eAt); err != nil {
 		return nil, fmt.Errorf("comment.ScanRows: %w", err)
 	}
 	c.TargetType = comment.TargetType(tType)
 	c.AuthorType = comment.AuthorType(aType)
 	c.CreatedAt = parseTime(cAt)
+	if eAt.Valid {
+		t := parseTime(eAt.String)
+		c.EditedAt = &t
+	}
 	return &c, nil
 }

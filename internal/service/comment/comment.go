@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/comment"
@@ -19,6 +20,7 @@ import (
 var (
 	ErrNotFound     = errors.New("comment service: not found")
 	ErrInvalidInput = errors.New("comment service: invalid input")
+	ErrForbidden    = errors.New("comment service: forbidden")
 )
 
 // Repository is the small surface the service needs from the storage.
@@ -27,6 +29,7 @@ type Repository interface {
 	GetByID(ctx context.Context, id string) (*comment.Comment, error)
 	ListByTarget(ctx context.Context, targetType comment.TargetType, targetID string) ([]*comment.Comment, error)
 	MentionsForComment(ctx context.Context, commentID string) ([]*comment.Mention, error)
+	Update(ctx context.Context, id string, bodyMd string) (*comment.Comment, error)
 }
 
 // AuthorLookup resolves an author_type/author_id pair into something
@@ -166,6 +169,48 @@ func (s *Service) MentionsForComment(ctx context.Context, id string) ([]*comment
 	got, err := s.Repo.MentionsForComment(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	return got, nil
+}
+
+// Update edits an existing comment (Task 112).
+//
+// Authorization mirrors the UI contract: only the original author
+// may edit their own comment — a mismatched (author_type, author_id)
+// pair yields ErrForbidden. A comment mounted on a non-task target
+// is reported as ErrNotFound so it looks "not there" rather than
+// leaking other targets' data.
+//
+// On success a `comment.updated` event is published to the existing
+// `comments` WS topic (mirroring `comment.added` from Add). No
+// notifier fan-out: an edit is not a new-comment notification.
+func (s *Service) Update(ctx context.Context, id, bodyMd string, authorType comment.AuthorType, authorID string) (*comment.Comment, error) {
+	if strings.TrimSpace(bodyMd) == "" {
+		return nil, ErrInvalidInput
+	}
+	existing, err := s.Repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if existing.TargetType != comment.TargetTask {
+		return nil, ErrNotFound
+	}
+	if existing.AuthorType != authorType || existing.AuthorID != authorID {
+		return nil, ErrForbidden
+	}
+	got, err := s.Repo.Update(ctx, id, bodyMd)
+	if err != nil {
+		return nil, fmt.Errorf("comment service.Update: %w", err)
+	}
+
+	if s.Hub != nil {
+		s.Hub.Publish(ctx, ws.Event{
+			Topic: "comments",
+			Body: map[string]any{
+				"type":    "comment.updated",
+				"comment": got,
+			},
+		})
 	}
 	return got, nil
 }

@@ -42,6 +42,7 @@ type Comment struct {
 	AuthorID   string     `json:"author_id"`
 	BodyMD     string     `json:"body_md"`
 	CreatedAt  time.Time  `json:"created_at"`
+	EditedAt   *time.Time `json:"edited_at,omitempty"` // nil = never edited (Task 112)
 }
 
 // Mention records that a comment referenced a user or agent.
