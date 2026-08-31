@@ -67,6 +67,39 @@ Do not edit files inside data/ by hand; use the CLI commands above.
 > checkout on `main` (override with `--force`). See
 > [docs/ARCHITECTURE.md §12.4](docs/ARCHITECTURE.md#124-dev-vs-dogfood-instance-phase-2820).
 
+### Windows
+
+Orenda builds and runs natively on Windows. SQLite is pure-Go
+(`modernc.org/sqlite`, no CGO), so no C toolchain is needed.
+
+**Native build:**
+
+```powershell
+git clone https://github.com/ramgml/orenda ~/opt/orenda
+cd ~/opt/orenda
+git checkout v0.14.0            # latest release tag
+make web-install                # Node.js >= 24.11 required
+make build                      # produces bin\orenda.exe
+.\bin\orenda.exe migrate up
+"your-password" | .\bin\orenda.exe user create `
+    --email you@example.com --display-name You --password-stdin
+$env:ORENDA_AUTH__JWT_SECRET = [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+.\bin\orenda.exe serve          # → http://127.0.0.1:2137
+```
+
+To run it as a background service, wrap `orenda serve` in a Windows
+service (e.g. [WinSW](https://github.com/winsw/winsw)) or a Task
+Scheduler job — `scripts/install.sh` is Unix/systemd-only.
+
+**Cross-compile** from any Unix box:
+
+```bash
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o orenda.exe ./cmd/orenda
+```
+
+**WSL2:** follow the standard Linux quickstart inside WSL —
+`http://127.0.0.1:2137` is reachable from Windows browsers.
+
 For development with hot reload:
 
 ```bash

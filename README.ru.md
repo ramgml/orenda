@@ -68,6 +68,40 @@ scripts/install.sh --systemd   # собирает, ставит в ~/.local/bin,
 > checkout на `main` (переопределяется флагом `--force`). См.
 > [docs/ARCHITECTURE.md §12.4](docs/ARCHITECTURE.md#124-dev-vs-dogfood-instance-phase-2820).
 
+### Windows
+
+Orenda собирается и работает нативно на Windows. SQLite — pure-Go
+(`modernc.org/sqlite`, без CGO), C-тулчейн не нужен.
+
+**Сборка нативно:**
+
+```powershell
+git clone https://github.com/ramgml/orenda ~/opt/orenda
+cd ~/opt/orenda
+git checkout v0.14.0            # последний релизный тег
+make web-install                # нужен Node.js >= 24.11
+make build                      # получится bin\orenda.exe
+.\bin\orenda.exe migrate up
+"пароль" | .\bin\orenda.exe user create `
+    --email you@example.com --display-name Вы --password-stdin
+$env:ORENDA_AUTH__JWT_SECRET = [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+.\bin\orenda.exe serve          # → http://127.0.0.1:2137
+```
+
+Чтобы держать сервер как фоновую службу, оберните `orenda serve` в
+Windows-службу (например, [WinSW](https://github.com/winsw/winsw)) или
+задачу Планировщика — `scripts/install.sh` работает только на
+Unix/systemd.
+
+**Кросс-компиляция** с любой Unix-машины:
+
+```bash
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o orenda.exe ./cmd/orenda
+```
+
+**WSL2:** выполните стандартный Linux-quickstart внутри WSL —
+`http://127.0.0.1:2137` доступен из браузеров Windows.
+
 Для разработки с hot reload:
 
 ```bash
