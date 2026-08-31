@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { Children, Fragment, useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { AxiosError } from 'axios';
 
 import { api } from '@/shared/api/client';
@@ -6,6 +7,8 @@ import type { Comment } from '@/shared/api/client';
 import { useAuth } from '@/features/auth/AuthContext';
 import { Button } from '@/shared/ui/button';
 import { Textarea } from '@/shared/ui/textarea';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 /**
  * Renders a list of comments with @mentions highlighted and inline
@@ -17,8 +20,11 @@ import { Textarea } from '@/shared/ui/textarea';
  * keeps its own fetch cycle). New props from the parent re-sync the
  * local copy via effect.
  *
- * The mention rendering uses a simple regex for @user:<id> /
- * @agent:<id> tokens (the same syntax the comment_repo extracts).
+ * Bodies render as Markdown (GFM) via ReactMarkdown inside a `prose`
+ * article. Mentions (@user:<id> / @agent:<id> — the same syntax the
+ * comment_repo extracts) keep their pill highlight through the custom
+ * `p` component override (MentionP), which also turns single `\n`
+ * into <br/> so plain-text comments keep their line breaks.
  */
 const MENTION_RE = /@(user|agent):([A-Za-z0-9_-]+)/g;
 
@@ -169,7 +175,27 @@ export function CommentsList({ comments }: { comments: Comment[] }): JSX.Element
                 </div>
               </div>
             ) : (
-              <p className="whitespace-pre-wrap">{renderBody(c.body_md)}</p>
+              <article className="prose dark:prose-invert max-w-none text-sm">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    // Mentions inside rendered markdown keep the
+                    // pill highlight (Task 114: replace the manual
+                    // split-render with a component override).
+                    p: MentionP,
+                    a: ({ node, ...props }) => (
+                      <a
+                        {...props}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ),
+                  }}
+                >
+                  {c.body_md}
+                </ReactMarkdown>
+              </article>
             )}
           </li>
         );
@@ -178,34 +204,55 @@ export function CommentsList({ comments }: { comments: Comment[] }): JSX.Element
   );
 }
 
-// renderBody highlights @user:<id> / @agent:<id> tokens with a different
-// colour. We keep it as a string-rewrite so the rendered HTML stays
-// safe (no raw-HTML injection).
-function renderBody(body: string): JSX.Element {
-  const parts: Array<string | { kind: string; id: string }> = [];
-  let lastIndex = 0;
-  for (const m of body.matchAll(MENTION_RE)) {
-    if (m.index === undefined) continue;
-    if (m.index > lastIndex) {
-      parts.push(body.slice(lastIndex, m.index));
-    }
-    parts.push({ kind: m[1]!, id: m[2]! });
-    lastIndex = m.index + m[0].length;
-  }
-  if (lastIndex < body.length) {
-    parts.push(body.slice(lastIndex));
-  }
+/**
+ * Custom ReactMarkdown `p` renderer: splits paragraph text nodes on
+ * the mention regex and renders each @user:<id> / @agent:<id> token
+ * as the same pill as before (Task 114). Non-text children (links,
+ * emphasis, inline code) pass through untouched — a mention inside
+ * inline code stays literal.
+ *
+ * Line feeds inside a text node become <br/>, which keeps plain-text
+ * comments' line breaks visible (ReactMarkdown collapses a single
+ * `\n` inside a paragraph otherwise).
+ */
+function MentionP({ children }: { children?: ReactNode }): JSX.Element {
   return (
-    <>
-      {parts.map((p, i) =>
-        typeof p === 'string' ? (
-          <span key={i}>{p}</span>
-        ) : (
-          <span key={i} className="px-1 rounded bg-blue-100 text-blue-800 font-mono text-xs">
-            @{p.kind}:{p.id.slice(0, 8)}
-          </span>
-        ),
-      )}
-    </>
+    <p>
+      {Children.map(children, (child) => {
+        if (typeof child !== 'string') {
+          return child;
+        }
+        const parts: Array<string | { kind: string; id: string }> = [];
+        let lastIndex = 0;
+        for (const m of child.matchAll(MENTION_RE)) {
+          if (m.index === undefined) continue;
+          if (m.index > lastIndex) {
+            parts.push(child.slice(lastIndex, m.index));
+          }
+          parts.push({ kind: m[1]!, id: m[2]! });
+          lastIndex = m.index + m[0].length;
+        }
+        if (lastIndex < child.length) {
+          parts.push(child.slice(lastIndex));
+        }
+        return parts.map((part, i) =>
+          typeof part === 'string' ? (
+            <Fragment key={i}>
+              {part.split('\n').map((line, j) => (
+                <Fragment key={j}>
+                  {j > 0 && <br />}
+                  {line}
+                </Fragment>
+              ))}
+            </Fragment>
+          ) : (
+            <span key={i} className="px-1 rounded bg-blue-100 text-blue-800 font-mono text-xs">
+              @{part.kind}:{part.id.slice(0, 8)}
+            </span>
+          ),
+        );
+      })}
+    </p>
   );
 }
+
