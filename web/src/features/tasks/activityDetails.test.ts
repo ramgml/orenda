@@ -10,7 +10,10 @@ import { activityDetails } from './activityDetails';
 describe('activityDetails — task.moved column names (task 117)', () => {
   it('renders the column name when the payload carries column_name', () => {
     expect(
-      activityDetails('task.moved', '{"column_id":"01a0col000000000000000000","column_name":"In Review","position":1024}'),
+      activityDetails(
+        'task.moved',
+        '{"column_id":"01a0col000000000000000000","column_name":"In Review","position":1024}',
+      ),
     ).toBe('→ In Review');
   });
 
@@ -27,7 +30,10 @@ describe('activityDetails — task.moved column names (task 117)', () => {
 
   it('treats a blank column_name as missing and falls back to the UUID', () => {
     expect(
-      activityDetails('task.moved', '{"column_id":"01a0col000000000000000000","column_name":"   "}'),
+      activityDetails(
+        'task.moved',
+        '{"column_id":"01a0col000000000000000000","column_name":"   "}',
+      ),
     ).toBe('→ 01a0col000000000000000000');
   });
 });
