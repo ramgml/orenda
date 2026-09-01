@@ -61,6 +61,7 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 			time_estimate_s, time_spent_s, position,
 			start_at, end_at, all_day, color, recurrence,
 			study_course_id,
+			blocked_prev_status,
 			number,
 			created_by_type, created_by_id,
 			created_at, updated_at
@@ -70,6 +71,8 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 			?, ?, ?, ?, ?, ?,
 			?, ?, ?,
 			?, ?, ?, ?, ?,
+			?,
+			?,
 			?,
 			?,
 			?, ?,
@@ -84,11 +87,10 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 		nullString(t.ContextMD), nullString(t.AgentNotes),
 		nullString(formatTimePtr(t.DueAt)), nullString(formatTimePtr(t.StartedAt)),
 		nullString(formatTimePtr(t.ClaimedAt)), nullString(formatTimePtr(t.CompletedAt)),
-		nullIntPtr(t.TimeEstimateS), t.TimeSpentS, t.Position,
-		nullString(formatTimePtr(t.StartAt)), nullString(formatTimePtr(t.EndAt)),
 		boolToInt(t.AllDay), nullString(t.Color),
 		nullString(t.Recurrence),
 		nullString(t.StudyCourseID),
+		nullString(string(t.BlockedPrevStatus)),
 		number,
 		nullString(string(t.CreatedByType)), nullString(t.CreatedByID),
 	)
@@ -428,16 +430,17 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) error {
 			due_at = ?, started_at = ?, claimed_at = ?, completed_at = ?,
 			time_estimate_s = ?, time_spent_s = ?, position = ?,
 			start_at = ?, end_at = ?, all_day = ?, color = ?, recurrence = ?,
-			study_course_id = ?
+			study_course_id = ?, blocked_prev_status = ?
 		WHERE id = ?
 	`
-	// Phase 31: study_course_id added to the SET so PATCH /tasks/{id}
-	// can attach a freshly-accepted study reminder. The empty-string
-	// case stays valid — it clears the link (useful when the user
-	// files a reminder under a project and no longer wants it to
-	// appear under due_today). Per Validate(), a Task with column_id
-	// set MUST also have a project; that invariant is unchanged
-	// here.
+	// Phase 31 added study_course_id; Task 115 added
+	// blocked_prev_status to the SET so PATCH /tasks/{id} can attach
+	// a freshly-accepted study reminder / persist the auto-block
+	// bookkeeping. The empty-string case stays valid — it clears the
+	// link (useful when the user files a reminder under a project and
+	// no longer wants it to appear under due_today). Per Validate(), a
+	// Task with column_id set MUST also have a project; that invariant
+	// is unchanged here.
 	res, err := r.db.ExecContext(ctx, q,
 		nullString(t.ProjectID),
 		nullString(t.ParentTaskID), nullString(t.ColumnID),
@@ -450,8 +453,8 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) error {
 		nullIntPtr(t.TimeEstimateS), t.TimeSpentS, t.Position,
 		nullString(formatTimePtr(t.StartAt)), nullString(formatTimePtr(t.EndAt)),
 		boolToInt(t.AllDay), nullString(t.Color),
-		nullString(t.Recurrence),
 		nullString(t.StudyCourseID),
+		nullString(string(t.BlockedPrevStatus)),
 		t.ID,
 	)
 	if err != nil {
@@ -1420,6 +1423,7 @@ SELECT id, number, project_id, parent_task_id, column_id, title, description,
        time_estimate_s, time_spent_s, position,
        start_at, end_at, all_day, color, recurrence,
        study_course_id,
+       blocked_prev_status,
        created_by_type, created_by_id,
        created_at, updated_at
 FROM tasks
@@ -1442,6 +1446,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 		due, started, claimed, compl   sql.NullString
 		calStart, calEnd, color        sql.NullString
 		recurrence, studyCourse        sql.NullString
+		blockedPrev                    sql.NullString
 		createdByType, createdByID     sql.NullString
 		allDay                         int
 		estS                           sql.NullInt64
@@ -1456,6 +1461,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 		&estS, &t.TimeSpentS, &t.Position,
 		&calStart, &calEnd, &allDay, &color, &recurrence,
 		&studyCourse,
+		&blockedPrev,
 		&createdByType, &createdByID,
 		&created, &updated,
 	)
@@ -1486,6 +1492,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	t.Color = color.String
 	t.Recurrence = recurrence.String
 	t.StudyCourseID = studyCourse.String
+	t.BlockedPrevStatus = task.Status(blockedPrev.String)
 	t.CreatedByType = task.CreatorType(createdByType.String)
 	t.CreatedByID = createdByID.String
 	if estS.Valid {
@@ -1511,6 +1518,7 @@ func (r *taskRepo) ListInRange(ctx context.Context, from, to time.Time, projectI
 		       time_estimate_s, time_spent_s, position,
 		       start_at, end_at, all_day, color, recurrence,
 		       study_course_id,
+		       blocked_prev_status,
 		       created_by_type, created_by_id,
 	       created_at, updated_at
 		FROM tasks
@@ -1552,6 +1560,7 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 		due, started, claimed, compl   sql.NullString
 		calStart, calEnd, color        sql.NullString
 		recurrence, studyCourse        sql.NullString
+		blockedPrev                    sql.NullString
 		createdByType, createdByID     sql.NullString
 		allDay                         int
 		estS                           sql.NullInt64
@@ -1566,6 +1575,7 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 		&estS, &t.TimeSpentS, &t.Position,
 		&calStart, &calEnd, &allDay, &color, &recurrence,
 		&studyCourse,
+		&blockedPrev,
 		&createdByType, &createdByID,
 		&created, &updated,
 	)
