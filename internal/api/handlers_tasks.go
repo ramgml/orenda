@@ -169,6 +169,22 @@ func createTaskHandler(deps *Dependencies) http.HandlerFunc {
 			}
 		}
 
+		// T119: a task created into a column must carry that column's
+		// status. The web client sends only {title, column_id}, so
+		// Status arrived empty and the DB DEFAULT 'todo' (schema line
+		// 106) kicked in below the handler — a card dropped into the
+		// backlog column came back as todo. This mirrors the reverse
+		// syncs that already exist: Move lifts column.Status onto the
+		// task (service/task/move.go), PATCH does column→status when
+		// column_id is set and status is empty (updateTaskHandler).
+		// An EXPLICIT status always wins — this only fills the empty
+		// case. Tasks without a column (inbox) are untouched.
+		if tr.ColumnID != "" && tr.Status == "" && deps.Projects != nil {
+			if col, err := deps.Projects.GetColumn(r.Context(), tr.ColumnID); err == nil && col != nil && col.Status != "" {
+				tr.Status = task.Status(col.Status)
+			}
+		}
+
 		if err := deps.Tasks.Create(r.Context(), tr); err != nil {
 			writeError(w, err)
 			return
