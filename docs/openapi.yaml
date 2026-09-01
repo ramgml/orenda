@@ -147,6 +147,10 @@ components:
           type: string
           enum: [none, human, agent]
         due_at: { type: string, format: date-time }
+        time_estimate_s:
+          type: integer
+          nullable: true
+          description: Planned effort in seconds; omitted from responses when unset.
         # Phase 31: study-reminder marker. Non-empty means "soft
         # reminder accepted from a study proposal"; the Today
         # screen reads this to apply the no-escalation policy
@@ -659,6 +663,12 @@ paths:
                 description: { type: string }
                 status: { $ref: '#/components/schemas/Task/properties/status' }
                 priority: { $ref: '#/components/schemas/Task/properties/priority' }
+                time_estimate_s:
+                  type: integer
+                  description: |
+                    Planned effort in seconds. `0` clears the estimate
+                    (a zero-second estimate is meaningless; same
+                    convention as the due_at empty string).
                 parent_task_id: { type: string }
                 assignee_type: { type: string }
                 assignee_id: { type: string }
@@ -750,6 +760,19 @@ paths:
       tags: [tasks]
       summary: Update task fields.
       security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                time_estimate_s:
+                  type: integer
+                  description: |
+                    Planned effort in seconds. `0` clears the estimate
+                    (a zero-second estimate is meaningless; same
+                    convention as the due_at empty string). Absent
+                    field leaves the stored value untouched.
       responses: { '200': { description: ok } }
     put:
       tags: [tasks]
