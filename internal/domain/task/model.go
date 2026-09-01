@@ -223,6 +223,11 @@ type Task struct {
 	// badge; absent ⇒ not blocked.
 	BlockedByCount int `json:"blocked_by_count,omitempty"`
 
+	// Task 115: unfinished blockers (id/number/title) for the kanban
+	// card tooltip. Populated by the list endpoints next to
+	// BlockedByCount; omitempty keeps single-task JSON compact.
+	Blockers []BlockerSummary `json:"blockers,omitempty"`
+
 	// Phase 27.3: tags attached to this task. Populated by the list
 	// endpoints (single batch query in ListByProjectWithStats via
 	// TagsForTasks), and on GET /tasks/{id} for symmetry. Always

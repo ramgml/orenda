@@ -252,6 +252,11 @@ func (r *taskRepo) ListByProjectWithStats(ctx context.Context, f task.Filter) ([
 	if err != nil {
 		return nil, err
 	}
+	// Task 115: unfinished blocker summaries for the card tooltip.
+	summaries, err := r.BlockerSummariesForTasks(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	tags, err := r.TagsForTasks(ctx, ids)
 	if err != nil {
 		return nil, err
@@ -259,6 +264,9 @@ func (r *taskRepo) ListByProjectWithStats(ctx context.Context, f task.Filter) ([
 	for _, t := range tasks {
 		if c, ok := counters[t.ID]; ok {
 			t.Counters = &c
+		}
+		if ss := summaries[t.ID]; len(ss) > 0 {
+			t.Blockers = ss
 		}
 		t.BlockedByCount = blockers[t.ID]
 		// TagsForTasks pre-populates an empty slice for every input
@@ -411,6 +419,41 @@ func (r *taskRepo) aggregateBlockers(ctx context.Context, ids []string) (map[str
 		out[id] = n
 	}
 	return out, nil
+}
+
+// BlockerSummariesForTasks returns the unfinished blockers (id,
+// number, title) per task id — Task 115: the kanban card tooltip
+// renders this list inside the blocked badge.
+func (r *taskRepo) BlockerSummariesForTasks(ctx context.Context, ids []string) (map[string][]task.BlockerSummary, error) {
+	out := make(map[string][]task.BlockerSummary, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	placeholders := strings.Repeat("?, ", len(ids)-1) + "?"
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	q := `SELECT d.task_id, dep.id, dep.number, dep.title
+	      FROM task_dependencies d
+	      JOIN tasks dep ON dep.id = d.depends_on_task_id
+	      WHERE d.task_id IN (` + placeholders + `)
+	        AND dep.status != 'done' AND dep.completed_at IS NULL
+	      ORDER BY dep.number ASC`
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("BlockerSummariesForTasks: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var taskID string
+		var bs task.BlockerSummary
+		if err := rows.Scan(&taskID, &bs.ID, &bs.Number, &bs.Title); err != nil {
+			return nil, fmt.Errorf("BlockerSummariesForTasks: scan: %w", err)
+		}
+		out[taskID] = append(out[taskID], bs)
+	}
+	return out, rows.Err()
 }
 
 func (r *taskRepo) Update(ctx context.Context, t *task.Task) error {

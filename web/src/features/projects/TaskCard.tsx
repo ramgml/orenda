@@ -10,7 +10,7 @@ import type { Agent, Task } from '@/shared/api/client';
 import {
   dueStateClasses,
   formatDueDate,
-  isBlocked,
+  isStatusBlocked,
   priorityBorderClass,
   progressLabel,
   taskDueState,
@@ -150,13 +150,21 @@ export function TaskCard({
               ⏳ {task.awaiting === 'human' ? 'me' : 'agent'}
             </span>
           )}
-          {isBlocked(blockedBy) && (
+          {isStatusBlocked(task) && (
             <span
               data-testid="blocked-badge"
               className="inline-flex items-center px-1.5 py-0.5 rounded border bg-red-100 text-red-700 border-red-300"
-              title={`${blockedBy} unfinished blocker${blockedBy === 1 ? '' : 's'}`}
+              title={
+                blockedBy > 0
+                  ? task.blockers && task.blockers.length > 0
+                    ? task.blockers
+                        .map((b) => (b.number > 0 ? `#${b.number} ` : '') + b.title)
+                        .join('\n')
+                    : `${blockedBy} unfinished blocker${blockedBy === 1 ? '' : 's'}`
+                  : 'Blocked by a dependency (was ' + (task.blocked_prev_status || 'unknown') + ')'
+              }
             >
-              🚫 blocked {blockedBy}
+              🚫 blocked{blockedBy > 0 ? ` ${blockedBy}` : ''}
             </span>
           )}
           {counters && counters.children_total > 0 && (

@@ -5,6 +5,7 @@ import { api, type BlockerRow } from '@/shared/api/client';
 
 import { Button } from '@/shared/ui/button';
 import { Checkbox } from '@/shared/ui/checkbox';
+import { Input } from '@/shared/ui/input';
 import { useWebSocketTopic } from '@/shared/ws';
 
 /**
@@ -62,7 +63,7 @@ export function BlockedByList({
     <div>
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-sm font-semibold text-slate-500">
-          Blocked by{open.length > 0 ? ` (${open.length} open)` : ''}
+          Блокируется задачами{open.length > 0 ? ` (${open.length} open)` : ''}
         </h2>
         {!editing && (
           <Button
@@ -113,14 +114,17 @@ export function BlockedByList({
 }
 
 /**
- * Multi-select editor for the full blocker set.
+ * Editor for the blocker set (Task 115).
  *
- * Loads the project's tasks via the project list endpoint and lets
- * the user check the ones that should block this task. Submit
- * replaces the full set; cancel discards.
+ * Single-edge operations: checking a candidate POSTs /blocks right
+ * away; unchecking a current blocker DELETEs the edge. A search box
+ * filters candidates client-side by T-number ("#12", "T12") and
+ * title — the project list can be long, and the постановка asked for
+ * search-by-number. The full-replace PUT is kept behind a "Replace
+ * all" button for bulk edits.
  *
- * Self-cycles are detected client-side as a sanity check (the API
- * returns 422 otherwise). We don't try to render a graph view.
+ * Cycle/self errors surface from the API (422) — no client-side
+ * graph walk; the backend is the source of truth.
  */
 function DependencyEditor({
   taskId,
@@ -135,8 +139,11 @@ function DependencyEditor({
   onDone: () => void;
   onCancel: () => void;
 }): JSX.Element {
-  const [taskChoices, setTaskChoices] = useState<Array<{ id: string; title: string }>>([]);
+  const [taskChoices, setTaskChoices] = useState<
+    Array<{ id: string; number: number; title: string }>
+  >([]);
   const [selected, setSelected] = useState<Set<string>>(new Set(initial));
+  const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -151,7 +158,9 @@ function DependencyEditor({
         // listProjectTasks returns everything; we exclude self.
         const items = await api.listProjectTasks(projectId);
         setTaskChoices(
-          (items ?? []).filter((t) => t.id !== taskId).map((t) => ({ id: t.id, title: t.title })),
+          (items ?? [])
+            .filter((t) => t.id !== taskId)
+            .map((t) => ({ id: t.id, number: t.number ?? 0, title: t.title })),
         );
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -159,16 +168,40 @@ function DependencyEditor({
     })();
   }, [projectId, taskId]);
 
-  function toggle(id: string): void {
-    setSelected((cur) => {
-      const next = new Set(cur);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  // Search filter: match the T-number ("12", "#12", "T12") and the
+  // title, case-insensitive.
+  const q = search.trim().toLowerCase();
+  const visible = q
+    ? taskChoices.filter((t) => {
+        const num = t.number > 0 ? String(t.number) : '';
+        const numHit = num !== '' && (q === num || q === `#${num}` || q === `t${num}`);
+        return numHit || t.title.toLowerCase().includes(q);
+      })
+    : taskChoices;
+
+  async function toggle(id: string, checked: boolean): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      if (checked) {
+        await api.addTaskBlocker(taskId, id);
+        setSelected((cur) => new Set(cur).add(id));
+      } else {
+        await api.removeTaskBlocker(taskId, id);
+        setSelected((cur) => {
+          const next = new Set(cur);
+          next.delete(id);
+          return next;
+        });
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function onSubmit(): Promise<void> {
+  async function onReplaceAll(): Promise<void> {
     setBusy(true);
     setError(null);
     try {
@@ -183,22 +216,36 @@ function DependencyEditor({
 
   return (
     <div className="rounded border border-border p-2 bg-muted/40 space-y-2">
+      {projectId && taskChoices.length > 0 && (
+        <Input
+          type="search"
+          placeholder="Search by #number or title…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="h-7 text-xs"
+          data-testid="deps-search"
+        />
+      )}
       {!projectId ? (
         <p className="text-xs text-slate-500 italic">
           File the task under a project to add blockers.
         </p>
       ) : taskChoices.length === 0 ? (
         <p className="text-xs text-slate-500 italic">No other tasks in this project yet.</p>
+      ) : visible.length === 0 ? (
+        <p className="text-xs text-slate-500 italic">No tasks match “{search}”.</p>
       ) : (
         <ul className="max-h-48 overflow-y-auto space-y-1">
-          {taskChoices.map((t) => (
+          {visible.map((t) => (
             <li key={t.id} className="flex items-center gap-2 text-xs">
               <Checkbox
                 id={`dep-${t.id}`}
                 checked={selected.has(t.id)}
-                onCheckedChange={() => toggle(t.id)}
+                disabled={busy}
+                onCheckedChange={(v) => void toggle(t.id, v === true)}
               />
               <label htmlFor={`dep-${t.id}`} className="text-foreground truncate">
+                {t.number > 0 && <span className="font-mono text-slate-400 mr-1">#{t.number}</span>}
                 {t.title}
               </label>
             </li>
@@ -210,7 +257,7 @@ function DependencyEditor({
         <Button
           type="button"
           size="sm"
-          onClick={() => void onSubmit()}
+          onClick={() => void onReplaceAll()}
           disabled={busy || !projectId}
           className="text-xs"
         >
