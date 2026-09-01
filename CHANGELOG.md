@@ -19,6 +19,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [0.16.0] — 2026-09-01
+
+Minor release. Focus: task blockers (dependencies with an automatic `blocked` status), comment editing with markdown rendering, task time estimates, kanban card reorder, and human-readable activity payload details.
+
+### Added
+- **Task 115 (PR #150):** Task blocking with blocker specification — new `blocked` status with automatic transitions (auto-block on adding a blocker, auto-restore of the previous status when the last blocker completes), migration `042_task_blocked_status` (`tasks.blocked_prev_status`), blocks/dep API and UI, kanban/dashboard/ready-filter/status-option coverage.
+- **Task 120 (PR #151):** Task time estimate — `EstimateEditor` in the task sidebar (set via minutes, clear via a `time_estimate_s: 0` sentinel, absent field = no-op), human «оценка · затрачено» line agreeing with the kanban `TimeBadge`; field documented in both OpenAPI specs (no migration — column existed since `001_init`).
+- **Task 112 (PR #145):** Comment editing — `PATCH /api/v1/tasks/{id}/comments/{commentId}` (+ agent route), migration `041_comment_edited_at`, author-guarded inline edit in the comment list with an «изменено» badge, `comment.updated` websocket event.
+- **Task 114 (PR #146):** Comment markdown rendering — comments render headers, lists, GFM tables, links (new tab), inline code and highlighted `@user:`/`@agent:` mentions; plain-text line breaks preserved; empty comments stay empty.
+- **Task 118 (PR #149):** Kanban card reorder within a column — same-column drags now reorder via midpoint positions (same spacing math as columns), persisted through `POST /tasks/{id}/move`; cross-column moves and WIP-limit toasts unchanged.
+
+### Changed
+- **Task 113 (PR #144):** Activity feed shows human-readable payload details instead of raw JSON for `commented`, `attachment_added` and `tags_replaced` events.
+- **Task 117 (PR #148):** `task.moved` activity records the column name at event time (`column_name` snapshot); legacy rows fall back to the column UUID. Also fixes a latent bug where `Move()` wrote an empty actor id and the audit recorder silently dropped every `task.moved` row.
+- **Docs (PR #147):** Git flow documented: hybrid main+dev with release/hotfix branches and mandatory back-merges (`docs/GITFLOW.md`, rewritten `AGENTS.md` «Git workflow» + «Git for AI agents»).
+
+### Fixed
+- **Task 119 (PR #149):** A task created in a Backlog column now gets the `backlog` status (was `todo` due to the DB default); an explicitly passed status still wins; inbox tasks unchanged.
+
 ## [0.15.0] — 2026-08-31
 
 Minor release. Focus: splitting the Today screen and the Dashboard into two separate screens, with a new overview backend.
