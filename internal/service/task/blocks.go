@@ -164,7 +164,11 @@ func (s *Service) blockerEdgeAdded(ctx context.Context, taskID, blockerID string
 		s.mirrorSave(ctx, tr)
 	}
 	if s.Recorder != nil {
-		_ = s.Recorder.Record(ctx, taskID, activity.ActorSystem, "",
+		// ActorID must be non-empty (Activity.Validate) — the
+		// auto-block is the system state machine acting, so the
+		// actor id is the literal "system" and the payload names
+		// the blocker edge that triggered the flip.
+		_ = s.Recorder.Record(ctx, taskID, activity.ActorSystem, "system",
 			activity.ActionBlocked, fmt.Sprintf(`{"blocked_by":%q}`, blockerID))
 	}
 	s.publishTask(ctx, "task.blocked", tr, "", map[string]any{
@@ -231,7 +235,7 @@ func (s *Service) restoreIfLastBlocker(ctx context.Context, tr *task.Task, block
 	}
 	s.mirrorSave(ctx, tr)
 	if s.Recorder != nil {
-		_ = s.Recorder.Record(ctx, tr.ID, activity.ActorSystem, "",
+		_ = s.Recorder.Record(ctx, tr.ID, activity.ActorSystem, "system",
 			activity.ActionUnblocked, fmt.Sprintf(`{"blocked_by":%q}`, blockerID))
 	}
 	return true, nil
