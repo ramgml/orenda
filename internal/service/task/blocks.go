@@ -35,10 +35,11 @@ import (
 	"errors"
 	"fmt"
 
+	"go.uber.org/zap"
+
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/task"
-	"go.uber.org/zap"
 )
 
 // AddBlocker adds ONE blocker edge (taskID depends on blockerID) and
@@ -186,11 +187,9 @@ func (s *Service) blockerEdgeRemoved(ctx context.Context, taskID, blockerID stri
 		return nil, fmt.Errorf("task service: blockerEdgeRemoved: %w", err)
 	}
 
-	restored, err := s.restoreIfLastBlocker(ctx, tr, blockerID)
-	if err != nil {
+	if err := s.restoreIfLastBlocker(ctx, tr, blockerID); err != nil {
 		return nil, err
 	}
-	_ = restored
 	s.publishTask(ctx, "task.unblocked", tr, "", map[string]any{
 		"blocked_by": blockerID,
 		"task_id":    taskID,
@@ -205,21 +204,22 @@ func (s *Service) blockerEdgeRemoved(ctx context.Context, taskID, blockerID stri
 // blocked when other unfinished blockers remain. Persists + mirrors +
 // records task.unblocked when the restore happens.
 //
-// Returns true when the task was restored out of `blocked`.
-func (s *Service) restoreIfLastBlocker(ctx context.Context, tr *task.Task, blockerID string) (bool, error) {
+// blockerID lands in the task.unblocked payload so the audit trail
+// shows WHICH edge loss freed the dependent.
+func (s *Service) restoreIfLastBlocker(ctx context.Context, tr *task.Task, blockerID string) error {
 	if tr.Status != task.StatusBlocked {
 		// Not auto-blocked (done via manual move, never blocked, …) —
 		// nothing to restore. The edge change is still real.
-		return false, nil
+		return nil
 	}
 	// Any unfinished blocker left?
 	blockers, err := s.Tasks.Blockers(ctx, tr.ID)
 	if err != nil {
-		return false, fmt.Errorf("task service: restoreIfLastBlocker: %w", err)
+		return fmt.Errorf("task service: restoreIfLastBlocker: %w", err)
 	}
 	for _, b := range blockers {
 		if !b.Done {
-			return false, nil // still blocked by someone else
+			return nil // still blocked by someone else
 		}
 	}
 	// Last blocker gone: restore prev status (fallback todo), clear.
@@ -231,14 +231,14 @@ func (s *Service) restoreIfLastBlocker(ctx context.Context, tr *task.Task, block
 	tr.BlockedPrevStatus = ""
 	s.syncColumnToStatus(ctx, tr)
 	if err := s.Tasks.Update(ctx, tr); err != nil {
-		return false, fmt.Errorf("task service: restoreIfLastBlocker: update: %w", err)
+		return fmt.Errorf("task service: restoreIfLastBlocker: update: %w", err)
 	}
 	s.mirrorSave(ctx, tr)
 	if s.Recorder != nil {
 		_ = s.Recorder.Record(ctx, tr.ID, activity.ActorSystem, "system",
 			activity.ActionUnblocked, fmt.Sprintf(`{"blocked_by":%q}`, blockerID))
 	}
-	return true, nil
+	return nil
 }
 
 // OnCloseUnblockDependents runs when a task transitions to `done`
@@ -265,7 +265,7 @@ func (s *Service) OnCloseUnblockDependents(ctx context.Context, closedTaskID str
 		if err != nil {
 			continue // dependent vanished mid-run; skip
 		}
-		if _, err := s.restoreIfLastBlocker(ctx, tr, closedTaskID); err != nil {
+		if err := s.restoreIfLastBlocker(ctx, tr, closedTaskID); err != nil {
 			if s.Logger != nil {
 				s.Logger.Warn("onCloseUnblockDependents: restore failed",
 					zap.String("task_id", depID), zap.Error(err))
