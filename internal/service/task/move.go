@@ -68,11 +68,18 @@ func (e *BlockedError) Is(target error) bool {
 //     position = (Before.position + After.position) / 2.
 //
 // Position is the explicit override; if non-zero, Before/After are ignored.
+//
+// ActorID (Task 117) identifies who moved the card — the handler
+// fills it from the session so the task.moved activity row passes
+// Activity.Validate (which requires a non-empty ActorID). It only
+// feeds the audit row; the empty value keeps the historical
+// (silently-dropped-row) behaviour for callers without an identity.
 type MoveOptions struct {
 	TargetColumnID string
 	Position       float64 // explicit fractional; 0 = derive from Before/After
 	Before         *task.Task
 	After          *task.Task
+	ActorID        string
 }
 
 // Recorder is the audit hook for Claim/Release/Submit/Review. Phase 3.9
@@ -392,7 +399,7 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 			payload["column_name"] = columnName
 		}
 		raw, _ := json.Marshal(payload) // map[string]any of basic values cannot fail
-		_ = s.Recorder.Record(ctx, taskID, activity.ActorUser, "", activity.ActionMoved,
+		_ = s.Recorder.Record(ctx, taskID, activity.ActorUser, opts.ActorID, activity.ActionMoved,
 			string(raw))
 	}
 	if s.Hub != nil {

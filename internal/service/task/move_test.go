@@ -45,8 +45,10 @@ type recordingRecorder struct {
 	calls []string
 }
 
-func (r *recordingRecorder) Record(_ context.Context, taskID string, _ activity.ActorType, _ string, action activity.Action, payload string) error {
-	r.calls = append(r.calls, taskID+":"+string(action)+":"+payload)
+func (r *recordingRecorder) Record(_ context.Context, taskID string, _ activity.ActorType, actorID string, action activity.Action, payload string) error {
+	// Task 117: actorID is captured so tests can pin the audit
+	// actor (Activity.Validate rejects empty actor ids in prod).
+	r.calls = append(r.calls, taskID+":"+actorID+":"+string(action)+":"+payload)
 	return nil
 }
 
@@ -276,17 +278,23 @@ func TestService_Move_RecordsColumnNameInPayload(t *testing.T) {
 
 	moved, err := svc.Move(context.Background(), tr.ID, taskservice.MoveOptions{
 		TargetColumnID: todo.ID,
+		ActorID:        "user-117",
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, rec.calls)
 
-	// call format is "taskID:action:payload" — split the payload off.
-	parts := strings.SplitN(rec.calls[0], ":", 3)
-	require.Len(t, parts, 3)
-	assert.Equal(t, string(activity.ActionMoved), parts[1])
+	// call format is "taskID:actorID:action:payload" — split the
+	// payload off; the actor must be the MoveOptions.ActorID the
+	// handler passes from the session (Activity.Validate requires
+	// a non-empty actor id in production).
+	parts := strings.SplitN(rec.calls[0], ":", 4)
+	require.Len(t, parts, 4)
+	assert.Equal(t, tr.ID, parts[0])
+	assert.Equal(t, "user-117", parts[1])
+	assert.Equal(t, string(activity.ActionMoved), parts[2])
 
 	var payload map[string]any
-	require.NoError(t, json.Unmarshal([]byte(parts[2]), &payload))
+	require.NoError(t, json.Unmarshal([]byte(parts[3]), &payload))
 	assert.Equal(t, todo.ID, payload["column_id"])
 	assert.Equal(t, todo.Name, payload["column_name"])
 	assert.InDelta(t, moved.Position, payload["position"].(float64), 1e-9)
@@ -318,10 +326,10 @@ func TestService_Move_PayloadSurvivesSpecialCharactersInColumnName(t *testing.T)
 	require.NoError(t, err)
 	require.NotEmpty(t, rec.calls)
 
-	parts := strings.SplitN(rec.calls[0], ":", 3)
-	require.Len(t, parts, 3)
+	parts := strings.SplitN(rec.calls[0], ":", 4)
+	require.Len(t, parts, 4)
 	var payload map[string]any
-	require.NoError(t, json.Unmarshal([]byte(parts[2]), &payload))
+	require.NoError(t, json.Unmarshal([]byte(parts[3]), &payload))
 	assert.Equal(t, `Кто "здесь"? 🚚`, payload["column_name"])
 }
 
@@ -347,10 +355,10 @@ func TestService_Move_PayloadOmitsColumnNameWhenLookupFails(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, rec.calls)
 
-	parts := strings.SplitN(rec.calls[0], ":", 3)
-	require.Len(t, parts, 3)
+	parts := strings.SplitN(rec.calls[0], ":", 4)
+	require.Len(t, parts, 4)
 	var payload map[string]any
-	require.NoError(t, json.Unmarshal([]byte(parts[2]), &payload))
+	require.NoError(t, json.Unmarshal([]byte(parts[3]), &payload))
 	_, has := payload["column_name"]
 	assert.False(t, has, "column_name must be absent when the column lookup failed")
 	assert.Equal(t, cols[1].ID, payload["column_id"])
