@@ -393,6 +393,11 @@ func NewRouter(deps *Dependencies) http.Handler {
 					r.Get("/blockers", getTaskBlockersHandler(deps))
 					r.Get("/dependents", getTaskDependentsHandler(deps))
 					r.Put("/dependencies", putTaskDependenciesHandler(deps))
+					// Task 115: single-edge blocker endpoints (same
+					// auth + error codes as PUT /dependencies; refs
+					// accepted for both task arguments).
+					r.Post("/blocks", postTaskBlockHandler(deps))
+					r.Delete("/blocks/{blockedBy}", deleteTaskBlockHandler(deps))
 					// Phase 13: per-task tag assignment.
 					r.Get("/tags", listTaskTagsHandler(deps))
 					r.Put("/tags", setTaskTagsHandler(deps))

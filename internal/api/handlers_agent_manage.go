@@ -51,7 +51,10 @@ type agentTaskPatchInput struct {
 	Priority      task.Priority `json:"priority"`
 	DueAt         *string       `json:"due_at"` // RFC3339 or "" = clear
 	ParentTaskID  string        `json:"parent_task_id"`
-	AgentNotes    string        `json:"agent_notes"`
+	// Task 115: full replacement blocker set (refs or UUIDs). The
+	// pointer keeps "absent" and "[]" (clear all) apart on the wire.
+	BlockedBy  *[]string `json:"blocked_by"`
+	AgentNotes string    `json:"agent_notes"`
 }
 
 // agentPatchTaskHandler applies a PATCH to /api/v1/agent/tasks/{id}.
@@ -187,6 +190,9 @@ func buildEditProposalPatch(in agentTaskPatchInput) (taskservice.EditProposalPat
 	if in.ParentTaskID != "" {
 		v := in.ParentTaskID
 		out.ParentTaskID = &v
+	}
+	if in.BlockedBy != nil {
+		out.BlockedBy = in.BlockedBy
 	}
 	if in.AgentNotes != "" {
 		// A mixed PATCH that includes agent_notes alongside other

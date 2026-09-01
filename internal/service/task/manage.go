@@ -72,6 +72,13 @@ type EditProposalPatch struct {
 	Priority     *task.Priority
 	DueAt        *time.Time
 	ParentTaskID *string
+	// Task 115: full replacement blocker list — mirrors PUT
+	// /dependencies semantics. Pointer-to-slice distinguishes
+	// "absent" (nil → untouched) from "present" (replace the whole
+	// set; empty slice → clear all). The replacement runs through the
+	// same SetTaskDependencies core as every other write path, so the
+	// auto-block state machine + activity rows apply here too.
+	BlockedBy *[]string
 }
 
 // Change describes one field-level edit on a proposal. Returned in
@@ -193,16 +200,33 @@ func (s *Service) EditProposal(ctx context.Context, taskID, agentID string, patc
 	}
 
 	before := *tr
+
+	// Task 115: resolve + validate the replacement blocker list
+	// BEFORE the field write so a bad blocked_by never leaves a
+	// half-applied patch. Refs (T<N>) resolve like everywhere else;
+	// unknown ids/refuse-cycles surface as the usual errors. The
+	// replacement itself goes through SetTaskDependencies — the same
+	// core as PUT /dependencies — so the auto-block state machine and
+	// activity rows behave identically.
+	if patch.BlockedBy != nil {
+		resolved := make([]string, 0, len(*patch.BlockedBy))
+		for _, ref := range *patch.BlockedBy {
+			blocked, rerr := task.ResolveRef(ctx, s.Tasks, ref)
+			if rerr != nil {
+				return nil, fmt.Errorf("task.EditProposal: blocked_by %q: %w", ref, rerr)
+			}
+			resolved = append(resolved, blocked.ID)
+		}
+		if err := s.SetTaskDependencies(ctx, taskID, resolved); err != nil {
+			return nil, err
+		}
+	}
+
 	changes := applyEditProposalPatch(tr, patch)
-	if len(changes) == 0 {
+	if len(changes) == 0 && patch.BlockedBy == nil {
 		// No-op patch — return the current state without writing.
 		return &EditProposalDiff{Before: &before, After: tr, Changes: changes}, nil
 	}
-
-	// Gated partial UPDATE: only the columns the patch touched, only
-	// when (created_by_type, created_by_id, status) still match the
-	// proposal gate. RowsAffected()==0 on a concurrent triage →
-	// ErrConcurrentTriage.
 	params := task.ProposalPatchParams{
 		TaskID:      tr.ID,
 		Gate:        task.ProposalGate{CreatedByID: agentID},
@@ -439,7 +463,7 @@ func applyEditProposalPatch(tr *task.Task, patch EditProposalPatch) []Change {
 // PATCH is more likely a bug than an intentional no-op).
 func (p EditProposalPatch) isEmpty() bool {
 	return p.Title == nil && p.Description == nil && p.Priority == nil &&
-		p.DueAt == nil && p.ParentTaskID == nil
+		p.DueAt == nil && p.ParentTaskID == nil && p.BlockedBy == nil
 }
 
 // recordUpdated writes a task.updated activity row summarising the

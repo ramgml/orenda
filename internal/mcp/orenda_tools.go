@@ -150,6 +150,10 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 				"due_at":         map[string]any{"type": "string", "description": "RFC3339 or null to clear"},
 				"parent_task_id": map[string]any{"type": "string"},
 				"agent_notes":    map[string]any{"type": "string"},
+				"blocked_by": map[string]any{
+					"type": "array", "items": map[string]any{"type": "string"},
+					"description": "Full replacement blocker list (Task 115). Items are task UUIDs or T-refs ('T42'); [] clears all blockers; omit the field to leave them untouched. Self-blocks and cycles are rejected (422). Adding a blocker auto-flips the task to status=blocked until every blocker is done or removed.",
+				},
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
@@ -162,6 +166,18 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 				if v, _ := params[k].(string); v != "" {
 					body[k] = v
 				}
+			}
+			// Task 115: blocked_by distinguishes absent (untouched)
+			// from [] (clear all) — forward the raw array whenever
+			// the field was supplied.
+			if raw, ok := params["blocked_by"].([]any); ok {
+				ids := make([]string, 0, len(raw))
+				for _, v := range raw {
+					if s, ok := v.(string); ok && s != "" {
+						ids = append(ids, s)
+					}
+				}
+				body["blocked_by"] = ids
 			}
 			return agentPatch(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id), body)
 		},
