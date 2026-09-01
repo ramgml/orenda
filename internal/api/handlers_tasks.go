@@ -138,9 +138,16 @@ func createTaskHandler(deps *Dependencies) http.HandlerFunc {
 		if in.CompletedAt != nil {
 			tr.CompletedAt = parseOptionalTime(*in.CompletedAt)
 		}
+		// Task 120: `time_estimate_s: 0` clears the estimate — an
+		// estimate of zero seconds is meaningless, so the sentinel
+		// follows the due_at empty-string convention.
 		if in.TimeEstimateS != nil {
-			v := *in.TimeEstimateS
-			tr.TimeEstimateS = &v
+			if *in.TimeEstimateS == 0 {
+				tr.TimeEstimateS = nil
+			} else {
+				v := *in.TimeEstimateS
+				tr.TimeEstimateS = &v
+			}
 		}
 		if in.Position != nil {
 			tr.Position = *in.Position
@@ -528,9 +535,17 @@ func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in t
 	if in.CompletedAt != nil {
 		tr.CompletedAt = parseOptionalTime(*in.CompletedAt)
 	}
+	// Task 120: `time_estimate_s: 0` clears the estimate — an
+	// estimate of zero seconds is meaningless, so the sentinel
+	// follows the due_at empty-string convention. Absent field
+	// leaves the stored value untouched (PATCH semantics).
 	if in.TimeEstimateS != nil {
-		v := *in.TimeEstimateS
-		tr.TimeEstimateS = &v
+		if *in.TimeEstimateS == 0 {
+			tr.TimeEstimateS = nil
+		} else {
+			v := *in.TimeEstimateS
+			tr.TimeEstimateS = &v
+		}
 	}
 	if in.TimeSpentS != nil {
 		tr.TimeSpentS = *in.TimeSpentS
