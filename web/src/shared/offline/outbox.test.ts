@@ -81,6 +81,16 @@ describe('outbox', () => {
     const move = items.find((i) => i.op === 'move_task')!;
     expect(move.target).toBe('task-1');
     expect(move.payload).toEqual({ column_id: 'col-2' });
+    // T118: same-column reorder carries a position in the offline
+    // outbox too — the sync op accepts it just like the REST move.
+    await queueMoveTask('task-1', 'col-2', 1536);
+    const itemsWithPos = (await outboxAll()) as Array<{
+      op: string;
+      target: string;
+      payload: { column_id?: string; position?: number };
+    }>;
+    const moveWithPos = itemsWithPos.filter((i) => i.op === 'move_task').pop()!;
+    expect(moveWithPos.payload).toEqual({ column_id: 'col-2', position: 1536 });
 
     const comment = items.find((i) => i.op === 'create_comment')!;
     expect(comment.payload).toEqual({ body_md: 'see [[other-task]]' });

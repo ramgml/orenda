@@ -28,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 import { ColumnView } from './ColumnView';
 import { TaskCard } from './TaskCard';
+import { computeTaskPosition, neighbourPositions } from './cardPosition';
 
 /**
  * Kanban board for one project: drag-and-drop columns AND tasks via
@@ -257,8 +258,61 @@ export function KanbanBoard({
       return;
     }
 
-    // Task move into a column.
-    const targetColumnId = overId;
+    // T118: task drag. `over` is a column id (cross-column move —
+    // the column droppable) or another card id (same-column reorder
+    // — cards are SortableCards since T118, so dropping ON a card
+    // reports that card, not the column).
+    if (isColumnId(overId)) {
+      await moveTaskToColumn(activeId, overId);
+      return;
+    }
+
+    // Same-column reorder: active and over are both cards. Guard the
+    // column match anyway — cross-column drags should always end over
+    // the column droppable zone, but a stale id must not corrupt
+    // positions.
+    const current = tasks.find((t) => t.id === activeId);
+    const overTask = tasks.find((t) => t.id === overId);
+    if (!current || !overTask || current.column_id !== overTask.column_id) return;
+
+    const columnTasks = tasks
+      .filter((t) => t.column_id === current.column_id)
+      .sort((a, b) => a.position - b.position);
+    const fromIdx = columnTasks.findIndex((t) => t.id === activeId);
+    const toIdx = columnTasks.findIndex((t) => t.id === overId);
+    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+
+    const reordered = arrayMove(columnTasks, fromIdx, toIdx);
+    const { before, after } = neighbourPositions(
+      reordered.map((t) => t.id),
+      new Map(reordered.map((t) => [t.id, t.position])),
+      toIdx,
+    );
+    const position = computeTaskPosition(before, after).position ?? reordered[toIdx]?.position ?? 0;
+
+    const prev = tasks;
+    setTasks((cur) => cur.map((t) => (t.id === activeId ? { ...t, position } : t)));
+
+    try {
+      const columnId = current.column_id ?? '';
+      if (!columnId) return;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        await queueMoveTask(activeId, columnId, position);
+      } else {
+        await api.moveTask(activeId, columnId, position);
+      }
+    } catch {
+      setTasks(prev);
+    }
+  }
+
+  /**
+   * T118: cross-column move extracted from onDragEnd so the
+   * card-over-column drop path and the WIP-limit error handling stay
+   * in one place. Behaviour identical to pre-T118: optimistic update,
+   * outbox when offline, revert + toast on failure.
+   */
+  async function moveTaskToColumn(activeId: string, targetColumnId: string): Promise<void> {
     const current = tasks.find((t) => t.id === activeId);
     if (!current || current.column_id === targetColumnId) return;
 
