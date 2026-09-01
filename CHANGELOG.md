@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
 
+
+## [0.15.0] — 2026-08-31
+
+Minor release. Focus: splitting the Today screen and the Dashboard into two separate screens, with a new overview backend.
+
+### Added
+- **Task 107 (PR #142):** Today and Dashboard are now separate screens — new `DashboardPage` (aggregated stats) and a leaner Today view; navigation updated. New backend endpoint `GET /api/v1/overview` (`internal/api/handlers_overview.go`, with tests) powering the dashboard aggregates via the typed API client.
+
 ## [0.14.2] — 2026-08-31
 
 Patch release. Focus: completing the dark-theme fix for native date inputs and the react-big-calendar toolbar/today highlighting, plus docs convergence (AI-agent install prompt and Windows section now in both branches).
