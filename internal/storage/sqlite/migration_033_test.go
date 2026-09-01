@@ -73,6 +73,15 @@ func TestMigrate_033TaskNumbers(t *testing.T) {
 	// Contract 1 (cont'd): UNIQUE index exists.
 	assert.Contains(t, listIndexes(t, ctx, db, "tasks"), "idx_tasks_number",
 		"unique index on tasks.number must exist")
+	// Task 115: repo.Create (used by Contract 2 below) writes
+	// tasks.blocked_prev_status, which only exists from migration 042
+	// on. The test deliberately pins the schema at 032 + 033 (the
+	// raw-numbered fixture above must precede 033), so 042 is applied
+	// by hand here — mirroring what a live upgrade would have done.
+	body042, err := MigrationsFS.ReadFile("migrations/042_task_blocked_status.sql")
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, string(body042))
+	require.NoError(t, err)
 
 	// Contract 2: repository INSERT subquery assigns MAX+1.
 	repo := NewTaskRepository(db)

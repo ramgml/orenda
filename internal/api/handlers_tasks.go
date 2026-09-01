@@ -293,6 +293,19 @@ func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.
 			tr.Awaiting = task.AwaitingNone
 		}
 	}
+	// Task 115 (manual move wins): an explicit status PATCH out of
+	// `blocked` is the owner override — drop the auto-block memory
+	// exactly like a kanban drag does. Unfinished blockers keep
+	// gating Claim and ?ready=true independently.
+	if statusChanged && prevStatus == task.StatusBlocked && tr.Status != task.StatusBlocked {
+		tr.BlockedPrevStatus = ""
+	}
+	// Task 115: the PATCH may close the task (status → done). Any
+	// dependent that just lost its last unfinished blocker leaves
+	// `blocked` — same behaviour as the Review approve path.
+	if statusChanged && tr.Status == task.StatusDone && deps.TaskService != nil {
+		defer deps.TaskService.OnCloseUnblockDependents(ctx, tr.ID)
+	}
 	// T46: centralize status↔column sync + persist + mirror + activity
 	// in SyncAndSave instead of direct Tasks.Update.
 	if deps.TaskService != nil {

@@ -321,9 +321,15 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 		}
 	}
 
+	// Task 115 (manual move wins): dragging the card anywhere is the
+	// owner's explicit decision — leaving `blocked` this way clears
+	// the auto-block memory. The unfinished blockers still gate Claim
+	// and ?ready=true; the override only drops the status bookkeeping.
+	if tr.Status == task.StatusBlocked && tr.BlockedPrevStatus != "" {
+		tr.BlockedPrevStatus = ""
+	}
 	tr.ColumnID = opts.TargetColumnID
 	tr.Position = derivePosition(opts, tr.Position)
-
 	// Phase 16: dragging an Inbox card onto a project's board files
 	// it under that project. We resolve the project id from the
 	// target column's board via the columns repository (which knows
@@ -670,6 +676,45 @@ func (s *Service) SetTaskDependencies(ctx context.Context, taskID string, depend
 		}
 		return err
 	}
+	// Task 115: compute the edge diff and run BOTH state machines so
+	// every path that replaces the set (PUT /dependencies, agent
+	// propose blocked_by, agent PATCH blocked_by) gets the identical
+	// auto-block / auto-unblock + activity behaviour as the single-edge
+	// endpoints. Added edges → auto-block flip (per edge, one
+	// task.blocked row); removed edges → auto-unblock check.
+	before, berr := s.Tasks.Blockers(ctx, taskID)
+	if berr != nil {
+		return fmt.Errorf("task service: SetTaskDependencies: pre-diff blockers: %w", berr)
+	}
+	beforeSet := make(map[string]struct{}, len(before))
+	for _, b := range before {
+		beforeSet[b.BlockerID] = struct{}{}
+	}
+	afterSet := make(map[string]struct{}, len(cleaned))
+	for _, dep := range cleaned {
+		afterSet[dep] = struct{}{}
+	}
+	var added, removed []string
+	for _, dep := range cleaned {
+		if _, ok := beforeSet[dep]; !ok {
+			added = append(added, dep)
+		}
+	}
+	for _, b := range before {
+		if _, ok := afterSet[b.BlockerID]; !ok {
+			removed = append(removed, b.BlockerID)
+		}
+	}
+	for _, dep := range added {
+		if _, err := s.blockerEdgeAdded(ctx, taskID, dep); err != nil {
+			return fmt.Errorf("task service: SetTaskDependencies: auto-block: %w", err)
+		}
+	}
+	for _, dep := range removed {
+		if _, err := s.blockerEdgeRemoved(ctx, taskID, dep); err != nil {
+			return fmt.Errorf("task service: SetTaskDependencies: auto-unblock: %w", err)
+		}
+	}
 	// Fire WS event so other tabs refresh their badge/blockers view.
 	if s.Hub != nil {
 		s.Hub.Publish(ctx, ws.Event{Topic: "tasks", Body: map[string]any{
@@ -855,6 +900,11 @@ func (s *Service) Review(ctx context.Context, taskID, userID string, decision Re
 	// The actor is the assignee when agent-assigned, otherwise the
 	// project owner (single-owner installs).
 	s.syncTimer(ctx, tr, task.StatusReview)
+	// Task 115: approving closes the blocker — every dependent that
+	// just lost its last unfinished blocker leaves `blocked`.
+	if decision == ReviewApprove {
+		s.OnCloseUnblockDependents(ctx, taskID)
+	}
 	s.publishTask(ctx, "task.reviewed", tr, userID, map[string]any{
 		"decision": string(decision),
 		"comment":  comment,

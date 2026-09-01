@@ -74,7 +74,6 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 			?,
 			?,
 			?,
-			?,
 			?, ?,
 			datetime('now'), datetime('now')
 		)
@@ -87,6 +86,8 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 		nullString(t.ContextMD), nullString(t.AgentNotes),
 		nullString(formatTimePtr(t.DueAt)), nullString(formatTimePtr(t.StartedAt)),
 		nullString(formatTimePtr(t.ClaimedAt)), nullString(formatTimePtr(t.CompletedAt)),
+		nullIntPtr(t.TimeEstimateS), t.TimeSpentS, t.Position,
+		nullString(formatTimePtr(t.StartAt)), nullString(formatTimePtr(t.EndAt)),
 		boolToInt(t.AllDay), nullString(t.Color),
 		nullString(t.Recurrence),
 		nullString(t.StudyCourseID),
@@ -453,6 +454,7 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) error {
 		nullIntPtr(t.TimeEstimateS), t.TimeSpentS, t.Position,
 		nullString(formatTimePtr(t.StartAt)), nullString(formatTimePtr(t.EndAt)),
 		boolToInt(t.AllDay), nullString(t.Color),
+		nullString(t.Recurrence),
 		nullString(t.StudyCourseID),
 		nullString(string(t.BlockedPrevStatus)),
 		t.ID,
@@ -900,6 +902,7 @@ func (r *taskRepo) ListByDueBetween(ctx context.Context, from, to time.Time) ([]
 		       completed_at, time_estimate_s, time_spent_s, position,
 		       start_at, end_at, all_day, color, recurrence,
 		       study_course_id,
+		       blocked_prev_status,
 		       created_by_type, created_by_id,
 	       created_at, updated_at
 		FROM tasks
