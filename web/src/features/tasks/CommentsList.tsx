@@ -255,4 +255,3 @@ function MentionP({ children }: { children?: ReactNode }): JSX.Element {
     </p>
   );
 }
-
