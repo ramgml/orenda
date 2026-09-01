@@ -17,7 +17,7 @@ import { cleanup, fireEvent, render, screen, type RenderResult } from '@testing-
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 
-import { DescriptionEditor, DueEditor } from '@/features/tasks/TaskViewBody';
+import { DescriptionEditor, DueEditor, EstimateEditor } from '@/features/tasks/TaskViewBody';
 import type { Task } from '@/shared/api/client';
 
 const MARKDOWN = [
@@ -159,5 +159,58 @@ describe('DueEditor (T90)', () => {
     mountDue(dueTask());
 
     expect(screen.queryByRole('link', { name: 'Show in calendar' })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T120: editable time estimate (minutes in, seconds on the wire)
+// ---------------------------------------------------------------------------
+
+describe('EstimateEditor (T120)', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  function mountEstimate(task: Task): { onSaveEstimate: Mock } {
+    const onSaveEstimate = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MemoryRouter>
+        <EstimateEditor task={task} busy={false} onSaveEstimate={onSaveEstimate} />
+      </MemoryRouter>,
+    );
+    return { onSaveEstimate };
+  }
+
+  it('renders without a clear button when no estimate is set', () => {
+    mountEstimate(dueTask());
+
+    expect(screen.getByTitle('Time estimate')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'clear' })).toBeNull();
+  });
+
+  it('setting minutes commits seconds through onSaveEstimate', () => {
+    const { onSaveEstimate } = mountEstimate(dueTask());
+
+    fireEvent.change(screen.getByTitle('Time estimate'), { target: { value: '90' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Set' }));
+
+    expect(onSaveEstimate).toHaveBeenCalledWith(90 * 60);
+  });
+
+  it('clearing via the clear button commits the 0 sentinel', () => {
+    const { onSaveEstimate } = mountEstimate(dueTask({ time_estimate_s: 5400 }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+
+    expect(onSaveEstimate).toHaveBeenCalledWith(0);
+  });
+
+  it('ignores a non-numeric or negative input (Set stays silent)', () => {
+    const { onSaveEstimate } = mountEstimate(dueTask());
+
+    fireEvent.change(screen.getByTitle('Time estimate'), { target: { value: '-5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Set' }));
+
+    expect(onSaveEstimate).not.toHaveBeenCalled();
   });
 });
