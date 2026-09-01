@@ -28,7 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 import { ColumnView } from './ColumnView';
 import { TaskCard } from './TaskCard';
-import { computeTaskPosition, neighbourPositions } from './cardPosition';
+import { computeReorderSuffix, computeTaskPosition, neighbourPositions } from './cardPosition';
 
 /**
  * Kanban board for one project: drag-and-drop columns AND tasks via
@@ -290,16 +290,44 @@ export function KanbanBoard({
     );
     const position = computeTaskPosition(before, after).position ?? reordered[toIdx]?.position ?? 0;
 
+    // Legacy columns can hold position ties (quick-created cards all
+    // share e.g. 0). A tie midpoint cannot express "between" on the
+    // server (ORDER BY position, created_at), so rebalance the tied
+    // suffix — the moved card first — and fire one move per bumped
+    // card. The primary request is the moved card itself; the rest
+    // follow best-effort so the visible order survives reload.
+    const suffix = computeReorderSuffix(
+      reordered.map((t) => t.id),
+      new Map(reordered.map((t) => [t.id, t.position])),
+      toIdx,
+    );
+    const movedPos = suffix.get(activeId) ?? position;
+    const others = [...suffix.entries()].filter(([id]) => id !== activeId);
+
     const prev = tasks;
-    setTasks((cur) => cur.map((t) => (t.id === activeId ? { ...t, position } : t)));
+    setTasks((cur) =>
+      cur.map((t) => (suffix.has(t.id) ? { ...t, position: suffix.get(t.id)! } : t)),
+    );
 
     try {
       const columnId = current.column_id ?? '';
       if (!columnId) return;
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        await queueMoveTask(activeId, columnId, position);
+        await queueMoveTask(activeId, columnId, movedPos);
       } else {
-        await api.moveTask(activeId, columnId, position);
+        await api.moveTask(activeId, columnId, movedPos);
+      }
+      for (const [id, pos] of others) {
+        try {
+          if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            await queueMoveTask(id, columnId, pos);
+          } else {
+            await api.moveTask(id, columnId, pos);
+          }
+        } catch {
+          // Best-effort: a failed suffix bump re-syncs on next WS
+          // refetch; the moved card itself is already authoritative.
+        }
       }
     } catch {
       setTasks(prev);
