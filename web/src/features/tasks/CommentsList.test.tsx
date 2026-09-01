@@ -112,9 +112,7 @@ describe('CommentsList — markdown display (Task 114)', () => {
   });
 
   it('renders links with target=_blank', () => {
-    render(
-      <CommentsList comments={[comment({ body_md: '[docs](https://example.com/docs)' })]} />,
-    );
+    render(<CommentsList comments={[comment({ body_md: '[docs](https://example.com/docs)' })]} />);
 
     const link = screen.getByRole('link', { name: 'docs' }) as HTMLAnchorElement;
     expect(link.getAttribute('target')).toBe('_blank');
