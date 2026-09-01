@@ -44,6 +44,12 @@ func moveTaskHandler(deps *Dependencies) http.HandlerFunc {
 		}
 
 		opts := task.MoveOptions{TargetColumnID: in.ColumnID, Position: in.Position}
+		// Task 117: identify the mover for the task.moved activity
+		// row — Activity.Validate rejects empty actor ids, and without
+		// this the audit row was silently dropped by the recorder.
+		if id, ok := IdentityFrom(r.Context()); ok {
+			opts.ActorID = id.UserID
+		}
 
 		if in.BeforeTaskID != "" {
 			t, err := deps.Tasks.GetByID(r.Context(), in.BeforeTaskID)

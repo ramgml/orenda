@@ -254,6 +254,15 @@ export interface Task {
    * by the list endpoints; undefined when the field isn't set. The
    * blocked badge renders only when this is > 0. */
   blocked_by_count?: number;
+  /** Task 115: status the task held before an auto-block flipped it to
+   * `blocked` (a blocker was added). Non-empty only while status is
+   * `blocked`; cleared when the task auto-unblocks or is moved
+   * manually. */
+  blocked_prev_status?: string;
+  /** Task 115: unfinished blockers (id/number/title) for the kanban
+   * card tooltip. Populated by the list endpoints next to
+   * blocked_by_count; undefined when the field isn't set. */
+  blockers?: Array<{ id: string; number: number; title: string }>;
   due_at?: string;
   started_at?: string;
   claimed_at?: string;
@@ -376,6 +385,7 @@ export interface Comment {
   author_id: string;
   body_md: string;
   created_at: string;
+  edited_at?: string;
 }
 
 /**
@@ -538,6 +548,12 @@ class ApiClient {
   createTaskComment(taskId: string, body_md: string): Promise<Comment> {
     return this.http
       .post<Comment>(`/api/v1/tasks/${taskId}/comments`, { body_md })
+      .then((r) => r.data);
+  }
+
+  updateTaskComment(taskId: string, commentId: string, body_md: string): Promise<Comment> {
+    return this.http
+      .patch<Comment>(`/api/v1/tasks/${taskId}/comments/${commentId}`, { body_md })
       .then((r) => r.data);
   }
 
@@ -965,6 +981,31 @@ class ApiClient {
       .put<{ blockers: BlockerRow[] }>(`/api/v1/tasks/${taskId}/dependencies`, {
         depends_on_ids: dependsOnIds,
       })
+      .then((r) => r.data);
+  }
+
+  /** Task 115: add ONE blocker edge (idempotent; auto-blocks the
+   * target). Accepts a UUID or `T<N>` ref for blockedBy. Returns the
+   * refreshed blockers plus the task (status may now be `blocked`). */
+  addTaskBlocker(
+    taskId: string,
+    blockedBy: string,
+  ): Promise<{ blockers: BlockerRow[]; task: Task }> {
+    return this.http
+      .post<{ blockers: BlockerRow[]; task: Task }>(`/api/v1/tasks/${taskId}/blocks`, {
+        blocked_by: blockedBy,
+      })
+      .then((r) => r.data);
+  }
+
+  /** Task 115: remove ONE blocker edge (unknown edge → 404;
+   * auto-unblocks when no unfinished blockers remain). */
+  removeTaskBlocker(
+    taskId: string,
+    blockedBy: string,
+  ): Promise<{ blockers: BlockerRow[]; task: Task }> {
+    return this.http
+      .delete<{ blockers: BlockerRow[]; task: Task }>(`/api/v1/tasks/${taskId}/blocks/${blockedBy}`)
       .then((r) => r.data);
   }
 

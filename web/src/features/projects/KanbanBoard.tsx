@@ -28,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 import { ColumnView } from './ColumnView';
 import { TaskCard } from './TaskCard';
+import { computeReorderSuffix, computeTaskPosition, neighbourPositions } from './cardPosition';
 
 /**
  * Kanban board for one project: drag-and-drop columns AND tasks via
@@ -257,8 +258,89 @@ export function KanbanBoard({
       return;
     }
 
-    // Task move into a column.
-    const targetColumnId = overId;
+    // T118: task drag. `over` is a column id (cross-column move —
+    // the column droppable) or another card id (same-column reorder
+    // — cards are SortableCards since T118, so dropping ON a card
+    // reports that card, not the column).
+    if (isColumnId(overId)) {
+      await moveTaskToColumn(activeId, overId);
+      return;
+    }
+
+    // Same-column reorder: active and over are both cards. Guard the
+    // column match anyway — cross-column drags should always end over
+    // the column droppable zone, but a stale id must not corrupt
+    // positions.
+    const current = tasks.find((t) => t.id === activeId);
+    const overTask = tasks.find((t) => t.id === overId);
+    if (!current || !overTask || current.column_id !== overTask.column_id) return;
+
+    const columnTasks = tasks
+      .filter((t) => t.column_id === current.column_id)
+      .sort((a, b) => a.position - b.position);
+    const fromIdx = columnTasks.findIndex((t) => t.id === activeId);
+    const toIdx = columnTasks.findIndex((t) => t.id === overId);
+    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+
+    const reordered = arrayMove(columnTasks, fromIdx, toIdx);
+    const { before, after } = neighbourPositions(
+      reordered.map((t) => t.id),
+      new Map(reordered.map((t) => [t.id, t.position])),
+      toIdx,
+    );
+    const position = computeTaskPosition(before, after).position ?? reordered[toIdx]?.position ?? 0;
+
+    // Legacy columns can hold position ties (quick-created cards all
+    // share e.g. 0). A tie midpoint cannot express "between" on the
+    // server (ORDER BY position, created_at), so rebalance the tied
+    // suffix — the moved card first — and fire one move per bumped
+    // card. The primary request is the moved card itself; the rest
+    // follow best-effort so the visible order survives reload.
+    const suffix = computeReorderSuffix(
+      reordered.map((t) => t.id),
+      new Map(reordered.map((t) => [t.id, t.position])),
+      toIdx,
+    );
+    const movedPos = suffix.get(activeId) ?? position;
+    const others = [...suffix.entries()].filter(([id]) => id !== activeId);
+
+    const prev = tasks;
+    setTasks((cur) =>
+      cur.map((t) => (suffix.has(t.id) ? { ...t, position: suffix.get(t.id)! } : t)),
+    );
+
+    try {
+      const columnId = current.column_id ?? '';
+      if (!columnId) return;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        await queueMoveTask(activeId, columnId, movedPos);
+      } else {
+        await api.moveTask(activeId, columnId, movedPos);
+      }
+      for (const [id, pos] of others) {
+        try {
+          if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            await queueMoveTask(id, columnId, pos);
+          } else {
+            await api.moveTask(id, columnId, pos);
+          }
+        } catch {
+          // Best-effort: a failed suffix bump re-syncs on next WS
+          // refetch; the moved card itself is already authoritative.
+        }
+      }
+    } catch {
+      setTasks(prev);
+    }
+  }
+
+  /**
+   * T118: cross-column move extracted from onDragEnd so the
+   * card-over-column drop path and the WIP-limit error handling stay
+   * in one place. Behaviour identical to pre-T118: optimistic update,
+   * outbox when offline, revert + toast on failure.
+   */
+  async function moveTaskToColumn(activeId: string, targetColumnId: string): Promise<void> {
     const current = tasks.find((t) => t.id === activeId);
     if (!current || current.column_id === targetColumnId) return;
 

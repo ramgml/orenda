@@ -122,7 +122,20 @@ components:
         title: { type: string }
         status:
           type: string
-          description: Canonical status or a project-defined column machine key.
+          description: |
+            Canonical status (`backlog|todo|in_progress|review|done|blocked`)
+            or a project-defined column machine key. `blocked` (Task 115)
+            is set automatically when an unfinished blocker is added and
+            the task is not already done/blocked; it is restored when the
+            last unfinished blocker goes away, or overridden by a manual
+            move (which clears `blocked_prev_status`).
+        blocked_prev_status:
+          type: string
+          description: |
+            Status the task had before an auto-block flipped it to
+            `blocked`. Empty/absent = never auto-blocked (or already
+            cleared by a manual move). Auto-unblock restores this value,
+            falling back to `todo` when absent (legacy rows).
         priority:
           type: string
           enum: [low, medium, high, urgent]
@@ -134,6 +147,10 @@ components:
           type: string
           enum: [none, human, agent]
         due_at: { type: string, format: date-time }
+        time_estimate_s:
+          type: integer
+          nullable: true
+          description: Planned effort in seconds; omitted from responses when unset.
         # Phase 31: study-reminder marker. Non-empty means "soft
         # reminder accepted from a study proposal"; the Today
         # screen reads this to apply the no-escalation policy
@@ -214,14 +231,11 @@ components:
     ActiveCourseProgress:
       type: object
       properties:
-        lessons_total:
-          type: integer
-        lessons_done:
-          type: integer
+        lessons_total: { type: integer }
+        lessons_done: { type: integer }
         open_lessons:
           type: array
-          items:
-            $ref: '#/components/schemas/OpenLesson'
+          items: { $ref: '#/components/schemas/OpenLesson' }
         last_completed_at:
           type: string
           format: date-time
@@ -326,6 +340,25 @@ components:
           description: 'Phase 31.7: pending study proposals for the Dashboard tray. Empty array when none.'
           items: { $ref: '#/components/schemas/StudyProposalView' }
 
+    # Task 107: payload returned by /overview — the system Dashboard.
+    OverviewResponse:
+      type: object
+      properties:
+        projects: { type: integer }
+        tasks_by_status:
+          type: object
+          additionalProperties: { type: integer }
+        wiki_pages: { type: integer }
+        events: { type: integer }
+        activity:
+          type: array
+          description: 30-day created-vs-completed series, oldest first.
+          items:
+            type: object
+            properties:
+              date: { type: string }
+              created: { type: integer }
+              completed: { type: integer }
 
     Agent:
       type: object
@@ -407,34 +440,6 @@ components:
         blocks:
           type: array
           items: { $ref: '#/components/schemas/Block' }
-
-    SearchHit:
-      type: object
-      description: One BM25-ranked FTS5 result row.
-      required: [type, id, snippet, score]
-      properties:
-        type: { type: string, enum: [page, task, comment] }
-        id: { type: string }
-        slug:
-          type: string
-          description: Wiki page slug — present for type=page hits. The wiki
-            page route resolves slugs only, so clients must link to
-            /wiki/<slug>.
-        title: { type: string }
-        snippet:
-          type: string
-          description: Extract with matches wrapped in literal <mark>/</mark>
-            markers (plain text, not HTML).
-        score: { type: number, format: double }
-
-    SearchResponse:
-      type: object
-      required: [hits, total]
-      properties:
-        hits:
-          type: array
-          items: { $ref: '#/components/schemas/SearchHit' }
-        total: { type: integer }
 
 paths:
 
@@ -658,6 +663,12 @@ paths:
                 description: { type: string }
                 status: { $ref: '#/components/schemas/Task/properties/status' }
                 priority: { $ref: '#/components/schemas/Task/properties/priority' }
+                time_estimate_s:
+                  type: integer
+                  description: |
+                    Planned effort in seconds. `0` clears the estimate
+                    (a zero-second estimate is meaningless; same
+                    convention as the due_at empty string).
                 parent_task_id: { type: string }
                 assignee_type: { type: string }
                 assignee_id: { type: string }
@@ -749,6 +760,19 @@ paths:
       tags: [tasks]
       summary: Update task fields.
       security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                time_estimate_s:
+                  type: integer
+                  description: |
+                    Planned effort in seconds. `0` clears the estimate
+                    (a zero-second estimate is meaningless; same
+                    convention as the due_at empty string). Absent
+                    field leaves the stored value untouched.
       responses: { '200': { description: ok } }
     put:
       tags: [tasks]
@@ -855,6 +879,59 @@ paths:
         '200': { description: ok }
         '422': { description: invalid_dependency (cycle or self-loop) }
 
+  /api/v1/tasks/{id}/blocks:
+    post:
+      tags: [tasks]
+      summary: Add one blocker edge (Task 115).
+      description: |
+        Makes `{id}` depend on `blocked_by`. Accepts UUIDs or T-refs
+        ("T42") for both task arguments. Idempotent: adding an edge that
+        already exists is a 200 no-op. Auto-block: unless the target is
+        done or already blocked, its status flips to `blocked` and
+        `blocked_prev_status` remembers the previous status. Self-block
+        and cycles are rejected with 422. The response carries the
+        refreshed blockers list and the resulting task.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blocked_by]
+              properties:
+                blocked_by:
+                  type: string
+                  description: Blocker task UUID or T-ref.
+      responses:
+        '200':
+          description: ok (blockers + resulting task; also for the idempotent case)
+        '400': { description: blocked_by_required }
+        '404': { description: task not found (target or blocker) }
+        '422': { description: invalid_dependency (cycle or self-block) }
+
+  /api/v1/tasks/{id}/blocks/{blockedBy}:
+    delete:
+      tags: [tasks]
+      summary: Remove one blocker edge (Task 115).
+      description: |
+        Deletes the `{id}` → `{blockedBy}` dependency edge (UUIDs or
+        T-refs). Unknown edge → 404. Auto-unblock: when no unfinished
+        blocker remains, the task's status is restored from
+        `blocked_prev_status` (fallback `todo`) and the column is
+        cleared. Returns the refreshed blockers list + task.
+      security: [{ bearerAuth-cookie: [] }]
+      parameters:
+        - name: blockedBy
+          in: path
+          required: true
+          schema: { type: string }
+          description: Blocker task UUID or T-ref.
+      responses:
+        '200': { description: ok (blockers + resulting task) }
+        '404': { description: task or edge not found }
+
+
   /api/v1/tasks/{id}/tags:
     get:
       tags: [tasks, tags]
@@ -921,6 +998,26 @@ paths:
       summary: Add a comment (markdown; @user:&lt;id&gt; mentions).
       security: [{ bearerAuth-cookie: [] }]
       responses: { '201': { description: created } }
+
+  /api/v1/tasks/{id}/comments/{commentId}:
+    patch:
+      tags: [tasks]
+      summary: Edit own comment on a task (403 if not the author; 404 unknown comment; 400 empty body_md).
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body_md]
+              properties:
+                body_md: { type: string }
+      responses:
+        '200': { description: updated }
+        '400': { description: empty body_md }
+        '403': { description: not the comment author }
+        '404': { description: comment or task not found }
 
   /api/v1/tasks/{id}/attachments:
     get:
@@ -1209,6 +1306,50 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TodayResponse' }
+
+  # Task 107: system Dashboard — entity counts + activity series.
+  /api/v1/overview:
+    get:
+      tags: [today]
+      summary: System overview (project/task/page/event counts + 30-day created-vs-completed activity).
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OverviewResponse' }
+
+  # Phase 32.11: Dashboard chat pane (commands-only MVP). Messages are
+  # persisted to chat_messages (migration 032) for history replay and
+  # fanned out live on the WS topic "chat".
+  /api/v1/dashboard/chat:
+    post:
+      tags: [chat]
+      summary: Post a chat message; the server replies with a command result (/plan day, /help).
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                thread_id: { type: string }
+                message: { type: string }
+      responses:
+        '201': { description: created }
+        '400': { description: invalid_json / empty_message }
+        '503': { description: chat_not_wired }
+
+  /api/v1/dashboard/chat/{thread}:
+    get:
+      tags: [chat]
+      summary: Replay the persisted chat history for a thread.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200': { description: ok }
 
   # ---- courses ----
   /api/v1/courses:
@@ -1649,12 +1790,7 @@ paths:
         - in: query
           name: type
           schema: { type: string }
-      responses:
-        '200':
-          description: ok
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SearchResponse' }
+      responses: { '200': { description: ok } }
 
   # ---- notifications ----
   /api/v1/notifications:
@@ -1962,29 +2098,41 @@ paths:
       security: [{ bearerAuth-agent: [] }]
       responses: { '200': { description: ok } }
 
-  # wiki:agent-project-description + wiki:project-wiki-link — agent
-  # read/write of a project. PATCH carries description and / or
-  # wiki_slug (pointer fields; nil leaves the column alone).
-  # wiki_slug must reference an existing wiki page or the request is
-  # rejected with 422 wiki_slug_not_found — same contract as the
-  # user-cookie PATCH so the two surfaces stay in sync.
-  /api/v1/agent/projects/{id}:
+  /api/v1/agent/projects:
     get:
       tags: [agent]
-      summary: Read one project (full row incl. wiki_slug).
+      summary: List all projects (single-owner) — source of project_id for task proposal.
       security: [{ bearerAuth-agent: [] }]
       responses:
         '200': { description: ok }
-        '404': { description: not_found }
+        '401': { description: invalid_token }
+
+  # wiki:agent-project-description — agent read/write of the project
+  # description. v1 exposes only the description field (name/color/
+  # archived stay user-only); wiki_slug joins with wiki:project-wiki-link.
+  # Namespace split: cookie sessions 401 here (RequireAgent), agent
+  # tokens 401 on the user-side /api/v1/projects routes (RequireUser).
+  /api/v1/agent/projects/{id}:
+    get:
+      tags: [agent]
+      summary: Read a project (full row incl. wiki_slug) with an agent token.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok }
+        '404': { description: not found }
     patch:
       tags: [agent]
-      summary: Update description and / or wiki_slug.
+      summary: Update description and / or wiki_slug on behalf of the agent.
       description: |
         Pointer fields: nil leaves the column alone; non-nil replaces.
         wiki_slug must reference an existing wiki page (422 on miss);
         empty string unlinks the project. Description accepts any
-        string including "". name / color / archived are intentionally
-        user-only and are rejected as no-ops even if sent.
+        string including "" (clears it). Each changed field produces
+        a project_activity row (description_changed / wiki_slug_changed)
+        with a before/after diff payload, plus a single 'projects'
+        WebSocket event so the UI refreshes without a reload.
+        name / color / archived are user-only and intentionally NOT
+        accepted here even if sent.
       security: [{ bearerAuth-agent: [] }]
       requestBody:
         required: true
@@ -1997,6 +2145,7 @@ paths:
                 wiki_slug: { type: string, description: "Slug of an existing wiki page; empty → unlink." }
       responses:
         '200': { description: ok }
+        '400': { description: invalid_json }
         '404': { description: not_found }
         '422': { description: wiki_slug_not_found }
 
@@ -2013,18 +2162,16 @@ paths:
           name: limit
           schema: { type: integer, default: 100 }
       responses: { '200': { description: ok } }
-    # Phase 33.1 + 33.3: agent proposes a NEW task. Lands as
-    # status=backlog + awaiting=none on the backlog column so the
-    # owner can triage it on the kanban (drag to todo / in_progress
-    # / done). The task is NOT added to the review queue — the
-    # queue is reserved for agent-submitted work (status=review).
-    # Accept = kanban move to a real-work column; dismiss = DELETE
-    # /api/v1/tasks/{id}. Activity row task.created is written with
-    # actor_type=agent; a task.created event is published on the WS
-    # topic `tasks`.
+    # Phase 33.1: agent proposes a NEW task. Lands as status=backlog +
+    # awaiting=human, so it appears in the existing review queue
+    # (awaiting='human' OR status='review') for human triage.
+    # Accept = kanban-move to todo (clears awaiting via Service.Move);
+    # dismiss = DELETE /api/v1/tasks/{id}. Activity row task.created is
+    # written with actor_type=agent; a task.created event is published
+    # on the WS topic `tasks`.
     post:
       tags: [agent]
-      summary: Propose a new task (lands in backlog, awaiting=none; owner triages on the board by moving to todo).
+      summary: Propose a new task (status=backlog, awaiting=human — human triages from the review queue).
       security: [{ bearerAuth-agent: [] }]
       requestBody:
         required: true
@@ -2041,7 +2188,7 @@ paths:
                 blocked_by: { type: array, items: { type: string } }
                 parent_task_id: { type: string }
       responses:
-        '201': { description: created (backlog, awaiting=none) }
+        '201': { description: created (backlog, awaiting=human) }
         '400': { description: invalid_json / invalid_input (missing project_id, title or description_md) }
         '401': { description: missing or invalid agent token }
         '404': { description: not_found (unknown project / parent_task_id / blocked_by id) }
@@ -2088,6 +2235,31 @@ paths:
       responses:
         '200': { description: ok }
         '404': { description: 'not_found — includes task #N not found for numeric refs' }
+        '422': { description: 'time_not_logged — submit gate: zero spent time and no open auto-timer for the agent (Task 87)' }
+
+  /api/v1/agent/tasks/{id}/time:
+    post:
+      tags: [agent]
+      summary: Log manual time (Task 87 submit-gate bypass; {id} accepts UUID or "#42"/"42").
+      description: |
+        Records a closed time entry ending now. minutes >= 0; 0 marks
+        the task time-tracked-trivial and satisfies the submit gate
+        (POST /submit returns 422 time_not_logged while the task has
+        no spent time and no open auto-timer entry).
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [minutes]
+              properties:
+                minutes: { type: number, description: 'minutes spent (>= 0; 0 = trivial)' }
+      responses:
+        '201': { description: created }
+        '400': { description: 'invalid_json | minutes_must_be_non_negative' }
+        '404': { description: 'not_found — includes task #N not found for numeric refs' }
 
   /api/v1/agent/tasks/{id}/context:
     get:
@@ -2109,6 +2281,51 @@ paths:
   # /api/v1/tasks/{id}/comments POST but writes the comment as
   # author_type=agent with the agent's id. Pre-27.11 the agent CLI
   # posted to the user-cookie route which 401'd under RequireUser.
+
+  # Phase 33.2: agent-side task management — PATCH + DELETE.
+  /api/v1/agent/tasks/{id}:
+    patch:
+      tags: [agent]
+      summary: Edit own un-triaged proposal, or update agent_notes as the lock holder.
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                description_md: { type: string }
+                priority: { type: string, enum: [low, medium, high, urgent] }
+                due_at: { type: string, format: date-time, nullable: true }
+                parent_task_id: { type: string }
+                blocked_by:
+                  type: array
+                  items: { type: string }
+                  description: |
+                    Full replacement blocker set (Task 115). Items are task
+                    UUIDs or T-refs ("T42"). Present + empty → clears all
+                    blockers; present + ids → replaces the set (cycle/self
+                    checks apply, 422 invalid_dependency); absent →
+                    untouched. Only the agent's own un-triaged proposal is
+                    editable (403 not_your_proposal otherwise). Adding a
+                    blocker auto-flips the task to status=blocked.
+                agent_notes: { type: string }
+      responses:
+        '200': { description: ok }
+        '400': { description: invalid_json / no_patch_fields }
+        '403': { description: not_your_proposal / not_lock_holder }
+        '404': { description: not_found }
+    delete:
+      tags: [agent]
+      summary: Retract own un-triaged proposal (hard delete).
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '204': { description: deleted }
+        '403': { description: not_your_proposal }
+        '404': { description: not_found }
+
   # T96: agent-namespace checklists. Read mirrors the checklist
   # payload of the task context; mutations are holder-only (the
   # server answers 403 not_lock_holder, same gate as agent_notes).
@@ -2205,6 +2422,25 @@ paths:
         '201': { description: created }
         '401': { description: missing or invalid agent token }
         '404': { description: 'not_found — includes task #N not found for numeric refs' }
+  /api/v1/agent/tasks/{id}/comments/{commentId}:
+    patch:
+      tags: [agent]
+      summary: Edit the agent's own comment (403 if authored by someone else; 404 unknown comment; 400 empty body_md; {id} accepts UUID or "#42"/"42").
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body_md]
+              properties:
+                body_md: { type: string }
+      responses:
+        '200': { description: updated }
+        '400': { description: empty body_md }
+        '403': { description: not the comment author }
+        '404': { description: comment or task not found }
 
   # Phase 27.11: agent-namespace long-poll. Mirrors the user-cookie
   # /api/v1/events/await POST but subscribes the WS hub under the
@@ -2231,39 +2467,6 @@ paths:
         '204': { description: timeout }
         '401': { description: missing or invalid agent token }
 
-
-  # Phase 33.2: agent-side task management — PATCH + DELETE.
-  /api/v1/agent/tasks/{id}:
-    patch:
-      tags: [agent]
-      summary: Edit own un-triaged proposal, or update agent_notes as the lock holder.
-      security: [{ bearerAuth-agent: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                title: { type: string }
-                description_md: { type: string }
-                priority: { type: string, enum: [low, medium, high, urgent] }
-                due_at: { type: string, format: date-time, nullable: true }
-                parent_task_id: { type: string }
-                agent_notes: { type: string }
-      responses:
-        '200': { description: ok }
-        '400': { description: invalid_json / no_patch_fields }
-        '403': { description: not_your_proposal / not_lock_holder }
-        '404': { description: not_found }
-    delete:
-      tags: [agent]
-      summary: Retract own un-triaged proposal (hard delete).
-      security: [{ bearerAuth-agent: [] }]
-      responses:
-        '204': { description: deleted }
-        '403': { description: not_your_proposal }
-        '404': { description: not_found }
   /api/v1/agent/courses:
     get:
       tags: [agent, courses]
@@ -2823,12 +3026,7 @@ paths:
         - in: query
           name: limit
           schema: { type: integer }
-      responses:
-        '200':
-          description: ok
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SearchResponse' }
+      responses: { '200': { description: ok } }
 
   # Phase 32.11: dashboard chat pane (commands-only MVP). User-cookie
   # surface; /plan day files a study proposal (result_ref = proposal id),

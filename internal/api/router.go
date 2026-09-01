@@ -393,6 +393,11 @@ func NewRouter(deps *Dependencies) http.Handler {
 					r.Get("/blockers", getTaskBlockersHandler(deps))
 					r.Get("/dependents", getTaskDependentsHandler(deps))
 					r.Put("/dependencies", putTaskDependenciesHandler(deps))
+					// Task 115: single-edge blocker endpoints (same
+					// auth + error codes as PUT /dependencies; refs
+					// accepted for both task arguments).
+					r.Post("/blocks", postTaskBlockHandler(deps))
+					r.Delete("/blocks/{blockedBy}", deleteTaskBlockHandler(deps))
 					// Phase 13: per-task tag assignment.
 					r.Get("/tags", listTaskTagsHandler(deps))
 					r.Put("/tags", setTaskTagsHandler(deps))
@@ -409,6 +414,7 @@ func NewRouter(deps *Dependencies) http.Handler {
 					})
 					r.Get("/comments", listTaskCommentsHandler(deps))
 					r.Post("/comments", createTaskCommentHandler(deps))
+					r.Patch("/comments/{commentId}", updateTaskCommentHandler(deps))
 					r.Get("/attachments", listTaskAttachmentsHandler(deps))
 					r.Post("/attachments", addTaskAttachmentHandler(deps))
 					r.Route("/attachments/{attId}", func(r chi.Router) {
@@ -687,6 +693,7 @@ func NewRouter(deps *Dependencies) http.Handler {
 						// handler but writes AuthorAgent + uses
 						// Identity.AgentID as the author id.
 						r.Post("/comments", agentCreateTaskCommentHandler(deps))
+						r.Patch("/comments/{commentId}", agentUpdateTaskCommentHandler(deps))
 						// T96: agent-namespace checklists —
 						// read the PM's QA checklist, tick
 						// items off. Read is open (same

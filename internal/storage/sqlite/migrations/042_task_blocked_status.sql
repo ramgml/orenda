@@ -1,0 +1,24 @@
+-- Migration 042 — `blocked` status + previous-status memory (Task 115).
+--
+-- Before: a task with unfinished blockers kept whatever status it had;
+-- the only "blocked" signal was the Phase 15 card badge and the
+-- claim-time 422 (task_blocked + unfinished_blockers). Humans reading
+-- the kanban could not see blocked-ness at the status level, and there
+-- was nowhere to remember what a task was doing before its blockers
+-- arrived.
+--
+-- After:
+-- - `tasks.status` may now carry the new app-level value `blocked`
+--   (no CHECK constraint existed on the column before — statuses are
+--   app-layer enforced, see the migration 003 comment — so no table
+--   rebuild is needed).
+-- - `tasks.blocked_prev_status TEXT NULL` remembers the status a task
+--   had when an auto-block moved it to `blocked`. NULL = the task is
+--   not (or is no longer) auto-blocked. The service layer restores
+--   this status on auto-unblock, falling back to `todo` when the
+--   column is NULL (legacy rows), and clears it whenever a manual
+--   move overrides the blocked state.
+-- - No backfill: pre-115 rows were never auto-blocked, so NULL is the
+--   truthful value for them.
+
+ALTER TABLE tasks ADD COLUMN blocked_prev_status TEXT;

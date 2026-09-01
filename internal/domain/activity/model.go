@@ -70,6 +70,16 @@ const (
 	ActionUpdated    Action = "task.updated"
 	ActionDeleted    Action = "task.deleted"
 	ActionAgentNotes Action = "task.agent_notes_updated"
+
+	// Task 115: dependency-edge audit verbs. task.blocked fires when
+	// a blocker edge is added (or restored by a set-replace) and the
+	// task auto-flips to `blocked`; task.unblocked fires when the
+	// edge goes away (removed, or the blocker closed) and the task
+	// leaves `blocked`. Payload: {"blocked_by": "<task uuid>"} —
+	// for a set-replace that adds several edges at once one row is
+	// written per edge.
+	ActionBlocked   Action = "task.blocked"
+	ActionUnblocked Action = "task.unblocked"
 )
 
 // Sentinel errors.

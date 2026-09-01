@@ -10,7 +10,7 @@ import type { Agent, Task } from '@/shared/api/client';
 import {
   dueStateClasses,
   formatDueDate,
-  isBlocked,
+  isStatusBlocked,
   priorityBorderClass,
   progressLabel,
   taskDueState,
@@ -41,6 +41,7 @@ import { TimeBadge } from './TimeBadge';
 export function TaskCard({
   task,
   onOpen,
+  dragHandleProps,
 }: {
   task: Task;
   /**
@@ -48,12 +49,21 @@ export function TaskCard({
    * Left optional so non-kanban consumers can render read-only cards.
    */
   onOpen?: (taskId: string) => void;
+  /**
+   * T118: when the parent supplies sortable listeners (kanban board,
+   * where cards are SortableContext items for same-column reorder),
+   * they replace the built-in useDraggable wiring so the card has
+   * ONE drag identity. Inbox/consumers without a sortable parent keep
+   * the legacy useDraggable behaviour unchanged.
+   */
+  dragHandleProps?: Record<string, unknown>;
 }): JSX.Element {
   const navigate = useNavigate();
   const location = useLocation();
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: task.id,
-  });
+  const fallback = useDraggable({ id: task.id });
+  const draggable = dragHandleProps
+    ? { attributes: {}, listeners: undefined, setNodeRef: undefined, isDragging: false }
+    : fallback;
 
   const detailed = !useCompactMode();
 
@@ -92,15 +102,16 @@ export function TaskCard({
 
   return (
     <div
-      ref={setNodeRef}
+      ref={draggable.setNodeRef}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
-      {...attributes}
-      {...listeners}
+      {...draggable.attributes}
+      {...(draggable.listeners ?? {})}
+      {...(dragHandleProps ?? {})}
       style={stripeStyle}
       data-testid="task-card"
       className={`w-full min-w-0 rounded border border-l-4 border-border bg-background p-2 text-sm cursor-grab select-none ${priorityBorder} ${
-        isDragging ? 'opacity-40 border-orenda-500' : ''
+        draggable.isDragging ? 'opacity-40 border-orenda-500' : ''
       }`}
     >
       <div className="flex items-start gap-1">
@@ -150,13 +161,21 @@ export function TaskCard({
               ⏳ {task.awaiting === 'human' ? 'me' : 'agent'}
             </span>
           )}
-          {isBlocked(blockedBy) && (
+          {isStatusBlocked(task) && (
             <span
               data-testid="blocked-badge"
               className="inline-flex items-center px-1.5 py-0.5 rounded border bg-red-100 text-red-700 border-red-300"
-              title={`${blockedBy} unfinished blocker${blockedBy === 1 ? '' : 's'}`}
+              title={
+                blockedBy > 0
+                  ? task.blockers && task.blockers.length > 0
+                    ? task.blockers
+                        .map((b) => (b.number > 0 ? `#${b.number} ` : '') + b.title)
+                        .join('\n')
+                    : `${blockedBy} unfinished blocker${blockedBy === 1 ? '' : 's'}`
+                  : 'Blocked by a dependency (was ' + (task.blocked_prev_status || 'unknown') + ')'
+              }
             >
-              🚫 blocked {blockedBy}
+              🚫 blocked{blockedBy > 0 ? ` ${blockedBy}` : ''}
             </span>
           )}
           {counters && counters.children_total > 0 && (

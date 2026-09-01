@@ -203,12 +203,27 @@ A task is done or not done — "almost done" is not done. Phases here have been 
 
 ## Git workflow
 
-- `main` — stable releases only. Tagged `vX.Y.Z`. No direct commits.
-- `dev` — active development. Default branch for feature work.
-- `task-123-short-slug` — feature branches off `origin/dev` (fetch first; never off local `dev`). One branch per task; `123` is the task's human number (`tasks.number`), the slug is 2–4 words.
-- Merge to `dev` is performed by the owner after the PM's approving review — agents never merge. Tag phase milestone: `git tag v0.1.0-phaseX`.
-- Promote to `main` via PR from `dev` when ready. Tag release: `git tag vX.Y.Z`.
-- See `CHANGELOG.md` for versioning policy and release notes.
+Hybrid `main` + `dev` flow — not classic git-flow and not trunk-based. Full
+version with diagrams and branch table: [[docs/GITFLOW.md]].
+
+- `main` — production-ready. Every commit on it is a release; tagged `vX.Y.Z`. Direct pushes are forbidden — code reaches `main` only via `release-*` / `hotfix-*` branches.
+- `dev` — integration trunk, default base for feature work. Worktree/branch mechanics (base is `origin/dev`, local `dev` is a fast-forward-only mirror) — see «Worktree per task» below; not duplicated here.
+- `task-123-short-slug` — feature branches off `origin/dev` (fetch first; never off local `dev`, never off `main`). One branch per task; `123` is the task's human number (`tasks.number`), the slug is 2–4 words. Short-lived (hours, not weeks): commit early and often; merges into `dev` are `--no-ff` via PR.
+- `release-vX.Y.Z` — branched off `dev` at feature freeze. Only bug fixes and release metadata (VERSION bump, CHANGELOG) go on it. Finish: merge `--no-ff` into `main` + tag `vX.Y.Z` + **mandatory back-merge into `dev`**; then delete the branch. Canonical example: `release-v0.15.0` → PR #143 → `v0.15.0`.
+- `hotfix-vX.Y.Z` — branched off `main`, from the broken release's tag (never off `dev`). Bump the patch version, fix. Finish: merge `--no-ff` into `main` + patch tag `vX.Y.(Z+1)` + **mandatory back-merge into `dev`**. Exception: if a `release-*` branch is currently open, back-merge the hotfix into **that branch first** (so the pending release does not revert the fix), then into `dev`; then delete the branch.
+- Merges into `dev`/`main` are performed by the owner after the PM's approving review — agents never merge. Legacy phase milestones are tagged `v0.1.0-phaseX` (phases ≤ 32, historical — do not tag new work this way).
+- Deprecated and forbidden: the `promotion-v0.14.1` / `promotion-v0.14.2` transport scheme — release content did reach `dev` (via `release-*` → `dev` PRs), but `main` was never synced back: merge commits and tags (`v0.14.1`, `v0.14.2`) are not ancestors of `dev` and the graphs diverged. Never resurrect this pattern; details in `docs/GITFLOW.md` «Устаревшие практики».
+- Forbidden everywhere: feature branches off `main`; hotfixes off `dev`; agents merging their own PRs; deleting other people's long-lived branches.
+
+### Git for AI agents
+
+Full version: [[docs/GITFLOW.md]]. The short form:
+
+- **Isolation:** worktree per task (next section) = parallel agents don't see each other; each has its own checkout, its own preview port from `21400–21499` (`:2137` usage, `:2138` dev, `:21371` E2E are taken), its own `data/orenda.db`.
+- **Small batches:** commit early/often; a branch lives hours, not weeks — a big long-lived diff collides with every other agent's work.
+- **Local gates, not CI:** `pre-commit` (gofmt + prettier) and `pre-push` (`make lint-new` + `make web-typecheck` + `make test`) are the per-PR gate — see «Local gates» above. Agent does not wait on CI; `--no-verify` is forbidden; CI silence on PR-to-dev is intentional.
+- **Sync review:** open the PR as soon as the branch is ready; PM reviews immediately, the owner merges. Don't stack unreviewed PRs.
+- **Cleanup:** after merge — `git worktree remove` + `git worktree prune`; remove your remote branch if it survived. An abandoned branch is garbage (example: `fix-tag-v0.15.0`, a leftover of the old hotfix practice, since cleaned up). PM watches tree hygiene.
 
 ### Worktree per task (mandatory, unconditional)
 

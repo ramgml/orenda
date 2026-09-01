@@ -61,6 +61,7 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 			time_estimate_s, time_spent_s, position,
 			start_at, end_at, all_day, color, recurrence,
 			study_course_id,
+			blocked_prev_status,
 			number,
 			created_by_type, created_by_id,
 			created_at, updated_at
@@ -70,6 +71,7 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 			?, ?, ?, ?, ?, ?,
 			?, ?, ?,
 			?, ?, ?, ?, ?,
+			?,
 			?,
 			?,
 			?, ?,
@@ -89,6 +91,7 @@ func (r *taskRepo) Create(ctx context.Context, t *task.Task) error {
 		boolToInt(t.AllDay), nullString(t.Color),
 		nullString(t.Recurrence),
 		nullString(t.StudyCourseID),
+		nullString(string(t.BlockedPrevStatus)),
 		number,
 		nullString(string(t.CreatedByType)), nullString(t.CreatedByID),
 	)
@@ -249,6 +252,11 @@ func (r *taskRepo) ListByProjectWithStats(ctx context.Context, f task.Filter) ([
 	if err != nil {
 		return nil, err
 	}
+	// Task 115: unfinished blocker summaries for the card tooltip.
+	summaries, err := r.BlockerSummariesForTasks(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	tags, err := r.TagsForTasks(ctx, ids)
 	if err != nil {
 		return nil, err
@@ -256,6 +264,9 @@ func (r *taskRepo) ListByProjectWithStats(ctx context.Context, f task.Filter) ([
 	for _, t := range tasks {
 		if c, ok := counters[t.ID]; ok {
 			t.Counters = &c
+		}
+		if ss := summaries[t.ID]; len(ss) > 0 {
+			t.Blockers = ss
 		}
 		t.BlockedByCount = blockers[t.ID]
 		// TagsForTasks pre-populates an empty slice for every input
@@ -410,6 +421,41 @@ func (r *taskRepo) aggregateBlockers(ctx context.Context, ids []string) (map[str
 	return out, nil
 }
 
+// BlockerSummariesForTasks returns the unfinished blockers (id,
+// number, title) per task id — Task 115: the kanban card tooltip
+// renders this list inside the blocked badge.
+func (r *taskRepo) BlockerSummariesForTasks(ctx context.Context, ids []string) (map[string][]task.BlockerSummary, error) {
+	out := make(map[string][]task.BlockerSummary, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	placeholders := strings.Repeat("?, ", len(ids)-1) + "?"
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	q := `SELECT d.task_id, dep.id, dep.number, dep.title
+	      FROM task_dependencies d
+	      JOIN tasks dep ON dep.id = d.depends_on_task_id
+	      WHERE d.task_id IN (` + placeholders + `)
+	        AND dep.status != 'done' AND dep.completed_at IS NULL
+	      ORDER BY dep.number ASC`
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("BlockerSummariesForTasks: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var taskID string
+		var bs task.BlockerSummary
+		if err := rows.Scan(&taskID, &bs.ID, &bs.Number, &bs.Title); err != nil {
+			return nil, fmt.Errorf("BlockerSummariesForTasks: scan: %w", err)
+		}
+		out[taskID] = append(out[taskID], bs)
+	}
+	return out, rows.Err()
+}
+
 func (r *taskRepo) Update(ctx context.Context, t *task.Task) error {
 	if err := t.Validate(); err != nil {
 		return err
@@ -428,16 +474,17 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) error {
 			due_at = ?, started_at = ?, claimed_at = ?, completed_at = ?,
 			time_estimate_s = ?, time_spent_s = ?, position = ?,
 			start_at = ?, end_at = ?, all_day = ?, color = ?, recurrence = ?,
-			study_course_id = ?
+			study_course_id = ?, blocked_prev_status = ?
 		WHERE id = ?
 	`
-	// Phase 31: study_course_id added to the SET so PATCH /tasks/{id}
-	// can attach a freshly-accepted study reminder. The empty-string
-	// case stays valid — it clears the link (useful when the user
-	// files a reminder under a project and no longer wants it to
-	// appear under due_today). Per Validate(), a Task with column_id
-	// set MUST also have a project; that invariant is unchanged
-	// here.
+	// Phase 31 added study_course_id; Task 115 added
+	// blocked_prev_status to the SET so PATCH /tasks/{id} can attach
+	// a freshly-accepted study reminder / persist the auto-block
+	// bookkeeping. The empty-string case stays valid — it clears the
+	// link (useful when the user files a reminder under a project and
+	// no longer wants it to appear under due_today). Per Validate(), a
+	// Task with column_id set MUST also have a project; that invariant
+	// is unchanged here.
 	res, err := r.db.ExecContext(ctx, q,
 		nullString(t.ProjectID),
 		nullString(t.ParentTaskID), nullString(t.ColumnID),
@@ -452,6 +499,7 @@ func (r *taskRepo) Update(ctx context.Context, t *task.Task) error {
 		boolToInt(t.AllDay), nullString(t.Color),
 		nullString(t.Recurrence),
 		nullString(t.StudyCourseID),
+		nullString(string(t.BlockedPrevStatus)),
 		t.ID,
 	)
 	if err != nil {
@@ -897,6 +945,7 @@ func (r *taskRepo) ListByDueBetween(ctx context.Context, from, to time.Time) ([]
 		       completed_at, time_estimate_s, time_spent_s, position,
 		       start_at, end_at, all_day, color, recurrence,
 		       study_course_id,
+		       blocked_prev_status,
 		       created_by_type, created_by_id,
 	       created_at, updated_at
 		FROM tasks
@@ -1420,6 +1469,7 @@ SELECT id, number, project_id, parent_task_id, column_id, title, description,
        time_estimate_s, time_spent_s, position,
        start_at, end_at, all_day, color, recurrence,
        study_course_id,
+       blocked_prev_status,
        created_by_type, created_by_id,
        created_at, updated_at
 FROM tasks
@@ -1442,6 +1492,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 		due, started, claimed, compl   sql.NullString
 		calStart, calEnd, color        sql.NullString
 		recurrence, studyCourse        sql.NullString
+		blockedPrev                    sql.NullString
 		createdByType, createdByID     sql.NullString
 		allDay                         int
 		estS                           sql.NullInt64
@@ -1456,6 +1507,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 		&estS, &t.TimeSpentS, &t.Position,
 		&calStart, &calEnd, &allDay, &color, &recurrence,
 		&studyCourse,
+		&blockedPrev,
 		&createdByType, &createdByID,
 		&created, &updated,
 	)
@@ -1486,6 +1538,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	t.Color = color.String
 	t.Recurrence = recurrence.String
 	t.StudyCourseID = studyCourse.String
+	t.BlockedPrevStatus = task.Status(blockedPrev.String)
 	t.CreatedByType = task.CreatorType(createdByType.String)
 	t.CreatedByID = createdByID.String
 	if estS.Valid {
@@ -1511,6 +1564,7 @@ func (r *taskRepo) ListInRange(ctx context.Context, from, to time.Time, projectI
 		       time_estimate_s, time_spent_s, position,
 		       start_at, end_at, all_day, color, recurrence,
 		       study_course_id,
+		       blocked_prev_status,
 		       created_by_type, created_by_id,
 	       created_at, updated_at
 		FROM tasks
@@ -1552,6 +1606,7 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 		due, started, claimed, compl   sql.NullString
 		calStart, calEnd, color        sql.NullString
 		recurrence, studyCourse        sql.NullString
+		blockedPrev                    sql.NullString
 		createdByType, createdByID     sql.NullString
 		allDay                         int
 		estS                           sql.NullInt64
@@ -1566,6 +1621,7 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 		&estS, &t.TimeSpentS, &t.Position,
 		&calStart, &calEnd, &allDay, &color, &recurrence,
 		&studyCourse,
+		&blockedPrev,
 		&createdByType, &createdByID,
 		&created, &updated,
 	)
@@ -1592,6 +1648,11 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 	t.Color = color.String
 	t.Recurrence = recurrence.String
 	t.StudyCourseID = studyCourse.String
+	// Task 115: same assignment as scanTask — without it every
+	// scanTaskRow-backed list endpoint (ListByProjectWithStats,
+	// ListByDueBetween, ListInRange, ListChildren) dropped the
+	// auto-block memory on the floor.
+	t.BlockedPrevStatus = task.Status(blockedPrev.String)
 	t.CreatedByType = task.CreatorType(createdByType.String)
 	t.CreatedByID = createdByID.String
 	if estS.Valid {
@@ -1676,4 +1737,25 @@ func (r *taskRepo) TitlesByIDs(ctx context.Context, ids []string) (map[string]st
 		return nil, fmt.Errorf("task.TitlesByIDs: rows: %w", err)
 	}
 	return out, nil
+}
+
+// SetStatusAndPrevForTest seeds a status/blocked_prev_status pair
+// directly (Task 115 tests: legacy rows that predate migration 042
+// have status='blocked' with NULL prev). Test-only — production code
+// goes through Update / the blocks service core.
+func (r *taskRepo) SetStatusAndPrevForTest(ctx context.Context, id string, status, prev task.Status) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE tasks SET status = ?, blocked_prev_status = ? WHERE id = ?`,
+		string(status), nullString(string(prev)), id)
+	if err != nil {
+		return fmt.Errorf("task.SetStatusAndPrevForTest: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return task.ErrNotFound
+	}
+	return nil
 }

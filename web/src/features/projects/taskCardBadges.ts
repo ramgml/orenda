@@ -87,3 +87,14 @@ export function progressLabel(done: number, total: number): string {
 export function isBlocked(blockedByCount: number | undefined): boolean {
   return (blockedByCount ?? 0) > 0;
 }
+
+/**
+ * Task 115: should the "blocked" badge render? A task whose status is
+ * `blocked` (auto-block state machine set `blocked_prev_status`)
+ * shows the badge even when the endpoint didn't populate
+ * `blocked_by_count` (e.g. single-task fetches).
+ */
+export function isStatusBlocked(task: { status?: string; blocked_by_count?: number }): boolean {
+  if (task.status === 'blocked') return true;
+  return isBlocked(task.blocked_by_count);
+}

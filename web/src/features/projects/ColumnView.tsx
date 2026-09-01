@@ -1,5 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { TaskCard } from './TaskCard';
@@ -173,20 +175,26 @@ export function ColumnView({
             Ничего не найдено
           </li>
         )}
-        {tasks.map((t) => (
-          <li key={t.id} className="flex items-start gap-1 min-w-0">
-            {onToggleTask && (
-              <Checkbox
-                aria-label={`Select ${t.title}`}
-                checked={selectedTaskIds?.has(t.id) ?? false}
-                onCheckedChange={() => onToggleTask(t.id)}
-                onClick={(e) => e.stopPropagation()}
-                className="mt-3 ml-1"
-              />
-            )}
-            <TaskCard task={t} onOpen={openTask} />
-          </li>
-        ))}
+        <SortableContext items={tasks.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+          {tasks.map((t) => (
+            <SortableCard
+              key={t.id}
+              task={t}
+              onOpen={openTask}
+              selectable={
+                onToggleTask ? (
+                  <Checkbox
+                    aria-label={`Select ${t.title}`}
+                    checked={selectedTaskIds?.has(t.id) ?? false}
+                    onCheckedChange={() => onToggleTask(t.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="mt-3 ml-1"
+                  />
+                ) : undefined
+              }
+            />
+          ))}
+        </SortableContext>
       </ul>
 
       {creating ? (
@@ -478,5 +486,39 @@ function EditColumnModal({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * T118: a kanban card as a sortable item. Wrapping the card itself
+ * (not the `<li>`) keeps TaskCard's click-to-open intact — its
+ * listeners live on the card div exactly like the column drag handle.
+ * Same-column drops then report the CARD id as `over`, which
+ * KanbanBoard.onDragEnd turns into a reorder with a midpoint
+ * position; the column droppable zone still wins when the pointer is
+ * between cards.
+ */
+function SortableCard({
+  task,
+  onOpen,
+  selectable,
+}: {
+  task: Task;
+  onOpen: (taskId: string) => void;
+  selectable?: React.ReactNode;
+}): JSX.Element {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: task.id,
+  });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+  return (
+    <li ref={setNodeRef} style={style} className="flex items-start gap-1 min-w-0">
+      {selectable}
+      <TaskCard task={task} onOpen={onOpen} dragHandleProps={{ ...attributes, ...listeners }} />
+    </li>
   );
 }

@@ -138,9 +138,16 @@ func createTaskHandler(deps *Dependencies) http.HandlerFunc {
 		if in.CompletedAt != nil {
 			tr.CompletedAt = parseOptionalTime(*in.CompletedAt)
 		}
+		// Task 120: `time_estimate_s: 0` clears the estimate — an
+		// estimate of zero seconds is meaningless, so the sentinel
+		// follows the due_at empty-string convention.
 		if in.TimeEstimateS != nil {
-			v := *in.TimeEstimateS
-			tr.TimeEstimateS = &v
+			if *in.TimeEstimateS == 0 {
+				tr.TimeEstimateS = nil
+			} else {
+				v := *in.TimeEstimateS
+				tr.TimeEstimateS = &v
+			}
 		}
 		if in.Position != nil {
 			tr.Position = *in.Position
@@ -166,6 +173,22 @@ func createTaskHandler(deps *Dependencies) http.HandlerFunc {
 				if colID, err := deps.Tasks.FirstColumnID(r.Context(), tr.ProjectID); err == nil {
 					tr.ColumnID = colID
 				}
+			}
+		}
+
+		// T119: a task created into a column must carry that column's
+		// status. The web client sends only {title, column_id}, so
+		// Status arrived empty and the DB DEFAULT 'todo' (schema line
+		// 106) kicked in below the handler — a card dropped into the
+		// backlog column came back as todo. This mirrors the reverse
+		// syncs that already exist: Move lifts column.Status onto the
+		// task (service/task/move.go), PATCH does column→status when
+		// column_id is set and status is empty (updateTaskHandler).
+		// An EXPLICIT status always wins — this only fills the empty
+		// case. Tasks without a column (inbox) are untouched.
+		if tr.ColumnID != "" && tr.Status == "" && deps.Projects != nil {
+			if col, err := deps.Projects.GetColumn(r.Context(), tr.ColumnID); err == nil && col != nil && col.Status != "" {
+				tr.Status = task.Status(col.Status)
 			}
 		}
 
@@ -292,6 +315,19 @@ func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.
 		default:
 			tr.Awaiting = task.AwaitingNone
 		}
+	}
+	// Task 115 (manual move wins): an explicit status PATCH out of
+	// `blocked` is the owner override — drop the auto-block memory
+	// exactly like a kanban drag does. Unfinished blockers keep
+	// gating Claim and ?ready=true independently.
+	if statusChanged && prevStatus == task.StatusBlocked && tr.Status != task.StatusBlocked {
+		tr.BlockedPrevStatus = ""
+	}
+	// Task 115: the PATCH may close the task (status → done). Any
+	// dependent that just lost its last unfinished blocker leaves
+	// `blocked` — same behaviour as the Review approve path.
+	if statusChanged && tr.Status == task.StatusDone && deps.TaskService != nil {
+		defer deps.TaskService.OnCloseUnblockDependents(ctx, tr.ID)
 	}
 	// T46: centralize status↔column sync + persist + mirror + activity
 	// in SyncAndSave instead of direct Tasks.Update.
@@ -499,9 +535,17 @@ func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in t
 	if in.CompletedAt != nil {
 		tr.CompletedAt = parseOptionalTime(*in.CompletedAt)
 	}
+	// Task 120: `time_estimate_s: 0` clears the estimate — an
+	// estimate of zero seconds is meaningless, so the sentinel
+	// follows the due_at empty-string convention. Absent field
+	// leaves the stored value untouched (PATCH semantics).
 	if in.TimeEstimateS != nil {
-		v := *in.TimeEstimateS
-		tr.TimeEstimateS = &v
+		if *in.TimeEstimateS == 0 {
+			tr.TimeEstimateS = nil
+		} else {
+			v := *in.TimeEstimateS
+			tr.TimeEstimateS = &v
+		}
 	}
 	if in.TimeSpentS != nil {
 		tr.TimeSpentS = *in.TimeSpentS

@@ -24,11 +24,22 @@ const (
 	StatusInProgress Status = "in_progress"
 	StatusReview     Status = "review"
 	StatusDone       Status = "done"
+	// Task 115: set automatically (never chosen by a user) when an
+	// unfinished blocker edge appears on a task whose status was not
+	// already `blocked` or `done`. The status the task had before the
+	// flip is remembered in BlockedPrevStatus and restored on
+	// auto-unblock; a manual move out of `blocked` is the owner
+	// override and clears that memory.
+	StatusBlocked Status = "blocked"
 )
 
 // AllStatuses is the ordered list of statuses (matches DefaultColumns order).
+// `blocked` is intentionally not part of DefaultColumns order — no default
+// column carries it (auto-blocked tasks keep their column until moved);
+// it is listed so status-validation and label sites treat it first-class.
 var AllStatuses = []Status{
 	StatusBacklog, StatusTodo, StatusInProgress, StatusReview, StatusDone,
+	StatusBlocked,
 }
 
 // StatusMachineKeyPattern is the regex that a machine key (column.status,
@@ -71,7 +82,8 @@ func (s Status) IsCanonical() bool {
 // in exactly one place.
 func CanonicalStatus(v string) (Status, bool) {
 	switch Status(v) {
-	case StatusBacklog, StatusTodo, StatusInProgress, StatusReview, StatusDone:
+	case StatusBacklog, StatusTodo, StatusInProgress, StatusReview, StatusDone,
+		StatusBlocked:
 		return Status(v), true
 	default:
 		return "", false
@@ -157,6 +169,12 @@ type Task struct {
 	Priority     Priority     `json:"priority"`
 	AssigneeType AssigneeType `json:"assignee_type,omitempty"`
 	AssigneeID   string       `json:"assignee_id,omitempty"`
+	// Task 115: the status a task had before an auto-block flipped it
+	// to `blocked`. Empty string = never auto-blocked (the JSON
+	// rendering of the NULL column). Restored on auto-unblock (NULL
+	// column falls back to `todo`), cleared on any manual move out of
+	// `blocked` — the owner override wins over the dependency graph.
+	BlockedPrevStatus Status `json:"blocked_prev_status,omitempty"`
 	// Phase 33.2: who filed the task. Set at insert by the
 	// user-side POST /api/v1/tasks (CreatorUser) and the agent-side
 	// POST /api/v1/agent/tasks (CreatorAgent). The id is nullable
@@ -204,6 +222,11 @@ type Task struct {
 	// task_dependencies. The card uses it to render the "blocked"
 	// badge; absent ⇒ not blocked.
 	BlockedByCount int `json:"blocked_by_count,omitempty"`
+
+	// Task 115: unfinished blockers (id/number/title) for the kanban
+	// card tooltip. Populated by the list endpoints next to
+	// BlockedByCount; omitempty keeps single-task JSON compact.
+	Blockers []BlockerSummary `json:"blockers,omitempty"`
 
 	// Phase 27.3: tags attached to this task. Populated by the list
 	// endpoints (single batch query in ListByProjectWithStats via

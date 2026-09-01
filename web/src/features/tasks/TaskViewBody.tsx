@@ -21,6 +21,8 @@ import { useWebSocketTopic } from '@/shared/ws';
 import { StartTimer } from '@/features/tasks/TimerWidget';
 import { usePasteImage } from '@/features/attachments/usePasteImage';
 
+import { activityDetails } from './activityDetails';
+
 import { CommentsList } from './CommentsList';
 import { ChildTasksList } from './ChildTasksList';
 import { AttachmentsList } from './AttachmentsList';
@@ -270,6 +272,22 @@ export function TaskViewBody({
       setBusy(false);
     }
   };
+  // Estimate patch (T120). Minutes in the UI, seconds on the wire.
+  // 0 clears the estimate — the backend treats it as the clear
+  // sentinel (a zero-second estimate is meaningless; same
+  // convention as the due_at empty string above).
+  const onSaveEstimate = async (seconds: number): Promise<void> => {
+    if (!task) return;
+    setBusy(true);
+    try {
+      const t = await patchTaskOrQueue(task, { time_estimate_s: seconds });
+      setTask(t);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   async function onDelete(): Promise<void> {
     if (!window.confirm('Delete this task? This cannot be undone.')) return;
@@ -438,7 +456,10 @@ export function TaskViewBody({
         <BlockedByList taskId={taskId} projectId={task.project_id || ''} />
         <div className="rounded border border-border p-3">
           <p className="text-xs text-slate-500 mb-1">Time tracking</p>
-          <p className="font-mono mb-2">{(task.time_spent_s / 60).toFixed(1)} min</p>
+          <p className="font-mono mb-2">
+            {formatEstimateSpent(task.time_estimate_s ?? null, task.time_spent_s)}
+          </p>
+          <EstimateEditor task={task} busy={busy} onSaveEstimate={onSaveEstimate} />
           <Button
             type="button"
             size="sm"
@@ -711,6 +732,105 @@ function toDateInputValue(iso: string): string {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
+/**
+ * Time estimate editor (T120).
+ *
+ * Mirrors DueEditor: a small input + Set, and a clear path that
+ * sends the sentinel instead of null (the PATCH contract treats
+ * `time_estimate_s: 0` as "clear" — a zero-second estimate is
+ * meaningless, same convention as the due_at empty string). The
+ * input takes MINUTES because that's how estimates are written;
+ * the wire format stays seconds.
+ */
+export function EstimateEditor({
+  task,
+  busy,
+  onSaveEstimate,
+}: {
+  task: Task;
+  busy: boolean;
+  onSaveEstimate: (seconds: number) => Promise<void>;
+}): JSX.Element {
+  const [minutes, setMinutes] = useState('');
+  // Track the stored value so Set/Clear stay honest after a save
+  // round-trips and the parent hands us a fresh task.
+  const estimateS = task.time_estimate_s ?? null;
+  const key = estimateS == null ? 'unset' : String(estimateS);
+
+  function set(): void {
+    const n = Number.parseInt(minutes, 10);
+    if (!Number.isInteger(n) || n < 0) return;
+    void onSaveEstimate(n * 60);
+    setMinutes('');
+  }
+
+  function clear(): void {
+    void onSaveEstimate(0);
+    setMinutes('');
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2">
+        <Input
+          type="number"
+          min={0}
+          step={1}
+          defaultValue=""
+          key={key}
+          onChange={(e) => setMinutes(e.target.value)}
+          placeholder={estimateS == null ? 'Estimate (min)' : 'min'}
+          disabled={busy}
+          className="h-7 text-xs"
+          title="Time estimate"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy || minutes === ''}
+          onClick={set}
+          className="h-6 px-2 text-xs"
+          title="Set the time estimate"
+        >
+          Set
+        </Button>
+        {estimateS != null && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={clear}
+            className="h-6 px-2 text-xs"
+            title="Clear the time estimate"
+          >
+            clear
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// formatEstimateSpent renders the owner's sidebar style
+// "оценка 1ч 30м · затрачено 45м". Empty estimate → just spent.
+function formatEstimateSpent(estimateS: number | null, spentS: number): string {
+  const spent = formatHumanDuration(spentS);
+  if (estimateS == null) return `затрачено ${spent}`;
+  return `оценка ${formatHumanDuration(estimateS)} · затрачено ${spent}`;
+}
+
+// formatHumanDuration renders seconds as a compact human duration:
+// hours+minutes when the span crosses the hour, minutes otherwise
+// ("1ч 30м", "45м", "0м").
+function formatHumanDuration(s: number): string {
+  const total = Math.max(0, Math.floor(s / 60));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  if (h > 0) return m > 0 ? `${h}ч ${m}м` : `${h}ч`;
+  return `${m}м`;
+}
 
 /**
  * Colour label picker (Phase 13).
@@ -857,11 +977,19 @@ export function ActivityLog({ items }: { items: TaskActivity[] }): JSX.Element {
               </span>
               <span className="text-slate-500 shrink-0 whitespace-nowrap">{actorLabel(a)}</span>
               <span className="whitespace-nowrap">{verb[a.action] ?? a.action}</span>
-              {a.payload && a.payload !== '{}' && (
-                <span className="text-xs text-slate-400 min-w-0 truncate" title={a.payload}>
-                  · {a.payload}
-                </span>
-              )}
+              {(() => {
+                // Task 113: the raw payload JSON is noise — render a
+                // short human-readable detail per action instead. The
+                // full JSON stays on hover via the title attribute.
+                const detail = activityDetails(a.action, a.payload);
+                return (
+                  detail !== '' && (
+                    <span className="text-xs text-slate-400 min-w-0 truncate" title={a.payload}>
+                      {`· ${detail}`}
+                    </span>
+                  )
+                );
+              })()}
             </li>
           ))}
         </ul>

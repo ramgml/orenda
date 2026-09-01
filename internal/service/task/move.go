@@ -5,6 +5,7 @@ package task
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -67,11 +68,18 @@ func (e *BlockedError) Is(target error) bool {
 //     position = (Before.position + After.position) / 2.
 //
 // Position is the explicit override; if non-zero, Before/After are ignored.
+//
+// ActorID (Task 117) identifies who moved the card — the handler
+// fills it from the session so the task.moved activity row passes
+// Activity.Validate (which requires a non-empty ActorID). It only
+// feeds the audit row; the empty value keeps the historical
+// (silently-dropped-row) behaviour for callers without an identity.
 type MoveOptions struct {
 	TargetColumnID string
 	Position       float64 // explicit fractional; 0 = derive from Before/After
 	Before         *task.Task
 	After          *task.Task
+	ActorID        string
 }
 
 // Recorder is the audit hook for Claim/Release/Submit/Review. Phase 3.9
@@ -321,9 +329,15 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 		}
 	}
 
+	// Task 115 (manual move wins): dragging the card anywhere is the
+	// owner's explicit decision — leaving `blocked` this way clears
+	// the auto-block memory. The unfinished blockers still gate Claim
+	// and ?ready=true; the override only drops the status bookkeeping.
+	if tr.Status == task.StatusBlocked && tr.BlockedPrevStatus != "" {
+		tr.BlockedPrevStatus = ""
+	}
 	tr.ColumnID = opts.TargetColumnID
 	tr.Position = derivePosition(opts, tr.Position)
-
 	// Phase 16: dragging an Inbox card onto a project's board files
 	// it under that project. We resolve the project id from the
 	// target column's board via the columns repository (which knows
@@ -343,9 +357,19 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 	// moves by column alone, so it has to lift the column's status
 	// onto the task here. Defensive: nil Columns repo or missing
 	// status key leaves the task's status untouched (the old behaviour).
+	// Task 117: the same single lookup also resolves the target
+	// column's NAME for the task.moved activity payload — the feed
+	// shows "→ In Review" instead of a raw column UUID. Lookup
+	// failure leaves columnName empty and the payload is written in
+	// the legacy (column_id-only) shape, so old feed readers and the
+	// activityDetails fallback keep working unchanged.
+	var columnName string
 	if s.Columns != nil {
-		if col, err := s.Columns.GetColumn(ctx, opts.TargetColumnID); err == nil && col.Status != "" {
-			tr.Status = task.Status(col.Status)
+		if col, err := s.Columns.GetColumn(ctx, opts.TargetColumnID); err == nil {
+			if col.Status != "" {
+				tr.Status = task.Status(col.Status)
+			}
+			columnName = col.Name
 		}
 	}
 
@@ -370,8 +394,19 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 	s.syncTimer(ctx, tr, prevStatus)
 
 	if s.Recorder != nil {
-		_ = s.Recorder.Record(ctx, taskID, activity.ActorUser, "", activity.ActionMoved,
-			fmt.Sprintf(`{"column_id":%q,"position":%v}`, opts.TargetColumnID, tr.Position))
+		payload := map[string]any{
+			"column_id": opts.TargetColumnID,
+			"position":  tr.Position,
+		}
+		// Task 117: column_name is written only when the lookup
+		// succeeded — legacy rows (and any failure) keep the old
+		// payload shape, which the frontend falls back to UUID on.
+		if columnName != "" {
+			payload["column_name"] = columnName
+		}
+		raw, _ := json.Marshal(payload) // map[string]any of basic values cannot fail
+		_ = s.Recorder.Record(ctx, taskID, activity.ActorUser, opts.ActorID, activity.ActionMoved,
+			string(raw))
 	}
 	if s.Hub != nil {
 		s.Hub.Publish(ctx, ws.Event{
@@ -662,6 +697,15 @@ func (s *Service) SetTaskDependencies(ctx context.Context, taskID string, depend
 		return err
 	}
 
+	// Task 115: snapshot the CURRENT blockers BEFORE the replace —
+	// the edge diff (added → auto-block, removed → auto-unblock)
+	// needs the pre-write set; after the swap it would be empty and
+	// the state machine would never fire.
+	before, berr := s.Tasks.Blockers(ctx, taskID)
+	if berr != nil {
+		return fmt.Errorf("task service: SetTaskDependencies: pre-diff blockers: %w", berr)
+	}
+
 	if err := s.Tasks.SetTaskDependencies(ctx, taskID, cleaned); err != nil {
 		// Translate domain sentinels so the handler only deals with
 		// service-level errors.
@@ -669,6 +713,41 @@ func (s *Service) SetTaskDependencies(ctx context.Context, taskID string, depend
 			return ErrSelfDependency
 		}
 		return err
+	}
+	// Run BOTH state machines so every path that replaces the set
+	// (PUT /dependencies, agent propose blocked_by, agent PATCH
+	// blocked_by) gets the identical auto-block / auto-unblock +
+	// activity behaviour as the single-edge endpoints. Added edges →
+	// auto-block flip (per edge, one task.blocked row); removed edges
+	// → auto-unblock check.
+	beforeSet := make(map[string]struct{}, len(before))
+	for _, b := range before {
+		beforeSet[b.BlockerID] = struct{}{}
+	}
+	afterSet := make(map[string]struct{}, len(cleaned))
+	for _, dep := range cleaned {
+		afterSet[dep] = struct{}{}
+	}
+	var added, removed []string
+	for _, dep := range cleaned {
+		if _, ok := beforeSet[dep]; !ok {
+			added = append(added, dep)
+		}
+	}
+	for _, b := range before {
+		if _, ok := afterSet[b.BlockerID]; !ok {
+			removed = append(removed, b.BlockerID)
+		}
+	}
+	for _, dep := range added {
+		if _, err := s.blockerEdgeAdded(ctx, taskID, dep); err != nil {
+			return fmt.Errorf("task service: SetTaskDependencies: auto-block: %w", err)
+		}
+	}
+	for _, dep := range removed {
+		if _, err := s.blockerEdgeRemoved(ctx, taskID, dep); err != nil {
+			return fmt.Errorf("task service: SetTaskDependencies: auto-unblock: %w", err)
+		}
 	}
 	// Fire WS event so other tabs refresh their badge/blockers view.
 	if s.Hub != nil {
@@ -855,6 +934,11 @@ func (s *Service) Review(ctx context.Context, taskID, userID string, decision Re
 	// The actor is the assignee when agent-assigned, otherwise the
 	// project owner (single-owner installs).
 	s.syncTimer(ctx, tr, task.StatusReview)
+	// Task 115: approving closes the blocker — every dependent that
+	// just lost its last unfinished blocker leaves `blocked`.
+	if decision == ReviewApprove {
+		s.OnCloseUnblockDependents(ctx, taskID)
+	}
 	s.publishTask(ctx, "task.reviewed", tr, userID, map[string]any{
 		"decision": string(decision),
 		"comment":  comment,

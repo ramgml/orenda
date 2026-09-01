@@ -122,7 +122,20 @@ components:
         title: { type: string }
         status:
           type: string
-          description: Canonical status or a project-defined column machine key.
+          description: |
+            Canonical status (`backlog|todo|in_progress|review|done|blocked`)
+            or a project-defined column machine key. `blocked` (Task 115)
+            is set automatically when an unfinished blocker is added and
+            the task is not already done/blocked; it is restored when the
+            last unfinished blocker goes away, or overridden by a manual
+            move (which clears `blocked_prev_status`).
+        blocked_prev_status:
+          type: string
+          description: |
+            Status the task had before an auto-block flipped it to
+            `blocked`. Empty/absent = never auto-blocked (or already
+            cleared by a manual move). Auto-unblock restores this value,
+            falling back to `todo` when absent (legacy rows).
         priority:
           type: string
           enum: [low, medium, high, urgent]
@@ -134,6 +147,10 @@ components:
           type: string
           enum: [none, human, agent]
         due_at: { type: string, format: date-time }
+        time_estimate_s:
+          type: integer
+          nullable: true
+          description: Planned effort in seconds; omitted from responses when unset.
         # Phase 31: study-reminder marker. Non-empty means "soft
         # reminder accepted from a study proposal"; the Today
         # screen reads this to apply the no-escalation policy
@@ -646,6 +663,12 @@ paths:
                 description: { type: string }
                 status: { $ref: '#/components/schemas/Task/properties/status' }
                 priority: { $ref: '#/components/schemas/Task/properties/priority' }
+                time_estimate_s:
+                  type: integer
+                  description: |
+                    Planned effort in seconds. `0` clears the estimate
+                    (a zero-second estimate is meaningless; same
+                    convention as the due_at empty string).
                 parent_task_id: { type: string }
                 assignee_type: { type: string }
                 assignee_id: { type: string }
@@ -737,6 +760,19 @@ paths:
       tags: [tasks]
       summary: Update task fields.
       security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                time_estimate_s:
+                  type: integer
+                  description: |
+                    Planned effort in seconds. `0` clears the estimate
+                    (a zero-second estimate is meaningless; same
+                    convention as the due_at empty string). Absent
+                    field leaves the stored value untouched.
       responses: { '200': { description: ok } }
     put:
       tags: [tasks]
@@ -843,6 +879,59 @@ paths:
         '200': { description: ok }
         '422': { description: invalid_dependency (cycle or self-loop) }
 
+  /api/v1/tasks/{id}/blocks:
+    post:
+      tags: [tasks]
+      summary: Add one blocker edge (Task 115).
+      description: |
+        Makes `{id}` depend on `blocked_by`. Accepts UUIDs or T-refs
+        ("T42") for both task arguments. Idempotent: adding an edge that
+        already exists is a 200 no-op. Auto-block: unless the target is
+        done or already blocked, its status flips to `blocked` and
+        `blocked_prev_status` remembers the previous status. Self-block
+        and cycles are rejected with 422. The response carries the
+        refreshed blockers list and the resulting task.
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blocked_by]
+              properties:
+                blocked_by:
+                  type: string
+                  description: Blocker task UUID or T-ref.
+      responses:
+        '200':
+          description: ok (blockers + resulting task; also for the idempotent case)
+        '400': { description: blocked_by_required }
+        '404': { description: task not found (target or blocker) }
+        '422': { description: invalid_dependency (cycle or self-block) }
+
+  /api/v1/tasks/{id}/blocks/{blockedBy}:
+    delete:
+      tags: [tasks]
+      summary: Remove one blocker edge (Task 115).
+      description: |
+        Deletes the `{id}` → `{blockedBy}` dependency edge (UUIDs or
+        T-refs). Unknown edge → 404. Auto-unblock: when no unfinished
+        blocker remains, the task's status is restored from
+        `blocked_prev_status` (fallback `todo`) and the column is
+        cleared. Returns the refreshed blockers list + task.
+      security: [{ bearerAuth-cookie: [] }]
+      parameters:
+        - name: blockedBy
+          in: path
+          required: true
+          schema: { type: string }
+          description: Blocker task UUID or T-ref.
+      responses:
+        '200': { description: ok (blockers + resulting task) }
+        '404': { description: task or edge not found }
+
+
   /api/v1/tasks/{id}/tags:
     get:
       tags: [tasks, tags]
@@ -909,6 +998,26 @@ paths:
       summary: Add a comment (markdown; @user:&lt;id&gt; mentions).
       security: [{ bearerAuth-cookie: [] }]
       responses: { '201': { description: created } }
+
+  /api/v1/tasks/{id}/comments/{commentId}:
+    patch:
+      tags: [tasks]
+      summary: Edit own comment on a task (403 if not the author; 404 unknown comment; 400 empty body_md).
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body_md]
+              properties:
+                body_md: { type: string }
+      responses:
+        '200': { description: updated }
+        '400': { description: empty body_md }
+        '403': { description: not the comment author }
+        '404': { description: comment or task not found }
 
   /api/v1/tasks/{id}/attachments:
     get:
@@ -2191,6 +2300,17 @@ paths:
                 priority: { type: string, enum: [low, medium, high, urgent] }
                 due_at: { type: string, format: date-time, nullable: true }
                 parent_task_id: { type: string }
+                blocked_by:
+                  type: array
+                  items: { type: string }
+                  description: |
+                    Full replacement blocker set (Task 115). Items are task
+                    UUIDs or T-refs ("T42"). Present + empty → clears all
+                    blockers; present + ids → replaces the set (cycle/self
+                    checks apply, 422 invalid_dependency); absent →
+                    untouched. Only the agent's own un-triaged proposal is
+                    editable (403 not_your_proposal otherwise). Adding a
+                    blocker auto-flips the task to status=blocked.
                 agent_notes: { type: string }
       responses:
         '200': { description: ok }
@@ -2302,6 +2422,25 @@ paths:
         '201': { description: created }
         '401': { description: missing or invalid agent token }
         '404': { description: 'not_found — includes task #N not found for numeric refs' }
+  /api/v1/agent/tasks/{id}/comments/{commentId}:
+    patch:
+      tags: [agent]
+      summary: Edit the agent's own comment (403 if authored by someone else; 404 unknown comment; 400 empty body_md; {id} accepts UUID or "#42"/"42").
+      security: [{ bearerAuth-agent: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body_md]
+              properties:
+                body_md: { type: string }
+      responses:
+        '200': { description: updated }
+        '400': { description: empty body_md }
+        '403': { description: not the comment author }
+        '404': { description: comment or task not found }
 
   # Phase 27.11: agent-namespace long-poll. Mirrors the user-cookie
   # /api/v1/events/await POST but subscribes the WS hub under the
