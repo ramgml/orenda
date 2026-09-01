@@ -1648,6 +1648,11 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 	t.Color = color.String
 	t.Recurrence = recurrence.String
 	t.StudyCourseID = studyCourse.String
+	// Task 115: same assignment as scanTask — without it every
+	// scanTaskRow-backed list endpoint (ListByProjectWithStats,
+	// ListByDueBetween, ListInRange, ListChildren) dropped the
+	// auto-block memory on the floor.
+	t.BlockedPrevStatus = task.Status(blockedPrev.String)
 	t.CreatedByType = task.CreatorType(createdByType.String)
 	t.CreatedByID = createdByID.String
 	if estS.Valid {
