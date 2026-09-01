@@ -3,7 +3,9 @@ package task_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -250,6 +252,108 @@ func TestService_Move_ClearsAwaitingHuman(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, task.AwaitingAgent, moved.Awaiting)
+}
+
+// Task 117: task.moved activity payload carries the target column's
+// NAME (snapshotted at event time) alongside the column id, so the
+// feed renders "→ In Review" instead of a raw UUID. The payload is
+// assembled with encoding/json (never Sprintf) so column names with
+// quotes / unicode survive as valid JSON.
+func TestService_Move_RecordsColumnNameInPayload(t *testing.T) {
+	db := setupMoveDB(t)
+	p, cols := setupMoveProject(t, db)
+	repo := sqlite.NewTaskRepository(db)
+	projRepo := sqlite.NewProjectRepository(db)
+	rec := &recordingRecorder{}
+	svc := taskservice.New(repo, nil, rec, nil, &recordingHub{})
+	svc.Columns = projRepo
+
+	require.GreaterOrEqual(t, len(cols), 2)
+	backlog, todo := cols[0], cols[1]
+
+	tr := &task.Task{ProjectID: p.ID, ColumnID: backlog.ID, Title: "x"}
+	require.NoError(t, repo.Create(context.Background(), tr))
+
+	moved, err := svc.Move(context.Background(), tr.ID, taskservice.MoveOptions{
+		TargetColumnID: todo.ID,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, rec.calls)
+
+	// call format is "taskID:action:payload" — split the payload off.
+	parts := strings.SplitN(rec.calls[0], ":", 3)
+	require.Len(t, parts, 3)
+	assert.Equal(t, string(activity.ActionMoved), parts[1])
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal([]byte(parts[2]), &payload))
+	assert.Equal(t, todo.ID, payload["column_id"])
+	assert.Equal(t, todo.Name, payload["column_name"])
+	assert.InDelta(t, moved.Position, payload["position"].(float64), 1e-9)
+}
+
+// Task 117: a column name containing quotes / unicode must round-trip
+// through the payload as valid JSON (the old Sprintf-built payload
+// would have produced malformed JSON for embedded quotes).
+func TestService_Move_PayloadSurvivesSpecialCharactersInColumnName(t *testing.T) {
+	db := setupMoveDB(t)
+	p, cols := setupMoveProject(t, db)
+	repo := sqlite.NewTaskRepository(db)
+	projRepo := sqlite.NewProjectRepository(db)
+	rec := &recordingRecorder{}
+	svc := taskservice.New(repo, nil, rec, nil, &recordingHub{})
+	svc.Columns = projRepo
+
+	special, err := projRepo.CreateColumn(context.Background(), p.ID, &project.Column{
+		Name: `Кто "здесь"? 🚚`,
+	})
+	require.NoError(t, err)
+
+	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "x"}
+	require.NoError(t, repo.Create(context.Background(), tr))
+
+	_, err = svc.Move(context.Background(), tr.ID, taskservice.MoveOptions{
+		TargetColumnID: special.ID,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, rec.calls)
+
+	parts := strings.SplitN(rec.calls[0], ":", 3)
+	require.Len(t, parts, 3)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal([]byte(parts[2]), &payload))
+	assert.Equal(t, `Кто "здесь"? 🚚`, payload["column_name"])
+}
+
+// Task 117: when the Columns repo isn't wired (or the lookup fails)
+// the payload keeps the legacy column_id-only shape — no column_name
+// key at all. Legacy rows in the feed fall back to rendering the
+// column UUID, so this is also the honest regression test for the
+// frontend's fallback path.
+func TestService_Move_PayloadOmitsColumnNameWhenLookupFails(t *testing.T) {
+	db := setupMoveDB(t)
+	p, cols := setupMoveProject(t, db)
+	repo := sqlite.NewTaskRepository(db)
+	// No svc.Columns wiring → the GetColumn lookup is skipped.
+	rec := &recordingRecorder{}
+	svc := taskservice.New(repo, nil, rec, nil, &recordingHub{})
+
+	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "x"}
+	require.NoError(t, repo.Create(context.Background(), tr))
+
+	_, err := svc.Move(context.Background(), tr.ID, taskservice.MoveOptions{
+		TargetColumnID: cols[1].ID,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, rec.calls)
+
+	parts := strings.SplitN(rec.calls[0], ":", 3)
+	require.Len(t, parts, 3)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal([]byte(parts[2]), &payload))
+	_, has := payload["column_name"]
+	assert.False(t, has, "column_name must be absent when the column lookup failed")
+	assert.Equal(t, cols[1].ID, payload["column_id"])
 }
 
 func TestNullHub(t *testing.T) {

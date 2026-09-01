@@ -17,6 +17,7 @@ interface PayloadShape {
   from?: unknown;
   to?: unknown;
   column_id?: unknown;
+  column_name?: unknown;
 }
 
 // parsePayload returns the parsed payload object or undefined for
@@ -39,7 +40,6 @@ function parsePayload(payload: string): PayloadShape | undefined {
 function isTagArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.length > 0 && v.every((t) => typeof t === 'string');
 }
-
 /**
  * activityDetails renders the human-readable payload detail for one
  * audit row, or '' when the action carries no user-facing payload.
@@ -56,8 +56,16 @@ function isTagArray(v: unknown): v is string[] {
  *     `title` quoted, the target column for moves; nothing otherwise
  *     (ids stay hover-only).
  *
- * The full JSON remains available on hover: callers pass `payload`
- * to the row's `title` attribute.
+ * Task 117 (moves): the payload carries `column_name` (the target
+ * column's name, snapshotted at event time), so a move renders
+ * `→ In Review` instead of `→ <uuid>`. Rows written before 117
+ * (and rows whose column lookup failed at write time) have no
+ * `column_name` — those fall back to the old `→ <column_id>` UUID
+ * form: the id stays traceable via the hover JSON, a render-time
+ * resolve would show the column's CURRENT name (or nothing for a
+ * deleted column), so the UUID fallback preserves the most
+ * information. The full JSON remains available on hover: callers
+ * pass `payload` to the row's `title` attribute.
  */
 export function activityDetails(rawAction: string, payload: string): string {
   if (!payload || payload === '{}') return '';
@@ -107,10 +115,15 @@ export function activityDetails(rawAction: string, payload: string): string {
   }
   // Actions whose payload stores the target value under a dedicated
   // key: child/checklist rows carry `title`, the move row carries
-  // `column_id`. Ids (child_id, item_id, checklist_id, attachment_id,
-  // position) stay hover-only.
+  // `column_name` (task 117, snapshotted at event time) with a
+  // legacy fallback to `column_id` (the raw UUID — ids stay
+  // hover-only everywhere else). position and the other ids
+  // (child_id, item_id, checklist_id, attachment_id) stay
+  // hover-only.
   const t = typeof o.title === 'string' ? o.title.trim() : '';
   if (t !== '') return `"${t}"`;
+  const n = typeof o.column_name === 'string' ? o.column_name.trim() : '';
+  if (n !== '') return `→ ${n}`;
   const c = typeof o.column_id === 'string' ? o.column_id.trim() : '';
   if (c !== '') return `→ ${c}`;
   return '';
