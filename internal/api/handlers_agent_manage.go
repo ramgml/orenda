@@ -99,9 +99,13 @@ func agentPatchTaskHandler(deps *Dependencies) http.HandlerFunc {
 		// agent_notes routes to UpdateAgentNotes (which checks the
 		// task_locks gate). A holder-only write on a triaged task
 		// is the one legitimate escape from the proposal-gate.
+		// Task 115 review (F2): BlockedBy must be part of the check —
+		// otherwise PATCH {agent_notes, blocked_by:[...]} silently
+		// dropped the blockers with a 200.
 		holderOnly := in.AgentNotes != "" &&
 			in.Title == "" && in.DescriptionMD == "" &&
-			in.Priority == "" && in.DueAt == nil && in.ParentTaskID == ""
+			in.Priority == "" && in.DueAt == nil && in.ParentTaskID == "" &&
+			in.BlockedBy == nil
 		if holderOnly {
 			tr, err := deps.TaskService.UpdateAgentNotes(r.Context(), taskID, id.AgentID, in.AgentNotes)
 			if err != nil {

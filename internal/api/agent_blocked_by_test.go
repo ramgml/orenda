@@ -123,3 +123,71 @@ func TestAgent_PatchBlockedBy_TriagedProposal_403(t *testing.T) {
 	rr = f.patchAsAgent(t, proposed.ID, map[string]any{"blocked_by": []string{proposed.ID}})
 	assert.Equal(t, http.StatusForbidden, rr.Code, rr.Body.String())
 }
+
+// Task 115 review (F2): PATCH {agent_notes, blocked_by:[...]} must
+// NOT be silently swallowed. The holderOnly predicate used to ignore
+// BlockedBy, so the mix routed to UpdateAgentNotes and dropped the
+// blockers with a 200 while only the notes were written. It now
+// falls through to buildEditProposalPatch, which enforces the
+// Phase-33 contract "notes-only is the holder path": the mix gets a
+// clear 400 agent_notes_requires_holder_only and NOTHING is written.
+func TestAgent_PatchBlockedBy_NotesMix_NotSwallowed(t *testing.T) {
+	t.Parallel()
+	f := newProposeFixture(t)
+	tasks := sqlite.NewTaskRepository(f.db)
+	ctx := context.Background()
+
+	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var proposed task.Task
+	jsonDecode(t, rr.Body.Bytes(), &proposed)
+
+	b := &task.Task{ProjectID: f.projectID, ColumnID: f.todoColID, Title: "mix-B"}
+	require.NoError(t, tasks.Create(ctx, b))
+
+	// Mixed write: notes + blocked_by in one PATCH.
+	rr = f.patchAsAgent(t, proposed.ID, map[string]any{
+		"agent_notes": "holder notes must not partially apply",
+		"blocked_by":  []string{b.ID},
+	})
+	require.Equal(t, http.StatusBadRequest, rr.Code, rr.Body.String())
+	assert.Contains(t, rr.Body.String(), "agent_notes_requires_holder_only")
+
+	// Nothing landed: no edge, no auto-block, no notes write — the
+	// old behaviour applied notes and dropped blockers silently.
+	blockers, err := tasks.Blockers(ctx, proposed.ID)
+	require.NoError(t, err)
+	assert.Empty(t, blockers, "mixed PATCH must not partially apply blockers")
+	fresh, err := tasks.GetByID(ctx, proposed.ID)
+	require.NoError(t, err)
+	assert.Equal(t, task.StatusBacklog, fresh.Status, "no auto-block on a rejected patch")
+	assert.Empty(t, fresh.AgentNotes, "no partial notes write")
+
+	// The holder path still works for a notes-only PATCH on a claimed
+	// task (the proposal gate must not intercept it).
+	moveTaskToColumn(t, f, proposed.ID, f.todoColID)
+	require.Equal(t, http.StatusOK, f.claimAsAgent(t, proposed.ID).Code)
+	rr = f.patchAsAgent(t, proposed.ID, map[string]any{"agent_notes": "notes only"})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	var notes task.Task
+	jsonDecode(t, rr.Body.Bytes(), &notes)
+	assert.Equal(t, "notes only", notes.AgentNotes)
+}
+
+// Task 115 review (optional): a DIFFERENT agent's blocked_by on an
+// un-triaged proposal never passes — the proposal gate is keyed on
+// the proposing agent, not just on triage state.
+func TestAgent_PatchBlockedBy_CrossAgent_403(t *testing.T) {
+	t.Parallel()
+	f := newProposeFixture(t)
+
+	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var proposed task.Task
+	jsonDecode(t, rr.Body.Bytes(), &proposed)
+
+	agentB := registerSecondAgent(t, f, "blocked-by-intruder")
+	rr = f.patchAsAgentToken(t, proposed.ID, agentB.PlainToken,
+		map[string]any{"blocked_by": []string{proposed.ID}})
+	assert.Equal(t, http.StatusForbidden, rr.Code, rr.Body.String())
+}
