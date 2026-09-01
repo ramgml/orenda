@@ -244,6 +244,12 @@ func translateManageError(w http.ResponseWriter, err error, op string) {
 	case errors.Is(err, taskservice.ErrNoPatchFields):
 		writeJSON(w, http.StatusBadRequest,
 			map[string]string{"error": "no_patch_fields"})
+	case errors.Is(err, taskservice.ErrSelfDependency),
+		errors.Is(err, taskservice.ErrDependencyCycle):
+		// Task 115: blocked_by validation — same code as PUT
+		// /dependencies and the blockers endpoints.
+		writeJSON(w, http.StatusUnprocessableEntity,
+			map[string]string{"error": "invalid_dependency"})
 	case errors.Is(err, taskservice.ErrNotFound),
 		errors.Is(err, task.ErrNotFound):
 		writeJSON(w, http.StatusNotFound,

@@ -668,6 +668,15 @@ func (s *Service) SetTaskDependencies(ctx context.Context, taskID string, depend
 		return err
 	}
 
+	// Task 115: snapshot the CURRENT blockers BEFORE the replace —
+	// the edge diff (added → auto-block, removed → auto-unblock)
+	// needs the pre-write set; after the swap it would be empty and
+	// the state machine would never fire.
+	before, berr := s.Tasks.Blockers(ctx, taskID)
+	if berr != nil {
+		return fmt.Errorf("task service: SetTaskDependencies: pre-diff blockers: %w", berr)
+	}
+
 	if err := s.Tasks.SetTaskDependencies(ctx, taskID, cleaned); err != nil {
 		// Translate domain sentinels so the handler only deals with
 		// service-level errors.
@@ -676,16 +685,12 @@ func (s *Service) SetTaskDependencies(ctx context.Context, taskID string, depend
 		}
 		return err
 	}
-	// Task 115: compute the edge diff and run BOTH state machines so
-	// every path that replaces the set (PUT /dependencies, agent
-	// propose blocked_by, agent PATCH blocked_by) gets the identical
-	// auto-block / auto-unblock + activity behaviour as the single-edge
-	// endpoints. Added edges → auto-block flip (per edge, one
-	// task.blocked row); removed edges → auto-unblock check.
-	before, berr := s.Tasks.Blockers(ctx, taskID)
-	if berr != nil {
-		return fmt.Errorf("task service: SetTaskDependencies: pre-diff blockers: %w", berr)
-	}
+	// Run BOTH state machines so every path that replaces the set
+	// (PUT /dependencies, agent propose blocked_by, agent PATCH
+	// blocked_by) gets the identical auto-block / auto-unblock +
+	// activity behaviour as the single-edge endpoints. Added edges →
+	// auto-block flip (per edge, one task.blocked row); removed edges
+	// → auto-unblock check.
 	beforeSet := make(map[string]struct{}, len(before))
 	for _, b := range before {
 		beforeSet[b.BlockerID] = struct{}{}

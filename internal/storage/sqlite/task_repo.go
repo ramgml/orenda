@@ -1690,3 +1690,24 @@ func (r *taskRepo) TitlesByIDs(ctx context.Context, ids []string) (map[string]st
 	}
 	return out, nil
 }
+
+// SetStatusAndPrevForTest seeds a status/blocked_prev_status pair
+// directly (Task 115 tests: legacy rows that predate migration 042
+// have status='blocked' with NULL prev). Test-only — production code
+// goes through Update / the blocks service core.
+func (r *taskRepo) SetStatusAndPrevForTest(ctx context.Context, id string, status, prev task.Status) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE tasks SET status = ?, blocked_prev_status = ? WHERE id = ?`,
+		string(status), nullString(string(prev)), id)
+	if err != nil {
+		return fmt.Errorf("task.SetStatusAndPrevForTest: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return task.ErrNotFound
+	}
+	return nil
+}

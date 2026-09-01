@@ -201,13 +201,41 @@ func (s *Service) EditProposal(ctx context.Context, taskID, agentID string, patc
 
 	before := *tr
 
-	// Task 115: resolve + validate the replacement blocker list
-	// BEFORE the field write so a bad blocked_by never leaves a
-	// half-applied patch. Refs (T<N>) resolve like everywhere else;
-	// unknown ids/refuse-cycles surface as the usual errors. The
+	changes := applyEditProposalPatch(tr, patch)
+	if len(changes) == 0 && patch.BlockedBy == nil {
+		// No-op patch — return the current state without writing.
+		return &EditProposalDiff{Before: &before, After: tr, Changes: changes}, nil
+	}
+	// Gated field write. A blocked_by-ONLY patch has no proposal
+	// fields — UpdateProposalFields with zero SETs would 400
+	// (ErrInvalidInput) — so the write runs only when there is
+	// something to write.
+	if len(changes) > 0 {
+		params := task.ProposalPatchParams{
+			TaskID:      tr.ID,
+			Gate:        task.ProposalGate{CreatedByID: agentID},
+			Title:       patch.Title,
+			Description: patch.Description,
+			Priority:    patch.Priority,
+			DueAt:       patch.DueAt,
+			ParentID:    patch.ParentTaskID,
+		}
+		if err := s.Tasks.UpdateProposalFields(ctx, params); err != nil {
+			if errors.Is(err, task.ErrNotFound) {
+				return nil, ErrConcurrentTriage
+			}
+			return nil, fmt.Errorf("task.EditProposal: update: %w", err)
+		}
+	}
+
+	// Task 115: the replacement blocker list runs AFTER the gated
+	// field write — SetTaskDependencies auto-flips the status out of
+	// `backlog`, which would break the WHERE status='backlog' gate if
+	// it ran first. Refs (T<N>) resolve like everywhere else; unknown
+	// ids and refuse-cycles surface as the usual errors. The
 	// replacement itself goes through SetTaskDependencies — the same
 	// core as PUT /dependencies — so the auto-block state machine and
-	// activity rows behave identically.
+	// activity rows behave identically on every write path.
 	if patch.BlockedBy != nil {
 		resolved := make([]string, 0, len(*patch.BlockedBy))
 		for _, ref := range *patch.BlockedBy {
@@ -220,27 +248,6 @@ func (s *Service) EditProposal(ctx context.Context, taskID, agentID string, patc
 		if err := s.SetTaskDependencies(ctx, taskID, resolved); err != nil {
 			return nil, err
 		}
-	}
-
-	changes := applyEditProposalPatch(tr, patch)
-	if len(changes) == 0 && patch.BlockedBy == nil {
-		// No-op patch — return the current state without writing.
-		return &EditProposalDiff{Before: &before, After: tr, Changes: changes}, nil
-	}
-	params := task.ProposalPatchParams{
-		TaskID:      tr.ID,
-		Gate:        task.ProposalGate{CreatedByID: agentID},
-		Title:       patch.Title,
-		Description: patch.Description,
-		Priority:    patch.Priority,
-		DueAt:       patch.DueAt,
-		ParentID:    patch.ParentTaskID,
-	}
-	if err := s.Tasks.UpdateProposalFields(ctx, params); err != nil {
-		if errors.Is(err, task.ErrNotFound) {
-			return nil, ErrConcurrentTriage
-		}
-		return nil, fmt.Errorf("task.EditProposal: update: %w", err)
 	}
 
 	// Re-read so we have the canonical after-state for the diff /
