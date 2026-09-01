@@ -134,3 +134,39 @@ func TestTaskRepo_ListByProjectWithStats_Empty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
+
+// Task 115: blocked_prev_status must survive the list round-trip.
+// scanTaskRow (the shared scan behind ListByProjectWithStats,
+// ListByDueBetween, ListInRange, ListChildren) once dropped the
+// assignment — auto-blocked tasks came back with an empty prev, so
+// the UI could not tell what a blocked card would restore to.
+func TestTaskRepo_ListByProjectWithStats_BlockedPrevRoundTrip(t *testing.T) {
+	db := setupUserDB(t)
+	p, col := setupTaskProject(t, db)
+	repo := NewTaskRepository(db)
+	ctx := context.Background()
+
+	blocked := &task.Task{
+		ProjectID:         p.ID,
+		ColumnID:          col.ID,
+		Title:             "auto-blocked",
+		Status:            task.StatusBlocked,
+		BlockedPrevStatus: task.StatusInProgress,
+	}
+	plain := &task.Task{ProjectID: p.ID, ColumnID: col.ID, Title: "plain"}
+	require.NoError(t, repo.Create(ctx, blocked))
+	require.NoError(t, repo.Create(ctx, plain))
+
+	got, err := repo.ListByProjectWithStats(ctx, task.Filter{ProjectID: p.ID})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	for _, tk := range got {
+		if tk.ID == blocked.ID {
+			assert.Equal(t, task.StatusBlocked, tk.Status)
+			assert.Equal(t, task.StatusInProgress, tk.BlockedPrevStatus,
+				"scanTaskRow must surface blocked_prev_status")
+		} else {
+			assert.Empty(t, tk.BlockedPrevStatus, "plain row stays NULL")
+		}
+	}
+}

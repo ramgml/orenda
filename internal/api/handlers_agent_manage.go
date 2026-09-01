@@ -51,7 +51,10 @@ type agentTaskPatchInput struct {
 	Priority      task.Priority `json:"priority"`
 	DueAt         *string       `json:"due_at"` // RFC3339 or "" = clear
 	ParentTaskID  string        `json:"parent_task_id"`
-	AgentNotes    string        `json:"agent_notes"`
+	// Task 115: full replacement blocker set (refs or UUIDs). The
+	// pointer keeps "absent" and "[]" (clear all) apart on the wire.
+	BlockedBy  *[]string `json:"blocked_by"`
+	AgentNotes string    `json:"agent_notes"`
 }
 
 // agentPatchTaskHandler applies a PATCH to /api/v1/agent/tasks/{id}.
@@ -96,9 +99,13 @@ func agentPatchTaskHandler(deps *Dependencies) http.HandlerFunc {
 		// agent_notes routes to UpdateAgentNotes (which checks the
 		// task_locks gate). A holder-only write on a triaged task
 		// is the one legitimate escape from the proposal-gate.
+		// Task 115 review (F2): BlockedBy must be part of the check —
+		// otherwise PATCH {agent_notes, blocked_by:[...]} silently
+		// dropped the blockers with a 200.
 		holderOnly := in.AgentNotes != "" &&
 			in.Title == "" && in.DescriptionMD == "" &&
-			in.Priority == "" && in.DueAt == nil && in.ParentTaskID == ""
+			in.Priority == "" && in.DueAt == nil && in.ParentTaskID == "" &&
+			in.BlockedBy == nil
 		if holderOnly {
 			tr, err := deps.TaskService.UpdateAgentNotes(r.Context(), taskID, id.AgentID, in.AgentNotes)
 			if err != nil {
@@ -188,6 +195,9 @@ func buildEditProposalPatch(in agentTaskPatchInput) (taskservice.EditProposalPat
 		v := in.ParentTaskID
 		out.ParentTaskID = &v
 	}
+	if in.BlockedBy != nil {
+		out.BlockedBy = in.BlockedBy
+	}
 	if in.AgentNotes != "" {
 		// A mixed PATCH that includes agent_notes alongside other
 		// fields is rejected. The contract is "notes-only is the
@@ -238,6 +248,12 @@ func translateManageError(w http.ResponseWriter, err error, op string) {
 	case errors.Is(err, taskservice.ErrNoPatchFields):
 		writeJSON(w, http.StatusBadRequest,
 			map[string]string{"error": "no_patch_fields"})
+	case errors.Is(err, taskservice.ErrSelfDependency),
+		errors.Is(err, taskservice.ErrDependencyCycle):
+		// Task 115: blocked_by validation — same code as PUT
+		// /dependencies and the blockers endpoints.
+		writeJSON(w, http.StatusUnprocessableEntity,
+			map[string]string{"error": "invalid_dependency"})
 	case errors.Is(err, taskservice.ErrNotFound),
 		errors.Is(err, task.ErrNotFound):
 		writeJSON(w, http.StatusNotFound,

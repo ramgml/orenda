@@ -72,6 +72,13 @@ type EditProposalPatch struct {
 	Priority     *task.Priority
 	DueAt        *time.Time
 	ParentTaskID *string
+	// Task 115: full replacement blocker list — mirrors PUT
+	// /dependencies semantics. Pointer-to-slice distinguishes
+	// "absent" (nil → untouched) from "present" (replace the whole
+	// set; empty slice → clear all). The replacement runs through the
+	// same SetTaskDependencies core as every other write path, so the
+	// auto-block state machine + activity rows apply here too.
+	BlockedBy *[]string
 }
 
 // Change describes one field-level edit on a proposal. Returned in
@@ -193,30 +200,54 @@ func (s *Service) EditProposal(ctx context.Context, taskID, agentID string, patc
 	}
 
 	before := *tr
+
 	changes := applyEditProposalPatch(tr, patch)
-	if len(changes) == 0 {
+	if len(changes) == 0 && patch.BlockedBy == nil {
 		// No-op patch — return the current state without writing.
 		return &EditProposalDiff{Before: &before, After: tr, Changes: changes}, nil
 	}
-
-	// Gated partial UPDATE: only the columns the patch touched, only
-	// when (created_by_type, created_by_id, status) still match the
-	// proposal gate. RowsAffected()==0 on a concurrent triage →
-	// ErrConcurrentTriage.
-	params := task.ProposalPatchParams{
-		TaskID:      tr.ID,
-		Gate:        task.ProposalGate{CreatedByID: agentID},
-		Title:       patch.Title,
-		Description: patch.Description,
-		Priority:    patch.Priority,
-		DueAt:       patch.DueAt,
-		ParentID:    patch.ParentTaskID,
-	}
-	if err := s.Tasks.UpdateProposalFields(ctx, params); err != nil {
-		if errors.Is(err, task.ErrNotFound) {
-			return nil, ErrConcurrentTriage
+	// Gated field write. A blocked_by-ONLY patch has no proposal
+	// fields — UpdateProposalFields with zero SETs would 400
+	// (ErrInvalidInput) — so the write runs only when there is
+	// something to write.
+	if len(changes) > 0 {
+		params := task.ProposalPatchParams{
+			TaskID:      tr.ID,
+			Gate:        task.ProposalGate{CreatedByID: agentID},
+			Title:       patch.Title,
+			Description: patch.Description,
+			Priority:    patch.Priority,
+			DueAt:       patch.DueAt,
+			ParentID:    patch.ParentTaskID,
 		}
-		return nil, fmt.Errorf("task.EditProposal: update: %w", err)
+		if err := s.Tasks.UpdateProposalFields(ctx, params); err != nil {
+			if errors.Is(err, task.ErrNotFound) {
+				return nil, ErrConcurrentTriage
+			}
+			return nil, fmt.Errorf("task.EditProposal: update: %w", err)
+		}
+	}
+
+	// Task 115: the replacement blocker list runs AFTER the gated
+	// field write — SetTaskDependencies auto-flips the status out of
+	// `backlog`, which would break the WHERE status='backlog' gate if
+	// it ran first. Refs (T<N>) resolve like everywhere else; unknown
+	// ids and refuse-cycles surface as the usual errors. The
+	// replacement itself goes through SetTaskDependencies — the same
+	// core as PUT /dependencies — so the auto-block state machine and
+	// activity rows behave identically on every write path.
+	if patch.BlockedBy != nil {
+		resolved := make([]string, 0, len(*patch.BlockedBy))
+		for _, ref := range *patch.BlockedBy {
+			blocked, rerr := task.ResolveRef(ctx, s.Tasks, ref)
+			if rerr != nil {
+				return nil, fmt.Errorf("task.EditProposal: blocked_by %q: %w", ref, rerr)
+			}
+			resolved = append(resolved, blocked.ID)
+		}
+		if err := s.SetTaskDependencies(ctx, taskID, resolved); err != nil {
+			return nil, err
+		}
 	}
 
 	// Re-read so we have the canonical after-state for the diff /
@@ -439,7 +470,7 @@ func applyEditProposalPatch(tr *task.Task, patch EditProposalPatch) []Change {
 // PATCH is more likely a bug than an intentional no-op).
 func (p EditProposalPatch) isEmpty() bool {
 	return p.Title == nil && p.Description == nil && p.Priority == nil &&
-		p.DueAt == nil && p.ParentTaskID == nil
+		p.DueAt == nil && p.ParentTaskID == nil && p.BlockedBy == nil
 }
 
 // recordUpdated writes a task.updated activity row summarising the

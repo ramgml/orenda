@@ -197,6 +197,13 @@ func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 					ready = false
 				}
 			}
+			// Task 115: status=blocked coincides with "has unfinished
+			// blockers" by construction (the auto-block flips it), but a
+			// legacy/rolled-back row could carry one without the other —
+			// exclude on BOTH so the ready list never lies.
+			if ready && tr.Status == task.StatusBlocked {
+				ready = false
+			}
 			// "ready" excludes tasks already claimed (by anyone) AND
 			// tasks assigned to a different agent. Phase 15: we also
 			// exclude tasks assigned to the calling agent itself —

@@ -292,6 +292,16 @@ type BlockerRow struct {
 	Done      bool   `json:"done"`
 }
 
+// BlockerSummary is the compact unfinished-blocker card payload
+// (Task 115): the kanban badge tooltip lists these without a
+// per-card fetch. Number is the human task number (0 hides the
+// chip in the UI).
+type BlockerSummary struct {
+	ID     string `json:"id"`
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+}
+
 // ChecklistRow + ChecklistItemRow are flat DTOs surfaced through
 // the Repository so handlers don't need to import the checklist
 // package just to read rows. JSON tags follow the snake_case

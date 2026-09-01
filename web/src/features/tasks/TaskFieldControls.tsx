@@ -142,7 +142,15 @@ export function TaskFieldControls(props: {
           disabled={props.busy}
           onChange={(v) => void patch({ status: v })}
           data-testid="task-status"
-          options={statusOptions}
+          // Task 115: a task auto-flipped to `blocked` has no
+          // matching board column, so the column-derived options
+          // wouldn't contain it and the select would show a stale
+          // value. Augment with the canonical set entry when absent.
+          options={
+            statusOptions.some((o) => o.value === 'blocked') || props.status !== 'blocked'
+              ? statusOptions
+              : [...statusOptions, { value: 'blocked', label: 'Blocked' }]
+          }
         />
       ) : (
         <SidebarReadOnlyField
@@ -224,6 +232,7 @@ const FALLBACK_STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'backlog', label: 'Backlog' },
   { value: 'todo', label: 'Todo' },
   { value: 'in_progress', label: 'In progress' },
+  { value: 'blocked', label: 'Blocked' },
   { value: 'review', label: 'Review' },
   { value: 'done', label: 'Done' },
 ];
