@@ -75,13 +75,18 @@ export async function queueUpdateTask(taskId: string, input: unknown): Promise<s
 }
 
 /** Queue a kanban move. */
-export async function queueMoveTask(taskId: string, columnId: string): Promise<string> {
+export async function queueMoveTask(
+  taskId: string,
+  columnId: string,
+  position?: number,
+): Promise<string> {
   const id = clientId();
   await outboxAdd({
     id,
     op: 'move_task',
     target: taskId,
-    payload: { column_id: columnId },
+    payload:
+      typeof position === 'number' ? { column_id: columnId, position } : { column_id: columnId },
     clientId: id,
     createdAt: new Date().toISOString(),
   });

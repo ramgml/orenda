@@ -41,6 +41,7 @@ import { TimeBadge } from './TimeBadge';
 export function TaskCard({
   task,
   onOpen,
+  dragHandleProps,
 }: {
   task: Task;
   /**
@@ -48,12 +49,21 @@ export function TaskCard({
    * Left optional so non-kanban consumers can render read-only cards.
    */
   onOpen?: (taskId: string) => void;
+  /**
+   * T118: when the parent supplies sortable listeners (kanban board,
+   * where cards are SortableContext items for same-column reorder),
+   * they replace the built-in useDraggable wiring so the card has
+   * ONE drag identity. Inbox/consumers without a sortable parent keep
+   * the legacy useDraggable behaviour unchanged.
+   */
+  dragHandleProps?: Record<string, unknown>;
 }): JSX.Element {
   const navigate = useNavigate();
   const location = useLocation();
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: task.id,
-  });
+  const fallback = useDraggable({ id: task.id });
+  const draggable = dragHandleProps
+    ? { attributes: {}, listeners: undefined, setNodeRef: undefined, isDragging: false }
+    : fallback;
 
   const detailed = !useCompactMode();
 
@@ -92,15 +102,16 @@ export function TaskCard({
 
   return (
     <div
-      ref={setNodeRef}
+      ref={draggable.setNodeRef}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
-      {...attributes}
-      {...listeners}
+      {...draggable.attributes}
+      {...(draggable.listeners ?? {})}
+      {...(dragHandleProps ?? {})}
       style={stripeStyle}
       data-testid="task-card"
       className={`w-full min-w-0 rounded border border-l-4 border-border bg-background p-2 text-sm cursor-grab select-none ${priorityBorder} ${
-        isDragging ? 'opacity-40 border-orenda-500' : ''
+        draggable.isDragging ? 'opacity-40 border-orenda-500' : ''
       }`}
     >
       <div className="flex items-start gap-1">
