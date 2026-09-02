@@ -181,12 +181,12 @@ export function ProjectSettingsTab(): JSX.Element {
           <p className="text-xs text-slate-500">
             Save the page as{' '}
             <a
-              href={`/pages/${encodeURIComponent(wikiSlug)}`}
+              href={`/wiki/${encodeURIComponent(wikiSlug)}`}
               className="underline text-orenda-600 dark:text-orenda-300"
               target="_blank"
               rel="noreferrer"
             >
-              /pages/{wikiSlug}
+              /wiki/{wikiSlug}
             </a>
             .
           </p>
