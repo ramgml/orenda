@@ -157,7 +157,7 @@ describe('ProjectDetailPage — wiki page header link', () => {
     vi.spyOn(api, 'getProject').mockResolvedValue({ ...baseProject, wiki_slug: 'roadmap' });
     renderPage();
     const link = (await screen.findByText(/Wiki page/)) as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe('/pages/roadmap');
+    expect(link.getAttribute('href')).toBe('/wiki/roadmap');
   });
 
   it('hides the wiki link when wiki_slug is empty', async () => {
