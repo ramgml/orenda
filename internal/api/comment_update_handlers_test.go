@@ -262,7 +262,7 @@ func seedAgentCommentTask(t *testing.T, fx *agentFixture) string {
 	require.NoError(t, row.Scan(&ownerID))
 	projects := sqlite.NewProjectRepository(fx.db)
 	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
-		Name: "CommentEditTest", OwnerID: ownerID,
+		Name: "CommentEditTest", OwnerID: ownerID, AgentsAllowed: true,
 	})
 	require.NoError(t, err)
 	tasks := sqlite.NewTaskRepository(fx.db)

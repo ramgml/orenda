@@ -23,6 +23,11 @@ var (
 // Soft-deleted via Archived=true; Phase 9+ will add a UI toggle for the
 // archive view but Phase 1 only exposes Create/List/Get/Update/Delete.
 //
+// AgentsAllowed (task 140) is the per-project agent-access switch:
+// false = closed, only agents with an explicit grant row in
+// project_agents may see/claim its tasks (an empty grant list means
+// nobody); true = open to every agent.
+//
 // WikiSlug (wiki:project-wiki-link) points at the wiki page that holds
 // the project's documentation (постановка, decision log, etc.). Empty
 // means no link. The DB layer treats empty string and SQL NULL as the
@@ -31,16 +36,17 @@ var (
 // NULL, so deleting a wiki page silently unlinks the project (which is
 // the right outcome — the page is gone, the project still exists).
 type Project struct {
-	ID          string    `json:"id"`
-	Number      int       `json:"number"`
-	Name        string    `json:"name"`
-	Color       string    `json:"color"`
-	Description string    `json:"description,omitempty"`
-	WikiSlug    string    `json:"wiki_slug,omitempty"`
-	OwnerID     string    `json:"owner_id"`
-	Archived    bool      `json:"archived"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID            string    `json:"id"`
+	Number        int       `json:"number"`
+	Name          string    `json:"name"`
+	Color         string    `json:"color"`
+	Description   string    `json:"description,omitempty"`
+	WikiSlug      string    `json:"wiki_slug,omitempty"`
+	OwnerID       string    `json:"owner_id"`
+	Archived      bool      `json:"archived"`
+	AgentsAllowed bool      `json:"agents_allowed"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // DefaultColor is the color used when a project is created without one

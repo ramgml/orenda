@@ -68,21 +68,33 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_list_tasks",
-		Description: "List claimable tasks. ?ready=true filters to unblocked, unclaimed, open tasks (the agent's ready-list). Each task carries a human `number` ('T42') alongside its UUID — use the T-prefixed form wherever a task_id is taken.",
+		Description: "List claimable tasks. ?ready=true filters to unblocked, unclaimed, open tasks (the agent's ready-list). Each task carries a human `number` ('T42') alongside its UUID — use the T-prefixed form wherever a task_id is taken. Optional `project` scopes the list to one project (number, P-number or UUID); projects the agent is not granted access to yield no tasks.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"ready": map[string]any{"type": "boolean", "description": "Filter to ready-to-claim only"},
-				"limit": map[string]any{"type": "integer", "description": "Max results (1-100)"},
+				"ready":   map[string]any{"type": "boolean", "description": "Filter to ready-to-claim only"},
+				"limit":   map[string]any{"type": "integer", "description": "Max results (1-100)"},
+				"project": map[string]any{"type": "string", "description": "Scope to one project: number (7), P-number (P7) or UUID; unknown or non-granted projects yield no tasks"},
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			// T140: unknown keys are a caller bug — fail loudly instead
+			// of silently dropping them.
+			allowed := map[string]bool{"ready": true, "limit": true, "project": true}
+			for k := range params {
+				if !allowed[k] {
+					return nil, fmt.Errorf("unknown parameter %q (allowed: limit, project, ready)", k)
+				}
+			}
 			q := url.Values{}
 			if r, _ := params["ready"].(bool); r {
 				q.Set("ready", "true")
 			}
 			if l, ok := params["limit"].(float64); ok {
 				q.Set("limit", fmt.Sprintf("%d", int(l)))
+			}
+			if p, ok := params["project"].(string); ok && p != "" {
+				q.Set("project", p)
 			}
 			return agentGet(ctx, httpc, cfg, "/api/v1/agent/tasks?"+q.Encode())
 		},

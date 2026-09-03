@@ -640,6 +640,52 @@ func TestOrendaTools_ServerErrorShowsStatusAndBody(t *testing.T) {
 // TestOrendaTools_ServerErrorBodyTruncated — an oversized error
 // body is cut at maxErrBody so an HTML 500 page cannot flood the
 // agent's context.
+// T140: the list tool forwards `project` verbatim to the agent
+// namespace — the server resolves number, P-number and UUID forms.
+func TestOrendaTools_ListTasksProjectScopesQuery(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		args     map[string]any
+		wantProj string
+	}{
+		{"number form", map[string]any{"project": "7"}, "7"},
+		{"P-number form", map[string]any{"project": "P7"}, "P7"},
+		{"uppercase P-number", map[string]any{"project": "p7"}, "p7"},
+		{"uuid form", map[string]any{"project": "019934b2-1234-7abc-89ef-0123456789ab"}, "019934b2-1234-7abc-89ef-0123456789ab"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, rec := newToolServer(t, nil)
+			callTool(t, srv, "orenda_list_tasks", tc.args)
+			assert.Equal(t, "/api/v1/agent/tasks", rec.path)
+			assert.Equal(t, tc.wantProj, rec.query.Get("project"))
+		})
+	}
+}
+
+// T140: without a project argument the query must stay clean —
+// no empty project= parameter on the wire.
+func TestOrendaTools_ListTasksNoProjectKeepsQueryClean(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_list_tasks", map[string]any{})
+	assert.Equal(t, "/api/v1/agent/tasks", rec.path)
+	assert.Empty(t, rec.query.Get("project"), "no project argument must not produce project=")
+}
+
+// T140: unfamiliar parameter names are a caller bug (mappings
+// change, typos) — the tool errors instead of silently dropping
+// them, and the backend is never called.
+func TestOrendaTools_ListTasksRejectsUnknownParameter(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	raw := `{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"orenda_list_tasks","arguments":{"bogus":1}}}`
+	resp := call(t, srv, raw)
+	errObj, ok := resp["error"].(map[string]any)
+	require.True(t, ok, "unknown parameter must be a tool error, got %v", resp)
+	msg, _ := errObj["message"].(string)
+	assert.Contains(t, msg, "unknown parameter")
+	assert.Contains(t, msg, "bogus")
+	assert.Empty(t, rec.method, "backend must not be called on unknown parameter")
+}
+
 func TestOrendaTools_ServerErrorBodyTruncated(t *testing.T) {
 	srv, _ := newToolServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

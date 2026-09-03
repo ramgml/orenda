@@ -125,6 +125,7 @@ export function ProjectSidebar(): JSX.Element {
             color: '#6b7280',
             owner_id: '',
             archived: false,
+            agents_allowed: true,
             number: 0,
             created_at: '',
             updated_at: '',

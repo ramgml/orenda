@@ -22,6 +22,7 @@ import (
 
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 
+	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 )
 
@@ -121,14 +122,26 @@ func getTaskDependentsHandler(deps *Dependencies) http.HandlerFunc {
 
 // listAgentTasksHandler returns the bearer agent's work surface.
 //
-//	GET /api/v1/agent/tasks?ready=true   only claimable tasks
-//	GET /api/v1/agent/tasks?limit=100    cap (default 100, max 500)
+//	GET /api/v1/agent/tasks?ready=true        only claimable tasks
+//	GET /api/v1/agent/tasks?limit=100         cap (default 100, max 500)
+//	GET /api/v1/agent/tasks?project_id=<uuid> scope to one project
+//	GET /api/v1/agent/tasks?project=7|P7|<uuid>
 //
 // "ready" means: status NOT IN (done, review, in_progress) AND
 // no unfinished blockers AND no current lock holder. Useful for
 // the agent inbox: "what can I claim right now?". Without ?ready
 // the response is the full list — the agent then has to do the
 // filtering itself.
+//
+// Task 140 (agent-project-scope): the surface only carries tasks the
+// agent may actually act on. A project counts as accessible when it
+// is open to all agents (agents_allowed = 1) or the agent holds an
+// explicit grant row. Tasks of inaccessible projects are filtered
+// out; inbox tasks (no project) stay visible. ?project_id accepts a
+// UUID, ?project a number ("7"), a P-number ("P7"/"p7") or a UUID;
+// passing both is a 400, an unresolvable reference a 404. A project
+// filter doubles as the existence check — an inaccessible project is
+// indistinguishable from an empty one.
 func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
@@ -149,6 +162,59 @@ func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		readyOnly := r.URL.Query().Get("ready") == "true"
 
+		// Task 140: optional project scope. Both parameters at once
+		// is ambiguous input; the reference forms mirror the path
+		// resolution elsewhere (resolveProjectRef + GetByNumber).
+		projectIDParam := r.URL.Query().Get("project_id")
+		projectParam := r.URL.Query().Get("project")
+		if projectIDParam != "" && projectParam != "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
+			return
+		}
+		var scopedProject *project.Project
+		if projectIDParam != "" {
+			p, err := deps.Projects.GetProject(r.Context(), projectIDParam)
+			if err != nil {
+				writeProjectResolveError(w, err)
+				return
+			}
+			scopedProject = p
+		} else if projectParam != "" {
+			var err error
+			if n, ok := project.ParseProjectRef(projectParam); ok {
+				scopedProject, err = deps.Projects.GetByNumber(r.Context(), n)
+			} else if allDigits(projectParam) {
+				// Bare number form ("project=7") — ParseProjectRef
+				// only covers the P-prefixed spelling.
+				n, aerr := strconv.Atoi(projectParam)
+				if aerr != nil || n <= 0 {
+					writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+					return
+				}
+				scopedProject, err = deps.Projects.GetByNumber(r.Context(), n)
+			} else {
+				scopedProject, err = deps.Projects.GetProject(r.Context(), projectParam)
+			}
+			if err != nil {
+				writeProjectResolveError(w, err)
+				return
+			}
+		}
+
+		// Task 140: access set once per request — the visibility
+		// filter and the project-scoped lookup share it.
+		accessSet, err := deps.Projects.AgentAccessibleProjectIDs(r.Context(), id.AgentID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if scopedProject != nil && !accessSet[scopedProject.ID] {
+			// An inaccessible project looks empty — do not leak its
+			// existence or task count.
+			writeJSON(w, http.StatusOK, map[string]any{"tasks": []any{}, "count": 0})
+			return
+		}
+
 		// Single pass: list every "claimable" status task, then
 		// hydrate blockers with one batch query and filter. For a
 		// single-owner install the whole list is < few hundred.
@@ -156,20 +222,39 @@ func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 		// task (e.g. an agent-proposed task the owner just triaged
 		// from the review queue onto the board) is claimable by any
 		// agent, so it belongs on this surface.
-		f := task.Filter{Status: task.StatusTodo, AssigneeType: task.AssigneeAgent, AssigneeTypeIncludeNull: true}
-		tasks, err := deps.Tasks.ListByProject(r.Context(), f)
-		if err != nil {
-			writeError(w, err)
-			return
+		//
+		// Task 140: with an explicit project scope one query returns
+		// exactly that project's claimable tasks (inbox is NOT
+		// appended — a scoped listing never mixes in no-project
+		// tasks). Without a scope the full surface is listed, minus
+		// tasks of projects this agent cannot access; inbox tasks
+		// (ProjectID == "") always stay visible.
+		var tasks []*task.Task
+		if scopedProject != nil {
+			f := task.Filter{ProjectID: scopedProject.ID, Status: task.StatusTodo, AssigneeType: task.AssigneeAgent, AssigneeTypeIncludeNull: true}
+			var err error
+			tasks, err = deps.Tasks.ListByProject(r.Context(), f)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+		} else {
+			f := task.Filter{Status: task.StatusTodo, AssigneeType: task.AssigneeAgent, AssigneeTypeIncludeNull: true}
+			var err error
+			tasks, err = deps.Tasks.ListByProject(r.Context(), f)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			// Also include inbox tasks: Filter has NoProject for that.
+			f2 := task.Filter{NoProject: true, Status: task.StatusTodo}
+			inboxTasks, err := deps.Tasks.ListByProject(r.Context(), f2)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			tasks = append(tasks, inboxTasks...)
 		}
-		// Also include inbox tasks: Filter has NoProject for that.
-		f2 := task.Filter{NoProject: true, Status: task.StatusTodo}
-		inboxTasks, err := deps.Tasks.ListByProject(r.Context(), f2)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		tasks = append(tasks, inboxTasks...)
 
 		type row struct {
 			Task      *task.Task `json:"task"`
@@ -189,6 +274,11 @@ func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		out := make([]row, 0, len(tasks))
 		for _, tr := range tasks {
+			// Task 140: project tasks of inaccessible projects are
+			// invisible; inbox tasks (no project) are always shown.
+			if tr.ProjectID != "" && !accessSet[tr.ProjectID] {
+				continue
+			}
 			var blockedBy []string
 			ready := true
 			for _, b := range blockersByTask[tr.ID] {
@@ -229,4 +319,19 @@ func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 			"count": len(out),
 		})
 	}
+}
+
+// allDigits reports whether s is a non-empty ASCII digit sequence —
+// the bare-number spelling of a project reference ("project=7").
+// ParseProjectRef covers only the "P7" form.
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
