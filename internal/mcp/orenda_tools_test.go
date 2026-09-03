@@ -671,6 +671,43 @@ func TestOrendaTools_ListTasksNoProjectKeepsQueryClean(t *testing.T) {
 	assert.Empty(t, rec.query.Get("project"), "no project argument must not produce project=")
 }
 
+// T153: group_by/tree are forwarded verbatim; unknown group_by
+// VALUES error on the tool side before any HTTP call; tree without
+// group_by errors too.
+func TestOrendaTools_ListTasksGroupingForwarding(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		args        map[string]any
+		wantGroupBy string
+		wantTree    string
+		wantCalled  bool
+		wantErrSub  string
+	}{
+		{"group_by project", map[string]any{"group_by": "project"}, "project", "", true, ""},
+		{"group_by + tree", map[string]any{"group_by": "project", "tree": true}, "project", "true", true, ""},
+		{"invalid group_by value", map[string]any{"group_by": "status"}, "", "", false, `invalid group_by`},
+		{"tree without group_by", map[string]any{"tree": true}, "", "", false, `tree requires group_by`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, rec := newToolServer(t, nil)
+			rawArgs, _ := json.Marshal(tc.args)
+			raw := fmt.Sprintf(`{"jsonrpc":"2.0","id":42,"method":"tools/call","params":{"name":"orenda_list_tasks","arguments":%s}}`, rawArgs)
+			resp := call(t, srv, raw)
+			if tc.wantErrSub != "" {
+				errObj, ok := resp["error"].(map[string]any)
+				require.True(t, ok, "expected tool error, got %v", resp)
+				msg, _ := errObj["message"].(string)
+				assert.Contains(t, msg, tc.wantErrSub)
+				assert.Empty(t, rec.method, "backend must not be called on invalid value")
+				return
+			}
+			require.Nil(t, resp["error"], "forwarding case must succeed, got %v", resp)
+			assert.Equal(t, tc.wantGroupBy, rec.query.Get("group_by"))
+			assert.Equal(t, tc.wantTree, rec.query.Get("tree"))
+		})
+	}
+}
+
 // T140: unfamiliar parameter names are a caller bug (mappings
 // change, typos) — the tool errors instead of silently dropping
 // them, and the backend is never called.

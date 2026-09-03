@@ -1629,6 +1629,7 @@ func scanTaskRow(rows *sql.Rows) (*task.Task, error) {
 		return nil, fmt.Errorf("task.ScanRow: %w", err)
 	}
 	t.ProjectID = projectID.String
+	t.ParentTaskID = parent.String
 	t.ColumnID = columnID.String
 	t.Description = desc.String
 	t.Status = task.Status(status)

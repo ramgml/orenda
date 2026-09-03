@@ -97,9 +97,16 @@ MCP-конфига harness'а (`~/.codex/config.toml`, сервер `orenda`) и
 orenda agent me          # кто я, жив ли токен
 orenda agent next        # первая готовая задача (exit 2 = работы нет); печатает T<N> рядом с UUID
 orenda agent context T42 # <id> = UUID или T-prefixed ref («T42»)
+orenda agent next --group-by project [--tree]   # обзор своих задач по проектам (T153); только просмотр
 ```
 
 или через MCP: `orenda_list_tasks` → `orenda_claim` → `orenda_context`.
+`orenda_list_tasks` принимает `group_by: "project"` и `tree: true` (только
+вместе с group_by): ответ группируется по проектам, inbox-задачи — последней
+группой (`project: null`, `label: "inbox"`); `tree` выстраивает задачи внутри
+группы по `parent_task_id` (корни-сироты помечены `orphaned`, участники
+цикла родителей — `cyclic`). Незнакомые значения — явная ошибка, не
+молчаливое игнорирование.
 
 SESSION.md больше не читается при старте — снапшот-сессии заменён контекстом
 задачи. PLAN.md — замороженный (2026-08-18, Phase 32.6) архив фаз ≤ 32:
