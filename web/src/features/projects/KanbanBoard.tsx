@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import type { ClientRect as DndKitClientRect } from '@dnd-kit/core';
 import {
   DndContext,
   DragEndEvent,
@@ -246,6 +247,26 @@ export function KanbanBoard({
     if (t) setActiveTask(t);
   }
 
+  // T150: drop side for card-over-card moves, from the live pointer
+  // position: dnd-kit nulls active.rect.current.translated before
+  // onDragEnd fires (verified in @dnd-kit/core source — the same is
+  // true in the browser, not only in tests), so side must be
+  // computed from the end event itself. activatorEvent carries the
+  // pointerdown coordinates and delta the accumulated pointer
+  // travel, so activatorY + delta.y is the pointer's drop Y in both
+  // real drags and synthetic tests. Comparing it to the hovered
+  // card's center decides before/after; without pointer data
+  // (keyboard sensor) we slot after the target.
+  function dropSideAfter(ev: DragEndEvent, overRect: DndKitClientRect | null): boolean {
+    const activator = ev.activatorEvent;
+    const fromY =
+      activator && typeof activator === 'object' && 'clientY' in activator
+        ? (activator as PointerEvent).clientY
+        : null;
+    if (fromY == null || !overRect || overRect.height <= 0) return true;
+    return fromY + ev.delta.y >= overRect.top + overRect.height / 2;
+  }
+
   async function onDragEnd(ev: DragEndEvent): Promise<void> {
     setActiveTask(null);
     const activeId = String(ev.active.id);
@@ -267,14 +288,75 @@ export function KanbanBoard({
       return;
     }
 
-    // Same-column reorder: active and over are both cards. Guard the
-    // column match anyway — cross-column drags should always end over
-    // the column droppable zone, but a stale id must not corrupt
-    // positions.
+    // T150: cross-column card-over-card drop. Since T118 every card is
+    // a SortableCard, closestCenter reports the CARD under the pointer
+    // as `over` — including a card in ANOTHER column, which used to
+    // bail out silently right here (the regression this branch fixes).
+    // Treat it as a move into overTask's column, positioned next to
+    // the target; the primary request goes through moveTaskToColumn so
+    // the WIP-limit revert + toast stay in exactly one place.
     const current = tasks.find((t) => t.id === activeId);
     const overTask = tasks.find((t) => t.id === overId);
-    if (!current || !overTask || current.column_id !== overTask.column_id) return;
+    if (!current || !overTask || activeId === overId) return;
 
+    if (current.column_id !== overTask.column_id) {
+      const targetColumnId = overTask.column_id;
+      if (!targetColumnId) return;
+      const targetTasks = tasks
+        .filter((t) => t.column_id === targetColumnId)
+        .sort((a, b) => a.position - b.position);
+      const toIdx = targetTasks.findIndex((t) => t.id === overId);
+      if (toIdx < 0) return;
+
+      // Before/after the target by drop side (see dropSideAfter):
+      // the pointer's drop Y vs the hovered card's center. Without
+      // pointer data (keyboard sensor) this slots after the target —
+      // matching the pre-T118 append path.
+      const afterTarget = dropSideAfter(ev, ev.over?.rect ?? null);
+      const insertIdx = afterTarget ? toIdx + 1 : toIdx;
+
+      const orderedIds = [...targetTasks.map((t) => t.id)];
+      orderedIds.splice(insertIdx, 0, activeId);
+      const positions = new Map(targetTasks.map((t) => [t.id, t.position]));
+      const { before, after } = neighbourPositions(orderedIds, positions, insertIdx);
+      const position =
+        computeTaskPosition(before, after).position ?? targetTasks[insertIdx]?.position ?? 0;
+      positions.set(activeId, position);
+      // Front slot (index 0) needs no rebalance: the midpoint sits
+      // strictly below every existing position (after - GAP), while
+      // the suffix helper's 0 baseline would only produce spurious
+      // bumps. Deeper slots mirror the same-column reorder: legacy
+      // ties (quick-created cards sharing one position) cannot
+      // express "between" on the server, so the tied suffix — the
+      // moved card first — gets strictly increasing positions.
+      const suffix =
+        insertIdx === 0 ? null : computeReorderSuffix(orderedIds, positions, insertIdx);
+      const movedPos = suffix?.get(activeId) ?? position;
+      const others = suffix ? [...suffix.entries()].filter(([id]) => id !== activeId) : [];
+
+      // Mirror the same-column reorder: suffix bumps fire best-effort
+      // after the primary move, and only when it actually landed — a
+      // WIP-reverted drop must not shift the target column's cards.
+      if (await moveTaskToColumn(activeId, targetColumnId, movedPos)) {
+        for (const [id, pos] of others) {
+          try {
+            if (typeof navigator !== 'undefined' && !navigator.onLine) {
+              await queueMoveTask(id, targetColumnId, pos);
+            } else {
+              await api.moveTask(id, targetColumnId, pos);
+            }
+          } catch {
+            // Best-effort: a failed suffix bump re-syncs on next WS
+            // refetch; the moved card itself is already authoritative.
+          }
+        }
+      }
+      return;
+    }
+
+    // Same-column reorder: active and over are both cards in the same
+    // column (card-over-card since T118). A stale id must not corrupt
+    // positions.
     const columnTasks = tasks
       .filter((t) => t.column_id === current.column_id)
       .sort((a, b) => a.position - b.position);
@@ -339,14 +421,27 @@ export function KanbanBoard({
    * card-over-column drop path and the WIP-limit error handling stay
    * in one place. Behaviour identical to pre-T118: optimistic update,
    * outbox when offline, revert + toast on failure.
+   *
+   * T150: accepts an optional position (card-over-card drops in
+   * another column slot the card next to its target) and returns
+   * whether the move landed, so callers can skip follow-up work when
+   * the optimistic update was reverted.
    */
-  async function moveTaskToColumn(activeId: string, targetColumnId: string): Promise<void> {
+  async function moveTaskToColumn(
+    activeId: string,
+    targetColumnId: string,
+    position?: number,
+  ): Promise<boolean> {
     const current = tasks.find((t) => t.id === activeId);
-    if (!current || current.column_id === targetColumnId) return;
+    if (!current || current.column_id === targetColumnId) return false;
 
     const prev = tasks;
     setTasks((cur) =>
-      cur.map((t) => (t.id === activeId ? { ...t, column_id: targetColumnId } : t)),
+      cur.map((t) =>
+        t.id === activeId
+          ? { ...t, column_id: targetColumnId, ...(position != null ? { position } : {}) }
+          : t,
+      ),
     );
 
     try {
@@ -356,10 +451,11 @@ export function KanbanBoard({
       // returns. Online path is the same as before (axios call
       // catches the error and the optimistic update stays in place).
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        await queueMoveTask(activeId, targetColumnId);
+        await queueMoveTask(activeId, targetColumnId, position);
       } else {
-        await api.moveTask(activeId, targetColumnId);
+        await api.moveTask(activeId, targetColumnId, position);
       }
+      return true;
     } catch (e) {
       // Phase 30.11: surface the WIP limit as a specific toast with
       // "N из M" rather than the raw backend message. The server
@@ -380,6 +476,7 @@ export function KanbanBoard({
         setError(raw);
       }
       setTasks(prev);
+      return false;
     }
   }
 
