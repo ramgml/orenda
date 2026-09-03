@@ -73,15 +73,24 @@ func TestBackup_ListSnapshots(t *testing.T) {
 		DBPath:      dbPath,
 	}, db)
 
+	// Three snapshots within the same second: Snapshot() resolves the
+	// timestamp collision with -01/-02 suffixes (backup.go), so no
+	// sleeping is needed for unique file names. This also covers the
+	// collision branch, which the old sleep-based version never hit.
 	for i := 0; i < 3; i++ {
 		_, err := svc.Snapshot(context.Background())
 		require.NoError(t, err)
-		time.Sleep(1100 * time.Millisecond) // ensure unique timestamps
 	}
 
 	list, err := svc.ListSnapshots(context.Background())
 	require.NoError(t, err)
-	assert.Len(t, list, 3)
+	require.Len(t, list, 3)
+	// All three names share one timestamp; suffixes must differ.
+	names := make(map[string]bool, 3)
+	for _, info := range list {
+		names[filepath.Base(info.Path)] = true
+	}
+	require.Len(t, names, 3, "snapshot file names must be unique")
 	// Newest first.
 	for i := 0; i < 2; i++ {
 		assert.True(t, list[i].ModTime.After(list[i+1].ModTime) ||
