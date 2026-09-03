@@ -84,8 +84,13 @@ fi
 # EnvironmentFile. Task 138: fresh installs store the secret in
 # @DATADIR@/credentials/jwt (mode 600, dir 700) and the env file only
 # carries the *_FILE pointer, so the secret never lands in
-# /proc/*/environ. Existing installs keep their current env file
-# untouched (backward compatibility).
+# /proc/*/environ.
+# Symlink guard (Task 138): never write a secret through a symlink —
+# a planted link would redirect it to an attacker-chosen file.
+if [[ -L "$DATA_DIR/credentials" || -L "$DATA_DIR/credentials/jwt" ]]; then
+  echo "ERROR: $DATA_DIR/credentials/jwt (or its directory) is a symlink; refusing to write the secret through it." >&2
+  exit 1
+fi
 if [[ ! -f "$DATA_DIR/env" ]]; then
   mkdir -p "$DATA_DIR/credentials"
   chmod 700 "$DATA_DIR/credentials"
@@ -96,6 +101,23 @@ if [[ ! -f "$DATA_DIR/env" ]]; then
   chmod 600 "$DATA_DIR/env"
   echo "    wrote $DATA_DIR/credentials/jwt (random JWT secret, mode 600)"
   echo "    wrote $DATA_DIR/env (points at the secret file, mode 600)"
+fi
+# Task 138 migration: existing installs carry the raw secret in env
+# (ORENDA_AUTH__JWT_SECRET=...). The new unit has an unconditional
+# LoadCredential, and systemd fails hard when the credential file is
+# missing — so migrate BEFORE the unit can enter a crash loop. The
+# direct env value still wins over the file, so the plain line must go.
+# Idempotent: a rerun finds credentials/jwt in place and does nothing.
+if [[ ! -f "$DATA_DIR/credentials/jwt" ]] && grep -q '^ORENDA_AUTH__JWT_SECRET=' "$DATA_DIR/env" 2>/dev/null; then
+  mkdir -p "$DATA_DIR/credentials"
+  chmod 700 "$DATA_DIR/credentials"
+  umask 077
+  grep '^ORENDA_AUTH__JWT_SECRET=' "$DATA_DIR/env" | cut -d= -f2- | tr -d '\n' > "$DATA_DIR/credentials/jwt"
+  chmod 600 "$DATA_DIR/credentials/jwt"
+  sed -i '/^ORENDA_AUTH__JWT_SECRET=/d' "$DATA_DIR/env"
+  printf 'ORENDA_AUTH__JWT_SECRET_FILE=%s/credentials/jwt\n' "$DATA_DIR" >> "$DATA_DIR/env"
+  chmod 600 "$DATA_DIR/env"
+  echo "    migrated JWT secret into credentials file ($DATA_DIR/credentials/jwt, mode 600)"
 fi
 
 if [[ "$WITH_SYSTEMD" == "1" ]]; then
