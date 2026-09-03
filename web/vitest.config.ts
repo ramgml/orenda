@@ -1,5 +1,5 @@
-import { fileURLToPath } from 'node:url'
-import { defineConfig } from 'vitest/config'
+import { defineConfig } from 'vitest/config';
+import { fileURLToPath } from 'node:url';
 
 // Minimal Vitest config for the web/ workspace.
 //
@@ -18,5 +18,16 @@ export default defineConfig({
     include: ['src/**/*.test.{ts,tsx}'],
     environment: 'node',
     globals: false,
+    // jsdom defaults its document URL to http://localhost:3000, so any
+    // unmocked axios/XHR call (React Query hooks in TaskCard/ColumnView)
+    // dials a real TCP connection and floods the log with ECONNREFUSED
+    // noise. An `about:blank` document URL makes the request fail fast
+    // in the URL parser instead of opening sockets. The trade-off is an
+    // opaque origin, where jsdom leaves `localStorage` undefined —
+    // src/test-setup.ts installs an in-memory stand-in for that case.
+    environmentOptions: {
+      jsdom: { url: 'about:blank' },
+    },
+    setupFiles: ['./src/test-setup.ts'],
   },
-})
+});
