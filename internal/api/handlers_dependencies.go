@@ -247,13 +247,28 @@ func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 				return
 			}
 			// Also include inbox tasks: Filter has NoProject for that.
+			// Task 151: query 1 has no project clause, so inbox tasks
+			// with assignee_type agent-or-NULL are already in `tasks`;
+			// merging query 2 raw used to duplicate each of them
+			// (T151: count doubled). Merge order-stable by id — first
+			// occurrence wins.
 			f2 := task.Filter{NoProject: true, Status: task.StatusTodo}
 			inboxTasks, err := deps.Tasks.ListByProject(r.Context(), f2)
 			if err != nil {
 				writeError(w, err)
 				return
 			}
-			tasks = append(tasks, inboxTasks...)
+			seen := make(map[string]struct{}, len(tasks)+len(inboxTasks))
+			for _, tr := range tasks {
+				seen[tr.ID] = struct{}{}
+			}
+			for _, tr := range inboxTasks {
+				if _, dup := seen[tr.ID]; dup {
+					continue
+				}
+				seen[tr.ID] = struct{}{}
+				tasks = append(tasks, tr)
+			}
 		}
 
 		type row struct {
