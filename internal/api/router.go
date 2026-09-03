@@ -366,6 +366,13 @@ func NewRouter(deps *Dependencies) http.Handler {
 					r.Get("/activity", listProjectActivityHandler(deps))
 					r.Get("/attachments", listProjectAttachmentsHandler(deps))
 					r.Post("/attachments", addProjectAttachmentHandler(deps))
+					// Task 140: per-project agent access. GET reads the
+					// explicit grant list, PUT replaces it atomically
+					// (owner-only — the agent namespace has no write
+					// path to the access surface; granting itself would
+					// defeat the scope model).
+					r.Get("/agents", getProjectAgentsHandler(deps))
+					r.Put("/agents", putProjectAgentsHandler(deps))
 				})
 			})
 

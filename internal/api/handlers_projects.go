@@ -22,11 +22,12 @@ import (
 // to skipping empty values at the handler layer — see
 // patchProjectHandler.
 type projectInput struct {
-	Name        *string `json:"name"`
-	Color       *string `json:"color"`
-	Description *string `json:"description"`
-	WikiSlug    *string `json:"wiki_slug"`
-	Archived    *bool   `json:"archived"`
+	Name          *string `json:"name"`
+	Color         *string `json:"color"`
+	Description   *string `json:"description"`
+	WikiSlug      *string `json:"wiki_slug"`
+	Archived      *bool   `json:"archived"`
+	AgentsAllowed *bool   `json:"agents_allowed"`
 }
 
 // listProjectsHandler returns the authenticated user's projects.
@@ -100,8 +101,12 @@ func getProjectHandler(deps *Dependencies) http.HandlerFunc {
 //   - wiki_slug: nil → leave alone; "" → unlink (stored as NULL);
 //     non-empty → must reference an existing wiki page or 422. Trim
 //     whitespace so a stray space from a UI input doesn't silently
-//     break the FK.
 //   - archived: nil → leave alone; bool → set.
+//   - agents_allowed: nil → leave alone; bool → set. Task 140: the
+//     per-project agent-access switch. false closes the project to
+//     every agent without a grant row in project_agents (an empty
+//     grant list = nobody); true reopens it to all agents. Grant
+//     membership itself is managed through PUT /projects/{id}/agents.
 func patchProjectHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
@@ -155,6 +160,9 @@ func patchProjectHandler(deps *Dependencies) http.HandlerFunc {
 		if in.Archived != nil {
 			p.Archived = *in.Archived
 		}
+		if in.AgentsAllowed != nil {
+			p.AgentsAllowed = *in.AgentsAllowed
+		}
 		if err := deps.Projects.UpdateProject(r.Context(), p); err != nil {
 			writeError(w, err)
 			return
@@ -196,5 +204,74 @@ func getProjectBoardHandler(deps *Dependencies) http.HandlerFunc {
 			"board":   board,
 			"columns": cols,
 		})
+	}
+}
+
+// projectAgentsInput is the JSON body of PUT /projects/{id}/agents.
+type projectAgentsInput struct {
+	AgentIDs []string `json:"agent_ids"`
+}
+
+// putProjectAgentsHandler replaces the project's full allowed-agents
+// list (task 140, owner-only: mounted under RequireUser).
+//
+//	{ "agent_ids": ["<agent-uuid>", ...] }   — replace
+//	{ "agent_ids": [] }                      — close the list entirely
+//
+// Every id must reference an existing agent (422 unknown_agent
+// otherwise) so a typo can never silently narrow the project to
+// nobody. The replacement is a single repository transaction, so the
+// call is idempotent. agents_allowed itself is patched through
+// PATCH /projects/{id}; this endpoint manages the grant list only.
+func putProjectAgentsHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, _ := IdentityFrom(r.Context())
+		if id == nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "no_identity"})
+			return
+		}
+		p, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeProjectResolveError(w, err)
+			return
+		}
+		var in projectAgentsInput
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		// Validate every id up front: unknown agents must fail the
+		// whole request, never land as half the new list.
+		for _, agentID := range in.AgentIDs {
+			if _, err := deps.Agents.GetByID(r.Context(), agentID); err != nil {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "unknown_agent"})
+				return
+			}
+		}
+		if err := deps.Projects.SetAllowedAgents(r.Context(), p.ID, in.AgentIDs, id.UserID); err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"agent_ids": in.AgentIDs})
+	}
+}
+
+// getProjectAgentsHandler returns the project's explicit grant list
+// (task 140, owner-only). Empty list = the project is closed and no
+// agent is granted; combined with agents_allowed=false that means
+// nobody but the owner touches it.
+func getProjectAgentsHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p, err := resolveProjectRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if err != nil {
+			writeProjectResolveError(w, err)
+			return
+		}
+		ids, err := deps.Projects.ListAllowedAgentIDs(r.Context(), p.ID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"agent_ids": ids})
 	}
 }

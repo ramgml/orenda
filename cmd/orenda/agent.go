@@ -238,6 +238,7 @@ func newAgentCmd() *cobra.Command {
 Workflow shape:
   orenda agent me                     # confirm the token works
   orenda agent next                    # await + claim the next task
+  orenda agent next --project 7   # only project P7 (number, P-number or UUID)
   orenda agent propose --project <id> --title ... --description-file task.md
                                        # propose a NEW task (human triages it)
   orenda agent context <task-id>       # pull the full snapshot
@@ -352,6 +353,7 @@ func newAgentNextCmd() *cobra.Command {
 	var (
 		limit     int
 		awaitSecs int
+		project   string
 	)
 	cmd := &cobra.Command{
 		Use:   "next",
@@ -361,9 +363,13 @@ func newAgentNextCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// List the ready queue (Phase 15).
-			raw, code, err := ctx.agentGet(cmd.Context(),
-				"/api/v1/agent/tasks?ready=true&limit="+strconv.Itoa(limit))
+			// List the ready queue (Phase 15); T140: optional
+			// --project scopes the queue to one project.
+			q := url.Values{"ready": {"true"}, "limit": {strconv.Itoa(limit)}}
+			if project != "" {
+				q.Set("project", project)
+			}
+			raw, code, err := ctx.agentGet(cmd.Context(), "/api/v1/agent/tasks?"+q.Encode())
 			if err != nil {
 				return err
 			}
@@ -416,6 +422,7 @@ func newAgentNextCmd() *cobra.Command {
 	}
 	cmd.Flags().IntVar(&limit, "limit", 5, "max tasks to consider before claiming")
 	cmd.Flags().IntVar(&awaitSecs, "await", 0, "if no work, long-poll up to N seconds (0 = no wait)")
+	cmd.Flags().StringVar(&project, "project", "", "Filter ready tasks to one project: number (7), P-number (P7) or UUID")
 	return cmd
 }
 

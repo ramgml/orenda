@@ -124,7 +124,7 @@ func newProposeFixture(t *testing.T) *proposeFixture {
 
 	// Seed a project; resolve the backlog / todo columns by status.
 	p, _, _, err := projects.CreateProject(context.Background(), &project.Project{
-		Name: "Propose", OwnerID: ownerID,
+		Name: "Propose", OwnerID: ownerID, AgentsAllowed: true,
 	})
 	require.NoError(t, err)
 	var backlogCol, todoCol string

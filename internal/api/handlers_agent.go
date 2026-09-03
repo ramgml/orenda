@@ -90,7 +90,45 @@ func agentClaimTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeResolveError(w, rerr)
 			return
 		}
-		tr, err := deps.TaskService.Claim(r.Context(), taskID, id.AgentID)
+		// Task 140 (agent-project-scope): claiming is refused before
+		// the lock is taken when the task's project is closed to this
+		// agent (agents_allowed = 0 and no grant row). Inbox tasks
+		// (no project) are exempt.
+		tr, err := deps.Tasks.GetByID(r.Context(), taskID)
+		if err != nil {
+			if errors.Is(err, task.ErrNotFound) {
+				writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+				return
+			}
+			writeError(w, err)
+			return
+		}
+		if tr.ProjectID != "" {
+			p, err := deps.Projects.GetProject(r.Context(), tr.ProjectID)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			inList := false
+			if !p.AgentsAllowed {
+				ids, lerr := deps.Projects.ListAllowedAgentIDs(r.Context(), p.ID)
+				if lerr != nil {
+					writeError(w, lerr)
+					return
+				}
+				for _, gid := range ids {
+					if gid == id.AgentID {
+						inList = true
+						break
+					}
+				}
+			}
+			if !p.AgentsAllowed && !inList {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "not_in_scope"})
+				return
+			}
+		}
+		claimed, err := deps.TaskService.Claim(r.Context(), taskID, id.AgentID)
 		if err != nil {
 			if errors.Is(err, taskservice.ErrLockTaken) {
 				// Phase 15: extend 409 with the current holder
@@ -120,8 +158,8 @@ func agentClaimTaskHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		// Notify owner: agent picked this up.
 		notifyTaskAssignee(r.Context(), deps, "task.assigned_to_me",
-			"task.assigned_to_me:"+tr.ID, tr, id.AgentID)
-		writeJSON(w, http.StatusOK, tr)
+			"task.assigned_to_me:"+claimed.ID, claimed, id.AgentID)
+		writeJSON(w, http.StatusOK, claimed)
 	}
 }
 

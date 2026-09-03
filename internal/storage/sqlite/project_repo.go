@@ -55,11 +55,11 @@ func (r *projectRepo) CreateProject(ctx context.Context, p *project.Project) (*p
 	// semantics line up with the rest of the codebase.
 	const insProject = `
 		INSERT INTO projects (id, number, name, color, description, wiki_slug, owner_id, archived,
-		                     created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))
+		                     agents_allowed, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, datetime('now'), datetime('now'))
 	`
 	if _, err := tx.ExecContext(ctx, insProject,
-		p.ID, number, p.Name, p.Color, p.Description, nullString(p.WikiSlug), p.OwnerID,
+		p.ID, number, p.Name, p.Color, p.Description, nullString(p.WikiSlug), p.OwnerID, boolToInt(p.AgentsAllowed),
 	); err != nil {
 		return nil, nil, nil, fmt.Errorf("project.CreateProject: insert project: %w", err)
 	}
@@ -119,7 +119,8 @@ func (r *projectRepo) CreateProject(ctx context.Context, p *project.Project) (*p
 
 func (r *projectRepo) GetProject(ctx context.Context, id string) (*project.Project, error) {
 	const q = `
-		SELECT id, number, name, color, description, wiki_slug, owner_id, archived, created_at, updated_at
+		SELECT id, number, name, color, description, wiki_slug, owner_id, archived, agents_allowed,
+		       created_at, updated_at
 		FROM projects WHERE id = ?
 	`
 	row := r.db.QueryRowContext(ctx, q, id)
@@ -128,10 +129,11 @@ func (r *projectRepo) GetProject(ctx context.Context, id string) (*project.Proje
 		desc sql.NullString
 		wiki sql.NullString
 		arch int
+		aa   int
 		cAt  string
 		uAt  string
 	)
-	err := row.Scan(&p.ID, &p.Number, &p.Name, &p.Color, &desc, &wiki, &p.OwnerID, &arch, &cAt, &uAt)
+	err := row.Scan(&p.ID, &p.Number, &p.Name, &p.Color, &desc, &wiki, &p.OwnerID, &arch, &aa, &cAt, &uAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, project.ErrNotFound
 	}
@@ -141,6 +143,7 @@ func (r *projectRepo) GetProject(ctx context.Context, id string) (*project.Proje
 	p.Description = desc.String
 	p.WikiSlug = wiki.String
 	p.Archived = arch != 0
+	p.AgentsAllowed = aa != 0
 	p.CreatedAt = parseTime(cAt)
 	p.UpdatedAt = parseTime(uAt)
 	return &p, nil
@@ -151,7 +154,8 @@ func (r *projectRepo) GetProject(ctx context.Context, id string) (*project.Proje
 // index point lookup.
 func (r *projectRepo) GetByNumber(ctx context.Context, number int) (*project.Project, error) {
 	const q = `
-		SELECT id, number, name, color, description, wiki_slug, owner_id, archived, created_at, updated_at
+		SELECT id, number, name, color, description, wiki_slug, owner_id, archived, agents_allowed,
+		       created_at, updated_at
 		FROM projects WHERE number = ?
 	`
 	row := r.db.QueryRowContext(ctx, q, number)
@@ -160,10 +164,11 @@ func (r *projectRepo) GetByNumber(ctx context.Context, number int) (*project.Pro
 		desc sql.NullString
 		wiki sql.NullString
 		arch int
+		aa   int
 		cAt  string
 		uAt  string
 	)
-	err := row.Scan(&p.ID, &p.Number, &p.Name, &p.Color, &desc, &wiki, &p.OwnerID, &arch, &cAt, &uAt)
+	err := row.Scan(&p.ID, &p.Number, &p.Name, &p.Color, &desc, &wiki, &p.OwnerID, &arch, &aa, &cAt, &uAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, project.ErrNotFound
 	}
@@ -173,6 +178,7 @@ func (r *projectRepo) GetByNumber(ctx context.Context, number int) (*project.Pro
 	p.Description = desc.String
 	p.WikiSlug = wiki.String
 	p.Archived = arch != 0
+	p.AgentsAllowed = aa != 0
 	p.CreatedAt = parseTime(cAt)
 	p.UpdatedAt = parseTime(uAt)
 	return &p, nil
@@ -187,7 +193,8 @@ func (r *projectRepo) ListProjects(ctx context.Context, ownerID string) ([]*proj
 	// invisible to the frontend's project list.
 	_ = ownerID
 	const q = `
-		SELECT id, number, name, color, description, wiki_slug, owner_id, archived, created_at, updated_at
+		SELECT id, number, name, color, description, wiki_slug, owner_id, archived, agents_allowed,
+		       created_at, updated_at
 		FROM projects
 		ORDER BY created_at DESC
 	`
@@ -204,15 +211,17 @@ func (r *projectRepo) ListProjects(ctx context.Context, ownerID string) ([]*proj
 			desc sql.NullString
 			wiki sql.NullString
 			arch int
+			aa   int
 			cAt  string
 			uAt  string
 		)
-		if err := rows.Scan(&p.ID, &p.Number, &p.Name, &p.Color, &desc, &wiki, &p.OwnerID, &arch, &cAt, &uAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Number, &p.Name, &p.Color, &desc, &wiki, &p.OwnerID, &arch, &aa, &cAt, &uAt); err != nil {
 			return nil, fmt.Errorf("project.ListProjects: scan: %w", err)
 		}
 		p.Description = desc.String
 		p.WikiSlug = wiki.String
 		p.Archived = arch != 0
+		p.AgentsAllowed = aa != 0
 		p.CreatedAt = parseTime(cAt)
 		p.UpdatedAt = parseTime(uAt)
 		out = append(out, &p)
@@ -229,10 +238,10 @@ func (r *projectRepo) UpdateProject(ctx context.Context, p *project.Project) err
 	}
 	const q = `
 		UPDATE projects
-		SET name = ?, color = ?, description = ?, wiki_slug = ?, archived = ?
+		SET name = ?, color = ?, description = ?, wiki_slug = ?, archived = ?, agents_allowed = ?
 		WHERE id = ?
 	`
-	res, err := r.db.ExecContext(ctx, q, p.Name, p.Color, p.Description, nullString(p.WikiSlug), boolToInt(p.Archived), p.ID)
+	res, err := r.db.ExecContext(ctx, q, p.Name, p.Color, p.Description, nullString(p.WikiSlug), boolToInt(p.Archived), boolToInt(p.AgentsAllowed), p.ID)
 	if err != nil {
 		return fmt.Errorf("project.UpdateProject: %w", err)
 	}
@@ -264,6 +273,91 @@ func (r *projectRepo) DeleteProject(ctx context.Context, id string) error {
 		return project.ErrNotFound
 	}
 	return nil
+}
+
+// SetAllowedAgents replaces the project's full grant list in one
+// transaction (task 140). The DELETE + INSERT pair runs atomically so
+// a reader never observes a half-applied list, and repeating the call
+// with the same list is a no-op (idempotent full replacement). An
+// empty agentIDs list removes every grant row — a closed project with
+// no grants is accessible to nobody.
+func (r *projectRepo) SetAllowedAgents(ctx context.Context, projectID string, agentIDs []string, addedByUserID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("project.SetAllowedAgents: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM project_agents WHERE project_id = ?`, projectID); err != nil {
+		return fmt.Errorf("project.SetAllowedAgents: delete: %w", err)
+	}
+	const ins = `
+		INSERT INTO project_agents (project_id, agent_id, added_by) VALUES (?, ?, ?)
+	`
+	for _, agentID := range agentIDs {
+		if _, err := tx.ExecContext(ctx, ins, projectID, agentID, addedByUserID); err != nil {
+			return fmt.Errorf("project.SetAllowedAgents: insert: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("project.SetAllowedAgents: commit: %w", err)
+	}
+	return nil
+}
+
+// ListAllowedAgentIDs returns the agent ids explicitly granted to the
+// project. A closed project with no grants returns an empty slice.
+func (r *projectRepo) ListAllowedAgentIDs(ctx context.Context, projectID string) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT agent_id FROM project_agents WHERE project_id = ? ORDER BY agent_id`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("project.ListAllowedAgentIDs: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("project.ListAllowedAgentIDs: scan: %w", err)
+		}
+		out = append(out, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AgentAccessibleProjectIDs answers the agent-side question "which
+// projects may I see and claim?": open projects (agents_allowed = 1)
+// plus closed projects carrying a grant row for this agent. The
+// idx_project_agents_agent index keeps the EXISTS branch an index
+// probe rather than a scan.
+func (r *projectRepo) AgentAccessibleProjectIDs(ctx context.Context, agentID string) (map[string]bool, error) {
+	const q = `
+		SELECT p.id FROM projects p
+		WHERE p.agents_allowed = 1
+		   OR EXISTS (SELECT 1 FROM project_agents pa WHERE pa.project_id = p.id AND pa.agent_id = ?)
+	`
+	rows, err := r.db.QueryContext(ctx, q, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("project.AgentAccessibleProjectIDs: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("project.AgentAccessibleProjectIDs: scan: %w", err)
+		}
+		out[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *projectRepo) GetBoard(ctx context.Context, projectID string) (*project.Board, []*project.Column, error) {

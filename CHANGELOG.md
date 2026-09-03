@@ -17,7 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [Unreleased]
 
+### Added
+- **Task 140 (PR #165):** per-project agent access allow-list — `projects.agents_allowed` (migration 043, **default CLOSED**) plus an owner-managed `project_agents` grant table. Agent surfaces (`GET /agent/tasks`, claim, `GET /agent/projects`) only see projects that are open to all agents or explicitly granted; claim on a closed project returns `422 not_in_scope`; agent paths cannot edit access (`422 owner_only_field`). Owner surface: PATCH `/projects/{id}` carries `agents_allowed`; new GET/PUT `/projects/{id}/agents` (full-replacement grant list). `orenda agent next --project N` and MCP `orenda_list_tasks(project=…)` scope the ready queue to one project; unknown MCP tool keys are now an error. Web project settings gain an "Agent access" section.
+
+### Upgrade notes
+- **Existing projects are closed to agents after deploying this release.** Grant access per project in the web settings ("Agent access"): toggle "Open to all agents" or check the granted agents. In particular re-grant the harness-mcp agent on the Orenda Dev project, or the agent escort loop stops seeing its own tasks.
 
 ## [0.16.2] — 2026-09-03
 
