@@ -12,6 +12,12 @@ RestartSec=5
 # run, mode 600). No default secret is shipped — running without one
 # fails fast at startup, which is intentional.
 EnvironmentFile=-@DATADIR@/env
+# Task 138: mount the JWT secret as a credential instead of an env var —
+# credentials do not appear in /proc/*/environ of the service process.
+# Requires systemd >= 254 for credentials in the user manager (owner's
+# machine runs 255). %h is $HOME and is not touched by install.sh sed
+# (which only substitutes @BINDIR@/@DATADIR@).
+LoadCredential=jwt:%h/.local/share/orenda/credentials/jwt
 
 [Install]
 WantedBy=default.target

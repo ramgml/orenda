@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+## [0.16.2] — 2026-09-03
+
+Patch release. Focus: security — moving the JWT signing secret out of `/proc/*/environ` so the service can run with the new systemd unit's `LoadCredential` instead of a JWT-named environ variable. Shipped as a quick-follow to v0.16.1 so existing installs can upgrade to the new unit safely.
+
+### Security
+- **Task 138 (PR #159):** JWT secret moved out of `/proc/*/environ` — new `auth.jwt_secret_file` / `ORENDA_AUTH__JWT_SECRET_FILE` reads the signing secret from a file (trimmed; direct `jwt_secret` wins when both are set; missing/empty file fails fast in `config.Load`), with `$CREDENTIALS_DIRECTORY/jwt` as the last tier. Fresh installs via `scripts/install.sh` write the secret to `$DATA_DIR/credentials/jwt` (dir 700, file 600) and reference it from `$DATA_DIR/env`; the installer migrates existing installs (secret from env into `credentials/jwt`, symlink-guarded) and refuses to write the secret through a symlink. The systemd template gains `LoadCredential=jwt:%h/.local/share/orenda/credentials/jwt` (systemd ≥ 254). Existing installs with a plain `ORENDA_AUTH__JWT_SECRET` in env keep working unchanged. README docs updated.
+
 ## [0.16.1] — 2026-09-03
 
 Patch release. Focus: fixing `task.moved` activity attribution for sync-driven moves and broken project wiki links, plus a review-badge performance fix and OpenAPI drift-prevention tooling.

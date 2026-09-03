@@ -9,6 +9,9 @@
 # data/ paths to absolute ones. For a manual setup:
 #   cp configs/config.example.yaml data/config.yaml
 #   export ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64)
+#   # or, keeping the secret out of /proc/*/environ (Task 138):
+#   #   printf '%s' "$(head -c32 /dev/urandom | base64)" > ~/.local/share/orenda/credentials/jwt
+#   #   export ORENDA_AUTH__JWT_SECRET_FILE=$HOME/.local/share/orenda/credentials/jwt
 
 server:
   host: "127.0.0.1"     # loopback only by default
@@ -28,6 +31,15 @@ auth:
   # ORENDA_AUTH__JWT_SECRET environment variable; scripts/install.sh
   # generates a random one into $DATA_DIR/env on first install.
   jwt_secret: ""
+  # Task 138: path to a file holding the JWT secret. Used only when
+  # jwt_secret / ORENDA_AUTH__JWT_SECRET is empty — the direct value
+  # wins. This setting holds the file PATH (not the secret), so the
+  # secret itself never appears in /proc/*/environ. install.sh points
+  # fresh installs at $DATA_DIR/credentials/jwt (file mode 600, dir 700).
+  # Final fallback when this is empty too: the systemd credential
+  # $CREDENTIALS_DIRECTORY/jwt (mounted by LoadCredential=jwt:... —
+  # carries no "JWT" string in the process environ).
+  jwt_secret_file: ""
   jwt_ttl: "24h"                        # OWASP guidance for cookie sessions (Phase 28.4)
   cookie_name: "orenda_session"
   cookie_secure: false                  # set true behind a TLS reverse proxy
