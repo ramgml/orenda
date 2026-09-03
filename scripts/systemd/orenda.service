@@ -18,6 +18,32 @@ EnvironmentFile=-@DATADIR@/env
 # machine runs 255). %h is $HOME and is not touched by install.sh sed
 # (which only substitutes @BINDIR@/@DATADIR@).
 LoadCredential=jwt:%h/.local/share/orenda/credentials/jwt
+# Task 142: same-UID containment for the service process. systemd has no
+# `ExecStart=append:` pin (RFE systemd/systemd#21461 open since 2021;
+# `AppendPreUser=` does not exist) — a user manager runs as the same UID,
+# so unit files are owner-trusted config and cannot be pinned against
+# the user's own processes. Instead, sandbox the service itself:
+#   - NoNewPrivileges + SystemCallFilter work everywhere (prctl/seccomp,
+#     no namespaces) — verified applied on the owner's systemd 255.
+#   - ProtectSystem/ProtectHome/PrivateTmp/Bind* need mount namespaces:
+#     on a normal host they hide the real $HOME (unit, credentials) and
+#     make / read-only; where namespaces are unavailable (containers)
+#     systemd degrades gracefully and skips them. Directives that need
+#     capabilities the user manager lacks (PrivateDevices, MemoryDeny-
+#     WriteExecute, RestrictRealtime, LockPersonality, SystemCall-
+#     Architectures) fail the unit with 218/CAPABILITIES — not used.
+# Residual risk (documented in wiki:orenda-security-jwt-secret): the
+# user manager's private socket stays reachable from the service, so a
+# fully same-UID attacker can start unsandboxed transient units — this
+# raises the bar, it is not a security boundary.
+NoNewPrivileges=yes
+SystemCallFilter=@system-service
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindPaths=%h/.local/share/orenda
+BindReadOnlyPaths=%h/.local/bin/orenda %h/.local/share/orenda/config.yaml
+PrivateTmp=yes
+RestrictSUIDSGID=yes
 
 [Install]
 WantedBy=default.target
