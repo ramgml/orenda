@@ -81,14 +81,21 @@ if [[ ! -f "$DATA_DIR/config.yaml" ]]; then
 fi
 
 # JWT secret (Phase 28.21): the systemd unit reads @DATADIR@/env via
-# EnvironmentFile. Generate a random secret on first install so a fresh
-# instance never runs with a repo-public signing key. Existing installs
-# keep their current env file untouched.
+# EnvironmentFile. Task 138: fresh installs store the secret in
+# @DATADIR@/credentials/jwt (mode 600, dir 700) and the env file only
+# carries the *_FILE pointer, so the secret never lands in
+# /proc/*/environ. Existing installs keep their current env file
+# untouched (backward compatibility).
 if [[ ! -f "$DATA_DIR/env" ]]; then
+  mkdir -p "$DATA_DIR/credentials"
+  chmod 700 "$DATA_DIR/credentials"
   umask 077
-  printf 'ORENDA_AUTH__JWT_SECRET=%s\n' "$(head -c32 /dev/urandom | base64)" > "$DATA_DIR/env"
+  head -c32 /dev/urandom | base64 | tr -d '\n' > "$DATA_DIR/credentials/jwt"
+  chmod 600 "$DATA_DIR/credentials/jwt"
+  printf 'ORENDA_AUTH__JWT_SECRET_FILE=%s/credentials/jwt\n' "$DATA_DIR" > "$DATA_DIR/env"
   chmod 600 "$DATA_DIR/env"
-  echo "    wrote $DATA_DIR/env (random JWT secret, mode 600)"
+  echo "    wrote $DATA_DIR/credentials/jwt (random JWT secret, mode 600)"
+  echo "    wrote $DATA_DIR/env (points at the secret file, mode 600)"
 fi
 
 if [[ "$WITH_SYSTEMD" == "1" ]]; then
@@ -107,7 +114,7 @@ echo
 echo "Done. Try:"
 echo "  orenda version"
 echo "  orenda serve --config $DATA_DIR/config.yaml"
-echo "  set -a; . $DATA_DIR/env; set +a   # loads ORENDA_AUTH__JWT_SECRET"
+echo "  set -a; . $DATA_DIR/env; set +a   # loads ORENDA_AUTH__JWT_SECRET_FILE (secret stays in $DATA_DIR/credentials/jwt)"
 echo "  orenda user create \\"
 echo "      --email you@example.com --display-name You --password-stdin \\"
 echo "      --config $DATA_DIR/config.yaml"
