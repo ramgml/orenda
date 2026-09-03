@@ -3,7 +3,6 @@ package task_test
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +17,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/user"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/testutil"
 )
 
 type claimHub struct {
@@ -46,13 +46,7 @@ func (h *claimHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 
 func setupClaimDB(t *testing.T) (*sql.DB, *taskservice.Service, *claimHub, *project.Project, *project.Column) {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/t.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := testutil.TemplateDBOpen(t)
 
 	users := sqlite.NewUserRepository(db)
 	owner := &user.User{

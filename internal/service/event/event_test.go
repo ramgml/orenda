@@ -2,7 +2,6 @@ package event_test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/event"
 	eventsvc "github.com/ramgml/orenda/internal/service/event"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/testutil"
 )
 
 type memHub struct{ n int }
@@ -29,13 +29,7 @@ func (h *memHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 
 func setupEventSvc(t *testing.T) (*eventsvc.Service, *memHub) {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/ev.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := testutil.TemplateDBOpen(t)
 
 	hub := &memHub{}
 	svc := eventsvc.New(sqlite.NewTaskRepository(db), hub, nil)

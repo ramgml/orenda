@@ -15,6 +15,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/user"
 	activitysvc "github.com/ramgml/orenda/internal/service/activity"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/testutil"
 )
 
 type fixture struct {
@@ -26,13 +27,7 @@ type fixture struct {
 
 func setupActivityTest(t *testing.T) (*activitysvc.Recorder, *fixture) {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir, "a.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := testutil.TemplateDBOpen(t)
 
 	users := sqlite.NewUserRepository(db)
 	owner := &user.User{

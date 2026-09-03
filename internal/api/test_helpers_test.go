@@ -14,55 +14,20 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/testutil"
 )
 
-var (
-	templateDBOnce sync.Once
-	templateDBPath string
-	templateDBErr  error
-)
-
-// ensureTemplateDB runs migrations once and returns the path to a
-// fully-migrated SQLite file in DELETE journal mode (safe to copy).
+// ensureTemplateDB returns the shared template path via the testutil
+// builder (T147: one implementation across packages; the copy step
+// stays here so the returned (*sql.DB, tempDir) shape is unchanged).
 func ensureTemplateDB(t *testing.T) string {
 	t.Helper()
-	templateDBOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "orenda-template-*")
-		if err != nil {
-			templateDBErr = err
-			return
-		}
-		// The directory persists for the lifetime of the test binary.
-		// The OS cleans up the temp dir on reboot; no explicit cleanup needed.
-
-		dbPath := filepath.Join(dir, "template.db")
-		db, err := sqlite.Open(context.Background(), dbPath, sqlite.OpenConfig{
-			// Use DELETE journal so copies are trivially safe.
-			WALMode: false, EnableForeign: true, BusyTimeoutMs: 5000,
-		})
-		if err != nil {
-			templateDBErr = err
-			return
-		}
-		if err := sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"); err != nil {
-			_ = db.Close()
-			templateDBErr = err
-			return
-		}
-		// Switch to DELETE journal so file copies are safe even without
-		// checkpointing.
-		_, _ = db.ExecContext(context.Background(), "PRAGMA journal_mode = DELETE")
-		_ = db.Close()
-		templateDBPath = dbPath
-	})
-	require.NoError(t, templateDBErr, "template DB creation failed")
-	return templateDBPath
+	return testutil.TemplateDBPath(t)
 }
 
 // copyTemplateDB copies the pre-migrated template to a fresh temp

@@ -15,6 +15,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/study"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/testutil"
 )
 
 // studySvcFixture wires the service against the real SQLite repos
@@ -30,14 +31,7 @@ func setupStudySvc(t *testing.T) (*studySvcFixture, string, string) {
 	t.Helper()
 	ctx := context.Background()
 
-	dir := t.TempDir()
-	dbPath := dir + "/orenda.db"
-	db, err := sqlite.Open(ctx, dbPath, sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	require.NoError(t, sqlite.Migrate(ctx, db, sqlite.MigrationsFS, "migrations"))
-	t.Cleanup(func() { _ = db.Close() })
+	db, _ := testutil.TemplateDBOpen(t)
 
 	propRepo := sqlite.NewStudyProposalRepository(db)
 	taskRepo := sqlite.NewTaskRepository(db)
@@ -51,7 +45,7 @@ func setupStudySvc(t *testing.T) (*studySvcFixture, string, string) {
 		courseID = "c-svc"
 		agentID  = "a-svc"
 	)
-	_, err = db.ExecContext(ctx,
+	_, err := db.ExecContext(ctx,
 		`INSERT INTO users (id, email, password_hash, display_name) VALUES (?, ?, ?, ?)`,
 		ownerID, "svc@031.local", "x", "U")
 	require.NoError(t, err)
