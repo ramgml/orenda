@@ -100,6 +100,58 @@ func TestP8_Sync_MoveTask(t *testing.T) {
 	assert.True(t, results[0].OK, "err=%s", results[0].Error)
 }
 
+// Task 121: move_task through /sync must produce a task.moved
+// activity row attributed to the logged-in user — ActorID comes from
+// the session identity, ActorType stays "user" (identical to the
+// HTTP path). The test DB substitutes "unknown" for empty actor ids,
+// so only the exact UUID catches the silently-dropped-row bug.
+func TestP8_Sync_MoveTask_RecordsActor(t *testing.T) {
+	t.Parallel()
+	router, db := buildP3Router(t)
+	cookie := p3Login(t, router)
+	projID, colID := p3SeedProject(t, router, cookie, "P8a")
+	taskID := p3SeedTask(t, router, cookie, projID, colID, "x")
+
+	var ownerID string
+	require.NoError(t, db.QueryRow("SELECT id FROM users WHERE email = ?", p3Email).Scan(&ownerID))
+
+	op := map[string]any{
+		"op":         "move_task",
+		"target":     taskID,
+		"payload":    map[string]any{"column_id": colID},
+		"client_id":  "c-move-actor-1",
+		"created_at": time.Now().UTC().Format(time.RFC3339),
+	}
+	rr := p8PostSync(t, router, cookie, []map[string]any{op})
+	require.Equal(t, http.StatusOK, rr.Code)
+	results := parseSyncResults(t, rr)
+	require.Len(t, results, 1)
+	require.True(t, results[0].OK, "err=%s", results[0].Error)
+
+	rows, err := db.Query(
+		"SELECT actor_type, actor_id, payload FROM task_activity WHERE task_id = ? AND action = 'task.moved'",
+		taskID)
+	require.NoError(t, err)
+	defer rows.Close()
+	var found []struct{ actorType, actorID, payload string }
+	for rows.Next() {
+		var r struct{ actorType, actorID, payload string }
+		require.NoError(t, rows.Scan(&r.actorType, &r.actorID, &r.payload))
+		found = append(found, r)
+	}
+	require.NoError(t, rows.Err())
+
+	require.Len(t, found, 1, "exactly one task.moved row expected")
+	assert.Equal(t, "user", found[0].actorType)
+	assert.Equal(t, ownerID, found[0].actorID,
+		"actor_id must be the logged-in user's UUID, not a sentinel")
+	assert.NotEqual(t, "unknown", found[0].actorID)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal([]byte(found[0].payload), &payload))
+	assert.Equal(t, colID, payload["column_id"])
+}
+
 func TestP8_Sync_UnsupportedOp(t *testing.T) {
 	t.Parallel()
 	router, _ := buildP3Router(t)
