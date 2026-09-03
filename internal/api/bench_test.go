@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -22,22 +21,13 @@ import (
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/testutil"
 )
 
 // benchRouter builds a router with a pre-authenticated user.
 func benchRouter(b *testing.B) (http.Handler, string) {
 	b.Helper()
-	dir := b.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/b.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	if err != nil {
-		b.Fatal(err)
-	}
-	b.Cleanup(func() { _ = db.Close() })
-	if err := sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"); err != nil {
-		b.Fatal(err)
-	}
+	db, _ := testutil.TemplateDBOpen(b)
 
 	users := sqlite.NewUserRepository(db)
 	hash, _ := auth.HashPassword("hunter2!", 4)

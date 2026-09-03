@@ -2,7 +2,6 @@ package timeentry_test
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/user"
 	timeentrysvc "github.com/ramgml/orenda/internal/service/timeentry"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/testutil"
 )
 
 type memHub struct{ n int }
@@ -40,13 +40,7 @@ func (r *memRecorder) Record(_ context.Context, _ string, _ string) error {
 
 func setupTimeSvc(t *testing.T) (*timeentrysvc.Service, string, string, task.Repository) {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/ts.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := testutil.TemplateDBOpen(t)
 
 	users := sqlite.NewUserRepository(db)
 	owner := &user.User{

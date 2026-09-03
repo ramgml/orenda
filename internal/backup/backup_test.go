@@ -16,19 +16,14 @@ import (
 
 	"github.com/ramgml/orenda/internal/backup"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/testutil"
 )
 
 func setupDB(t *testing.T) (*sql.DB, string) {
 	t.Helper()
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "orenda.db")
-	db, err := sqlite.Open(context.Background(), dbPath, sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
-	return db, dbPath
+	// T147: copy the once-migrated template instead of running the
+	// whole migration chain per fixture (~1.4s each).
+	return testutil.TemplateDBOpen(t)
 }
 
 func TestBackup_SnapshotCreatesFile(t *testing.T) {
