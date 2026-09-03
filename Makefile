@@ -30,7 +30,7 @@ LDFLAGS    := -ldflags "-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT
 .PHONY: all dev build test test-full lint lint-new clean migrate-up migrate-down \
         backup backup-push backup-snapshot backup-status \
         web-install web-dev web-build web-test web-typecheck test-e2e \
-        embed-dists run version help govulncheck hooks \
+        embed-dists openapi-sync run version help govulncheck hooks \
         web-format web-format-check
 
 all: build
@@ -233,6 +233,19 @@ web-test:
 ## Task 44: catches TS errors locally before push; mirrors `web-test` style.
 web-typecheck:
 	cd $(WEB_DIR) && $(NPM) run typecheck
+
+## openapi-sync: Resync the embedded API spec from the canonical docs copy.
+## Task 122: docs/openapi.yaml is the spec authors edit; the binary serves
+## the verbatim copy internal/api/openapi.yaml (//go:embed). The drift gate
+## TestOpenAPI_EmbeddedCopyMatchesDocs fails when the copies diverge —
+## running this target copies docs → internal/api to fix it.
+openapi-sync:
+	@if cmp -s docs/openapi.yaml internal/api/openapi.yaml; then \
+		echo "openapi-sync: copies already identical"; \
+	else \
+		cp docs/openapi.yaml internal/api/openapi.yaml; \
+		echo "openapi-sync: copied docs/openapi.yaml -> internal/api/openapi.yaml"; \
+	fi
 
 ## version: Print version
 version:

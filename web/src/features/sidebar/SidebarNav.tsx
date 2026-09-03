@@ -4,8 +4,12 @@
  * Mirrors the link set that used to live in the top header so we don't
  * lose access to global views like Calendar or Wiki. Active route is
  * highlighted via `useLocation`.
+ *
+ * Task 123: the review-badge count is fetched ONCE per SidebarNav
+ * instance (not once per item) and shared with the items via a prop,
+ * so a rerender never multiplies the request rate.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 
 import { api } from '@/shared/api/client';
@@ -40,11 +44,23 @@ const NAV: NavEntry[] = [
   { to: '/settings', label: 'Settings', glyph: '⚙', matchPrefix: '/settings' },
 ];
 
+/** Task 123: trailing-debounce window for the badge-count refetch on WS events. */
+const REVIEW_BADGE_DEBOUNCE_MS = 400;
+
 export function SidebarNav({ collapsed }: { collapsed: boolean }): JSX.Element {
+  // Task 123: one badge-count subscription per nav (not per item).
+  // AppLayout renders this component twice (desktop + mobile), so a
+  // per-item fetch meant up to 20 requests per WS "tasks" burst.
+  const reviewCount = useReviewBadgeCount();
   return (
     <nav aria-label="Primary" className="space-y-0.5 pt-2">
       {NAV.map((entry) => (
-        <SidebarNavItem key={entry.to} entry={entry} collapsed={collapsed} />
+        <SidebarNavItem
+          key={entry.to}
+          entry={entry}
+          collapsed={collapsed}
+          reviewCount={reviewCount}
+        />
       ))}
     </nav>
   );
@@ -52,20 +68,23 @@ export function SidebarNav({ collapsed }: { collapsed: boolean }): JSX.Element {
 
 /**
  * One row inside the primary nav. Phase 19 adds the live review-queue
- * badge: a small numeric chip that updates via a cheap count endpoint
- * + WS subscription (any task event may move the queue size).
+ * badge. Task 123: the count is owned by `SidebarNav` (single fetch +
+ * single WS subscription per nav) and passed down; the item never
+ * fetches or subscribes itself.
  */
 function SidebarNavItem({
   entry,
   collapsed,
+  reviewCount,
 }: {
   entry: NavEntry;
   collapsed: boolean;
+  /** Shared badge count from SidebarNav; undefined until first fetch resolves. */
+  reviewCount: number | undefined;
 }): JSX.Element {
-  // Phase 19: badge for the review queue. Loaded once on mount + on
-  // every WS "tasks" event (cheap endpoint, the badge lives at the
-  // top of the rail where it has to be current).
-  const reviewCount = useReviewBadgeCount();
+  // Phase 19: badge for the review queue. The count arrives from the
+  // parent (single debounced fetch per SidebarNav); undefined until the
+  // first fetch resolves so the badge never flashes "0".
   const badge = entry.badge === 'review' && reviewCount && reviewCount > 0 ? reviewCount : null;
 
   if (collapsed) {
@@ -144,13 +163,17 @@ function SidebarNavItem({
 /**
  * Hook: live count of tasks awaiting human review.
  *
- * Polls /api/v1/review-queue/count on mount + on every "tasks" WS
- * event. Returns undefined until the first fetch resolves so the UI
- * doesn't show "0" pre-load (which would otherwise flash a "no
- * notifications" state).
+ * Polls /api/v1/review-queue/count once on mount, then on "tasks" WS
+ * events with a trailing debounce (`debounceMs`, default 400): a burst
+ * of N events (e.g. a series of backlog drags) collapses into ONE
+ * fetch for the last event. Returns undefined until the first fetch
+ * resolves so the UI doesn't show "0" pre-load (which would otherwise
+ * flash a "no notifications" state).
  */
-function useReviewBadgeCount(): number | undefined {
+function useReviewBadgeCount(debounceMs = REVIEW_BADGE_DEBOUNCE_MS): number | undefined {
   const [count, setCount] = useState<number | undefined>(undefined);
+  // Task 123: pending trailing-debounce timer for WS-triggered refetches.
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const refresh = useCallback(async (): Promise<void> => {
     try {
       const r = await api.getReviewQueueCount();
@@ -159,11 +182,28 @@ function useReviewBadgeCount(): number | undefined {
       // best-effort: leave the previous value on error.
     }
   }, []);
+  // Mount fetch stays immediate.
   useEffect(() => {
     void refresh();
   }, [refresh]);
   useWebSocketTopic('tasks', () => {
-    void refresh();
+    // Trailing debounce: reset the pending timer on every event so a
+    // burst collapses into one fetch shortly after the last one.
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      timerRef.current = undefined;
+      void refresh();
+    }, debounceMs);
   });
+  useEffect(
+    () => () => {
+      // Unmount: drop the pending debounced fetch (the WS subscription
+      // is torn down by useWebSocketTopic's own effect) so no setState
+      // fires after unmount.
+      clearTimeout(timerRef.current);
+      timerRef.current = undefined;
+    },
+    [],
+  );
   return count;
 }
