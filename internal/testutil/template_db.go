@@ -115,7 +115,7 @@ func TemplateDB(t testing.TB) string {
 // TemplateDBOpen copies the template (TemplateDB) and opens it with
 // the WAL + foreign-keys configuration the production code expects.
 // The DB is registered for Close via t.Cleanup. Returns (*sql.DB, path).
-func TemplateDBOpen(t testing.TB) (*sql.DB, string) {
+func TemplateDBOpen(t testing.TB) (db *sql.DB, dbPath string) {
 	t.Helper()
 	dst := TemplateDB(t)
 	db, err := sqlite.Open(context.Background(), dst, sqlite.OpenConfig{
