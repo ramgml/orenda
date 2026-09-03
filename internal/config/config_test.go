@@ -231,12 +231,19 @@ func TestLoad_JWTSecretFile(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 		return path
 	}
+	writeSecretTo := func(t *testing.T, path, content string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	}
 
 	tests := []struct {
 		name       string
 		secret     string // ORENDA_AUTH__JWT_SECRET value ("" = unset)
 		filePath   string // ORENDA_AUTH__JWT_SECRET_FILE value ("" = unset, "SET" = create file below)
 		fileData   string // content for the created file (when filePath == "SET")
+		credDir    string // CREDENTIALS_DIRECTORY value ("" = unset, "SET" = fresh temp dir)
+		credFile   string // "SET" = create jwt inside the credentials dir
+		credData   string // content for the credentials jwt file (when credFile == "SET")
 		wantSecret string
 		wantErr    string
 	}{
@@ -264,6 +271,31 @@ func TestLoad_JWTSecretFile(t *testing.T) {
 			wantErr:  "is empty",
 		},
 		{
+			name:       "systemd credentials directory supplies the secret",
+			credFile:   "SET",
+			credData:   "cred-secret\n",
+			wantSecret: "cred-secret",
+		},
+		{
+			name:    "systemd credential jwt missing is an error",
+			credDir: "SET", // empty dir: no jwt file inside
+			wantErr: "systemd credential jwt",
+		},
+		{
+			name:     "systemd credential jwt empty is an error",
+			credFile: "SET",
+			credData: " \n\t ",
+			wantErr:  "is empty",
+		},
+		{
+			name:       "jwt_secret_file wins over systemd credentials directory",
+			filePath:   "SET",
+			fileData:   "file-secret\n",
+			credFile:   "SET",
+			credData:   "cred-secret\n",
+			wantSecret: "file-secret",
+		},
+		{
 			name:       "nothing set keeps legacy contract",
 			wantSecret: "",
 		},
@@ -281,6 +313,21 @@ func TestLoad_JWTSecretFile(t *testing.T) {
 					path = writeSecret(t, tc.fileData)
 				}
 				t.Setenv("ORENDA_AUTH__JWT_SECRET_FILE", path)
+			}
+			// CREDENTIALS_DIRECTORY is not ORENDA_-prefixed, so
+			// clearORENDAEnv leaves it alone — set/unset explicitly
+			// in every case via t.Setenv.
+			if tc.credDir != "" || tc.credFile != "" {
+				dir := tc.credDir
+				if dir == "SET" || tc.credFile == "SET" {
+					dir = t.TempDir()
+				}
+				t.Setenv("CREDENTIALS_DIRECTORY", dir)
+				if tc.credFile == "SET" {
+					writeSecretTo(t, filepath.Join(dir, "jwt"), tc.credData)
+				}
+			} else {
+				t.Setenv("CREDENTIALS_DIRECTORY", "")
 			}
 
 			c, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))

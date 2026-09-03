@@ -13,6 +13,11 @@
 // ORENDA_AUTH__JWT_SECRET_FILE=/path/to/file overrides auth.jwt_secret_file:
 // the named file holds the secret (trimmed), so the secret itself never
 // appears in /proc/*/environ.
+//
+// The JWT secret resolution order in Load: direct auth.jwt_secret value,
+// then auth.jwt_secret_file, then the systemd credential
+// $CREDENTIALS_DIRECTORY/jwt (mounted by LoadCredential=jwt:...); empty
+// remains legal — serve refuses to start with an explicit error.
 package config
 
 import (
@@ -80,10 +85,12 @@ type StorageConfig struct {
 
 // AuthConfig controls authentication parameters.
 //
-// JWTSecret comes from auth.jwt_secret (or ORENDA_AUTH__JWT_SECRET), or —
-// when both are empty — from the file named by auth.jwt_secret_file
-// (ORENDA_AUTH__JWT_SECRET_FILE). Reading the secret from a file keeps it
-// out of /proc/*/environ; a direct JWTSecret value wins over the file.
+// JWTSecret comes from (in priority order) auth.jwt_secret
+// (ORENDA_AUTH__JWT_SECRET), the file named by auth.jwt_secret_file
+// (ORENDA_AUTH__JWT_SECRET_FILE), or the systemd credential
+// $CREDENTIALS_DIRECTORY/jwt mounted by LoadCredential=jwt:... . Reading
+// the secret from a file or credential keeps it out of /proc/*/environ;
+// an earlier, more direct source always wins.
 type AuthConfig struct {
 	JWTSecret     string        `yaml:"jwt_secret"`
 	JWTSecretFile string        `yaml:"jwt_secret_file"`
@@ -257,8 +264,10 @@ func Load(path string) (*Config, error) {
 
 	// Task 138: resolve the JWT secret from a credential file when no
 	// direct secret is configured. Priority: direct value (env/YAML)
-	// wins; otherwise the file; otherwise empty (serve will refuse to
-	// start with its existing explicit error).
+	// wins; then auth.jwt_secret_file; then the standard systemd
+	// CREDENTIALS_DIRECTORY (mounted by LoadCredential, named "jwt");
+	// otherwise empty (serve will refuse to start with its existing
+	// explicit error).
 	if cfg.Auth.JWTSecret == "" && cfg.Auth.JWTSecretFile != "" {
 		raw, err := os.ReadFile(cfg.Auth.JWTSecretFile)
 		if err != nil {
@@ -269,6 +278,23 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("config: auth.jwt_secret_file %q is empty", cfg.Auth.JWTSecretFile)
 		}
 		cfg.Auth.JWTSecret = secret
+	}
+	// Last tier: systemd credentials (LoadCredential mounts the secret
+	// as $CREDENTIALS_DIRECTORY/jwt). The name carries no "JWT"
+	// substring, so the owner's DoD check on /proc/*/environ stays 0.
+	if cfg.Auth.JWTSecret == "" {
+		if dir := os.Getenv("CREDENTIALS_DIRECTORY"); dir != "" {
+			path := filepath.Join(dir, "jwt")
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return nil, fmt.Errorf("config: systemd credential jwt (%q): %w", path, err)
+			}
+			secret := strings.TrimSpace(string(raw))
+			if secret == "" {
+				return nil, fmt.Errorf("config: systemd credential jwt (%q) is empty", path)
+			}
+			cfg.Auth.JWTSecret = secret
+		}
 	}
 
 	if err := cfg.Validate(); err != nil {

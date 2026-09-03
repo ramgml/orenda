@@ -36,6 +36,9 @@ auth:
   # wins. This setting holds the file PATH (not the secret), so the
   # secret itself never appears in /proc/*/environ. install.sh points
   # fresh installs at $DATA_DIR/credentials/jwt (file mode 600, dir 700).
+  # Final fallback when this is empty too: the systemd credential
+  # $CREDENTIALS_DIRECTORY/jwt (mounted by LoadCredential=jwt:... —
+  # carries no "JWT" string in the process environ).
   jwt_secret_file: ""
   jwt_ttl: "24h"                        # OWASP guidance for cookie sessions (Phase 28.4)
   cookie_name: "orenda_session"
