@@ -24,6 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Task 138:** JWT secret via credential file — `auth.jwt_secret_file` / `ORENDA_AUTH__JWT_SECRET_FILE` reads the signing secret from a file (trimmed; direct `jwt_secret` wins when both are set; missing/empty file fails fast in `config.Load`). Fresh installs via `scripts/install.sh` write the secret to `$DATA_DIR/credentials/jwt` (dir 700, file 600) and reference it from `$DATA_DIR/env`, so the secret no longer appears in `/proc/*/environ`; the systemd template gains `LoadCredential=jwt:%h/.local/share/orenda/credentials/jwt` (systemd ≥ 254); as the last fallback `Load` reads `$CREDENTIALS_DIRECTORY/jwt`, so the service can run with no JWT-named variable in its environ at all. `install.sh` migrates existing installs (secret from env into `credentials/jwt`, symlink-guarded) and refuses to write the secret through a symlink. Existing installs with a plain `ORENDA_AUTH__JWT_SECRET` in env keep working unchanged.
 
+## [0.16.1] — 2026-09-03
+
+Patch release. Focus: fixing `task.moved` activity attribution for sync-driven moves and broken project wiki links, plus a review-badge performance fix and OpenAPI drift-prevention tooling.
+
+### Fixed
+- **Task 121 (PR #158):** `task.moved` activity rows triggered through the `/sync` move op are now attributed to the logged-in user — the sync path called `Service.Move` without an actor id, so the audit recorder silently dropped every such row (regression test asserts the exact user UUID and `actor_type='user'`).
+- **Task 124 (PR #156):** Project wiki links now point to the `/wiki/<slug>` route instead of a dead URL — fixed on the project detail page and in the project settings tab (tests updated).
+- **Task 123 (PR #155):** SidebarNav now issues a single debounced review-badge count fetch instead of a burst of requests per nav mount, fixing the 429 (rate-limit) errors; covered by 187 lines of new `SidebarNav` tests.
+
+### Changed
+- **Task 122 (PR #157):** Tooling — `make openapi-sync` and a drift gate: the embedded OpenAPI spec copy is now verified against the source (`internal/api/openapi.go`) in tests, so an out-of-sync embedded spec fails CI (`make openapi-sync` regenerates it).
+
 ## [0.16.0] — 2026-09-01
 
 Minor release. Focus: task blockers (dependencies with an automatic `blocked` status), comment editing with markdown rendering, task time estimates, kanban card reorder, and human-readable activity payload details.
