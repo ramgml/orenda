@@ -1022,7 +1022,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// to start without it so the operator doesn't discover the missing
 	// config at first login.
 	if cfg.Auth.JWTSecret == "" {
-		return fmt.Errorf("auth: ORENDA_AUTH__JWT_SECRET (or auth.jwt_secret in config) is required for `serve`")
+		return fmt.Errorf("auth: ORENDA_AUTH__JWT_SECRET (or auth.jwt_secret in config, or ORENDA_AUTH__JWT_SECRET_FILE / auth.jwt_secret_file pointing to a file with the secret) is required for `serve`")
 	}
 	signer := auth.NewSigner(cfg.Auth.JWTSecret, cfg.Auth.JWTTTL, "orenda")
 

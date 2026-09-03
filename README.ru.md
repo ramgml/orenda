@@ -36,6 +36,12 @@ echo "hunter2!" | ./bin/orenda user create \
     --config data/config.yaml
 ORENDA_AUTH__JWT_SECRET=$(head -c32 /dev/urandom | base64) ./bin/orenda serve
 # → http://127.0.0.1:2137
+
+# Alternative (Task 138): keep the secret out of /proc/*/environ —
+# write it to a file once, then point ORENDA_AUTH__JWT_SECRET_FILE at it
+# (direct ORENDA_AUTH__JWT_SECRET still wins when both are set):
+printf '%s' "$(head -c32 /dev/urandom | base64)" > data/credentials/jwt
+ORENDA_AUTH__JWT_SECRET_FILE=$PWD/data/credentials/jwt ./bin/orenda serve
 ```
 
 Или установка одной командой:
