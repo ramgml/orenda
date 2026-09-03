@@ -7,7 +7,9 @@
  * Today page.
  *
  * What's pinned:
- *   - The four section headings render with the right counts.
+ *   - Section headings render; our seeds surface in their buckets
+ *     (bucket counts are NOT pinned — other specs and retries of this
+ *     one may leave tasks in the same buckets).
  *   - A seeded task with due_at = yesterday surfaces in Overdue.
  *   - A seeded task with due_at = today surfaces in Due today.
  *   - The /review banner appears when an agent has submitted a task.
@@ -84,13 +86,16 @@ test.describe('Today page', () => {
     // Wait for /today to land and the WS subscribe to settle.
     await page.waitForLoadState('networkidle');
 
-    // The Overdue section count is exactly 1 — our seeded task
-    // lands here regardless of how many other tasks are in flight
-    // from earlier specs.
-    await expect(page.getByText('Overdue (1)')).toBeVisible();
+    // The Overdue section renders. Its count is NOT pinned: other
+    // specs (and retries of this one) may leave tasks in the bucket.
+    // Our own seed is asserted by its unique title below.
+    await expect(page.getByRole('heading', { name: /Overdue \(\d+\)/ })).toBeVisible();
 
     // The seeded overdue task title shows up under its section.
     await expect(page.getByText(overdue.title, { exact: true })).toBeVisible();
+
+    // The seeded due-today task title shows up under its section.
+    await expect(page.getByText(dueToday.title, { exact: true })).toBeVisible();
 
     // The /review banner appears because the overdue task is now
     // awaiting human review.

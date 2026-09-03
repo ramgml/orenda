@@ -63,11 +63,17 @@ test.describe('Quick capture', () => {
     await page.waitForURL((u) => u.pathname === '/');
     await page.waitForLoadState('networkidle');
 
-    // Open the modal, fill title + due date, submit.
+    // Open the modal, fill title + due date, submit. The due date is
+    // RELATIVE (+2 days): a pinned calendar day eventually falls into
+    // the past and the captured task lands in Today's Overdue bucket,
+    // breaking count-sensitive specs elsewhere in the suite (seen on
+    // 2026-09-01 with a hard-coded date).
     await page.getByTestId('quick-capture-toggle').click();
     const newTitle = `Capture with due ${Date.now()}`;
     await page.getByTestId('quick-capture-input').fill(newTitle);
-    await page.getByTestId('quick-capture-due').fill('2026-09-01');
+    const dueDate = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
+    const dueLocal = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}-${String(dueDate.getDate()).padStart(2, '0')}`;
+    await page.getByTestId('quick-capture-due').fill(dueLocal);
     await page.getByTestId('quick-capture-submit').click();
     await expect(page.getByTestId('quick-capture-toast')).toBeVisible();
 
@@ -80,7 +86,10 @@ test.describe('Quick capture', () => {
     const body = (await resp.json()) as { tasks: Array<{ title: string; due_at?: string }> };
     const found = body.tasks.find((t) => t.title === newTitle);
     expect(found, 'captured task is in the inbox list').toBeTruthy();
-    expect(new Date(found?.due_at ?? '').getTime()).toBe(new Date('2026-09-01T00:00:00').getTime());
+    // 'YYYY-MM-DD' alone parses as UTC midnight; the modal anchors to
+    // LOCAL midnight (compare the comment above) — spell the local form.
+    const dueMidnight = new Date(`${dueLocal}T00:00:00`).getTime();
+    expect(new Date(found?.due_at ?? '').getTime()).toBe(dueMidnight);
 
     await ctx.dispose();
   });
