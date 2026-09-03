@@ -10,6 +10,9 @@
 // Environment overrides use the double-underscore "__" as a section delimiter:
 // ORENDA_SERVER__PORT=3000 overrides server.port.
 // ORENDA_AUTH__JWT_SECRET=secret overrides auth.jwt_secret.
+// ORENDA_AUTH__JWT_SECRET_FILE=/path/to/file overrides auth.jwt_secret_file:
+// the named file holds the secret (trimmed), so the secret itself never
+// appears in /proc/*/environ.
 package config
 
 import (
@@ -77,14 +80,17 @@ type StorageConfig struct {
 
 // AuthConfig controls authentication parameters.
 //
-// In Phase 0 only the JWT secret and bcrypt cost are consumed; the cookie and
-// token endpoints are wired in Phase 1.
+// JWTSecret comes from auth.jwt_secret (or ORENDA_AUTH__JWT_SECRET), or —
+// when both are empty — from the file named by auth.jwt_secret_file
+// (ORENDA_AUTH__JWT_SECRET_FILE). Reading the secret from a file keeps it
+// out of /proc/*/environ; a direct JWTSecret value wins over the file.
 type AuthConfig struct {
-	JWTSecret    string        `yaml:"jwt_secret"`
-	JWTTTL       time.Duration `yaml:"jwt_ttl"`
-	CookieName   string        `yaml:"cookie_name"`
-	CookieSecure bool          `yaml:"cookie_secure"`
-	BcryptCost   int           `yaml:"bcrypt_cost"`
+	JWTSecret     string        `yaml:"jwt_secret"`
+	JWTSecretFile string        `yaml:"jwt_secret_file"`
+	JWTTTL        time.Duration `yaml:"jwt_ttl"`
+	CookieName    string        `yaml:"cookie_name"`
+	CookieSecure  bool          `yaml:"cookie_secure"`
+	BcryptCost    int           `yaml:"bcrypt_cost"`
 }
 
 // LoggingConfig controls structured logging.
@@ -248,6 +254,22 @@ func Load(path string) (*Config, error) {
 	}
 
 	applyEnvOverrides(cfg)
+
+	// Task 138: resolve the JWT secret from a credential file when no
+	// direct secret is configured. Priority: direct value (env/YAML)
+	// wins; otherwise the file; otherwise empty (serve will refuse to
+	// start with its existing explicit error).
+	if cfg.Auth.JWTSecret == "" && cfg.Auth.JWTSecretFile != "" {
+		raw, err := os.ReadFile(cfg.Auth.JWTSecretFile)
+		if err != nil {
+			return nil, fmt.Errorf("config: auth.jwt_secret_file %q: %w", cfg.Auth.JWTSecretFile, err)
+		}
+		secret := strings.TrimSpace(string(raw))
+		if secret == "" {
+			return nil, fmt.Errorf("config: auth.jwt_secret_file %q is empty", cfg.Auth.JWTSecretFile)
+		}
+		cfg.Auth.JWTSecret = secret
+	}
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("config: validate: %w", err)
@@ -416,6 +438,8 @@ func overrideAuth(c *AuthConfig, p []string, v string) {
 	switch p[0] {
 	case "jwt_secret":
 		c.JWTSecret = v
+	case "jwt_secret_file":
+		c.JWTSecretFile = v
 	case "jwt_ttl":
 		if d, err := time.ParseDuration(v); err == nil {
 			c.JWTTTL = d

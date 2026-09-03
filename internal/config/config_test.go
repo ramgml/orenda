@@ -220,6 +220,81 @@ func TestLoad_EnvOnly_NoFile(t *testing.T) {
 	assert.Equal(t, 4321, c.Server.Port)
 }
 
+// TestLoad_JWTSecretFile covers the Task 138 credential-file path: the
+// secret may come from a file (ORENDA_AUTH__JWT_SECRET_FILE /
+// auth.jwt_secret_file) when no direct secret is configured. A direct
+// value always wins; a missing or empty file is a hard error from Load.
+func TestLoad_JWTSecretFile(t *testing.T) {
+	writeSecret := func(t *testing.T, content string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "jwt")
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+		return path
+	}
+
+	tests := []struct {
+		name       string
+		secret     string // ORENDA_AUTH__JWT_SECRET value ("" = unset)
+		filePath   string // ORENDA_AUTH__JWT_SECRET_FILE value ("" = unset, "SET" = create file below)
+		fileData   string // content for the created file (when filePath == "SET")
+		wantSecret string
+		wantErr    string
+	}{
+		{
+			name:       "secret read from file",
+			filePath:   "SET",
+			fileData:   "file-secret\n",
+			wantSecret: "file-secret",
+		},
+		{
+			name:       "direct secret wins, file never read",
+			secret:     "direct-secret",
+			filePath:   "/nonexistent/t138/jwt-does-not-exist",
+			wantSecret: "direct-secret",
+		},
+		{
+			name:     "missing file is an error",
+			filePath: "/nonexistent/t138/jwt-does-not-exist",
+			wantErr:  "auth.jwt_secret_file",
+		},
+		{
+			name:     "whitespace-only file is an error",
+			filePath: "SET",
+			fileData: "   \n\t ",
+			wantErr:  "is empty",
+		},
+		{
+			name:       "nothing set keeps legacy contract",
+			wantSecret: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			clearORENDAEnv(t)
+			if tc.secret != "" {
+				t.Setenv("ORENDA_AUTH__JWT_SECRET", tc.secret)
+			}
+			if tc.filePath != "" {
+				path := tc.filePath
+				if path == "SET" {
+					path = writeSecret(t, tc.fileData)
+				}
+				t.Setenv("ORENDA_AUTH__JWT_SECRET_FILE", path)
+			}
+
+			c, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantSecret, c.Auth.JWTSecret)
+		})
+	}
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name    string
