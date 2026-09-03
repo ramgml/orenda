@@ -227,7 +227,11 @@ func applySyncOp(r *http.Request, deps *Dependencies, id *Identity, op syncOp) s
 			res.Error = "service_not_wired"
 			return res
 		}
-		tr, err := deps.TaskService.Move(ctx, op.Target, taskservice.MoveOptions{TargetColumnID: in.ColumnID})
+		// Task 121: identify the mover for the task.moved activity
+		// row — Activity.Validate rejects an empty actor id, and
+		// without this the recorder silently dropped the audit row
+		// (same fix as the HTTP path, handlers_kanban.go).
+		tr, err := deps.TaskService.Move(ctx, op.Target, taskservice.MoveOptions{TargetColumnID: in.ColumnID, ActorID: id.UserID})
 		if err != nil {
 			res.Error = err.Error()
 			return res
