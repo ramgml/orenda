@@ -52,6 +52,8 @@ type proposeFixture struct {
 	projectID    string
 	backlogColID string
 	todoColID    string
+	ownerID      string
+	projects     project.Repository
 }
 
 func newProposeFixture(t *testing.T) *proposeFixture {
@@ -145,6 +147,8 @@ func newProposeFixture(t *testing.T) *proposeFixture {
 		projectID:    p.ID,
 		backlogColID: backlogCol,
 		todoColID:    todoCol,
+		ownerID:      ownerID,
+		projects:     projects,
 	}
 }
 

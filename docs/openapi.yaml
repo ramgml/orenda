@@ -2231,7 +2231,26 @@ paths:
             Scope the listing to one project: project number ("7"),
             P-number ("P7" / "p7") or UUID. Passing both project and
             project_id is a 400; an unresolvable reference is a 404.
-      responses: { '200': { description: ok } }
+        - in: query
+          name: group_by
+          schema: { type: string, enum: [project] }
+          description: |
+            Task 153: reshape the response into
+            `{groups: [{project, label, tasks}]}`. Groups are ordered
+            by project number; inbox tasks (no project) form the
+            trailing group with `project: null` and `label: "inbox"`.
+            Any other value is a 400 invalid_input.
+        - in: query
+          name: tree
+          schema: { type: boolean }
+          description: |
+            Task 153: with group_by=project, additionally nest each
+            group's tasks by parent_task_id into `groups[].tree` —
+            each node carries the same task-row keys as the flat list
+            plus `children`, and roots carry `orphaned: true` (parent
+            exists but is outside the selection) or `cyclic: true`
+            (parent cycle member). `tree=true` without group_by is a
+            400; any value other than true/false is a 400.
     # Phase 33.1: agent proposes a NEW task. Lands as status=backlog +
     # awaiting=human, so it appears in the existing review queue
     # (awaiting='human' OR status='review') for human triage.

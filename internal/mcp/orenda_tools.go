@@ -68,23 +68,33 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_list_tasks",
-		Description: "List claimable tasks. ?ready=true filters to unblocked, unclaimed, open tasks (the agent's ready-list). Each task carries a human `number` ('T42') alongside its UUID — use the T-prefixed form wherever a task_id is taken. Optional `project` scopes the list to one project (number, P-number or UUID); projects the agent is not granted access to yield no tasks.",
+		Description: "List claimable tasks. ?ready=true filters to unblocked, unclaimed, open tasks (the agent's ready-list). Each task carries a human `number` ('T42') alongside its UUID — use the T-prefixed form wherever a task_id is taken. Optional `project` scopes the list to one project (number, P-number or UUID); projects the agent is not granted access to yield no tasks. Optional `group_by: \"project\"` returns {groups:[{project, label, tasks}]}, inbox tasks last (project null, label 'inbox'); optional `tree: true` (requires group_by) nests each group's tasks by parent_task_id with orphaned/cyclic flags.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"ready":   map[string]any{"type": "boolean", "description": "Filter to ready-to-claim only"},
-				"limit":   map[string]any{"type": "integer", "description": "Max results (1-100)"},
-				"project": map[string]any{"type": "string", "description": "Scope to one project: number (7), P-number (P7) or UUID; unknown or non-granted projects yield no tasks"},
+				"ready":    map[string]any{"type": "boolean", "description": "Filter to ready-to-claim only"},
+				"limit":    map[string]any{"type": "integer", "description": "Max results (1-100)"},
+				"project":  map[string]any{"type": "string", "description": "Scope to one project: number (7), P-number (P7) or UUID; unknown or non-granted projects yield no tasks"},
+				"group_by": map[string]any{"type": "string", "enum": []string{"project"}, "description": "Group the result by project (groups[].project / label / tasks; inbox group last)"},
+				"tree":     map[string]any{"type": "boolean", "description": "With group_by: nest each group's tasks by parent_task_id (tree[] nodes; orphaned/cyclic roots flagged)"},
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			// T140: unknown keys are a caller bug — fail loudly instead
-			// of silently dropping them.
-			allowed := map[string]bool{"ready": true, "limit": true, "project": true}
+			// of silently dropping them. T153: unknown VALUES too.
+			allowed := map[string]bool{"ready": true, "limit": true, "project": true, "group_by": true, "tree": true}
 			for k := range params {
 				if !allowed[k] {
-					return nil, fmt.Errorf("unknown parameter %q (allowed: limit, project, ready)", k)
+					return nil, fmt.Errorf("unknown parameter %q (allowed: group_by, limit, project, ready, tree)", k)
 				}
+			}
+			groupBy, _ := params["group_by"].(string)
+			if groupBy != "" && groupBy != "project" {
+				return nil, fmt.Errorf("invalid group_by %q (only \"project\" is supported)", groupBy)
+			}
+			tree, _ := params["tree"].(bool)
+			if tree && groupBy == "" {
+				return nil, fmt.Errorf("tree requires group_by=\"project\"")
 			}
 			q := url.Values{}
 			if r, _ := params["ready"].(bool); r {
@@ -95,6 +105,12 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			}
 			if p, ok := params["project"].(string); ok && p != "" {
 				q.Set("project", p)
+			}
+			if groupBy != "" {
+				q.Set("group_by", groupBy)
+			}
+			if tree {
+				q.Set("tree", "true")
 			}
 			return agentGet(ctx, httpc, cfg, "/api/v1/agent/tasks?"+q.Encode())
 		},

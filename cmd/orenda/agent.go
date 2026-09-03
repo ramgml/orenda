@@ -354,6 +354,8 @@ func newAgentNextCmd() *cobra.Command {
 		limit     int
 		awaitSecs int
 		project   string
+		groupBy   string
+		tree      bool
 	)
 	cmd := &cobra.Command{
 		Use:   "next",
@@ -364,10 +366,23 @@ func newAgentNextCmd() *cobra.Command {
 				return err
 			}
 			// List the ready queue (Phase 15); T140: optional
-			// --project scopes the queue to one project.
+			// --project scopes the queue to one project. T153:
+			// --group-by project / --tree reshape the output.
+			if tree && groupBy == "" {
+				return fmt.Errorf("agent next: --tree requires --group-by project")
+			}
 			q := url.Values{"ready": {"true"}, "limit": {strconv.Itoa(limit)}}
 			if project != "" {
 				q.Set("project", project)
+			}
+			if groupBy != "" {
+				if groupBy != "project" {
+					return fmt.Errorf("agent next: unsupported --group-by %q (only \"project\")", groupBy)
+				}
+				q.Set("group_by", groupBy)
+			}
+			if tree {
+				q.Set("tree", "true")
 			}
 			raw, code, err := ctx.agentGet(cmd.Context(), "/api/v1/agent/tasks?"+q.Encode())
 			if err != nil {
@@ -375,6 +390,12 @@ func newAgentNextCmd() *cobra.Command {
 			}
 			if code != http.StatusOK {
 				return fmt.Errorf("agent tasks: HTTP %d: %s", code, raw)
+			}
+			if groupBy != "" {
+				// Grouped listing: print per-project sections (and the
+				// tree, when asked) and stop — claim flow stays tied
+				// to the flat shape.
+				return printGroupedAgentTasks(cmd, raw, tree)
 			}
 			var resp struct {
 				Tasks []struct {
@@ -423,7 +444,93 @@ func newAgentNextCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 5, "max tasks to consider before claiming")
 	cmd.Flags().IntVar(&awaitSecs, "await", 0, "if no work, long-poll up to N seconds (0 = no wait)")
 	cmd.Flags().StringVar(&project, "project", "", "Filter ready tasks to one project: number (7), P-number (P7) or UUID")
+	cmd.Flags().StringVar(&groupBy, "group-by", "", "Reshape output into per-project sections (only \"project\"; disables the claim flow)")
+	cmd.Flags().BoolVar(&tree, "tree", false, "With --group-by project: nest tasks under their parents (ASCII indent)")
 	return cmd
+}
+
+// printGroupedAgentTasks renders the T153 grouped listing: one
+// section per project ("P<N> — name" / "inbox"), tasks listed under
+// it; with tree=true the section shows the parent/child nesting via
+// ASCII indent instead of the flat rows. Output is line-oriented
+// text (no JSON) — this is the human/agent-readable overview; the
+// claim flow keeps using the flat shape.
+func printGroupedAgentTasks(cmd *cobra.Command, raw []byte, tree bool) error {
+	var resp struct {
+		Groups []struct {
+			Project *struct {
+				ID     string `json:"id"`
+				Number int    `json:"number"`
+				Name   string `json:"name"`
+			} `json:"project"`
+			Label string `json:"label"`
+			Tasks []struct {
+				Task struct {
+					ID     string `json:"id"`
+					Number int    `json:"number"`
+					Title  string `json:"title"`
+				} `json:"task"`
+				Ready bool `json:"ready"`
+			} `json:"tasks"`
+			Tree []agentTaskNode `json:"tree"`
+		} `json:"groups"`
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return err
+	}
+	out := cmd.OutOrStdout()
+	if resp.Count == 0 {
+		_, _ = out.Write([]byte("no work\n"))
+		os.Exit(2)
+	}
+	for _, g := range resp.Groups {
+		name := g.Label
+		if g.Project != nil {
+			name = fmt.Sprintf("P%d — %s", g.Project.Number, g.Project.Name)
+		}
+		_, _ = fmt.Fprintf(out, "%s (%d)\n", name, len(g.Tasks))
+		if tree {
+			var walk func(nodes []agentTaskNode, depth int)
+			walk = func(nodes []agentTaskNode, depth int) {
+				for _, n := range nodes {
+					tag := ""
+					if n.Orphaned {
+						tag = " [orphaned]"
+					} else if n.Cyclic {
+						tag = " [cyclic]"
+					}
+					_, _ = fmt.Fprintf(out, "%sT%d %s%s\n", strings.Repeat("  ", depth), n.Task.Number, n.Task.Title, tag)
+					walk(n.Children, depth+1)
+				}
+			}
+			walk(g.Tree, 1)
+			continue
+		}
+		for _, row := range g.Tasks {
+			mark := " "
+			if !row.Ready {
+				mark = "!"
+			}
+			_, _ = fmt.Fprintf(out, " %s T%d %s\n", mark, row.Task.Number, row.Task.Title)
+		}
+	}
+	return nil
+}
+
+// agentTaskNode mirrors one tree node of the grouped listing. The
+// server inlines the task row at the top of the node ("task",
+// "blocked_by", "ready") plus children/orphaned/cyclic.
+type agentTaskNode struct {
+	Task struct {
+		ID     string `json:"id"`
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+	} `json:"task"`
+	Ready    bool            `json:"ready"`
+	Children []agentTaskNode `json:"children"`
+	Orphaned bool            `json:"orphaned"`
+	Cyclic   bool            `json:"cyclic"`
 }
 
 // newAgentProposeCmd wires `orenda agent propose` (Phase 33.1).
