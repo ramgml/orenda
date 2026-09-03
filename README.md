@@ -4,7 +4,7 @@
 
 *The name comes from the Iroquoian "orenda" — the inner force that pervades all being.*
 
-[Русская версия](README.ru.md)
+[Русский](README.ru.md)
 
 ## Why Orenda?
 
@@ -164,52 +164,6 @@ wiki page.
 - ⚡ Live UI updates via WebSocket on 8 topics (tasks, agents, attachments, comments, events, notifications, timers, wiki)
 - 🔐 Two parallel auth models: cookie JWT (UI) vs Bearer API-token (agents)
 - 🛠️ `orenda agent` CLI + MCP server (Streamable HTTP) for tool-using agents
-
-## Documentation
-
-- [PRD](docs/PRD.md) — Product Requirements Document (vision)
-- [PLAN](docs/PLAN.md) — Development phases ≤ 32 (❄️ frozen archive; the live backlog is the dogfood instance — see [DOGFOOD](docs/DOGFOOD.md))
-- [ARCHITECTURE](docs/ARCHITECTURE.md) — what's in the binary, data-flow reference
-- [CONTEXT](docs/CONTEXT.md) — Domain concepts (kanban, courses, delegation)
-- [API](docs/API.md) — REST API reference (+ [openapi.yaml](docs/openapi.yaml))
-- [DB](docs/DB.md) — Database schema (per migration)
-- [SESSION](docs/SESSION.md) — session snapshot (❄️ frozen archive; current state lives in the dogfood instance)
-- [AGENTS.md](AGENTS.md) — guidelines for AI agents extending the codebase
-- [SKILL](docs/skills/orenda/SKILL.md) — agent workflow + etiquette
-
-## Roadmap
-
-| Phase | Status | Description |
-|-------|--------|-------------|
-| 0 — Init | ✅ | Project skeleton, healthcheck |
-| 1 — Core | ✅ | Users, auth, projects, tasks CRUD |
-| 2 — Kanban | ✅ | Boards, drag-and-drop, WS |
-| 3 — Agents + Collaboration | ✅ | Agent API, comments, mentions, long-poll |
-| 4 — Calendar + Time | ✅ | Events, recurrence, timer |
-| 5 — Wiki + Search | ✅ | Pages, wiki-links, FTS5 |
-| 6 — Notifications (facade) | ✅ | In-app + bot abstraction |
-| 7 — Backups | ✅ | Git mirror + sqlite snapshots + restore |
-| 8 — PWA | ✅ | Offline support, IndexedDB outbox, /sync flush |
-| 9 — Polish (initial) | ✅ | Tests, security headers, installer, dark mode |
-| 10 — Bot platform | ✅ | VK, Telegram, Email, Webhook |
-| 11–27 | ✅ | Projects UI, kanban columns, tags, dependencies, inbox, rich cards, LMS courses, review queue, today, quick capture, restore, OpenAPI, agent CLI + MCP, E2E suite — see [PLAN](docs/PLAN.md) |
-| 28 (Polish backlog close-out) | ✅ | Settings hub, TaskModal scroll, security defaults (JWT 24h, Secure from config), activity emission, Bot.Stop on shutdown, opt-in pprof, govulncheck target, Prettier, hot-reload backup, CSP tightening, ARCHITECTURE.md |
-| 30.1 (CI) | ✅ | GitHub Actions: `lint` → `test` → `build` → `e2e`. PR gate was incremental (`--new-from-merge-base`); release branch (`main`) got full lint; 73 pre-existing lint issues remained (see [PLAN](docs/PLAN.md) §30.16). Superseded by Phase 32.6 — PR-to-dev is silent, full release gate on main/tags `v*`, test-only backstop on push to dev |
-| 32.6 (local CI hooks) | ✅ | Per-PR enforcement moved from GitHub Actions to local git hooks (`scripts/git-hooks/{pre-commit,pre-push}`, installed via `make hooks` → `core.hooksPath`). `pre-commit`: gofmt -l + prettier --check on staged files (<2 s). `pre-push`: `make lint-new` (golangci-lint --new-from-merge-base=origin/dev) + `make test` (~1 min). GitHub Actions now only runs the release gate; PR-to-dev is intentionally silent. `--no-verify` forbidden. See [wiki:ci-local-gates-hooks](http://localhost:2137/wiki/ci-local-gates-hooks) and [AGENTS.md](AGENTS.md#local-gates--git-hooks-phase-326) |
-| 30.2 (sync_ops observability) | ✅ | `sync_ops.Record()` failures now bump `sync_ops_record_failures` in `/api/v1/stats` and emit a `zap.Warn` with client/server ids — no more silent PWA outbox replay loop |
-| 30.3 (VK Long Poll) | ✅ | VK bot now long-polls `groups.getLongPollServer` + `a_check` for inbound messages (alternative to Callback API; works behind NAT). `bots[].type: vk` with `token` + `group_id` registers the loop. `message_new` events flow into the same inbox-capture helper as Telegram (Phase 21) |
-| 30.4 (Email HTML) | ✅ | Email bot sends `multipart/alternative` (text + HTML). HTML part has inline-styled Orenda brand, review action buttons (when `PublicBaseURL` is set), and is HTML-escaped against script injection. Plain part is preserved for accessibility / plain-only clients |
-| 30.5 (Weekly digest) | ✅ | Background ticker (default 168h) sends a weekly summary to every bot the operator has subscribed: tasks done / created / awaiting / overdue, comments received, active timers. `notifier.digest_interval <= 0` disables it |
-| 30.6 (wiki [[ autocomplete) | ✅ | In the wiki editor, typing `[[` opens a popup listing every page; picking one inserts `[[slug]]`. The mirror parses it on save and records `wiki_links` so backlinks work |
-| 30.7 (reject needs comment) | ✅ | `POST /tasks/{id}/review {decision: "reject", comment: ""}` → 400 `invalid_input`. Approve without a comment is still allowed (silent ack). The agent now always knows *why* a return-to-fix was issued |
-| 30.8 (tasks on calendar) | ✅ | Tasks with a `due_at` render as all-day markers on the calendar (`📌 Title ✓` for done). New endpoint `GET /api/v1/tasks/with-due?from=&to=` powers the calendar's deadline lane |
-| 30.9 (backup status) | ✅ | `GET /api/v1/backups/status` returns snapshot count + latest path/size + timestamp; Settings → Backups shows the count and latest timestamp. Cron parser remains deferred |
-| 30.10 (QuickCapture due) | ✅ | The hotkey-triggered QuickCapture modal now has an optional `<input type="date">` for setting a due date on the captured task. Leave it empty for one-keystroke capture; pick a date to schedule the idea |
-| 30.11 (WIP feedback) | ✅ | Dragging into a column that's at its WIP limit now surfaces a specific toast with the column's N-of-M count (instead of the raw backend error). Columns at the limit are ringed amber so the bottleneck is visible without opening the column header |
-| 30.12 (time badges) | ✅ | `TaskCard` shows ⏱ spent/estimate in H:MM:SS (red on over-budget) and a pulsing ● marker when a single-active-timer is open. Leaked timers stay visible even in compact mode |
-| 30.15 (ops scripts) | ✅ | `uninstall.sh` rejects unknown flags (was silently dropping them) and has `--help`. `update-dogfood.sh` has `--help`, `--force`, and `--remote <name>`. Smoke tests in `scripts/test_scripts.sh` cover both scripts' flag parsing |
-| 30.16 (lint sweep) | ✅ | First-pass mechanical cleanup closed ~8 pre-existing lint issues (unused test seam `var now`, dead `runBackupRestore`, empty `seedSubscription` stub, placeholder `depFixtures`/`reviewQueueFixture`, unused `agentPut`/`agentDelete`, `actorID` parameter in event publish, `cookie` parameter in `seedProjectAndTask`). ~85 issues remain — closed opportunistically |
-| 30.17 (writeError bug) | ✅ | `writeError` now maps `taskservice.ErrInvalidInput` to 400 `invalid_input` (was 500). New API test pins three failure modes. Closes a Phase 30.7 acceptance gap — the front-end was getting 500 for a validation rejection |
 
 > Screenshots: not bundled in the repo (kept light — no binary blobs).
 > Run `make build && bin/orenda serve` and visit the four key pages:
