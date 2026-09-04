@@ -71,7 +71,7 @@ func seedChecklistTask(t *testing.T, fx *agentFixture) *task.Task {
 	require.NoError(t, fx.db.QueryRow("SELECT id FROM users LIMIT 1").Scan(&ownerID))
 	projects := sqlite.NewProjectRepository(fx.db)
 	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
-		Name: "CL-" + ownerID[:8], OwnerID: ownerID,
+		Name: "CL-" + ownerID[:8], OwnerID: ownerID, AgentsAllowed: true,
 	})
 	require.NoError(t, err)
 	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "qa-gate task"}

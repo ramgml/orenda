@@ -2,7 +2,7 @@ import { FormEvent, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router';
 
 import { TaskCard } from './TaskCard';
 import { openTaskModal } from '@/features/tasks/TaskModal';

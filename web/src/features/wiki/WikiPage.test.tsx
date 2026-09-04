@@ -14,7 +14,7 @@
  *   - Empty tree state renders when /pages returns no children.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WikiPage } from '@/features/wiki/WikiPage';

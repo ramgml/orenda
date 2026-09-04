@@ -101,6 +101,15 @@ test:
 	$(GO) test ./... -race
 	cd $(WEB_DIR) && $(NPM) run test
 
+## test-slow: slow/real-time tests excluded from the PR gate — the
+## compensator class for injected-timer unit tests (Task 149). Today:
+## the backup scheduler real-tick smoke (ORENDA_TEST_SLOW=1 gates the
+## test itself; ~1–2 min: it waits out one real cron minute tick and
+## proves the production fire timer wakes up). Intended for the
+## nightly / pre-release ritual, NOT for `make test` or pre-push.
+test-slow:
+	ORENDA_TEST_SLOW=1 $(GO) test ./internal/backup/ -run TestScheduler_RealTickSmoke -race -count=1 -v
+
 ## test-full: full uncached run — the CI backstop on push to dev and the
 ## release gate. Identical coverage to `test` (go test -race over ./...
 ## + vitest), but WITH `-count=1` to deliberately disable the Go test

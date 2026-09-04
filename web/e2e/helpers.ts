@@ -69,6 +69,11 @@ interface ProjectResp {
  * Create a fresh project so the suite never depends on the order
  * in which specs run. Returns the project's id and (by re-reading)
  * its default board's columns.
+ *
+ * Seeds the project OPEN to agents: since Task 140 (migration 043)
+ * fresh projects are CLOSED to agents (agents_allowed=false), so a
+ * later agent claim on its tasks would fail with 422 not_in_scope.
+ * The PATCH mirrors a real operator granting agents access.
  */
 export async function createProject(
   ctx: APIRequestContext,
@@ -78,7 +83,13 @@ export async function createProject(
     data: { name, color: E2E_PROJECT_COLOR },
   });
   expect(resp.status(), `createProject: ${await resp.text()}`).toBe(201);
-  return resp.json();
+  const project = await resp.json();
+  // Open the project to agents — migration 043 default is CLOSED.
+  const opened = await ctx.patch(`/api/v1/projects/${project.id}`, {
+    data: { agents_allowed: true },
+  });
+  expect(opened.status(), `createProject: ${await opened.text()}`).toBe(200);
+  return project;
 }
 
 /** Fetch the default board's columns for the given project. */

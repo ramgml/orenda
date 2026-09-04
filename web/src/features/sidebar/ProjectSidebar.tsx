@@ -35,7 +35,7 @@
  * gate handles the unauthenticated case.
  */
 import { useMemo } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router';
 
 import { useAuth } from '@/features/auth/AuthContext';
 import { api } from '@/shared/api/client';
@@ -125,6 +125,7 @@ export function ProjectSidebar(): JSX.Element {
             color: '#6b7280',
             owner_id: '',
             archived: false,
+            agents_allowed: true,
             number: 0,
             created_at: '',
             updated_at: '',

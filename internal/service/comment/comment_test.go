@@ -2,7 +2,6 @@ package comment_test
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,6 +11,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/comment"
 	commentsvc "github.com/ramgml/orenda/internal/service/comment"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/testutil"
 )
 
 type memHub struct {
@@ -32,13 +32,7 @@ func (m *memHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 
 func setupCommentSvc(t *testing.T) (*commentsvc.Service, *memHub) {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/c.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := testutil.TemplateDBOpen(t)
 
 	hub := &memHub{}
 	svc := commentsvc.New(sqlite.NewCommentRepository(db), hub, nil)

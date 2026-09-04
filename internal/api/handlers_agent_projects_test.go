@@ -113,10 +113,11 @@ func newAgentProjectFixture(t *testing.T) *agentProjectFixture {
 	// Create a project owned by the owner (direct repo call — the
 	// agent surface has no create route by design).
 	created, _, _, err := projects.CreateProject(context.Background(), &project.Project{
-		Name:        "Agent Proj",
-		Color:       project.DefaultColor,
-		Description: "original description",
-		OwnerID:     owner.ID,
+		Name:          "Agent Proj",
+		Color:         project.DefaultColor,
+		Description:   "original description",
+		OwnerID:       owner.ID,
+		AgentsAllowed: true,
 	})
 	require.NoError(t, err)
 

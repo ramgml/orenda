@@ -337,6 +337,25 @@ func parseIrreversibleReason(body string) (string, bool) {
 	return reason, found
 }
 
+// stripMarkerLine removes every line that carries the
+// foreign_keys_off marker — the whole line, not just the marker
+// token. The marker is a control comment; a mid-line marker (e.g.
+// "-- orenda:foreign_keys_off — why") would otherwise leave the
+// trailing prose exposed as bare SQL tokens and fail to parse
+// (T147: 017_fix_checklist_items_fk.down.sql shipped that way and
+// its down path had never been executed).
+func stripMarkerLine(body string) string {
+	lines := strings.Split(body, "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		if strings.Contains(line, foreignKeysOffMarker) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
+}
+
 // MigrateDown rolls back the most recently applied migration. The
 // down file must live next to the up file (`<version>.down.sql`)
 // and may opt out via the `-- orenda:irreversible` marker. We
@@ -382,8 +401,9 @@ func MigrateDown(ctx context.Context, db *sql.DB, migrationsFS embed.FS, dir str
 // rebuilds like 015_inbox_no_project need it on the way back too.
 func applyMigrationDown(ctx context.Context, db *sql.DB, version, body string) error {
 	if strings.Contains(body, foreignKeysOffMarker) {
-		cleaned := strings.ReplaceAll(body, foreignKeysOffMarker, "")
-		return applyMigrationDownUnsafe(ctx, db, version, cleaned)
+		// Strip the marker line whole — a mid-line marker would
+		// otherwise leave its trailing prose as bare SQL (T147).
+		return applyMigrationDownUnsafe(ctx, db, version, stripMarkerLine(body))
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -471,11 +491,9 @@ func pathVersion(filename string) string {
 // See the foreignKeysOffMarker doc for why.
 func applyMigration(ctx context.Context, db *sql.DB, version, body string) error {
 	if strings.Contains(body, foreignKeysOffMarker) {
-		// Strip the marker so it doesn't pollute the executed SQL
-		// (some parsers tolerate line comments, but stripping is the
-		// simplest and least error-prone).
-		cleaned := strings.ReplaceAll(body, foreignKeysOffMarker, "")
-		return applyMigrationUnsafe(ctx, db, version, cleaned)
+		// Strip the marker line whole — a mid-line marker would
+		// otherwise leave its trailing prose as bare SQL (T147).
+		return applyMigrationUnsafe(ctx, db, version, stripMarkerLine(body))
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {

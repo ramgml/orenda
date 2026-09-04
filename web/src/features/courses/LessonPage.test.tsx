@@ -18,7 +18,7 @@
  * to spin up a runtime for what is a pure rendering test.
  */
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LessonPage } from '@/features/courses/LessonPage';

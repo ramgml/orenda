@@ -26,6 +26,7 @@ type refFixture struct {
 	*proposeFixture
 	taskID     string
 	taskNumber int
+	tasks      task.Repository
 }
 
 func newRefFixture(t *testing.T) *refFixture {
@@ -41,7 +42,8 @@ func newRefFixture(t *testing.T) *refFixture {
 	var created task.Task
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created))
 	require.Greater(t, created.Number, 0, "create response must carry the number")
-	return &refFixture{proposeFixture: fx, taskID: created.ID, taskNumber: created.Number}
+	tasksRepo := sqlite.NewTaskRepository(fx.db)
+	return &refFixture{proposeFixture: fx, taskID: created.ID, taskNumber: created.Number, tasks: tasksRepo}
 }
 
 // agentDo issues a request under the agent bearer token. All current

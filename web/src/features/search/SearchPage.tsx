@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 
 import { TaskLink } from '@/features/tasks/TaskModal';
 import { api, type SearchHit } from '@/shared/api/client';

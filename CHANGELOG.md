@@ -17,7 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [0.17.0] — 2026-09-04
 
+Minor release. Focus: per-project agent access control (migration 043, default CLOSED — see Upgrade notes), grouped/tree agent task listing, react-router v7 upgrade, systemd sandbox hardening, and a batch of test-perf/infra fixes.
+
+### Added
+- **Task 140 (PR #165):** per-project agent access allow-list — `projects.agents_allowed` (migration 043, **default CLOSED**) plus an owner-managed `project_agents` grant table. Agent surfaces (`GET /agent/tasks`, claim, `GET /agent/projects`) only see projects that are open to all agents or explicitly granted; claim on a closed project returns `422 not_in_scope`; agent paths cannot edit access (`422 owner_only_field`). Owner surface: PATCH `/projects/{id}` carries `agents_allowed`; new GET/PUT `/projects/{id}/agents` (full-replacement grant list). `orenda agent next --project N` and MCP `orenda_list_tasks(project=…)` scope the ready queue to one project; unknown MCP tool keys are now an error. Web project settings gain an "Agent access" section.
+- **Task 153:** grouped agent task listing — `GET /agent/tasks?group_by=project` returns `{groups: [{project, label, tasks}]}` ordered by project number with inbox tasks in a trailing group (`project: null`, `label: "inbox"`); `&tree=true` additionally nests each group's tasks by `parent_task_id` into `groups[].tree` (node = the same task-row keys plus `children`; roots flagged `orphaned` when the parent exists but is outside the selection, `cyclic` for parent-cycle members). Unknown `group_by` values, unknown `tree` values and `tree` without `group_by` are `400 invalid_input`. Without the parameters the flat listing is unchanged. `orenda agent next --group-by project [--tree]` renders the overview (view-only — the claim flow stays on the flat shape); MCP `orenda_list_tasks` forwards `group_by`/`tree` and errors on unknown values. Also fixes `scanTaskRow` silently dropping `parent_task_id` on every list endpoint.
+- **Task 149:** scheduler test perf — the snapshot cron-loop's sleep-until-next-fire is now an injectable `FireTimer` (`Scheduler.WithFireTimer`; production keeps the real `time.NewTimer` with unchanged semantics). `TestScheduler_SnapshotLoop_FiresOnCron` drives the fire deterministically (44.4s → ~0.3s of body time; the first test in a binary still pays the real warm-up). `make test-slow` (gated by `ORENDA_TEST_SLOW=1`) adds a nightly real-tick smoke so the "scheduler wakes in production" class stays covered.
+- **Task 154 (fix):** `orenda migrate down` no longer runs a hidden `Migrate(UP)` before the rollback (`openCLIDBRaw` for down/status); repeated downs now walk the head downward (043→042→041…), `status` no longer mutates a fresh DB. Irreversible floors (015) still refuse cleanly.
+
+### Upgrade notes
+- **Existing projects are closed to agents after deploying this release.** Grant access per project in the web settings ("Agent access"): toggle "Open to all agents" or check the granted agents. In particular re-grant the harness-mcp agent on the Orenda Dev project, or the agent escort loop stops seeing its own tasks.
 
 ## [0.16.2] — 2026-09-03
 

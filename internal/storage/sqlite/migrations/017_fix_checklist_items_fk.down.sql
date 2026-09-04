@@ -7,11 +7,20 @@
 -- be dropped silently by SQLite — at the end of the down we have
 -- the same broken state as just before 017 ran.
 --
--- orenda:foreign_keys_off — the rename below breaks any active FK;
--- we must run with FK enforcement off so the drops succeed.
+-- The rename below breaks any active FK; the run needs FK
+-- enforcement off so the drops succeed.
+-- The foreign_keys_off marker MUST stay on its own line: the runner
+-- strips whole marker lines (T147) — a mid-line marker would leave
+-- trailing prose as bare SQL tokens (broke this file's down path).
 
 ALTER TABLE checklist_items RENAME TO checklist_items_v2;
 ALTER TABLE checklists RENAME TO checklists_old;
+-- SQLite keeps index NAMES on RENAME: idx_checklists_task now
+-- belongs to checklists_old and would collide with the CREATE INDEX
+-- below (T147: the down path had never been exercised; caught by
+-- the full-cycle migration test). Drop the renamed table's index —
+-- the fresh one is created right after the new checklists table.
+DROP INDEX IF EXISTS idx_checklists_task;
 
 CREATE TABLE checklists (
     id              TEXT PRIMARY KEY,

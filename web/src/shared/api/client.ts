@@ -159,6 +159,12 @@ export interface Project {
   wiki_slug?: string;
   owner_id: string;
   archived: boolean;
+  /**
+   * Agent access control. `false` = only granted agents see/claim
+   * this project's tasks (empty grant list = no agents); `true` =
+   * open to every agent.
+   */
+  agents_allowed: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -470,6 +476,7 @@ class ApiClient {
       description: string;
       wiki_slug: string;
       archived: boolean;
+      agents_allowed: boolean;
     }>,
   ): Promise<Project> {
     return this.http.patch<Project>(`/api/v1/projects/${projectId}`, input).then((r) => r.data);
@@ -1510,6 +1517,31 @@ class ApiClient {
         sent_at: string;
       }>('/api/v1/bots/test', input)
       .then((r) => r.data);
+  }
+  // ---- Project agent access (Phase 33 task 140) ----
+
+  /**
+   * Agent IDs granted access to a restricted project
+   * (agents_allowed=false). Empty list = no agents can see the
+   * project's tasks.
+   */
+  listProjectAgents(projectId: string): Promise<string[]> {
+    return this.http
+      .get<{ agent_ids: string[] }>(`/api/v1/projects/${projectId}/agents`)
+      .then((r) => r.data.agent_ids);
+  }
+
+  /**
+   * Full replacement of the granted-agent list for a restricted
+   * project (agents_allowed=false). Send the complete set of agent
+   * IDs every time — omitted IDs lose access.
+   */
+  setProjectAgents(projectId: string, agentIds: string[]): Promise<void> {
+    return this.http
+      .put<{ agent_ids: string[] }>(`/api/v1/projects/${projectId}/agents`, {
+        agent_ids: agentIds,
+      })
+      .then(() => undefined);
   }
 }
 

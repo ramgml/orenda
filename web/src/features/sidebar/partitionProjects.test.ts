@@ -22,6 +22,7 @@ function p(id: string, name: string, opts: Partial<Project> = {}): Project {
     number: 0,
     created_at: '',
     updated_at: '',
+    agents_allowed: true,
     ...opts,
   };
 }

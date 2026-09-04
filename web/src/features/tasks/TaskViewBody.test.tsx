@@ -15,7 +15,7 @@
  */
 import { cleanup, fireEvent, render, screen, type RenderResult } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 
 import { DescriptionEditor, DueEditor, EstimateEditor } from '@/features/tasks/TaskViewBody';
 import type { Task } from '@/shared/api/client';
@@ -68,7 +68,12 @@ describe('DescriptionEditor — markdown view mode', () => {
   it('clicking a link inside the markdown does not enter edit mode', () => {
     mountDescription(MARKDOWN);
 
-    fireEvent.click(screen.getByRole('link', { name: 'Orenda docs' }));
+    const link = screen.getByRole('link', { name: 'Orenda docs' });
+    // jsdom implements <a> clicks as a timer-based window navigation and
+    // logs "Not implemented: navigation" — prevent the default activation
+    // so the test only exercises the stopPropagation contract.
+    link.addEventListener('click', (e) => e.preventDefault());
+    fireEvent.click(link);
 
     expect(screen.queryByRole('textbox')).toBeNull();
     // Still in view mode.

@@ -17,10 +17,12 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InboxPage } from '@/features/inbox/InboxPage';
+import { agentsQueryKey } from '@/shared/hooks/useAgents';
+import type { Agent } from '@/shared/api/client';
 
 const { stubHttp } = vi.hoisted(() => ({
   stubHttp: {
@@ -54,11 +56,15 @@ afterEach(() => {
 
 // Phase 28.19: TaskCard pulls in useAgents() for the AssigneeChip
 // title hint, which lives behind React Query. Wrap InboxPage tests
-// in a throwaway QueryClient so the hook doesn't blow up.
+// in a throwaway QueryClient and seed the agents cache — the stubbed
+// axios resolves `/api/v1/agents` to `{ data: {} }`, and a queryFn
+// that resolves `undefined` makes TanStack Query log a warning per
+// inbox row.
 function mount() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
+  qc.setQueryData(agentsQueryKey, [] as Agent[]);
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
@@ -124,6 +130,7 @@ describe('InboxPage', () => {
     stubHttp.get.mockImplementation((url: string) => {
       if (url === '/api/v1/inbox/tasks') return Promise.resolve({ data: { tasks: [] } });
       if (url === '/api/v1/projects') return Promise.resolve({ data: { projects: [] } });
+      if (url.startsWith('/api/v1/agents')) return Promise.resolve({ data: { agents: [] } });
       return Promise.resolve({ data: {} });
     });
 
@@ -139,6 +146,7 @@ describe('InboxPage', () => {
           data: { tasks: [makeTask('a', 'Alpha'), makeTask('b', 'Beta')] },
         });
       if (url === '/api/v1/projects') return Promise.resolve({ data: { projects: [] } });
+      if (url.startsWith('/api/v1/agents')) return Promise.resolve({ data: { agents: [] } });
       return Promise.resolve({ data: {} });
     });
 
@@ -152,6 +160,7 @@ describe('InboxPage', () => {
     stubHttp.get.mockImplementation((url: string) => {
       if (url === '/api/v1/inbox/tasks') return Promise.resolve({ data: { tasks: [] } });
       if (url === '/api/v1/projects') return Promise.resolve({ data: { projects: [] } });
+      if (url.startsWith('/api/v1/agents')) return Promise.resolve({ data: { agents: [] } });
       return Promise.resolve({ data: {} });
     });
     stubHttp.post.mockResolvedValueOnce({
@@ -175,6 +184,7 @@ describe('InboxPage', () => {
     stubHttp.get.mockImplementation((url: string) => {
       if (url === '/api/v1/inbox/tasks') return Promise.resolve({ data: { tasks: [] } });
       if (url === '/api/v1/projects') return Promise.resolve({ data: { projects: [] } });
+      if (url.startsWith('/api/v1/agents')) return Promise.resolve({ data: { agents: [] } });
       return Promise.resolve({ data: {} });
     });
     stubHttp.post.mockResolvedValueOnce({ data: makeTask('new', 'trimmed') });
@@ -195,6 +205,7 @@ describe('InboxPage', () => {
     stubHttp.get.mockImplementation((url: string) => {
       if (url === '/api/v1/inbox/tasks') return Promise.resolve({ data: { tasks: [] } });
       if (url === '/api/v1/projects') return Promise.resolve({ data: { projects: [] } });
+      if (url.startsWith('/api/v1/agents')) return Promise.resolve({ data: { agents: [] } });
       return Promise.resolve({ data: {} });
     });
 
@@ -224,6 +235,7 @@ describe('InboxPage', () => {
         return Promise.resolve({ data: { tasks: [makeTask('a', 'Alpha')] } });
       if (url === '/api/v1/projects')
         return Promise.resolve({ data: { projects: [makeProject('p-1', 'Demo')] } });
+      if (url.startsWith('/api/v1/agents')) return Promise.resolve({ data: { agents: [] } });
       return Promise.resolve({ data: {} });
     });
     stubHttp.patch.mockResolvedValueOnce({ data: makeTask('a', 'Alpha') });
@@ -253,6 +265,7 @@ describe('InboxPage', () => {
             projects: [makeProject('p-1', 'Live'), { ...makeProject('p-2', 'Dead'), archived: 1 }],
           },
         });
+      if (url.startsWith('/api/v1/agents')) return Promise.resolve({ data: { agents: [] } });
       return Promise.resolve({ data: {} });
     });
 
@@ -273,6 +286,7 @@ describe('InboxPage', () => {
       if (url === '/api/v1/inbox/tasks')
         return Promise.resolve({ data: { tasks: [makeTask('a', 'Alpha')] } });
       if (url === '/api/v1/projects') return Promise.resolve({ data: { projects: [] } });
+      if (url.startsWith('/api/v1/agents')) return Promise.resolve({ data: { agents: [] } });
       return Promise.resolve({ data: {} });
     });
     stubHttp.delete.mockResolvedValueOnce({ data: undefined });
@@ -295,6 +309,7 @@ describe('InboxPage', () => {
       if (url === '/api/v1/inbox/tasks')
         return Promise.resolve({ data: { tasks: [makeTask('a', 'Alpha')] } });
       if (url === '/api/v1/projects') return Promise.resolve({ data: { projects: [] } });
+      if (url.startsWith('/api/v1/agents')) return Promise.resolve({ data: { agents: [] } });
       return Promise.resolve({ data: {} });
     });
     vi.spyOn(window, 'confirm').mockReturnValue(false);
@@ -316,6 +331,7 @@ describe('InboxPage', () => {
       if (url === '/api/v1/inbox/tasks')
         return Promise.resolve({ data: { tasks: [makeTask('modal-9', 'Modal me')] } });
       if (url === '/api/v1/projects') return Promise.resolve({ data: { projects: [] } });
+      if (url.startsWith('/api/v1/agents')) return Promise.resolve({ data: { agents: [] } });
       return Promise.resolve({ data: {} });
     });
 

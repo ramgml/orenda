@@ -4,7 +4,7 @@
 
 *Имя — от ирокезского «orenda» — внутренняя сила, пронизывающая всё сущее.*
 
-[English version](README.md)
+[English](README.md)
 
 ## Зачем Orenda?
 
@@ -165,52 +165,6 @@ make hooks   # выставляет core.hooksPath = scripts/git-hooks (общи
 - ⚡ Живые обновления UI по WebSocket на 8 топиках (tasks, agents, attachments, comments, events, notifications, timers, wiki)
 - 🔐 Две параллельные модели аутентификации: cookie JWT (UI) и Bearer API-token (агенты)
 - 🛠️ `orenda agent` CLI + MCP-сервер (Streamable HTTP) для tool-using агентов
-
-## Документация
-
-- [PRD](docs/PRD.md) — Product Requirements Document (видение)
-- [PLAN](docs/PLAN.md) — фазы разработки ≤ 32 (❄️ замороженный архив; живой backlog — dogfood-инстанс, см. [DOGFOOD](docs/DOGFOOD.md))
-- [ARCHITECTURE](docs/ARCHITECTURE.md) — что в бинарнике, справочник data-flow
-- [CONTEXT](docs/CONTEXT.md) — доменные концепции (kanban, курсы, делегирование)
-- [API](docs/API.md) — справочник REST API (+ [openapi.yaml](docs/openapi.yaml))
-- [DB](docs/DB.md) — схема базы данных (по миграциям)
-- [SESSION](docs/SESSION.md) — снапшот сессии (❄️ замороженный архив; текущее состояние живёт в dogfood-инстансе)
-- [AGENTS.md](AGENTS.md) — гайдлайны для AI-агентов, расширяющих кодовую базу
-- [SKILL](docs/skills/orenda/SKILL.md) — workflow и этикет агента
-
-## Roadmap
-
-| Фаза | Статус | Описание |
-|-------|--------|-------------|
-| 0 — Init | ✅ | Скелет проекта, healthcheck |
-| 1 — Core | ✅ | Пользователи, auth, проекты, CRUD задач |
-| 2 — Kanban | ✅ | Доски, drag-and-drop, WS |
-| 3 — Agents + Collaboration | ✅ | Agent API, комментарии, упоминания, long-poll |
-| 4 — Calendar + Time | ✅ | События, повторения, таймер |
-| 5 — Wiki + Search | ✅ | Страницы, wiki-ссылки, FTS5 |
-| 6 — Notifications (facade) | ✅ | In-app + абстракция ботов |
-| 7 — Backups | ✅ | Git-зеркало + sqlite-снапшоты + restore |
-| 8 — PWA | ✅ | Офлайн-поддержка, IndexedDB outbox, /sync flush |
-| 9 — Polish (initial) | ✅ | Тесты, security headers, установщик, тёмная тема |
-| 10 — Bot platform | ✅ | VK, Telegram, Email, Webhook |
-| 11–27 | ✅ | Projects UI, колонки kanban, теги, зависимости, inbox, богатые карточки, LMS-курсы, очередь ревью, today, quick capture, restore, OpenAPI, agent CLI + MCP, E2E-сьют — см. [PLAN](docs/PLAN.md) |
-| 28 (Polish backlog close-out) | ✅ | Settings hub, скролл TaskModal, дефолты безопасности (JWT 24ч, Secure из конфига), эмиссия activity, Bot.Stop на shutdown, opt-in pprof, таргет govulncheck, Prettier, hot-reload backup, ужесточение CSP, ARCHITECTURE.md |
-| 30.1 (CI) | ✅ | GitHub Actions: `lint` → `test` → `build` → `e2e`. PR-гейт был инкрементальным (`--new-from-merge-base`); release-ветка (`main`) получала полный lint; 73 pre-existing lint-проблемы остались (см. [PLAN](docs/PLAN.md) §30.16). Замещено Phase 32.6 — PR-to-dev молчаливый, полный release-гейт на main/теги `v*`, test-only backstop на push в dev |
-| 32.6 (local CI hooks) | ✅ | Per-PR enforcement переехал с GitHub Actions на локальные git hooks (`scripts/git-hooks/{pre-commit,pre-push}`, ставятся через `make hooks` → `core.hooksPath`). `pre-commit`: gofmt -l + prettier --check на staged-файлах (<2 с). `pre-push`: `make lint-new` (golangci-lint --new-from-merge-base=origin/dev) + `make test` (~1 мин). GitHub Actions теперь запускает только release-гейт; PR-to-dev намеренно молчаливый. `--no-verify` запрещён. См. [wiki:ci-local-gates-hooks](http://localhost:2137/wiki/ci-local-gates-hooks) и [AGENTS.md](AGENTS.md#local-gates--git-hooks-phase-326) |
-| 30.2 (sync_ops observability) | ✅ | Ошибки `sync_ops.Record()` теперь инкрементируют `sync_ops_record_failures` в `/api/v1/stats` и эмитят `zap.Warn` с client/server id — больше никакого молчаливого цикла реплея PWA outbox |
-| 30.3 (VK Long Poll) | ✅ | VK-бот теперь long-poll'ит `groups.getLongPollServer` + `a_check` для входящих сообщений (альтернатива Callback API; работает за NAT). `bots[].type: vk` с `token` + `group_id` регистрирует цикл. События `message_new` текут в тот же inbox-capture helper, что и Telegram (Phase 21) |
-| 30.4 (Email HTML) | ✅ | Email-бот отправляет `multipart/alternative` (text + HTML). HTML-часть с inline-стилями в бренде Orenda, кнопками действий ревью (когда задан `PublicBaseURL`) и HTML-экранированием против инъекций скриптов. Plain-часть сохраняется для доступности / plain-only клиентов |
-| 30.5 (Weekly digest) | ✅ | Фоновый тикер (по умолчанию 168ч) шлёт еженедельную сводку каждому подписанному оператором боту: задачи done / created / awaiting / overdue, полученные комментарии, активные таймеры. `notifier.digest_interval <= 0` отключает |
-| 30.6 (wiki [[ autocomplete) | ✅ | В wiki-редакторе ввод `[[` открывает попап со списком всех страниц; выбор вставляет `[[slug]]`. Зеркало парсит его при сохранении и записывает `wiki_links`, так что backlinks работают |
-| 30.7 (reject needs comment) | ✅ | `POST /tasks/{id}/review {decision: "reject", comment: ""}` → 400 `invalid_input`. Approve без комментария по-прежнему разрешён (молчаливый ack). Агент теперь всегда знает, *почему* задачу вернули на доработку |
-| 30.8 (tasks on calendar) | ✅ | Задачи с `due_at` рендерятся как all-day маркеры на календаре (`📌 Title ✓` для done). Новый endpoint `GET /api/v1/tasks/with-due?from=&to=` питает полосу дедлайнов календаря |
-| 30.9 (backup status) | ✅ | `GET /api/v1/backups/status` возвращает число снапшотов + путь/размер последнего + timestamp; Settings → Backups показывает число и последний timestamp. Cron-парсер остаётся отложенным |
-| 30.10 (QuickCapture due) | ✅ | Вызванное по хоткею модальное окно QuickCapture теперь имеет опциональный `<input type="date">` для установки дедлайна захваченной задачи. Оставьте пустым для захвата в одно нажатие; выберите дату, чтобы запланировать идею |
-| 30.11 (WIP feedback) | ✅ | Перетаскивание в колонку на WIP-лимите теперь показывает конкретный toast со счётчиком N-из-M колонки (вместо сырой ошибки бэкенда). Колонки на лимите подсвечены янтарным кольцом, так что узкое место видно без открытия заголовка колонки |
-| 30.12 (time badges) | ✅ | `TaskCard` показывает ⏱ spent/estimate в H:MM:SS (красным при перерасходе) и пульсирующий маркер ● при открытом single-active-таймере. Утечшие таймеры остаются видимыми даже в компактном режиме |
-| 30.15 (ops scripts) | ✅ | `uninstall.sh` отклоняет неизвестные флаги (раньше молча отбрасывал их) и имеет `--help`. `update-dogfood.sh` имеет `--help`, `--force` и `--remote <name>`. Smoke-тесты в `scripts/test_scripts.sh` покрывают парсинг флагов обоих скриптов |
-| 30.16 (lint sweep) | ✅ | Первый механический проход закрыл ~8 pre-existing lint-проблем (неиспользуемый тестовый шов `var now`, мёртвый `runBackupRestore`, пустой стаб `seedSubscription`, placeholder'ы `depFixtures`/`reviewQueueFixture`, неиспользуемые `agentPut`/`agentDelete`, параметр `actorID` в публикации событий, параметр `cookie` в `seedProjectAndTask`). ~85 проблем остаются — закрываются оппортунистически |
-| 30.17 (writeError bug) | ✅ | `writeError` теперь маппит `taskservice.ErrInvalidInput` в 400 `invalid_input` (было 500). Новый API-тест фиксирует три режима отказа. Закрывает acceptance-пробел Phase 30.7 — фронтенд получал 500 на валидационном отказе |
 
 > Скриншоты: не включены в репозиторий (держим его лёгким — без бинарных blob'ов).
 > Запустите `make build && bin/orenda serve` и откройте четыре ключевые страницы:

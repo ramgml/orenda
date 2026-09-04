@@ -199,7 +199,7 @@ func TestAgent_ClaimReleaseSubmitRoundTrip(t *testing.T) {
 	_ = user.User{} // keep import for type refs
 	projects := sqlite.NewProjectRepository(fx.db)
 	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
-		Name: "AgentTest", OwnerID: ownerID,
+		Name: "AgentTest", OwnerID: ownerID, AgentsAllowed: true,
 	})
 	require.NoError(t, err)
 	tasks := sqlite.NewTaskRepository(fx.db)
@@ -260,7 +260,7 @@ func TestAgent_SubmitGate422AndManualBypass(t *testing.T) {
 	require.NoError(t, row.Scan(&ownerID))
 	projects := sqlite.NewProjectRepository(fx.db)
 	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
-		Name: "AgentGateTest", OwnerID: ownerID,
+		Name: "AgentGateTest", OwnerID: ownerID, AgentsAllowed: true,
 	})
 	require.NoError(t, err)
 	tasks := sqlite.NewTaskRepository(fx.db)
@@ -302,7 +302,7 @@ func TestAgent_SubmitGateForeignEntryDoesNotPass(t *testing.T) {
 	require.NoError(t, row.Scan(&ownerID))
 	projects := sqlite.NewProjectRepository(fx.db)
 	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
-		Name: "AgentGateForeign", OwnerID: ownerID,
+		Name: "AgentGateForeign", OwnerID: ownerID, AgentsAllowed: true,
 	})
 	require.NoError(t, err)
 	tasks := sqlite.NewTaskRepository(fx.db)
@@ -339,7 +339,7 @@ func TestAgent_SubmitGateOpenTimerPasses(t *testing.T) {
 	require.NoError(t, row.Scan(&ownerID))
 	projects := sqlite.NewProjectRepository(fx.db)
 	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
-		Name: "AgentGateTimer", OwnerID: ownerID,
+		Name: "AgentGateTimer", OwnerID: ownerID, AgentsAllowed: true,
 	})
 	require.NoError(t, err)
 	tasks := sqlite.NewTaskRepository(fx.db)
@@ -389,7 +389,7 @@ func TestAgent_CommentCreatesAgentAuthoredComment(t *testing.T) {
 	require.NoError(t, row.Scan(&ownerID))
 	projects := sqlite.NewProjectRepository(fx.db)
 	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
-		Name: "CommentTest", OwnerID: ownerID,
+		Name: "CommentTest", OwnerID: ownerID, AgentsAllowed: true,
 	})
 	require.NoError(t, err)
 	tasks := sqlite.NewTaskRepository(fx.db)
@@ -430,7 +430,7 @@ func TestAgent_CommentRejectsUserCookie(t *testing.T) {
 	require.NoError(t, row.Scan(&ownerID))
 	projects := sqlite.NewProjectRepository(fx.db)
 	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
-		Name: "Cmt2", OwnerID: ownerID,
+		Name: "Cmt2", OwnerID: ownerID, AgentsAllowed: true,
 	})
 	require.NoError(t, err)
 	tasks := sqlite.NewTaskRepository(fx.db)

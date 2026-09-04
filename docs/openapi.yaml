@@ -558,12 +558,16 @@ paths:
         '404': { description: not found }
     patch:
       tags: [projects]
-      summary: Update project fields (name/color/description/wiki_slug/archived).
+      summary: Update project fields (name/color/description/wiki_slug/archived/agents_allowed).
       description: |
         Pointer fields: nil leaves the column alone; non-nil replaces.
         wiki_slug must reference an existing wiki page (422 on miss);
         empty string unlinks the project. Whitespace around the slug
         is trimmed server-side.
+        agents_allowed (task 140) is the per-project agent-access
+        switch: false closes the project to every agent without an
+        explicit grant row (an empty grant list = nobody); true
+        reopens it to all agents.
       security: [{ bearerAuth-cookie: [] }]
       requestBody:
         required: true
@@ -577,6 +581,7 @@ paths:
                 description: { type: string }
                 wiki_slug: { type: string, description: "Slug of an existing wiki page; empty → unlink." }
                 archived: { type: boolean }
+                agents_allowed: { type: boolean, description: "false = closed to agents without a grant; true = open to all agents." }
       responses:
         '200': { description: ok }
         '404': { description: not found }
@@ -588,6 +593,56 @@ paths:
       responses:
         '204': { description: deleted }
         '404': { description: not found }
+  # Task 140 (agent-project-scope): owner-managed per-project agent
+  # grant list. GET reads it, PUT replaces it atomically. The agent
+  # namespace has NO write path to this surface (self-granting would
+  # defeat the scope model) — agent PATCHes carrying agents_allowed /
+  # agent_ids are rejected with 422 owner_only_field.
+  /api/v1/projects/{id}/agents:
+    get:
+      tags: [projects]
+      summary: Read the project's explicit agent grant list.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_ids: { type: array, items: { type: string } }
+        '404': { description: not found }
+    put:
+      tags: [projects]
+      summary: Replace the allowed-agents list (owner-only, task 140).
+      description: |
+        Full replacement in one transaction — idempotent; an empty
+        array closes the project to every granted agent. Every id
+        must reference an existing agent (422 unknown_agent
+        otherwise). Toggle the open-to-all switch itself through
+        PATCH /api/v1/projects/{id} (agents_allowed).
+      security: [{ bearerAuth-cookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_ids]
+              properties:
+                agent_ids: { type: array, items: { type: string } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_ids: { type: array, items: { type: string } }
+        '404': { description: not found }
+        '422': { description: unknown_agent }
 
   /api/v1/projects/{id}/board:
     get:
@@ -2100,8 +2155,7 @@ paths:
 
   /api/v1/agent/projects:
     get:
-      tags: [agent]
-      summary: List all projects (single-owner) — source of project_id for task proposal.
+      summary: List projects accessible to the caller — only projects open to all agents or explicitly granted to the caller (task 140).
       security: [{ bearerAuth-agent: [] }]
       responses:
         '200': { description: ok }
@@ -2153,6 +2207,11 @@ paths:
     get:
       tags: [agent]
       summary: List claimable tasks (?ready=true filters blocked / claimed).
+      description: |
+        Task 140: only tasks of projects the agent may access are
+        listed — projects open to all agents (agents_allowed) or
+        explicitly granted to the caller. Inbox tasks (no project)
+        are always included.
       security: [{ bearerAuth-agent: [] }]
       parameters:
         - in: query
@@ -2161,7 +2220,37 @@ paths:
         - in: query
           name: limit
           schema: { type: integer, default: 100 }
-      responses: { '200': { description: ok } }
+        - in: query
+          name: project_id
+          schema: { type: string }
+          description: Scope the listing to one project by UUID.
+        - in: query
+          name: project
+          schema: { type: string }
+          description: |
+            Scope the listing to one project: project number ("7"),
+            P-number ("P7" / "p7") or UUID. Passing both project and
+            project_id is a 400; an unresolvable reference is a 404.
+        - in: query
+          name: group_by
+          schema: { type: string, enum: [project] }
+          description: |
+            Task 153: reshape the response into
+            `{groups: [{project, label, tasks}]}`. Groups are ordered
+            by project number; inbox tasks (no project) form the
+            trailing group with `project: null` and `label: "inbox"`.
+            Any other value is a 400 invalid_input.
+        - in: query
+          name: tree
+          schema: { type: boolean }
+          description: |
+            Task 153: with group_by=project, additionally nest each
+            group's tasks by parent_task_id into `groups[].tree` —
+            each node carries the same task-row keys as the flat list
+            plus `children`, and roots carry `orphaned: true` (parent
+            exists but is outside the selection) or `cyclic: true`
+            (parent cycle member). `tree=true` without group_by is a
+            400; any value other than true/false is a 400.
     # Phase 33.1: agent proposes a NEW task. Lands as status=backlog +
     # awaiting=human, so it appears in the existing review queue
     # (awaiting='human' OR status='review') for human triage.
@@ -2208,7 +2297,7 @@ paths:
         '404': { description: 'not_found — includes task #N not found for numeric refs' }
         '409':
           description: lock_taken — Phase 15: response body includes holder_agent_id, holder_agent_name, and claimed_at so the agent can see who's holding the lock and reach out.
-        '422': { description: task_blocked + unfinished_blockers }
+        '422': { description: 'task_blocked + unfinished_blockers — or not_in_scope (task 140): the task belongs to a project closed to this agent (agents_allowed = 0 and no grant row)' }
 
   /api/v1/agent/tasks/{id}/release:
     post:

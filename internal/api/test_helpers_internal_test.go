@@ -12,51 +12,19 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/testutil"
 )
 
-var (
-	internalTemplateOnce sync.Once
-	internalTemplatePath string
-	internalTemplateErr  error
-)
-
-// ensureInternalTemplateDB runs migrations once and returns the path
-// to a fully-migrated SQLite file in DELETE journal mode.
+// ensureInternalTemplateDB returns the shared template path via the
+// testutil builder (T147: one implementation across packages).
 func ensureInternalTemplateDB(t *testing.T) string {
 	t.Helper()
-	internalTemplateOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "orenda-template-int-*")
-		if err != nil {
-			internalTemplateErr = err
-			return
-		}
-		// The directory persists for the lifetime of the test binary.
-
-		dbPath := filepath.Join(dir, "template.db")
-		db, err := sqlite.Open(context.Background(), dbPath, sqlite.OpenConfig{
-			WALMode: false, EnableForeign: true, BusyTimeoutMs: 5000,
-		})
-		if err != nil {
-			internalTemplateErr = err
-			return
-		}
-		if err := sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"); err != nil {
-			_ = db.Close()
-			internalTemplateErr = err
-			return
-		}
-		_, _ = db.ExecContext(context.Background(), "PRAGMA journal_mode = DELETE")
-		_ = db.Close()
-		internalTemplatePath = dbPath
-	})
-	require.NoError(t, internalTemplateErr, "internal template DB creation failed")
-	return internalTemplatePath
+	return testutil.TemplateDBPath(t)
 }
 
 // copyInternalTemplateDB copies the pre-migrated template to a fresh

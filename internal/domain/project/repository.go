@@ -60,4 +60,21 @@ type Repository interface {
 	// owner changes a task's status through the sidebar, the service
 	// looks up the column with that status and moves the card.
 	FindColumnByStatus(ctx context.Context, projectID, status string) (*Column, error)
+
+	// SetAllowedAgents replaces the project's full grant list in one
+	// transaction (DELETE + INSERT): the call is idempotent — calling
+	// it twice with the same list converges to the same rows. An
+	// empty agentIDs list closes the project to every agent (task
+	// 140: access = AgentsAllowed OR a grant row).
+	SetAllowedAgents(ctx context.Context, projectID string, agentIDs []string, addedByUserID string) error
+
+	// ListAllowedAgentIDs returns the agent ids explicitly granted to
+	// the project. A closed project with no grants returns an empty
+	// slice.
+	ListAllowedAgentIDs(ctx context.Context, projectID string) ([]string, error)
+
+	// AgentAccessibleProjectIDs returns the set of project ids the
+	// agent may see/claim: open projects (agents_allowed = 1) plus
+	// closed projects carrying a grant row for this agent.
+	AgentAccessibleProjectIDs(ctx context.Context, agentID string) (map[string]bool, error)
 }

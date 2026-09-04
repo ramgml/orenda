@@ -30,7 +30,7 @@ func newReportFixture(t *testing.T) (*agentFixture, string) {
 	require.NoError(t, row.Scan(&ownerID))
 	projects := sqlite.NewProjectRepository(fx.db)
 	p, _, cols, err := projects.CreateProject(context.Background(), &project.Project{
-		Name: "ReportTest", OwnerID: ownerID,
+		Name: "ReportTest", OwnerID: ownerID, AgentsAllowed: true,
 	})
 	require.NoError(t, err)
 	tasks := sqlite.NewTaskRepository(fx.db)

@@ -5,7 +5,7 @@
  * this header only carries user-level affordances: notifications,
  * health, theme toggle, sign-out, and the page title context.
  */
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 
 import { useAuth } from '@/features/auth/AuthContext';
 import { NotificationsBell } from '@/features/notifications/NotificationsBell';

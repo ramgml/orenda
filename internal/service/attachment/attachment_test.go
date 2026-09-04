@@ -17,6 +17,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/attachment"
 	attachmentsvc "github.com/ramgml/orenda/internal/service/attachment"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/testutil"
 )
 
 type memHub struct{ n int }
@@ -34,12 +35,7 @@ func (m *memHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 func setupAttach(t *testing.T) (*attachmentsvc.Service, *memHub, string) {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/a.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := testutil.TemplateDBOpen(t)
 
 	uploads := filepath.Join(dir, "uploads")
 	require.NoError(t, os.MkdirAll(uploads, 0o755))
@@ -202,12 +198,7 @@ func TestAttachmentService_MimeAllowed_Wildcard(t *testing.T) {
 // it lazily instead of failing with "create tmp: no such file or directory".
 func TestAttachmentService_Store_MissingUploadDirCreated(t *testing.T) {
 	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), filepath.Join(dir+"/a.db"), sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := testutil.TemplateDBOpen(t)
 
 	// NOT created: the service must create it on first store.
 	uploads := filepath.Join(dir, "uploads")

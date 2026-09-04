@@ -13,12 +13,12 @@
  * when wiki_slug is set.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router';
 
 import { ProjectSettingsTab } from './tabs/ProjectSettingsTab';
 import { ProjectDetailPage } from './ProjectDetailPage';
-import { api } from '@/shared/api/client';
+import { api, type Agent } from '@/shared/api/client';
 
 const baseProject = {
   id: 'p-wiki',
@@ -27,6 +27,7 @@ const baseProject = {
   description: 'copy',
   owner_id: 'u-1',
   archived: false,
+  agents_allowed: true,
   number: 1,
   created_at: '2026-08-19T12:00:00Z',
   updated_at: '2026-08-19T12:00:00Z',
@@ -166,5 +167,121 @@ describe('ProjectDetailPage — wiki page header link', () => {
     // Wait for project to render then assert the link is absent.
     await screen.findByRole('button', { name: /Wiki Proj/ });
     expect(screen.queryByText(/Wiki page/)).toBeNull();
+  });
+});
+
+describe('ProjectSettingsTab — agent access', () => {
+  // Full Agent shapes (the API registry type carries label/token
+  // metadata the settings section never renders, but vi.spyOn pins
+  // the declared types).
+  const agentA: Agent = {
+    id: 'a-1',
+    name: 'Alpha',
+    type: [],
+    token_id: 'tok-a1',
+    status: 'online',
+    max_concurrent: 1,
+    created_at: '2026-08-19T12:00:00Z',
+  };
+  const agentB: Agent = {
+    id: 'a-2',
+    name: 'Beta',
+    type: [],
+    token_id: 'tok-a2',
+    status: 'offline',
+    max_concurrent: 1,
+    created_at: '2026-08-19T12:00:00Z',
+  };
+
+  // Restricted by default: matches the main render scenario —
+  // agentsAllowed=false, first agent pre-granted, second not.
+  function mockRestrictedProject(): void {
+    vi.spyOn(api, 'getProject').mockResolvedValue({ ...baseProject, agents_allowed: false });
+    vi.spyOn(api, 'listAgents').mockResolvedValue([agentA, agentB]);
+    vi.spyOn(api, 'listProjectAgents').mockResolvedValue([agentA.id]);
+  }
+
+  beforeEach(() => {
+    vi.spyOn(api, 'listPages').mockResolvedValue({ tree: [] });
+    mockRestrictedProject();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  function renderTab(): void {
+    render(
+      <MemoryRouter initialEntries={['/projects/p-wiki/settings']}>
+        <Routes>
+          <Route path="/projects/:id/settings" element={<ProjectSettingsTab />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+  }
+
+  function agentAccessSection(): HTMLElement {
+    const heading = screen.getByRole('heading', { name: /Agent access/i });
+    return heading.closest('section') as HTMLElement;
+  }
+
+  it('renders the grant list with preloaded marks and the toggle off', async () => {
+    renderTab();
+    await screen.findByRole('heading', { name: /Agent access/i });
+    const first = screen.getByLabelText(/Grant access: Alpha/i);
+    const second = screen.getByLabelText(/Grant access: Beta/i);
+    // Radix Checkbox renders <button role="checkbox"> — state lives in
+    // aria-checked, not the input .checked property.
+    expect(first.getAttribute('aria-checked')).toBe('true');
+    expect(second.getAttribute('aria-checked')).toBe('false');
+    const openToggle = screen.getByLabelText(/Open to all agents/i);
+    expect(openToggle.getAttribute('aria-checked')).toBe('false');
+    expect(first.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('disables agent checkboxes while the project is open to all agents', async () => {
+    renderTab();
+    await screen.findByRole('heading', { name: /Agent access/i });
+    fireEvent.click(screen.getByLabelText(/Open to all agents/i));
+    const first = screen.getByLabelText(/Grant access: Alpha/i);
+    const second = screen.getByLabelText(/Grant access: Beta/i);
+    expect(first.hasAttribute('disabled')).toBe(true);
+    expect(second.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('saves agents_allowed via updateProject and the granted list via setProjectAgents', async () => {
+    const updateSpy = vi
+      .spyOn(api, 'updateProject')
+      .mockResolvedValue({ ...baseProject, agents_allowed: false });
+    const setSpy = vi.spyOn(api, 'setProjectAgents').mockResolvedValue(undefined);
+    renderTab();
+    await screen.findByRole('heading', { name: /Agent access/i });
+    // Grant the second agent as well, then save the section.
+    fireEvent.click(screen.getByLabelText(/Grant access: Beta/i));
+    // The Save button is the only named button in the section — the
+    // Radix checkboxes are also type="button", so query by role+name.
+    fireEvent.click(within(agentAccessSection()).getByRole('button', { name: /Save changes/i }));
+    await waitFor(() => {
+      expect(updateSpy).toHaveBeenCalledWith(
+        'p-wiki',
+        expect.objectContaining({ agents_allowed: false }),
+      );
+    });
+    await waitFor(() => {
+      expect(setSpy).toHaveBeenCalledWith('p-wiki', ['a-1', 'a-2']);
+    });
+  });
+
+  it('surfaces a setProjectAgents failure in the error banner', async () => {
+    vi.spyOn(api, 'updateProject').mockResolvedValue({ ...baseProject, agents_allowed: false });
+    vi.spyOn(api, 'setProjectAgents').mockRejectedValue(new Error('grant write failed'));
+    renderTab();
+    await screen.findByRole('heading', { name: /Agent access/i });
+    fireEvent.click(within(agentAccessSection()).getByRole('button', { name: /Save changes/i }));
+    // The component renders errors in the shared red banner at the top
+    // of the settings page.
+    const banner = await screen.findByText(/grant write failed/i);
+    expect(banner).toBeTruthy();
   });
 });

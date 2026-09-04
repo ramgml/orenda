@@ -178,7 +178,7 @@ func (f *phase15Fixture) seedTask(t *testing.T) (taskID string) {
 	var ownerID string
 	require.NoError(t, row.Scan(&ownerID))
 	p, _, cols, err := f.projects.CreateProject(context.Background(), &project.Project{
-		Name: "P15", OwnerID: ownerID,
+		Name: "P15", OwnerID: ownerID, AgentsAllowed: true,
 	})
 	require.NoError(t, err)
 	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "p15-task"}

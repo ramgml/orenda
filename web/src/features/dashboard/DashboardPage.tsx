@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 
 import { api, type OverviewResponse } from '@/shared/api/client';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';

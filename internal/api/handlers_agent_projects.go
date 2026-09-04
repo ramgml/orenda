@@ -25,6 +25,14 @@
 //     tokens 401 on user routes (RequireUser only accepts JWTs).
 //   - name / color / archived stay user-only — see the wiki
 //     постановка for the rationale.
+//   - Task 140 (agent-project-scope): the project access surface —
+//     agents_allowed + the grant list — is owner-only BY DESIGN.
+//     Every agent write path rejects those keys (422
+//     owner_only_field) because an agent able to flip its own
+//     access would defeat the scope model; grants travel only
+//     through PUT /api/v1/projects/{id}/agents (user namespace).
+//     The agent-facing LIST is also filtered to accessible
+//     projects, so a closed ungranted project is fully invisible.
 package api
 
 import (
@@ -65,11 +73,13 @@ func agentGetProjectHandler(deps *Dependencies) http.HandlerFunc {
 // agent — same shape as the user-side listProjectsHandler
 // ({"projects": [...]}). The agent needs the full id/name list:
 // project_id is required for `orenda_task_propose` / agent task
-// proposal and the name feeds the branch-naming convention. The
-// single-owner store ignores the owner filter (inbox visibility),
-// which is what the agent wants here; id.UserID is passed for shape
-// parity with the user handler. Unlike the user route this lives
-// under RequireAgent, so a cookie session 401s.
+// proposal and the name feeds the branch-naming convention.
+// Task 140 (agent-project-scope): the list carries only projects
+// open to all agents (agents_allowed = 1) or explicitly granted to
+// the caller — a closed, ungranted project is invisible, so an
+// agent can never discover a project it must not touch. Unlike the
+// user route this lives under RequireAgent, so a cookie session
+// 401s.
 func agentListProjectsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
@@ -82,7 +92,19 @@ func agentListProjectsHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
+		// Task 140: keep open projects + explicitly granted ones.
+		accessSet, aerr := deps.Projects.AgentAccessibleProjectIDs(r.Context(), id.AgentID)
+		if aerr != nil {
+			writeError(w, aerr)
+			return
+		}
+		visible := make([]*project.Project, 0, len(projects))
+		for _, p := range projects {
+			if accessSet[p.ID] {
+				visible = append(visible, p)
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"projects": visible})
 	}
 }
 
@@ -113,6 +135,13 @@ type agentPatchProjectRequest struct {
 //   - wiki_slug: trimmed whitespace; "" → unlink; non-empty → must
 //     reference an existing wiki page or 422. Mirrors the user-side
 //     patchProjectHandler semantics so the two surfaces stay in sync.
+//
+// Task 140: the access surface (agents_allowed / agent_ids) is
+// owner-only and deliberately closed on every agent path — an agent
+// PATCH carrying those keys is rejected with 422 owner_only_field
+// (granting itself access would defeat the whole scope model). The
+// raw body is inspected for those keys because the typed struct
+// would silently ignore them.
 func agentPatchProjectHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
@@ -125,8 +154,29 @@ func agentPatchProjectHandler(deps *Dependencies) http.HandlerFunc {
 			writeProjectResolveError(w, err)
 			return
 		}
+		// Task 140: the grant surface travels only through the
+		// owner namespace. Reject the access keys before the typed
+		// decode — the struct would silently drop them.
+		var raw map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
+		if _, guarded := raw["agents_allowed"]; guarded {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "owner_only_field"})
+			return
+		}
+		if _, guarded := raw["agent_ids"]; guarded {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "owner_only_field"})
+			return
+		}
+		rawBody, merr := json.Marshal(raw)
+		if merr != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+			return
+		}
 		var in agentPatchProjectRequest
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		if err := json.Unmarshal(rawBody, &in); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}

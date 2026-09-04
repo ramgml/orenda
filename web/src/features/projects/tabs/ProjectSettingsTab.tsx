@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 
-import { api, type Project, type WikiTreeNode } from '@/shared/api/client';
+import { api, type Agent, type Project, type WikiTreeNode } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
+import { Checkbox } from '@/shared/ui/checkbox';
 import { Input } from '@/shared/ui/input';
 import { Textarea } from '@/shared/ui/textarea';
 
@@ -35,21 +36,42 @@ export function ProjectSettingsTab(): JSX.Element {
   const [wikiSlug, setWikiSlug] = useState('');
   const [wikiSuggestions, setWikiSuggestions] = useState<WikiTreeNode[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
-
+  // Agent access control (owner-only). agentsAllowed=true means every
+  // agent sees/claims this project's tasks; false restricts the
+  // project to the explicitly granted agent IDs in `granted`.
+  const [agentsAllowed, setAgentsAllowed] = useState(true);
+  const [granted, setGranted] = useState<string[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
     Promise.all([api.getProject(id), api.listPages()])
-      .then(([p, pages]) => {
+      .then(async ([p, pages]) => {
         if (cancelled) return;
         setProject(p);
         setColor(p.color || '#3b82f6');
         setDescription(p.description || '');
         setWikiSlug(p.wiki_slug || '');
         setWikiSuggestions(pages.tree);
+        setAgentsAllowed(p.agents_allowed);
+        // Restricted projects additionally load the granted-agent
+        // list; an open project has no grant rows to fetch.
+        if (!p.agents_allowed) {
+          const ids = await api.listProjectAgents(id);
+          if (!cancelled) setGranted(ids);
+        }
       })
       .catch((e: unknown) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      });
+    // The agent registry only feeds the checkbox labels in the Agent
+    // access section; a registry failure must not error the whole
+    // settings page, so it loads outside the critical chain.
+    api
+      .listAgents()
+      .catch(() => [])
+      .then((list) => {
+        if (!cancelled) setAgents(list);
       });
     return () => {
       cancelled = true;
@@ -104,6 +126,29 @@ export function ProjectSettingsTab(): JSX.Element {
       navigate('/projects', { replace: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+
+  // Saves only the Agent access section: PATCH for the open/closed
+  // flag, then a full-replacement PUT of the granted list (skipped
+  // when the project is open to everyone — grants are irrelevant
+  // and the section save must not touch saveBasics fields).
+  async function saveAgentAccess(): Promise<void> {
+    if (!project) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await api.updateProject(project.id, {
+        agents_allowed: agentsAllowed,
+      });
+      if (!agentsAllowed) {
+        await api.setProjectAgents(project.id, granted);
+      }
+      setProject(updated);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
       setBusy(false);
     }
   }
@@ -193,6 +238,50 @@ export function ProjectSettingsTab(): JSX.Element {
         )}
         <div className="flex justify-end">
           <Button type="button" onClick={saveBasics} disabled={busy} variant="default" size="sm">
+            {busy ? 'Saving…' : 'Save changes'}
+          </Button>
+        </div>
+      </section>
+
+      <section className="rounded border border-border bg-background p-4 space-y-3">
+        <h2 className="text-base font-semibold">Agent access</h2>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={agentsAllowed}
+            onCheckedChange={(v) => setAgentsAllowed(v === true)}
+            aria-label="Open to all agents"
+          />
+          Open to all agents
+        </label>
+        <p className="text-xs text-slate-500">
+          When enabled, any agent can see this project&apos;s tasks and claim them. When disabled,
+          only the agents checked below have access.
+        </p>
+        <div className="space-y-1">
+          {agents.map((a) => (
+            <label key={a.id} className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={granted.includes(a.id)}
+                onCheckedChange={(v) =>
+                  setGranted((prev) =>
+                    v === true ? [...prev, a.id] : prev.filter((g) => g !== a.id),
+                  )
+                }
+                disabled={agentsAllowed}
+                aria-label={`Grant access: ${a.name}`}
+              />
+              {a.name}
+            </label>
+          ))}
+        </div>
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            onClick={saveAgentAccess}
+            disabled={busy}
+            variant="default"
+            size="sm"
+          >
             {busy ? 'Saving…' : 'Save changes'}
           </Button>
         </div>

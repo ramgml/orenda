@@ -14,6 +14,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/agent"
 	agentsvc "github.com/ramgml/orenda/internal/service/agent"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/testutil"
 )
 
 type recordingHub struct {
@@ -57,13 +58,7 @@ func (m *sqliteTokenMinter) MintToken(ctx context.Context, userID, name, hash, s
 
 func setupAgentSvc(t *testing.T) (*agentsvc.Service, *recordingHub) {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := sqlite.Open(context.Background(), dir+"/a.db", sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
+	db, _ := testutil.TemplateDBOpen(t)
 
 	users := sqlite.NewUserRepository(db)
 	agents := sqlite.NewAgentRepository(db)
