@@ -13,7 +13,8 @@
  *     (detailed cards show the due-badge row; compact ones don't).
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-{"path": "conflict://1", "content": "import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';\nimport { MemoryRouter } from 'react-router';"}
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Column, Task } from '@/shared/api/client';
