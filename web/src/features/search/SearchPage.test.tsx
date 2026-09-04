@@ -47,7 +47,7 @@ afterEach(() => {
 
 function mount() {
   return render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <SearchPage />
     </MemoryRouter>,
   );

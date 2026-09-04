@@ -62,7 +62,10 @@ function mountShell(entry: string) {
   const utils = render(
     <QueryClientProvider client={client}>
       <AuthProvider>
-        <MemoryRouter initialEntries={[entry]}>
+        <MemoryRouter
+          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+          initialEntries={[entry]}
+        >
           <Routes>
             <Route element={<AppLayout />}>
               <Route path="/" element={<div>CHILD HOME</div>} />
@@ -100,7 +103,10 @@ describe('AppLayout', () => {
     render(
       <QueryClientProvider client={client}>
         <AuthProvider>
-          <MemoryRouter initialEntries={['/']}>
+          <MemoryRouter
+            future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+            initialEntries={['/']}
+          >
             <Routes>
               <Route element={<AppLayout />}>
                 <Route path="/" element={<LazyChild />} />

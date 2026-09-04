@@ -67,7 +67,7 @@ function mount() {
   qc.setQueryData(agentsQueryKey, [] as Agent[]);
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <InboxPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -360,7 +360,10 @@ describe('InboxPage', () => {
     });
     render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter initialEntries={['/inbox']}>
+        <MemoryRouter
+          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+          initialEntries={['/inbox']}
+        >
           <Probe />
           <InboxPage />
         </MemoryRouter>

@@ -54,7 +54,7 @@ function dispatchTasks(): void {
  */
 function mountNav() {
   return render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <SidebarNav collapsed={false} />
     </MemoryRouter>,
   );
@@ -172,7 +172,7 @@ describe('SidebarNav review badge (Task 123)', () => {
   it('collapsed mode still renders the badge from the shared count', async () => {
     mockGetReviewQueueCount.mockResolvedValueOnce({ count: 3 });
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <SidebarNav collapsed />
       </MemoryRouter>,
     );

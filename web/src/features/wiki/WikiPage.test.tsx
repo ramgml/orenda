@@ -55,7 +55,10 @@ function stubPagesTree(tree: unknown[] = []) {
 
 function mount(initialEntry: string) {
   return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
+    <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      initialEntries={[initialEntry]}
+    >
       <Routes>
         <Route path="/wiki" element={<WikiPage />} />
         <Route path="/wiki/:slug" element={<WikiPage />} />

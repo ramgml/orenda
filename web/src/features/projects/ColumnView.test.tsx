@@ -77,7 +77,7 @@ describe('ColumnView — Phase 27.10 colour wiring', () => {
     return render(
       <QueryClientProvider client={qc}>
         <DndContext>
-          <MemoryRouter>
+          <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <ColumnView
               columnId="col-1"
               projectId="p1"
@@ -212,7 +212,7 @@ describe('ColumnView — task #31 card overflow', () => {
     return render(
       <QueryClientProvider client={qc}>
         <DndContext>
-          <MemoryRouter>
+          <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <ColumnView
               columnId="col-1"
               projectId="p1"

@@ -65,7 +65,10 @@ afterEach(() => {
 
 function mountLogin(initialEntry = '/login') {
   return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
+    <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      initialEntries={[initialEntry]}
+    >
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -172,7 +175,10 @@ describe('LoginPage', () => {
     // App.tsx doesn't pass it yet — LoginPage already supports the
     // contract). MemoryRouter's initial state is { from: '/projects' }.
     render(
-      <MemoryRouter initialEntries={[{ pathname: '/login', state: { from: '/projects' } }]}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={[{ pathname: '/login', state: { from: '/projects' } }]}
+      >
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />

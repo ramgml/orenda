@@ -87,7 +87,7 @@ describe('TaskCard', () => {
   it('renders as a div (not an anchor) — dnd-kit + <a> was the bug', () => {
     const { container, queryByRole } = render(
       withQuery(
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DndContext>
             <TaskCard task={makeTask()} />
           </DndContext>
@@ -107,7 +107,7 @@ describe('TaskCard', () => {
     const onOpen = vi.fn();
     const { container } = render(
       withQuery(
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DndContext>
             <TaskCard task={makeTask()} onOpen={onOpen} />
           </DndContext>
@@ -130,7 +130,10 @@ describe('TaskCard', () => {
     // just an implementation detail of openTaskModal.
     const { container, queryByText } = render(
       withQuery(
-        <MemoryRouter initialEntries={['/']}>
+        <MemoryRouter
+          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+          initialEntries={['/']}
+        >
           <DndContext>
             <Routes>
               <Route path="/" element={<TaskCard task={makeTask()} />} />
@@ -148,7 +151,7 @@ describe('TaskCard', () => {
   it('renders a left colour stripe when the task has a color', () => {
     const { container } = render(
       withQuery(
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DndContext>
             <TaskCard task={makeTask()} />
           </DndContext>
@@ -161,7 +164,7 @@ describe('TaskCard', () => {
 
     const withColor = render(
       withQuery(
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DndContext>
             <TaskCard task={{ ...makeTask(), id: 't-coloured', color: '#0ea5e9' }} />
           </DndContext>
@@ -179,7 +182,7 @@ describe('TaskCard', () => {
   it('renders tag chips when the task has tags', () => {
     const { container } = render(
       withQuery(
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DndContext>
             <TaskCard
               task={{
@@ -205,7 +208,7 @@ describe('TaskCard', () => {
   it('applies tag colours to chip backgrounds (Phase 27.3 enrichment)', () => {
     const { container } = render(
       withQuery(
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DndContext>
             <TaskCard
               task={{
@@ -231,7 +234,7 @@ describe('TaskCard', () => {
   it('omits tag chips when the task has no tags', () => {
     const { container } = render(
       withQuery(
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DndContext>
             <TaskCard task={{ ...makeTask(), tags: [] }} />
           </DndContext>
@@ -258,7 +261,7 @@ describe('TaskCard', () => {
   it('AssigneeChip title surfaces agent labels (Phase 28.19 enrichment)', () => {
     const { container } = render(
       withQuery(
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DndContext>
             <TaskCard
               task={{
@@ -297,7 +300,7 @@ describe('TaskCard', () => {
   it('AssigneeChip falls back to id when agent lookup misses', () => {
     const { container } = render(
       withQuery(
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DndContext>
             <TaskCard
               task={{
@@ -340,7 +343,7 @@ describe('TaskCard', () => {
     const longTitle = 'https://example.com/some/deeply/nested/path/without-any-space-0123456789';
     const { container } = render(
       withQuery(
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DndContext>
             <TaskCard
               task={{
@@ -418,7 +421,7 @@ describe('TaskCard', () => {
   it('does not place the assignee chip in the title row (Task #34)', () => {
     const { container } = render(
       withQuery(
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DndContext>
             <TaskCard
               task={{
@@ -446,7 +449,7 @@ describe('TaskCard', () => {
     try {
       const { container } = render(
         withQuery(
-          <MemoryRouter>
+          <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <DndContext>
               <TaskCard
                 task={{
@@ -480,7 +483,7 @@ describe('TaskCard', () => {
     // fixed-size circle to the title row at compact density).
     const { container } = render(
       withQuery(
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <DndContext>
             <TaskCard
               task={{

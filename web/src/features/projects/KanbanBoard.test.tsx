@@ -100,7 +100,7 @@ function mountBoard(tasks: Task[]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <KanbanBoard projectId="p1" columns={[makeColumn()]} />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -282,7 +282,7 @@ describe('KanbanBoard — T106 board task search', () => {
     });
     render(
       <QueryClientProvider client={client}>
-        <MemoryRouter>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <KanbanBoard
             projectId="p1"
             columns={[makeColumn(), makeColumn({ id: 'col-empty', name: 'Empty', position: 2 })]}

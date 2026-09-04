@@ -54,7 +54,10 @@ afterEach(() => {
 
 function mount(initialEntries?: string[]) {
   return render(
-    <MemoryRouter initialEntries={initialEntries ?? ['/']}>
+    <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      initialEntries={initialEntries ?? ['/']}
+    >
       <TodayPage />
     </MemoryRouter>,
   );
@@ -501,7 +504,10 @@ describe('TodayPage', () => {
 
     const navigations: Array<{ pathname: string; state: unknown }> = [];
     render(
-      <MemoryRouter initialEntries={['/']}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={['/']}
+      >
         <RouteProbe onNavigate={(loc) => navigations.push(loc)} />
         <TodayPage />
       </MemoryRouter>,
@@ -535,7 +541,10 @@ describe('TodayPage', () => {
       return null;
     }
     render(
-      <MemoryRouter initialEntries={['/']}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={['/']}
+      >
         <RecordingProbe />
         <TodayPage />
       </MemoryRouter>,

@@ -69,7 +69,7 @@ function mount(agents: unknown[] = []) {
   });
 
   return render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AuthProvider>
         <AgentsPage />
       </AuthProvider>

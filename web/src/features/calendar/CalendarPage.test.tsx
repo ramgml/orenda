@@ -76,7 +76,10 @@ describe('CalendarPage (chrome only)', () => {
     stubEmptyList();
 
     render(
-      <MemoryRouter initialEntries={['/calendar']}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={['/calendar']}
+      >
         <CalendarPage />
       </MemoryRouter>,
     );
@@ -101,7 +104,10 @@ describe('CalendarPage (chrome only)', () => {
     stubEmptyList();
 
     render(
-      <MemoryRouter initialEntries={['/calendar']}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={['/calendar']}
+      >
         <CalendarPage />
       </MemoryRouter>,
     );
@@ -124,7 +130,10 @@ describe('CalendarPage (chrome only)', () => {
     stubEmptyList();
 
     render(
-      <MemoryRouter initialEntries={['/calendar']}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={['/calendar']}
+      >
         <CalendarPage />
       </MemoryRouter>,
     );
@@ -142,7 +151,10 @@ describe('CalendarPage (chrome only)', () => {
     stubHttp.get.mockRejectedValue(new Error('boom'));
 
     render(
-      <MemoryRouter initialEntries={['/calendar']}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={['/calendar']}
+      >
         <CalendarPage />
       </MemoryRouter>,
     );
@@ -154,7 +166,10 @@ describe('CalendarPage (chrome only)', () => {
     stubEmptyList();
 
     render(
-      <MemoryRouter initialEntries={['/calendar']}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={['/calendar']}
+      >
         <CalendarPage />
       </MemoryRouter>,
     );
@@ -188,7 +203,10 @@ describe('CalendarPage task deadlines (T90)', () => {
 
   function renderCalendar(search = '/calendar'): void {
     render(
-      <MemoryRouter initialEntries={[search]}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={[search]}
+      >
         <Routes>
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/tasks/:id" element={<div>task-page-reached</div>} />

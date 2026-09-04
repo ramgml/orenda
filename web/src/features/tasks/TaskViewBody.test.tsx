@@ -113,7 +113,7 @@ describe('DueEditor (T90)', () => {
   function mountDue(task: Task): { onSaveDue: Mock } {
     const onSaveDue = vi.fn().mockResolvedValue(undefined);
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <DueEditor task={task} busy={false} onSaveDue={onSaveDue} />
       </MemoryRouter>,
     );
@@ -179,7 +179,7 @@ describe('EstimateEditor (T120)', () => {
   function mountEstimate(task: Task): { onSaveEstimate: Mock } {
     const onSaveEstimate = vi.fn().mockResolvedValue(undefined);
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <EstimateEditor task={task} busy={false} onSaveEstimate={onSaveEstimate} />
       </MemoryRouter>,
     );

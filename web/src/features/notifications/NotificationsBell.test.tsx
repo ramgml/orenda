@@ -51,7 +51,7 @@ afterEach(() => {
 
 function mount() {
   return render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <NotificationsBell />
     </MemoryRouter>,
   );
@@ -302,7 +302,10 @@ describe('NotificationsBell', () => {
       return null;
     }
     render(
-      <MemoryRouter initialEntries={['/']}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={['/']}
+      >
         <Probe />
         <NotificationsBell />
       </MemoryRouter>,
@@ -335,7 +338,10 @@ describe('NotificationsBell', () => {
     });
 
     render(
-      <MemoryRouter initialEntries={['/']}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={['/']}
+      >
         <NotificationsBell />
       </MemoryRouter>,
     );

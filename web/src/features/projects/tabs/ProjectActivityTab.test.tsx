@@ -77,7 +77,10 @@ describe('ProjectActivityTab — task 113 readable payload details', () => {
     });
 
     render(
-      <MemoryRouter initialEntries={['/projects/p1/activity']}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={['/projects/p1/activity']}
+      >
         <Routes>
           <Route path="/projects/:id/activity" element={<ProjectActivityTab />} />
         </Routes>

@@ -60,7 +60,7 @@ function renderHome(): ReturnType<typeof render> {
   // these tests — they assert on the rendered href. The '/' entry
   // is the default so we're not asserting on redirect behaviour.
   return render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <SettingsHome />
     </MemoryRouter>,
   );

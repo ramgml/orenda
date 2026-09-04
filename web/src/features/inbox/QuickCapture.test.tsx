@@ -47,7 +47,7 @@ afterEach(() => {
 
 function mount() {
   return render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <QuickCapture />
     </MemoryRouter>,
   );
@@ -333,7 +333,10 @@ describe('QuickCapture', () => {
       return null;
     }
     render(
-      <MemoryRouter initialEntries={['/today']}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={['/today']}
+      >
         <Probe />
         <QuickCapture />
       </MemoryRouter>,

@@ -38,7 +38,11 @@ function renderModal(taskId = 'task-abc'): ReturnType<typeof render> {
   // contract was "background page stays mounted", and the modal
   // unmounts when the URL leaves the task route.
   return render(
-    <MemoryRouter initialEntries={['/inbox', `/tasks/${taskId}`]} initialIndex={1}>
+    <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      initialEntries={['/inbox', `/tasks/${taskId}`]}
+      initialIndex={1}
+    >
       <Routes>
         <Route path="/inbox" element={<div>inbox background</div>} />
         <Route path="/tasks/:id" element={<TaskModal />} />

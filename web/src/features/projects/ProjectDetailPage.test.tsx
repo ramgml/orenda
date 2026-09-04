@@ -57,7 +57,10 @@ describe('ProjectDetailPage — inline rename', () => {
 
   function renderPage(): void {
     render(
-      <MemoryRouter initialEntries={['/projects/p-1']}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+        initialEntries={['/projects/p-1']}
+      >
         <Routes>
           <Route path="/projects/:id" element={<ProjectDetailPage />}>
             <Route index element={<div>KANBAN</div>} />

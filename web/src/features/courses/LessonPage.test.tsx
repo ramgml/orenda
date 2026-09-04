@@ -97,7 +97,10 @@ function setupApi(opts: { treeResp: ReturnType<typeof tree> }) {
 
 function renderPage() {
   return render(
-    <MemoryRouter initialEntries={['/lessons/lesson-1']}>
+    <MemoryRouter
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      initialEntries={['/lessons/lesson-1']}
+    >
       <Routes>
         <Route path="/lessons/:id" element={<LessonPage />} />
       </Routes>
