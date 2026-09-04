@@ -6,10 +6,12 @@ import {
   DragOverlay,
   DragStartEvent,
   PointerSensor,
-  closestCenter,
+  closestCorners,
+  pointerWithin,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
+import type { CollisionDetection } from '@dnd-kit/core';
 import {
   SortableContext,
   arrayMove,
@@ -96,6 +98,42 @@ function taskMatchesQuery(task: Task, rawQuery: string): boolean {
   }
   return false;
 }
+
+/**
+ * T160: the whole column is the drop zone. `closestCenter` (the old
+ * detector) resolves `over` to the single NEAREST droppable center — in a
+ * populated column that is always a card, so dropping into the column's
+ * whitespace (below the last card, the padding gaps, beside the header)
+ * neither highlighted the column nor registered it as the target. The
+ * owner-visible symptom: only a small area of the column accepted drops.
+ *
+ * The fix follows the dnd-kit multi-container pattern: `pointerWithin`
+ * finds every droppable under the pointer; among those, CARDS win
+ * (card-over-card insert-next-to and same-column reorder keep working
+ * exactly as T150/T118 built them), and the enclosing column takes the
+ * drop wherever no card is under the pointer. Keyboard drags have no
+ * pointer coordinates — fall back to closestCorners (rect-geometry based,
+ * deterministic for the a11y sensor).
+ */
+const wholeColumnCollision: CollisionDetection = (args) => {
+  const { pointerCoordinates, droppableContainers } = args;
+  if (!pointerCoordinates) return closestCorners(args);
+
+  const within = pointerWithin(args);
+  if (within.length === 0) return [];
+
+  const typeOf = (id: string | number): string | undefined => {
+    const c = droppableContainers.find((d) => d.id === id);
+    const data = c?.data.current as { type?: string } | undefined;
+    return data?.type;
+  };
+
+  const cards = within.filter((c) => typeOf(c.id) === 'task');
+  if (cards.length > 0) return cards;
+
+  // Only columns under the pointer: nearest column center first.
+  return within.filter((c) => typeOf(c.id) === 'column');
+};
 
 export function KanbanBoard({
   projectId,
@@ -607,7 +645,7 @@ export function KanbanBoard({
       </div>
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
+        collisionDetection={wholeColumnCollision}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
       >
@@ -729,6 +767,7 @@ function SortableColumnView({
 }): JSX.Element {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: column.id,
+    data: { type: 'column' },
   });
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
