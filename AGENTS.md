@@ -99,6 +99,14 @@ uncached `make test-full` (`-count=1`) is the contract for the CI
 backstop on push to `dev` and the release gate — the safety net for
 exotica the cache cannot see (ports, clocks).
 
+`make test-slow` runs the slow/real-time tests that are excluded from
+the PR gate — today: the backup scheduler real-tick smoke
+(`ORENDA_TEST_SLOW=1` gates the test itself; it waits out one real cron
+minute tick, ~1–2 min, and proves the production fire timer wakes up).
+This is the compensator class for unit tests that inject fake timers
+(Task 149): the injected test pins the logic, the real-tick smoke pins
+the wake-up. Run it nightly / pre-release, not per-PR.
+
 `make lint-new` is `golangci-lint run --new-from-merge-base=origin/dev ./...`
 — exactly the gate the old PR CI used, minus the pre-existing lint debt
 (see Phase 30.16). ~8.5 s warm.

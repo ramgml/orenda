@@ -41,6 +41,10 @@ type Scheduler struct {
 	// Phase 7.5. Snapshot moved to a cron-driven loop below.
 	pushInterval time.Duration
 	walInterval  time.Duration
+	// fire controls the snapshot loop's sleep-until-next-fire.
+	// nil = production realFireTimer; tests inject via WithFireTimer
+	// (Task 149). Not safe for concurrent WithFireTimer + Run.
+	fire FireTimer
 	// Phase Wave 4 PR 2: optional notifier for failure events.
 	Notifier FailureNotifier
 }
@@ -69,6 +73,48 @@ func (s *Scheduler) WithIntervals(push, wal time.Duration) *Scheduler {
 	if wal > 0 {
 		s.walInterval = wal
 	}
+	return s
+}
+
+// FireTimer abstracts the snapshot loop's sleep-until-next-fire.
+// Production leaves Scheduler.fire nil and uses realFireTimer
+// (time.NewTimer); tests inject via WithFireTimer to fire without
+// waiting for a real cron tick (Task 149). The injected timer
+// must respect ctx — the loop selects on ctx.Done alongside the
+// timer channel.
+type FireTimer interface {
+	// Arm schedules a fire after d and returns a channel that
+	// receives when it fires.
+	Arm(ctx context.Context, d time.Duration) <-chan time.Time
+	// Stop releases the pending fire, if any.
+	Stop()
+}
+
+// realFireTimer is the production FireTimer backed by
+// time.NewTimer. Semantics are unchanged from the pre-inject
+// snapshotLoop: one Arm per loop iteration, timer stopped on
+// every return path.
+type realFireTimer struct {
+	t *time.Timer
+}
+
+func (r *realFireTimer) Arm(_ context.Context, d time.Duration) <-chan time.Time {
+	r.t = time.NewTimer(d)
+	return r.t.C
+}
+
+func (r *realFireTimer) Stop() {
+	if r.t != nil {
+		r.t.Stop()
+	}
+}
+
+// WithFireTimer overrides the snapshot loop's fire timer (Task 149).
+// Production leaves it nil and snapshotLoop uses realFireTimer with
+// unchanged semantics; tests inject a manual timer so a cron fire is
+// observed without waiting for a real tick.
+func (s *Scheduler) WithFireTimer(ft FireTimer) *Scheduler {
+	s.fire = ft
 	return s
 }
 
@@ -127,6 +173,10 @@ func (s *Scheduler) Run(ctx context.Context) {
 //     out a `backup.failed` event so the operator sees the
 //     drift in their tray.
 func (s *Scheduler) snapshotLoop(ctx context.Context) {
+	ft := s.fire
+	if ft == nil {
+		ft = &realFireTimer{}
+	}
 	fallback := MustParse(DefaultSchedule)
 	for {
 		cfg := s.svc.Config()
@@ -155,23 +205,23 @@ func (s *Scheduler) snapshotLoop(ctx context.Context) {
 				// expression rotted", which MustParse
 				// already guarantees can't happen. Sleep
 				// an hour and re-read cfg.
-				timer := time.NewTimer(time.Hour)
+				ch := ft.Arm(ctx, time.Hour)
 				select {
 				case <-ctx.Done():
-					timer.Stop()
+					ft.Stop()
 					return
-				case <-timer.C:
+				case <-ch:
 					continue
 				}
 			}
 		}
 
-		timer := time.NewTimer(time.Until(next))
+		ch := ft.Arm(ctx, time.Until(next))
 		select {
 		case <-ctx.Done():
-			timer.Stop()
+			ft.Stop()
 			return
-		case <-timer.C:
+		case <-ch:
 			s.runSnapshot(ctx)
 		}
 	}

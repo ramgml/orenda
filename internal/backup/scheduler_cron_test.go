@@ -2,6 +2,7 @@ package backup_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -13,24 +14,19 @@ import (
 	"github.com/ramgml/orenda/internal/backup"
 )
 
-// TestScheduler_SnapshotLoop_FiresOnCron is the integration pin for
-// the Phase 32.7 cron-driven fire. We point the scheduler at a
-// "fire every minute" schedule, wait through one cron tick, and
-// verify the Service's RecordLog saw a sqlite_snapshot entry.
+// TestScheduler_SnapshotLoop_FiresOnCron pins that the cron-driven
+// snapshot fire actually runs and records a sqlite_snapshot entry
+// (Task 149). The loop's sleep-until-next-fire is injected
+// (WithFireTimer), so the test drives the fire deterministically
+// instead of waiting out a real "every minute" tick — the old
+// real-tick version cost 44s of the suite budget.
 //
-// The "every minute" schedule is the shortest sane value and the
-// next fire is always within 60s. We use the WithIntervals override
-// to compress the push/wal tickers to ~1h (the test only cares
-// about the snapshot side-effect, not the push/wal cadence).
-//
-// The test asserts:
-//
-//  1. The scheduler runs without panicking on a valid expr.
-//  2. At least one sqlite_snapshot log row is produced within a
-//     90-second budget (60s for the next cron tick + 30s slack).
-//
-// Cancel-on-ctx.Done is implicit: if the test fails the loop
-// goroutine is bounded by the test's defer cancel.
+// The deterministic path asserts the *logic*: schedule parse →
+// Next() → fire → Snapshot() → RecordLog. The fact that the
+// production timer truly wakes up is covered by the real-tick
+// smoke (TestScheduler_RealTickSmoke, gated behind
+// ORENDA_TEST_SLOW=1 and run via `make test-slow`) — do not
+// delete one for the other.
 func TestScheduler_SnapshotLoop_FiresOnCron(t *testing.T) {
 	db, dbPath := setupDB(t)
 	dir := t.TempDir()
@@ -41,9 +37,12 @@ func TestScheduler_SnapshotLoop_FiresOnCron(t *testing.T) {
 		SnapshotCron: "* * * * *", // every minute
 	}, db)
 
-	sched := backup.NewScheduler(svc).WithIntervals(time.Hour, time.Hour)
+	ft := newManualFireTimer()
+	sched := backup.NewScheduler(svc).
+		WithIntervals(time.Hour, time.Hour).
+		WithFireTimer(ft)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	done := make(chan struct{})
@@ -52,8 +51,15 @@ func TestScheduler_SnapshotLoop_FiresOnCron(t *testing.T) {
 		close(done)
 	}()
 
-	// Poll for the snapshot log. 90s budget = 60s for the first
-	// cron tick + 30s slack for the VACUUM INTO + log write.
+	// The loop arms the fire timer exactly once per iteration; the
+	// first arm means it is parked waiting for the cron tick. Each
+	// release fires one snapshot. Drive: wait for the arm, fire,
+	// then poll for the sqlite_snapshot row — all deterministic,
+	// no timed polling races (Task 149).
+	require.Eventually(t, func() bool { return ft.armedCount() > 0 },
+		2*time.Second, time.Millisecond, "loop should arm the fire timer")
+	ft.release()
+
 	require.Eventually(t, func() bool {
 		entries, err := svc.ListLog(ctx, 10)
 		if err != nil {
@@ -65,10 +71,58 @@ func TestScheduler_SnapshotLoop_FiresOnCron(t *testing.T) {
 			}
 		}
 		return false
-	}, 90*time.Second, time.Second, "scheduler should fire a snapshot within 90s")
+	}, 5*time.Second, 5*time.Millisecond, "injected fire should produce a snapshot log entry")
 
 	cancel()
 	<-done
+}
+
+// manualFireTimer is the test FireTimer (Task 149). Arm() counts
+// the arm request and never fires on its own; release() unblocks
+// the pending arm with an immediate fire. Concurrent access comes
+// from the scheduler goroutine (Arm/Stop) and the test (release)
+// — a mutex keeps -race happy.
+type manualFireTimer struct {
+	mu      sync.Mutex
+	armed   int
+	ch      chan time.Time
+	stopped bool
+}
+
+func newManualFireTimer() *manualFireTimer { return &manualFireTimer{ch: make(chan time.Time)} }
+
+func (m *manualFireTimer) Arm(_ context.Context, _ time.Duration) <-chan time.Time {
+	m.mu.Lock()
+	m.armed++
+	m.mu.Unlock()
+	return m.ch
+}
+
+func (m *manualFireTimer) Stop() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.stopped = true
+}
+
+// release fires the pending timer (no-op if none is armed).
+func (m *manualFireTimer) release() {
+	m.mu.Lock()
+	armed := m.armed > 0
+	m.mu.Unlock()
+	if !armed {
+		return
+	}
+	select {
+	case m.ch <- time.Now():
+	default:
+	}
+}
+
+// armedCount reports how many times the loop requested a fire.
+func (m *manualFireTimer) armedCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.armed
 }
 
 // TestScheduler_SnapshotLoop_HonorsConfigSwap verifies the
@@ -233,4 +287,59 @@ func (n *capturingNotifier) snapshotForTest() []notifCall {
 	out := make([]notifCall, len(n.calls))
 	copy(out, n.calls)
 	return out
+}
+
+// TestScheduler_RealTickSmoke is the compensator for the injected
+// FiresOnCron test (Task 149): it proves the PRODUCTION fire timer
+// (time.NewTimer inside realFireTimer) actually wakes up and fires
+// a snapshot on a real schedule tick — the class of failure the old
+// sleep-based test covered ("scheduler wakes up in production").
+//
+// It waits out one real cron minute tick, so it runs only when
+// ORENDA_TEST_SLOW=1 — never in the `make test` PR gate. Run it via
+// `make test-slow` (nightly / pre-release) or directly:
+//
+//	ORENDA_TEST_SLOW=1 go test ./internal/backup/ -run TestScheduler_RealTickSmoke
+func TestScheduler_RealTickSmoke(t *testing.T) {
+	if os.Getenv("ORENDA_TEST_SLOW") != "1" {
+		t.Skip("real-tick smoke: set ORENDA_TEST_SLOW=1 (or run `make test-slow`)")
+	}
+	db, dbPath := setupDB(t)
+	dir := t.TempDir()
+	svc := backup.New(backup.Config{
+		MirrorDir:    dir,
+		SnapshotDir:  filepath.Join(dir, "snap"),
+		DBPath:       dbPath,
+		SnapshotCron: "* * * * *", // fire within the next real minute
+	}, db)
+
+	// NO fire injection: the default realFireTimer path is under test.
+	sched := backup.NewScheduler(svc).WithIntervals(time.Hour, time.Hour)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		sched.Run(ctx)
+		close(done)
+	}()
+
+	// 90s budget = 60s worst-case wait for the next minute boundary
+	// + 30s slack for the VACUUM INTO + log write.
+	require.Eventually(t, func() bool {
+		entries, err := svc.ListLog(ctx, 10)
+		if err != nil {
+			return false
+		}
+		for _, e := range entries {
+			if e.Type == "sqlite_snapshot" && e.Status == "success" {
+				return true
+			}
+		}
+		return false
+	}, 90*time.Second, time.Second, "real-tick scheduler should fire a snapshot within 90s")
+
+	cancel()
+	<-done
 }
