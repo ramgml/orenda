@@ -17,7 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
-## [Unreleased]
+## [0.17.0] — 2026-09-04
+
+Minor release. Focus: per-project agent access control (migration 043, default CLOSED — see Upgrade notes), grouped/tree agent task listing, react-router v7 upgrade, systemd sandbox hardening, and a batch of test-perf/infra fixes.
 
 ### Added
 - **Task 140 (PR #165):** per-project agent access allow-list — `projects.agents_allowed` (migration 043, **default CLOSED**) plus an owner-managed `project_agents` grant table. Agent surfaces (`GET /agent/tasks`, claim, `GET /agent/projects`) only see projects that are open to all agents or explicitly granted; claim on a closed project returns `422 not_in_scope`; agent paths cannot edit access (`422 owner_only_field`). Owner surface: PATCH `/projects/{id}` carries `agents_allowed`; new GET/PUT `/projects/{id}/agents` (full-replacement grant list). `orenda agent next --project N` and MCP `orenda_list_tasks(project=…)` scope the ready queue to one project; unknown MCP tool keys are now an error. Web project settings gain an "Agent access" section.
