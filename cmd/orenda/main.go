@@ -1323,7 +1323,18 @@ func runMigrate(cmd *cobra.Command, action migrateAction) error {
 	}
 	defer func() { _ = logger.Sync() }()
 
-	db, cleanup, err := openCLIDB(cmd.Context(), cfg)
+	// T154: `migrate down` must see the DB exactly as it is on
+	// disk. The migrating opener (openCLIDB) ran a hidden
+	// Migrate(UP) first — re-applying whatever a previous `down`
+	// had just rolled back, so repeated `down` calls never moved
+	// the head. `status` also reads raw: listing applied versions
+	// must not mutate the schema. MigrateDown bootstraps
+	// schema_migrations itself when the table is missing.
+	open := openCLIDB
+	if action == migrateDown || action == migrateStatus {
+		open = openCLIDBRaw
+	}
+	db, cleanup, err := open(cmd.Context(), cfg)
 	if err != nil {
 		return err
 	}
