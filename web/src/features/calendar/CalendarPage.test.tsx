@@ -18,7 +18,7 @@
  */
 import { CalendarPage, dropDeadline } from '@/features/calendar/CalendarPage';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { wsClient } from '@/shared/ws';

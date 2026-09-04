@@ -15,7 +15,7 @@
  */
 import { cleanup, fireEvent, render, screen, type RenderResult } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 
 import { DescriptionEditor, DueEditor, EstimateEditor } from '@/features/tasks/TaskViewBody';
 import type { Task } from '@/shared/api/client';

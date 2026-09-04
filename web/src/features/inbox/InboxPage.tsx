@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router';
 
 import { api, type Project, type Task } from '@/shared/api/client';
 import { TaskCard } from '@/features/projects/TaskCard';

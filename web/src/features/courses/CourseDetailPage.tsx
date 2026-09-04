@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 
 import { api } from '@/shared/api/client';
 import { useWebSocketTopic } from '@/shared/ws';

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useParams } from 'react-router';
 
 import { api, type Project } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams } from 'react-router';
 
 import { TaskLink } from '@/features/tasks/TaskModal';
 import { activityDetails } from '@/features/tasks/activityDetails';

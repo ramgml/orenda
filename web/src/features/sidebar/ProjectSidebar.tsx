@@ -35,7 +35,7 @@
  * gate handles the unauthenticated case.
  */
 import { useMemo } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router';
 
 import { useAuth } from '@/features/auth/AuthContext';
 import { api } from '@/shared/api/client';

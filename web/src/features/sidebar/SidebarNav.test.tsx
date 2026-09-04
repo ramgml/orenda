@@ -16,7 +16,7 @@
  *   - Unmount inside the debounce window tears the timer down cleanly.
  */
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SidebarNav } from '@/features/sidebar/SidebarNav';

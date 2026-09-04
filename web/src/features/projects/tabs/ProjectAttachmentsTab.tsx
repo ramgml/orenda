@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams } from 'react-router';
 
 import { api, type TaskAttachment } from '@/shared/api/client';
 import { usePasteImage } from '@/features/attachments/usePasteImage';

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 
 import { api, type Agent, type Project, type WikiTreeNode } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
