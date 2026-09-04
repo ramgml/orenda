@@ -14,7 +14,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router';
 
 import { ProjectSettingsTab } from './tabs/ProjectSettingsTab';
 import { ProjectDetailPage } from './ProjectDetailPage';
@@ -73,10 +73,7 @@ describe('ProjectSettingsTab — wiki_slug field', () => {
 
   function renderTab(): void {
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/projects/p-wiki/settings']}
-      >
+      <MemoryRouter initialEntries={['/projects/p-wiki/settings']}>
         <Routes>
           <Route path="/projects/:id/settings" element={<ProjectSettingsTab />} />
         </Routes>
@@ -147,10 +144,7 @@ describe('ProjectDetailPage — wiki page header link', () => {
 
   function renderPage(): void {
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/projects/p-wiki']}
-      >
+      <MemoryRouter initialEntries={['/projects/p-wiki']}>
         <Routes>
           <Route path="/projects/:id" element={<ProjectDetailPage />}>
             <Route index element={<div>KANBAN</div>} />
@@ -219,10 +213,7 @@ describe('ProjectSettingsTab — agent access', () => {
 
   function renderTab(): void {
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/projects/p-wiki/settings']}
-      >
+      <MemoryRouter initialEntries={['/projects/p-wiki/settings']}>
         <Routes>
           <Route path="/projects/:id/settings" element={<ProjectSettingsTab />} />
         </Routes>

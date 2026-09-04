@@ -18,7 +18,7 @@
  */
 import { CalendarPage, dropDeadline } from '@/features/calendar/CalendarPage';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { wsClient } from '@/shared/ws';
@@ -76,10 +76,7 @@ describe('CalendarPage (chrome only)', () => {
     stubEmptyList();
 
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/calendar']}
-      >
+      <MemoryRouter initialEntries={['/calendar']}>
         <CalendarPage />
       </MemoryRouter>,
     );
@@ -104,10 +101,7 @@ describe('CalendarPage (chrome only)', () => {
     stubEmptyList();
 
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/calendar']}
-      >
+      <MemoryRouter initialEntries={['/calendar']}>
         <CalendarPage />
       </MemoryRouter>,
     );
@@ -130,10 +124,7 @@ describe('CalendarPage (chrome only)', () => {
     stubEmptyList();
 
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/calendar']}
-      >
+      <MemoryRouter initialEntries={['/calendar']}>
         <CalendarPage />
       </MemoryRouter>,
     );
@@ -151,10 +142,7 @@ describe('CalendarPage (chrome only)', () => {
     stubHttp.get.mockRejectedValue(new Error('boom'));
 
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/calendar']}
-      >
+      <MemoryRouter initialEntries={['/calendar']}>
         <CalendarPage />
       </MemoryRouter>,
     );
@@ -166,10 +154,7 @@ describe('CalendarPage (chrome only)', () => {
     stubEmptyList();
 
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/calendar']}
-      >
+      <MemoryRouter initialEntries={['/calendar']}>
         <CalendarPage />
       </MemoryRouter>,
     );
@@ -203,10 +188,7 @@ describe('CalendarPage task deadlines (T90)', () => {
 
   function renderCalendar(search = '/calendar'): void {
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={[search]}
-      >
+      <MemoryRouter initialEntries={[search]}>
         <Routes>
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/tasks/:id" element={<div>task-page-reached</div>} />

@@ -16,7 +16,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router';
 
 import { ProjectDetailPage } from './ProjectDetailPage';
 import { api } from '@/shared/api/client';
@@ -57,10 +57,7 @@ describe('ProjectDetailPage — inline rename', () => {
 
   function renderPage(): void {
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/projects/p-1']}
-      >
+      <MemoryRouter initialEntries={['/projects/p-1']}>
         <Routes>
           <Route path="/projects/:id" element={<ProjectDetailPage />}>
             <Route index element={<div>KANBAN</div>} />

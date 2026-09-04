@@ -16,7 +16,7 @@
 import { AxiosError } from 'axios';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { lazy } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -62,10 +62,7 @@ function mountShell(entry: string) {
   const utils = render(
     <QueryClientProvider client={client}>
       <AuthProvider>
-        <MemoryRouter
-          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-          initialEntries={[entry]}
-        >
+        <MemoryRouter initialEntries={[entry]}>
           <Routes>
             <Route element={<AppLayout />}>
               <Route path="/" element={<div>CHILD HOME</div>} />
@@ -103,10 +100,7 @@ describe('AppLayout', () => {
     render(
       <QueryClientProvider client={client}>
         <AuthProvider>
-          <MemoryRouter
-            future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-            initialEntries={['/']}
-          >
+          <MemoryRouter initialEntries={['/']}>
             <Routes>
               <Route element={<AppLayout />}>
                 <Route path="/" element={<LazyChild />} />

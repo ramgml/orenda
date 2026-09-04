@@ -27,7 +27,7 @@
  */
 import { AxiosError } from 'axios';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthProvider } from '@/features/auth/AuthContext';
@@ -65,10 +65,7 @@ afterEach(() => {
 
 function mountLogin(initialEntry = '/login') {
   return render(
-    <MemoryRouter
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      initialEntries={[initialEntry]}
-    >
+    <MemoryRouter initialEntries={[initialEntry]}>
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -175,10 +172,7 @@ describe('LoginPage', () => {
     // App.tsx doesn't pass it yet — LoginPage already supports the
     // contract). MemoryRouter's initial state is { from: '/projects' }.
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={[{ pathname: '/login', state: { from: '/projects' } }]}
-      >
+      <MemoryRouter initialEntries={[{ pathname: '/login', state: { from: '/projects' } }]}>
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />

@@ -13,8 +13,7 @@
  *     (detailed cards show the due-badge row; compact ones don't).
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+{"path": "conflict://1", "content": "import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';\nimport { MemoryRouter } from 'react-router';"}
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Column, Task } from '@/shared/api/client';
@@ -100,7 +99,7 @@ function mountBoard(tasks: Task[]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <KanbanBoard projectId="p1" columns={[makeColumn()]} />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -282,7 +281,7 @@ describe('KanbanBoard — T106 board task search', () => {
     });
     render(
       <QueryClientProvider client={client}>
-        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <MemoryRouter>
           <KanbanBoard
             projectId="p1"
             columns={[makeColumn(), makeColumn({ id: 'col-empty', name: 'Empty', position: 2 })]}

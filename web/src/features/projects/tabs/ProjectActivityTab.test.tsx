@@ -6,7 +6,7 @@
  */
 import { cleanup, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { api, type ProjectActivityItem } from '@/shared/api/client';
@@ -77,10 +77,7 @@ describe('ProjectActivityTab — task 113 readable payload details', () => {
     });
 
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/projects/p1/activity']}
-      >
+      <MemoryRouter initialEntries={['/projects/p1/activity']}>
         <Routes>
           <Route path="/projects/:id/activity" element={<ProjectActivityTab />} />
         </Routes>

@@ -17,7 +17,7 @@
  *   (e) the last response wins over a slower earlier one.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WikiPage } from '@/features/wiki/WikiPage';
@@ -87,10 +87,7 @@ function LocationProbe(): JSX.Element {
 
 function mount(initialEntry: string) {
   return render(
-    <MemoryRouter
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      initialEntries={[initialEntry]}
-    >
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route
           path="/wiki"

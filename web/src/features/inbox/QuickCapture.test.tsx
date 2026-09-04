@@ -13,7 +13,7 @@
  * Esc closes the modal.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { QuickCapture } from '@/features/inbox/QuickCapture';
@@ -47,7 +47,7 @@ afterEach(() => {
 
 function mount() {
   return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter>
       <QuickCapture />
     </MemoryRouter>,
   );
@@ -333,10 +333,7 @@ describe('QuickCapture', () => {
       return null;
     }
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/today']}
-      >
+      <MemoryRouter initialEntries={['/today']}>
         <Probe />
         <QuickCapture />
       </MemoryRouter>,

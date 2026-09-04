@@ -19,7 +19,7 @@
  */
 import { AxiosError } from 'axios';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TodayPage } from '@/features/today/TodayPage';
@@ -54,10 +54,7 @@ afterEach(() => {
 
 function mount(initialEntries?: string[]) {
   return render(
-    <MemoryRouter
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      initialEntries={initialEntries ?? ['/']}
-    >
+    <MemoryRouter initialEntries={initialEntries ?? ['/']}>
       <TodayPage />
     </MemoryRouter>,
   );
@@ -504,10 +501,7 @@ describe('TodayPage', () => {
 
     const navigations: Array<{ pathname: string; state: unknown }> = [];
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/']}
-      >
+      <MemoryRouter initialEntries={['/']}>
         <RouteProbe onNavigate={(loc) => navigations.push(loc)} />
         <TodayPage />
       </MemoryRouter>,
@@ -541,10 +535,7 @@ describe('TodayPage', () => {
       return null;
     }
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/']}
-      >
+      <MemoryRouter initialEntries={['/']}>
         <RecordingProbe />
         <TodayPage />
       </MemoryRouter>,

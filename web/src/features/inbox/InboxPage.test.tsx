@@ -17,7 +17,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InboxPage } from '@/features/inbox/InboxPage';
@@ -67,7 +67,7 @@ function mount() {
   qc.setQueryData(agentsQueryKey, [] as Agent[]);
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <InboxPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -360,10 +360,7 @@ describe('InboxPage', () => {
     });
     render(
       <QueryClientProvider client={qc}>
-        <MemoryRouter
-          future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-          initialEntries={['/inbox']}
-        >
+        <MemoryRouter initialEntries={['/inbox']}>
           <Probe />
           <InboxPage />
         </MemoryRouter>

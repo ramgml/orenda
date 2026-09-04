@@ -13,7 +13,7 @@
  *     interpreted — raw HTML injection is gone for good.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SearchPage } from '@/features/search/SearchPage';
@@ -47,7 +47,7 @@ afterEach(() => {
 
 function mount() {
   return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter>
       <SearchPage />
     </MemoryRouter>,
   );

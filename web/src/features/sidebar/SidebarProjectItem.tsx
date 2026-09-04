@@ -16,7 +16,7 @@
  * Accessibility: link element gets the project name as its accessible
  * label, and the pin button announces via title attribute.
  */
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 
 import type { Project } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';

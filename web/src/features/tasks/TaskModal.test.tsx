@@ -21,7 +21,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router';
 
 import { TaskModal } from '@/features/tasks/TaskModal';
 
@@ -38,11 +38,7 @@ function renderModal(taskId = 'task-abc'): ReturnType<typeof render> {
   // contract was "background page stays mounted", and the modal
   // unmounts when the URL leaves the task route.
   return render(
-    <MemoryRouter
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      initialEntries={['/inbox', `/tasks/${taskId}`]}
-      initialIndex={1}
-    >
+    <MemoryRouter initialEntries={['/inbox', `/tasks/${taskId}`]} initialIndex={1}>
       <Routes>
         <Route path="/inbox" element={<div>inbox background</div>} />
         <Route path="/tasks/:id" element={<TaskModal />} />

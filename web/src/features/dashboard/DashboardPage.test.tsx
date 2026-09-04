@@ -11,7 +11,7 @@
  *   - Hovering a bar shows the tooltip with that day's values.
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DashboardPage } from '@/features/dashboard/DashboardPage';
@@ -64,7 +64,7 @@ const overview = {
 
 function mount() {
   return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter>
       <DashboardPage />
     </MemoryRouter>,
   );

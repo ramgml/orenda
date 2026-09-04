@@ -11,7 +11,7 @@
  * the task stays in the queue.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { wsClient } from '@/shared/ws';
@@ -98,7 +98,7 @@ describe('ReviewPage', () => {
   it('renders the loading placeholder while the queue is in flight', () => {
     stubHttp.get.mockReturnValue(new Promise(() => {}));
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <ReviewPage />
       </MemoryRouter>,
     );
@@ -108,7 +108,7 @@ describe('ReviewPage', () => {
   it('renders the empty state when the queue is empty', async () => {
     stubHttp.get.mockResolvedValueOnce({ data: { tasks: [], count: 0 } });
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <ReviewPage />
       </MemoryRouter>,
     );
@@ -120,7 +120,7 @@ describe('ReviewPage', () => {
       data: { tasks: [makeItem('t1', 'First'), makeItem('t2', 'Second')], count: 2 },
     });
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <ReviewPage />
       </MemoryRouter>,
     );
@@ -141,7 +141,7 @@ describe('ReviewPage', () => {
     stubHttp.post.mockResolvedValueOnce({ data: {} });
 
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <ReviewPage />
       </MemoryRouter>,
     );
@@ -166,7 +166,7 @@ describe('ReviewPage', () => {
     const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('Use a darker shade.');
 
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <ReviewPage />
       </MemoryRouter>,
     );
@@ -191,7 +191,7 @@ describe('ReviewPage', () => {
     vi.spyOn(window, 'prompt').mockReturnValue(null); // cancel
 
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <ReviewPage />
       </MemoryRouter>,
     );
@@ -209,7 +209,7 @@ describe('ReviewPage', () => {
     stubHttp.get.mockRejectedValueOnce(new Error('boom'));
 
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <ReviewPage />
       </MemoryRouter>,
     );
@@ -224,7 +224,7 @@ describe('ReviewPage', () => {
     stubHttp.post.mockRejectedValueOnce(new Error('nope'));
 
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <ReviewPage />
       </MemoryRouter>,
     );
@@ -243,7 +243,7 @@ describe('ReviewPage', () => {
     });
 
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <ReviewPage />
       </MemoryRouter>,
     );
@@ -270,10 +270,7 @@ describe('ReviewPage', () => {
       return null;
     }
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/review']}
-      >
+      <MemoryRouter initialEntries={['/review']}>
         <Probe />
         <ReviewPage />
       </MemoryRouter>,

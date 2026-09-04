@@ -1,4 +1,4 @@
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router';
 import { useDraggable } from '@dnd-kit/core';
 
 import { openTaskModal } from '@/features/tasks/TaskModal';

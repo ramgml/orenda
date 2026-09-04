@@ -18,7 +18,7 @@
  * to spin up a runtime for what is a pure rendering test.
  */
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LessonPage } from '@/features/courses/LessonPage';
@@ -97,10 +97,7 @@ function setupApi(opts: { treeResp: ReturnType<typeof tree> }) {
 
 function renderPage() {
   return render(
-    <MemoryRouter
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      initialEntries={['/lessons/lesson-1']}
-    >
+    <MemoryRouter initialEntries={['/lessons/lesson-1']}>
       <Routes>
         <Route path="/lessons/:id" element={<LessonPage />} />
       </Routes>

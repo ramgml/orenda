@@ -14,7 +14,7 @@
  * `<main>` with horizontal padding and overflow-y scrolling.
  */
 import { Suspense, useCallback, useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { LogOut } from 'lucide-react';

@@ -16,7 +16,7 @@
  *   - Unmount inside the debounce window tears the timer down cleanly.
  */
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SidebarNav } from '@/features/sidebar/SidebarNav';
@@ -54,7 +54,7 @@ function dispatchTasks(): void {
  */
 function mountNav() {
   return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter>
       <SidebarNav collapsed={false} />
     </MemoryRouter>,
   );
@@ -172,7 +172,7 @@ describe('SidebarNav review badge (Task 123)', () => {
   it('collapsed mode still renders the badge from the shared count', async () => {
     mockGetReviewQueueCount.mockResolvedValueOnce({ count: 3 });
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <SidebarNav collapsed />
       </MemoryRouter>,
     );

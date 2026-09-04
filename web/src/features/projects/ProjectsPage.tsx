@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 
 import { useAuth } from '@/features/auth/AuthContext';
 import { api, type Project } from '@/shared/api/client';

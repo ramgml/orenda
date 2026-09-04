@@ -14,7 +14,7 @@
  */
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 
 import { SettingsHome } from '@/features/settings/SettingsHome';
 
@@ -60,7 +60,7 @@ function renderHome(): ReturnType<typeof render> {
   // these tests — they assert on the rendered href. The '/' entry
   // is the default so we're not asserting on redirect behaviour.
   return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter>
       <SettingsHome />
     </MemoryRouter>,
   );

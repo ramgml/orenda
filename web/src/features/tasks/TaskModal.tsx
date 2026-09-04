@@ -7,7 +7,7 @@ import {
   useParams,
   type Location,
   type NavigateFunction,
-} from 'react-router-dom';
+} from 'react-router';
 
 import { useBodyScrollLock } from '@/shared/hooks/useBodyScrollLock';
 import { Button } from '@/shared/ui/button';

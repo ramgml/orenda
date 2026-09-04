@@ -15,7 +15,7 @@
  */
 import { cleanup, fireEvent, render, screen, type RenderResult } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 
 import { DescriptionEditor, DueEditor, EstimateEditor } from '@/features/tasks/TaskViewBody';
 import type { Task } from '@/shared/api/client';
@@ -113,7 +113,7 @@ describe('DueEditor (T90)', () => {
   function mountDue(task: Task): { onSaveDue: Mock } {
     const onSaveDue = vi.fn().mockResolvedValue(undefined);
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <DueEditor task={task} busy={false} onSaveDue={onSaveDue} />
       </MemoryRouter>,
     );
@@ -179,7 +179,7 @@ describe('EstimateEditor (T120)', () => {
   function mountEstimate(task: Task): { onSaveEstimate: Mock } {
     const onSaveEstimate = vi.fn().mockResolvedValue(undefined);
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <MemoryRouter>
         <EstimateEditor task={task} busy={false} onSaveEstimate={onSaveEstimate} />
       </MemoryRouter>,
     );

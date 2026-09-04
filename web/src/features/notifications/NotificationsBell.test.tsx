@@ -15,7 +15,7 @@
  *   - The `link` payload renders an "open" link to that route.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { NotificationsBell } from '@/features/notifications/NotificationsBell';
@@ -51,7 +51,7 @@ afterEach(() => {
 
 function mount() {
   return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter>
       <NotificationsBell />
     </MemoryRouter>,
   );
@@ -302,10 +302,7 @@ describe('NotificationsBell', () => {
       return null;
     }
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/']}
-      >
+      <MemoryRouter initialEntries={['/']}>
         <Probe />
         <NotificationsBell />
       </MemoryRouter>,
@@ -338,10 +335,7 @@ describe('NotificationsBell', () => {
     });
 
     render(
-      <MemoryRouter
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={['/']}
-      >
+      <MemoryRouter initialEntries={['/']}>
         <NotificationsBell />
       </MemoryRouter>,
     );

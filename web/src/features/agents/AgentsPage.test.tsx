@@ -15,7 +15,7 @@
  *   - Delete requires window.confirm; accepted calls deleteAgent.
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthProvider } from '@/features/auth/AuthContext';
@@ -69,7 +69,7 @@ function mount(agents: unknown[] = []) {
   });
 
   return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter>
       <AuthProvider>
         <AgentsPage />
       </AuthProvider>
