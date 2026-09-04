@@ -31,6 +31,27 @@ func openCLIDB(ctx context.Context, cfg *config.Config) (*sql.DB, func(), error)
 	return openCLIDBWithRaw(ctx, cfg)
 }
 
+// openCLIDBRaw opens the SQLite database WITHOUT running any
+// migrations — the caller sees the schema exactly as it is on disk
+// (T154). Needed by `migrate down` / `migrate status`: the hidden
+// Migrate(UP) inside the migrating open path re-applied whatever a
+// previous `down` had just rolled back, so repeated `down` calls
+// never moved the head. The migration runner (MigrateDown) and the
+// status command bootstrap schema_migrations themselves when it is
+// missing.
+func openCLIDBRaw(ctx context.Context, cfg *config.Config) (*sql.DB, func(), error) {
+	dbPath := cfg.ResolveDBPath(".")
+	db, err := sqlite.Open(ctx, dbPath, sqlite.OpenConfig{
+		WALMode:       cfg.Storage.WALMode,
+		EnableForeign: cfg.Storage.EnableForeign,
+		BusyTimeoutMs: cfg.Storage.BusyTimeoutMs,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("open db: %w", err)
+	}
+	return db, func() { _ = db.Close() }, nil
+}
+
 // openCLIDBWithRaw opens the DB and runs migrations without any
 // additional seeding. Useful for subcommands that need a migrated
 // DB but not the bootstrap side-effects (e.g. `migrate status`).

@@ -109,7 +109,12 @@ sync via INSERT/UPDATE/DELETE triggers.
 
 Every up-file `NNN_*.sql` has a paired `NNN_*.down.sql`. The custom runner
 (`internal/storage/sqlite/db.go::MigrateDown`; CLI `orenda migrate down`)
-rolls back one version per invocation. Header markers change runner behaviour:
+rolls back one version per invocation. The CLI reads the database raw
+before rolling back: `migrate down` and `migrate status` do NOT apply
+pending migrations first (a previous version ran a hidden `Migrate(UP)`
+in its open path, which re-applied whatever a previous `down` had just
+rolled back — T154). `MigrateDown` bootstraps `schema_migrations` itself
+when the table is missing. Header markers change runner behaviour:
 
 - `-- orenda:irreversible[: <reason>]` — down returns `ErrMigrationIrreversible`
   (currently: 001, 013, 015 — rebuilds/data moves that can't be undone safely).
