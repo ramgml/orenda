@@ -76,7 +76,7 @@ export function ColumnView({
    *  cards. */
   filterActive?: boolean;
 }): JSX.Element {
-  const { setNodeRef, isOver } = useDroppable({ id: columnId });
+  const { setNodeRef, isOver } = useDroppable({ id: columnId, data: { type: 'column' } });
   const navigate = useNavigate();
   const location = useLocation();
   const [creating, setCreating] = useState(false);
@@ -509,6 +509,7 @@ function SortableCard({
 }): JSX.Element {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
+    data: { type: 'task', columnId: task.column_id },
   });
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),

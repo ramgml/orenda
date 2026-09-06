@@ -772,6 +772,41 @@ describe('KanbanBoard — T150 cross-column card-over-card drop', () => {
     expect(calls[0].position).toBeLessThan(1024);
     expect(moveCalls()).toHaveLength(1);
   });
+
+  // T160: the whole column is the drop zone. With the old closestCenter
+  // detector a populated column's whitespace resolved to a CARD (nearest
+  // center), so dropping below the last card never registered the column
+  // as `over` — the move only worked on a small area. The detector now
+  // prefers cards under the pointer but hands the drop to the enclosing
+  // column wherever no card is.
+  it('drop into a populated column whitespace moves the card into that column', async () => {
+    stubRects({
+      'col-1': { left: 0, top: 0, width: 240, height: 400 },
+      'col-2': { left: 260, top: 0, width: 240, height: 400 },
+      t1: { left: 10, top: 60, width: 220, height: 56 },
+      t2: { left: 270, top: 60, width: 220, height: 56 },
+      t3: { left: 270, top: 130, width: 220, height: 56 },
+    });
+    mountTwoColBoard([
+      makeTask({ id: 't1', number: 1, column_id: 'col-1', title: 'Card One', position: 1024 }),
+      makeTask({ id: 't2', number: 2, column_id: 'col-2', title: 'Card Two', position: 1024 }),
+      makeTask({ id: 't3', number: 3, column_id: 'col-2', title: 'Card Three', position: 2048 }),
+    ]);
+    await screen.findByText('Card One');
+    tagBoardGeometry();
+
+    // col-2's whitespace: inside the column rect, below t3's bottom —
+    // under closestCenter this point resolved to t3 (or nothing).
+    const c2 = rectOfT('col-2');
+    await dragCard(cardHandle(document.body, 'Card One'), centerOf(rectOfT('t1')), {
+      x: c2.left + c2.width / 2,
+      y: c2.top + 320, // deep in the empty bottom half of col-2
+    });
+
+    const calls = movesFor('t1');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].columnId).toBe('col-2');
+  });
 });
 
 const TWO_COL_TASKS: Task[] = [
