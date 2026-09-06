@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [0.17.1] — 2026-09-06
+
+Patch release. Focus: fixing kanban drag-and-drop so the whole column accepts drops — populated columns previously resolved any drop in their whitespace to the nearest card center, leaving most of the column a dead zone.
+
+### Fixed
+- **Task 160 (PR #178):** the whole kanban column is now the drop zone — `closestCenter` resolved `over` to the single nearest droppable center, which in a populated column is always a card, so dropping into the column's whitespace (below the last card, padding gaps, beside the header) neither highlighted the column nor registered it as the target. The board now uses a `wholeColumnCollision` detector (dnd-kit multi-container pattern): `pointerWithin` finds every droppable under the pointer, cards win when present (card-over-card insert-next-to and same-column reorder from T150/T118 unchanged), and the enclosing column takes the drop wherever no card is; column/card droppables carry `data.type` (`column`/`task`), keyboard drags fall back to `closestCorners`. Covered by a regression test: a drop into a populated column's whitespace moves the card into that column.
+
 ## [0.17.0] — 2026-09-04
 
 Minor release. Focus: per-project agent access control (migration 043, default CLOSED — see Upgrade notes), grouped/tree agent task listing, react-router v7 upgrade, systemd sandbox hardening, and a batch of test-perf/infra fixes.
