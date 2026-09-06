@@ -48,7 +48,7 @@ Release gate на тегах (`ci.yml`) прогоняет только lint/tes
 # body = секция [X.Y.Z] из CHANGELOG.md (от `## [X.Y.Z]` до следующего `## [`);
 # границы секций: grep -n '^## \[' CHANGELOG.md
 gh release create vX.Y.Z \
-  --title "Orenda vX.Y.Z — <краткий фокус>" \
+  --title "Orenda vX.Y.Z" \
   --notes-file <section.md> --latest
 ```
 
