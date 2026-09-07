@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -50,6 +50,13 @@ import { Textarea } from '@/shared/ui/textarea';
  * after a destructive action without needing the body to know about
  * react-router.
  */
+/**
+ * T164: trailing window (ms) for WS-triggered reloads. A kanban drag
+ * publishes one task.moved event per moved card; reloading the whole
+ * task view per event exhausted the per-user rate limiter (429s).
+ */
+const WS_RELOAD_DEBOUNCE_MS = 400;
+
 /**
  * patchTaskOrQueue sends a PATCH through the offline outbox when the
  * client is disconnected, and falls back to the regular axios call
@@ -155,13 +162,35 @@ export function TaskViewBody({
 
   useEffect(() => {
     setTask(null); // Reset between taskIds so loading state is honest.
+    // T164: a pending debounced fetch for the PREVIOUS task must not
+    // land after the switch (it would reload the wrong view).
+    clearTimeout(wsReloadTimer.current);
+    wsReloadTimer.current = undefined;
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);
 
-  // Live updates on any task event.
+  // Live updates on any task event, debounced (T164): the view refetches
+  // ~10 endpoints per event, and a kanban drag publishes one task.moved
+  // per moved card — the per-event fan-out exhausted the rate limiter
+  // (429s). The trailing window collapses a burst into one load shortly
+  // after the last event (same pattern as SidebarNav's badge).
+  const wsReloadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(
+    () => () => {
+      // Unmount: drop the pending debounced fetch so no setState
+      // fires after the view is gone.
+      clearTimeout(wsReloadTimer.current);
+      wsReloadTimer.current = undefined;
+    },
+    [],
+  );
   useWebSocketTopic('tasks', () => {
-    load();
+    clearTimeout(wsReloadTimer.current);
+    wsReloadTimer.current = setTimeout(() => {
+      wsReloadTimer.current = undefined;
+      void load();
+    }, WS_RELOAD_DEBOUNCE_MS);
   });
 
   // Ctrl+V anywhere on the page → drop a screenshot into this task's

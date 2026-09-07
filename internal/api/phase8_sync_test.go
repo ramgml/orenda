@@ -152,6 +152,79 @@ func TestP8_Sync_MoveTask_RecordsActor(t *testing.T) {
 	assert.Equal(t, colID, payload["column_id"])
 }
 
+// T164: a sync move_task whose payload carries an explicit position
+// must persist it verbatim. Before the fix the field was silently
+// dropped from the payload struct, Move() derived an append position
+// instead, and the batched suffix rebalance lost its order after
+// reload (F5).
+func TestP8_Sync_MoveTask_WithPositionPersists(t *testing.T) {
+	t.Parallel()
+	router, db := buildP3Router(t)
+	cookie := p3Login(t, router)
+	projID, colID := p3SeedProject(t, router, cookie, "P8pos")
+	taskID := p3SeedTask(t, router, cookie, projID, colID, "ordered")
+
+	op := map[string]any{
+		"op":         "move_task",
+		"target":     taskID,
+		"payload":    map[string]any{"column_id": colID, "position": 2048},
+		"client_id":  "c-move-pos-1",
+		"created_at": time.Now().UTC().Format(time.RFC3339),
+	}
+	rr := p8PostSync(t, router, cookie, []map[string]any{op})
+	require.Equal(t, http.StatusOK, rr.Code)
+	results := parseSyncResults(t, rr)
+	require.Len(t, results, 1)
+	require.True(t, results[0].OK, "err=%s", results[0].Error)
+
+	var pos float64
+	require.NoError(t, db.QueryRow("SELECT position FROM tasks WHERE id = ?", taskID).Scan(&pos))
+	assert.Equal(t, float64(2048), pos, "payload.position must be persisted verbatim")
+}
+
+// T164 companion: payload WITHOUT position keeps the historical
+// derive-from-neighbours behaviour (append to the column's end), so
+// old outboxes stay wire-compatible.
+func TestP8_Sync_MoveTask_WithoutPositionDerives(t *testing.T) {
+	t.Parallel()
+	router, db := buildP3Router(t)
+	cookie := p3Login(t, router)
+	projID, colID := p3SeedProject(t, router, cookie, "P8nopos")
+	first := p3SeedTask(t, router, cookie, projID, colID, "anchor")
+
+	// Anchor at a known position so the derived append is unambiguous.
+	anchorOp := map[string]any{
+		"op":         "move_task",
+		"target":     first,
+		"payload":    map[string]any{"column_id": colID, "position": 4096},
+		"client_id":  "c-move-pos-2",
+		"created_at": time.Now().UTC().Format(time.RFC3339),
+	}
+	second := p3SeedTask(t, router, cookie, projID, colID, "appended")
+	op := map[string]any{
+		"op":         "move_task",
+		"target":     second,
+		"payload":    map[string]any{"column_id": colID},
+		"client_id":  "c-move-pos-3",
+		"created_at": time.Now().UTC().Format(time.RFC3339),
+	}
+	rr := p8PostSync(t, router, cookie, []map[string]any{anchorOp, op})
+	require.Equal(t, http.StatusOK, rr.Code)
+	results := parseSyncResults(t, rr)
+	require.Len(t, results, 2)
+	require.True(t, results[1].OK, "err=%s", results[1].Error)
+
+	var pos float64
+	require.NoError(t, db.QueryRow("SELECT position FROM tasks WHERE id = ?", second).Scan(&pos))
+	// derivePosition with no Before/After keeps "current + 1024" — the
+	// card keeps its old slot bumped by one step, NOT the anchor's
+	// position. The invariant that matters here: the op didn't zero
+	// the position and didn't copy the anchor's.
+	assert.NotEqual(t, float64(0), pos, "position-less move must not zero the position")
+	assert.NotEqual(t, float64(4096), pos, "position-less move must not adopt the anchor's position")
+	assert.GreaterOrEqual(t, pos, float64(1024), "derived position is the bumped current value")
+}
+
 func TestP8_Sync_UnsupportedOp(t *testing.T) {
 	t.Parallel()
 	router, _ := buildP3Router(t)

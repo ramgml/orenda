@@ -191,6 +191,62 @@ func TestService_Move_PublishesHubEvent(t *testing.T) {
 	assert.Equal(t, "tasks", hub.events[0].topic)
 }
 
+// T164: a move that changes neither the column nor the position is a
+// no-op — the task must come back untouched with NO update, NO
+// activity row and NO task.moved publish (a replayed drop used to
+// emit a full event burst that the board refetched, exhausting the
+// per-user rate limiter).
+func TestService_Move_NoOpSkipsUpdateAndPublish(t *testing.T) {
+	db := setupMoveDB(t)
+	p, cols := setupMoveProject(t, db)
+	repo := sqlite.NewTaskRepository(db)
+	hub := &recordingHub{}
+	rec := &recordingRecorder{}
+	svc := taskservice.New(repo, nil, rec, nil, hub)
+
+	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "same spot", Position: 512}
+	require.NoError(t, repo.Create(context.Background(), tr))
+
+	moved, err := svc.Move(context.Background(), tr.ID, taskservice.MoveOptions{
+		TargetColumnID: cols[0].ID,
+		Position:       512,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, float64(512), moved.Position)
+	assert.Equal(t, cols[0].ID, moved.ColumnID)
+	assert.Empty(t, hub.events, "no-op move must not publish task.moved")
+	assert.Empty(t, rec.calls, "no-op move must not record activity")
+
+	// updated_at is the observable "nothing was written" probe: the
+	// no-op must not touch the row.
+	fresh, err := repo.GetByID(context.Background(), tr.ID)
+	require.NoError(t, err)
+	assert.Equal(t, tr.UpdatedAt, fresh.UpdatedAt, "no-op move must not persist")
+}
+
+// T164 companion: the same task, same column, but a DIFFERENT position
+// is a real move — publish + activity must still fire.
+func TestService_Move_SameColumnNewPositionStillPublishes(t *testing.T) {
+	db := setupMoveDB(t)
+	p, cols := setupMoveProject(t, db)
+	repo := sqlite.NewTaskRepository(db)
+	hub := &recordingHub{}
+	rec := &recordingRecorder{}
+	svc := taskservice.New(repo, nil, rec, nil, hub)
+
+	tr := &task.Task{ProjectID: p.ID, ColumnID: cols[0].ID, Title: "shifting", Position: 512}
+	require.NoError(t, repo.Create(context.Background(), tr))
+
+	moved, err := svc.Move(context.Background(), tr.ID, taskservice.MoveOptions{
+		TargetColumnID: cols[0].ID,
+		Position:       1536,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, float64(1536), moved.Position)
+	assert.NotEmpty(t, hub.events, "real move must publish task.moved")
+	assert.NotEmpty(t, rec.calls, "real move must record activity")
+}
+
 // Phase 33.1: moving an awaiting=human card off the review queue
 // (agent-proposed backlog task accepted onto the board, or a review
 // card dragged elsewhere) clears awaiting — the triage happened.

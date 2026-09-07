@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import type { ClientRect as DndKitClientRect } from '@dnd-kit/core';
 import {
   DndContext,
@@ -71,6 +71,14 @@ import { computeReorderSuffix, computeTaskPosition, neighbourPositions } from '.
  * while filtered still moves the real task, and selection can't
  * sweep up hidden cards.
  */
+
+/**
+ * T164: trailing window (ms) that collapses a burst of WS task events
+ * into one board refetch. A single drag can publish one event per
+ * moved card; refetching per event exhausted the per-user rate
+ * limiter (429s). Same value as the SidebarNav badge debounce.
+ */
+const WS_RELOAD_DEBOUNCE_MS = 400;
 
 /**
  * T106: does the task match the board's search query? Case-
@@ -213,15 +221,39 @@ export function KanbanBoard({
     }
   }
 
+  // Pending trailing-debounce timer for WS-triggered refetches (T164).
+  const wsReloadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
   useEffect(() => {
+    // T164: a pending debounced fetch for the PREVIOUS project must not
+    // land after the switch (it would refetch the wrong board).
+    clearTimeout(wsReloadTimer.current);
+    wsReloadTimer.current = undefined;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  // Re-fetch on every task/column event. Simple, correct, and
-  // acceptable at Phase 2/12 scale (one owner, one board, <1k tasks).
+  // Re-fetch on task/column events, debounced (T164): one suffix batch
+  // publishes a burst of task.moved events, and an immediate full GET
+  // per event exhausted the per-user rate limiter (429s everywhere).
+  // The trailing window collapses the burst into one refetch shortly
+  // after the last event (same pattern as SidebarNav's badge).
+
+  useEffect(
+    () => () => {
+      // Unmount: drop the pending debounced fetch so no setState
+      // fires after the board is gone.
+      clearTimeout(wsReloadTimer.current);
+      wsReloadTimer.current = undefined;
+    },
+    [],
+  );
   useWebSocketTopic('tasks', () => {
-    load();
+    clearTimeout(wsReloadTimer.current);
+    wsReloadTimer.current = setTimeout(() => {
+      wsReloadTimer.current = undefined;
+      void load();
+    }, WS_RELOAD_DEBOUNCE_MS);
   });
 
   function toggleTaskSelection(taskId: string): void {
@@ -375,17 +407,30 @@ export function KanbanBoard({
       // Mirror the same-column reorder: suffix bumps fire best-effort
       // after the primary move, and only when it actually landed — a
       // WIP-reverted drop must not shift the target column's cards.
+      // T164: the bumps go out as ONE sync batch (ascending positions,
+      // chunked at 150) instead of one POST per card — the fan-out
+      // exhausted the per-user rate limiter (429s).
       if (await moveTaskToColumn(activeId, targetColumnId, movedPos)) {
-        for (const [id, pos] of others) {
-          try {
-            if (typeof navigator !== 'undefined' && !navigator.onLine) {
-              await queueMoveTask(id, targetColumnId, pos);
-            } else {
-              await api.moveTask(id, targetColumnId, pos);
+        if (others.length > 0) {
+          if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            for (const [id, pos] of others) {
+              try {
+                await queueMoveTask(id, targetColumnId, pos);
+              } catch {
+                // Best-effort: see sync-path comment below.
+              }
             }
-          } catch {
-            // Best-effort: a failed suffix bump re-syncs on next WS
-            // refetch; the moved card itself is already authoritative.
+          } else {
+            try {
+              await api.moveTasksBatch(
+                others
+                  .sort((a, b) => a[1] - b[1])
+                  .map(([id, pos]) => ({ taskId: id, columnId: targetColumnId, position: pos })),
+              );
+            } catch {
+              // Best-effort: a failed suffix bump re-syncs on next WS
+              // refetch; the moved card itself is already authoritative.
+            }
           }
         }
       }
@@ -437,13 +482,24 @@ export function KanbanBoard({
       } else {
         await api.moveTask(activeId, columnId, movedPos);
       }
-      for (const [id, pos] of others) {
-        try {
-          if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      // T164: suffix bumps go out as ONE sync batch (ascending
+      // positions, chunked at 150) instead of one POST per card. The
+      // old per-card fan-out exhausted the per-user rate limiter.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        for (const [id, pos] of others) {
+          try {
             await queueMoveTask(id, columnId, pos);
-          } else {
-            await api.moveTask(id, columnId, pos);
+          } catch {
+            // Best-effort: see sync-path comment below.
           }
+        }
+      } else {
+        try {
+          await api.moveTasksBatch(
+            others
+              .sort((a, b) => a[1] - b[1])
+              .map(([id, pos]) => ({ taskId: id, columnId, position: pos })),
+          );
         } catch {
           // Best-effort: a failed suffix bump re-syncs on next WS
           // refetch; the moved card itself is already authoritative.
