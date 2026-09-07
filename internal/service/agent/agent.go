@@ -265,7 +265,14 @@ func (s *Service) RotateToken(ctx context.Context, agentID string) (*Registered,
 //
 // The Phase 3 data model has agents.token_id → api_tokens.id but no
 // agents.owner_id; the token row still needs a user_id. We use a single
-// synthetic "agent-owner" user — the seed migration ensures the row exists.
+// synthetic "agent-owner" user, created on first use.
+//
+// T171: the row is created with RoleSystem, not owner. The password is
+// the constant "unusable" (visible in source) and Validate would
+// otherwise default the role to owner — anyone who knows the constant
+// could mint a full owner session via loginHandler. Migration 044 heals
+// rows created before the role was set; loginHandler additionally
+// rejects non-owner logins (same 401 shape, no information leak).
 func (s *Service) ensureOwner(ctx context.Context) (*user.User, error) {
 	const email = "agent-owner@orenda.local"
 	u, err := s.Users.GetByEmail(ctx, email)
@@ -283,6 +290,7 @@ func (s *Service) ensureOwner(ctx context.Context) (*user.User, error) {
 		Email:        email,
 		PasswordHash: hash,
 		DisplayName:  "Agent Owner",
+		Role:         user.RoleSystem,
 	}
 	if err := s.Users.Create(ctx, u); err != nil {
 		return nil, fmt.Errorf("agent service: create owner: %w", err)
