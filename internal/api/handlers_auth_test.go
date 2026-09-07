@@ -214,6 +214,106 @@ func TestLogin_InvalidCredentials_Returns401(t *testing.T) {
 	assert.Empty(t, rr.Result().Cookies(), "failed login must NOT set a cookie")
 }
 
+// seedSyntheticOwner plants the T171 synthetic agent-owner user exactly
+// as the agent service's ensureOwner creates it: constant email +
+// constant "unusable" password, role system.
+func seedSyntheticOwner(t *testing.T, repo *pwUserRepo) {
+	t.Helper()
+	hash, err := auth.HashPassword("unusable", 4)
+	require.NoError(t, err)
+	u := &user.User{
+		ID:           "u-sys",
+		Email:        "agent-owner@orenda.local",
+		DisplayName:  "Agent Owner",
+		Role:         user.RoleSystem,
+		PasswordHash: hash,
+	}
+	require.NoError(t, repo.Create(t.Context(), u))
+}
+
+// TestLogin_RoleGate pins the T171 hardening of loginHandler:
+//  1. the synthetic agent-owner (constant email + "unusable" password,
+//     role=system) gets the SAME 401/`invalid_credentials` shape as a
+//     wrong password — no information leak, no cookie, no token;
+//  2. a real owner (role=owner) still logs in normally and the issued
+//     token authenticates on an owner-scope route;
+//  3. a wrong password is still 401 unchanged.
+func TestLogin_RoleGate(t *testing.T) {
+	t.Parallel()
+	newRouter := func() http.Handler {
+		users := newPWRepo()
+		seedSyntheticOwner(t, users)
+		seedOwner(t, users, "correct-horse")
+		signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", 24*time.Hour, "orenda")
+		return loginRouter(users, signer, "orenda_session", true, 24*time.Hour)
+	}
+
+	t.Run("synthetic agent-owner login rejected with same 401 shape", func(t *testing.T) {
+		t.Parallel()
+		r := newRouter()
+		body := strings.NewReader(`{"email":"agent-owner@orenda.local","password":"unusable"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", body)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+		var got map[string]string
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+		assert.Equal(t, "invalid_credentials", got["error"], "must reuse the invalid-credentials shape (no leak)")
+		assert.Empty(t, rr.Result().Cookies(), "rejected login must NOT set a cookie")
+	})
+
+	t.Run("real owner still logs in and token works on owner route", func(t *testing.T) {
+		t.Parallel()
+		r := newRouter()
+		body := strings.NewReader(`{"email":"owner@orenda.local","password":"correct-horse"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", body)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+
+		require.Equal(t, http.StatusOK, rr.Code, "owner login must succeed: %s", rr.Body.String())
+		var got map[string]any
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+		assert.Equal(t, "owner", got["role"])
+		tok, _ := got["token"].(string)
+		require.NotEmpty(t, tok)
+
+		// The token must carry an owner identity: RequireScope-protected
+		// endpoint mounted straight on the middleware seam. (RequireUser
+		// needs a Users repo + signer; the repo is rebuilt here.)
+		users := newPWRepo()
+		seedSyntheticOwner(t, users)
+		seedOwner(t, users, "correct-horse")
+		signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", 24*time.Hour, "orenda")
+		ownerRoute := http.NewServeMux()
+		ownerRoute.Handle("/owner-only", api.RequireUser(api.AuthConfig{
+			Signer: signer, Users: users, CookieName: "orenda_session",
+		})(api.RequireScope("tasks:read")(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))))
+
+		req2 := httptest.NewRequest(http.MethodGet, "/owner-only", nil)
+		req2.Header.Set("Authorization", "Bearer "+tok)
+		rr2 := httptest.NewRecorder()
+		ownerRoute.ServeHTTP(rr2, req2)
+		assert.Equal(t, http.StatusOK, rr2.Code, "owner token must pass an owner-scope route")
+	})
+
+	t.Run("wrong password still 401 unchanged", func(t *testing.T) {
+		t.Parallel()
+		r := newRouter()
+		body := strings.NewReader(`{"email":"owner@orenda.local","password":"WRONG"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", body)
+		rr := httptest.NewRecorder()
+		r.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusUnauthorized, rr.Code)
+		assert.Empty(t, rr.Result().Cookies(), "failed login must NOT set a cookie")
+	})
+}
+
 func TestLogout_CookieAttributes(t *testing.T) {
 	t.Parallel()
 	// logout doesn't need a user or signer; only the cookie

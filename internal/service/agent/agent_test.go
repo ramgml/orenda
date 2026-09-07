@@ -255,6 +255,8 @@ func (m *failingMinter) MintToken(ctx context.Context, userID, name, hash, scope
 
 func (m *failingMinter) UpdateHash(ctx context.Context, tokenID, hash string) error {
 	return errors.New("injected UpdateHash failure")
+}
+
 // TestService_Register_SyntheticOwnerIsSystemRole pins the T171 hardening:
 // the synthetic agent-owner user that ensureOwner lazily creates on a
 // fresh database must carry role='system', NOT the Validate()'s
