@@ -17,6 +17,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [0.18.0] — 2026-09-07
+
+Minor release. Focus: kanban reliability and wide-screen layout (batched drag moves with WS debouncing, fixed-width columns with horizontal scroll), agent token rotation, and security hardening of the synthetic agent-owner identity.
+
+### Added
+- **Task 165 (PR #183):** agent token regeneration — `POST /api/v1/agents/{id}/regenerate-token` (owner session) mints a new credential for the SAME `api_tokens` row (`agents.token_id` FK unchanged, so agent identity/locks/settings survive), returns `{agent, plain_token}` where the plaintext is shown exactly once and never persisted (only the bcrypt hash is updated); the old plaintext dies immediately and `agent.token_rotated` is broadcast. Web `/agents`: one-time banner Copy button (clipboard, «Copied» reverts after 2s) and a «Regenerate token» row action behind `window.confirm` showing the new token in the same banner; old token gets 401, new authenticates. OpenAPI spec + embedded copy updated via `make openapi-sync`.
+- **Task 167 (PR #187):** kanban on wide screens — columns render as fixed-width 280px tracks in a horizontally scrollable flex strip (was a 5-column `1fr` grid that squeezed columns), «+ Add column» tile stays in the same strip to the right; with 6+ columns the board scrolls horizontally instead of compressing; dnd preserved (sortable placeholder keeps the track width, dnd-kit autoscroll engages on the `overflow-x-auto` ancestor).
+
+### Changed
+- **Task 164 (PR #185):** kanban drag no longer fires a request storm — dragging a card high in a populated column used to fan out one `POST /tasks/{id}/move` per displaced suffix card with an un-debounced WS refetch after each, hitting 429 rate limits. The whole suffix rebalance now batches into a single `POST /api/v1/sync` (`move_task` ops, ≤150 per chunk, positions ascending; cross-column drags batch the target-column suffix the same way; offline drags go to the outbox instead of the network), and kanban/task-view websocket reloads debounce at 400ms; the Go `Move()` gained a no-op guard (same position → no publish/activity), and sync `move_task` persists the client `payload.position` so batch order survives.
+
+### Fixed
+- **Task 168 (PR #184):** `/agents` white screen — agents with no labels were serialized as `"type": null` (nil-slice marshalling), and `AgentsPage` crashed with a TypeError reading `a.type.length`. Agent `type` labels are now normalized to `[]` at the JSON boundary in every response that carries them (owner-side list/create/get/heartbeat, agent-side `/agent/me` + heartbeat, `agent.heartbeat` WS event), plus `(a.type ?? [])` defense-in-depth in the UI; API contract stays `array of string` (non-nullable).
+- **Task 162 (PR #182):** removed the obsolete `SMOKE/` evidence screenshots (11 webp artifacts of a one-off Task 102 smoke session, no live references in code or docs).
+
+### Security
+- **Task 171 (PR #186):** synthetic agent-owner hardening — the `agent-owner@orenda.local` service user (constant unusable password) now gets `role='system'` on fresh databases (`ensureOwner`), and migration `044_agent_owner_system_role` heals existing instances where it sat at `role='owner'` (scoped to that email, idempotent, real owners untouched); `loginHandler` additionally rejects any non-owner role after password verification with the same `401 invalid_credentials` shape (no information leak, no cookie/token) — defense in depth on top of non-owner roles already having zero scopes.
+
 ## [0.17.1] — 2026-09-06
 
 Patch release. Focus: fixing kanban drag-and-drop so the whole column accepts drops — populated columns previously resolved any drop in their whitespace to the nearest card center, leaving most of the column a dead zone.
