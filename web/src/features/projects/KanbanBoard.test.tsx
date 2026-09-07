@@ -329,6 +329,18 @@ describe('KanbanBoard — T106 board task search', () => {
   });
 
   it('filter survives a WS re-fetch and applies to the fresh task list', async () => {
+    // T164: the board's WS reload is debounced (trailing 400ms), so the
+    // real-timer window must be jumped with fake timers.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await runWsRefetchFilterScenario();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /** Body of the WS-refetch filter test, split out for timer scoping. */
+  async function runWsRefetchFilterScenario(): Promise<void> {
     mountBoard([makeTask({ title: 'Alpha' })]);
     await screen.findByText('Alpha');
     type('alpha');
@@ -361,6 +373,12 @@ describe('KanbanBoard — T106 board task search', () => {
     sock?.onmessage?.({ data: JSON.stringify({ topic: 'tasks', body: {} }) });
     wsClient.disconnect();
 
+    // T164: the refetch is debounced — jump the trailing window with
+    // fake timers so the reload runs before the assertions.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
     // Beta arrived but stays hidden — the query is still active.
     await waitFor(() => {
       expect(screen.queryByText('Beta fresh')).toBeNull();
@@ -370,7 +388,7 @@ describe('KanbanBoard — T106 board task search', () => {
     // Clearing reveals it — the filter applies to the fresh list, not a snapshot.
     type('');
     expect(screen.getByText('Beta fresh')).toBeTruthy();
-  });
+  }
 });
 
 /**
@@ -806,6 +824,247 @@ describe('KanbanBoard — T150 cross-column card-over-card drop', () => {
     const calls = movesFor('t1');
     expect(calls).toHaveLength(1);
     expect(calls[0].columnId).toBe('col-2');
+  });
+});
+
+/**
+ * T164 — drag fan-out eliminated.
+ *
+ * A suffix rebalance used to fire one POST /api/v1/tasks/:id/move per
+ * bumped card; together with the per-event WS refetch burst that
+ * exhausted the per-user rate limiter (429s). These tests pin the new
+ * contract: suffix bumps travel as ONE POST /api/v1/sync with op
+ * move_task, and a WS task-event burst collapses into ONE refetch.
+ */
+describe('KanbanBoard — T164 drag fan-out elimination', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // Global beforeEach's vi.clearAllMocks() wiped every POST
+    // implementation; without a default the moves resolve to
+    // undefined and the board's try/catch swallows the TypeError —
+    // exactly the silent-zero-POST failure this suite saw.
+    stubHttp.post.mockResolvedValue({ data: {} });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Parses the ops arrays of every POST /api/v1/sync call. */
+  function syncOps(): Array<Record<string, unknown>> {
+    const calls = stubHttp.post.mock.calls.filter(([u]) => u === '/api/v1/sync');
+    return calls.flatMap((call) => {
+      const body: unknown = call[1];
+      if (body && typeof body === 'object' && 'ops' in body) {
+        const ops: unknown = body.ops;
+        if (Array.isArray(ops)) {
+          return ops as Array<Record<string, unknown>>;
+        }
+      }
+      return [];
+    });
+  }
+
+  it('same-column tied-suffix reorder sends ONE sync batch, not N move POSTs', async () => {
+    stubRects({
+      'col-1': { left: 0, top: 0, width: 240, height: 400 },
+      'col-2': { left: 260, top: 0, width: 240, height: 400 },
+      t1: { left: 10, top: 60, width: 220, height: 56 },
+      t2: { left: 10, top: 130, width: 220, height: 56 },
+      t3: { left: 10, top: 200, width: 220, height: 56 },
+    });
+    // Legacy ties: all three cards share position 0, so ANY reorder
+    // rebalances the whole tied suffix (t3 → front bumps t1 and t2).
+    mountTwoColBoard([
+      makeTask({ id: 't1', number: 1, column_id: 'col-1', title: 'Card One', position: 0 }),
+      makeTask({ id: 't2', number: 2, column_id: 'col-1', title: 'Card Two', position: 0 }),
+      makeTask({ id: 't3', number: 3, column_id: 'col-1', title: 'Card Three', position: 0 }),
+    ]);
+    await screen.findByText('Card One');
+    tagBoardGeometry();
+
+    // Drop Card Three above Card One: t3 gets an explicit position,
+    // t1/t2 are bumped via the batch.
+    await dragCard(cardHandle(document.body, 'Card Three'), centerOf(rectOfT('t3')), {
+      x: rectOfT('t1').left + rectOfT('t1').width / 2,
+      y: rectOfT('t1').top + 12,
+    });
+
+    // The primary move is still its own POST (fast failure path);
+    // the suffix bumps are ONE /sync call carrying both bump ops.
+    expect(movesFor('t3')).toHaveLength(1);
+    const ops = syncOps();
+    expect(ops).toHaveLength(2);
+    const ids = ops.map((o) => o.target);
+    expect(ids).toContain('t1');
+    expect(ids).toContain('t2');
+    for (const o of ops) {
+      expect(o.op).toBe('move_task');
+      // Review: the server rejects ops without a client_id, and the
+      // board swallows sync failures — pin the non-empty id here or a
+      // regression would fail silently (results[0].OK=false, no POST
+      // assertion trips).
+      expect(typeof o.client_id).toBe('string');
+      expect(String(o.client_id).length).toBeGreaterThan(0);
+    }
+    // Ascending position order (server applies them in array order).
+    const positions = ops.map((o) => {
+      const p: unknown = o.payload;
+      if (p && typeof p === 'object' && 'position' in p) {
+        const pos: unknown = p.position;
+        return typeof pos === 'number' ? pos : 0;
+      }
+      return 0;
+    });
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+    // Review: F5 reload order relies on ORDER BY position, created_at,
+    // so the batch must carry strictly distinct positions (ties would
+    // fall back to insert order and resurrect the pre-batch layout).
+    expect(new Set(positions).size).toBe(positions.length);
+  });
+
+  it('cross-column drop with tied suffix batches the bumps into the target column', async () => {
+    stubRects({
+      'col-1': { left: 0, top: 0, width: 240, height: 400 },
+      'col-2': { left: 260, top: 0, width: 240, height: 400 },
+      t1: { left: 10, top: 60, width: 220, height: 56 },
+      t2: { left: 270, top: 60, width: 220, height: 56 },
+      t3: { left: 270, top: 130, width: 220, height: 56 },
+    });
+    // col-2 holds two position-tied cards. Dropping t1 between them
+    // (above t3, after t2) puts the moved card into a tie with t3 —
+    // the suffix helper renumbers both, and the t3 bump must travel
+    // as ONE /sync op into col-2, not a per-card POST.
+    mountTwoColBoard([
+      makeTask({ id: 't1', number: 1, column_id: 'col-1', title: 'Card One', position: 1024 }),
+      makeTask({ id: 't2', number: 2, column_id: 'col-2', title: 'Card Two', position: 0 }),
+      makeTask({ id: 't3', number: 3, column_id: 'col-2', title: 'Card Three', position: 0 }),
+    ]);
+    await screen.findByText('Card One');
+    tagBoardGeometry();
+
+    await dragCard(cardHandle(document.body, 'Card One'), centerOf(rectOfT('t1')), {
+      x: rectOfT('t3').left + rectOfT('t3').width / 2,
+      y: rectOfT('t3').top + 12,
+    });
+
+    expect(movesFor('t1')).toHaveLength(1);
+    // Review: pin EXACTLY one /sync round-trip (flat-mapping syncOps()
+    // alone would pass with a silent re-fan-out into several calls).
+    expect(
+      stubHttp.post.mock.calls.filter(([u]) => String(u).endsWith('/api/v1/sync')),
+    ).toHaveLength(1);
+    // Fixture: t1 dropped between tied t2/t3 → only the t3 bump rides
+    // the batch (t2 precedes the insertion point, t1 rides the primary
+    // move) → exactly one op.
+    const ops = syncOps();
+    expect(ops).toHaveLength(1);
+    for (const o of ops) {
+      expect(o.op).toBe('move_task');
+      expect(typeof o.client_id).toBe('string');
+      expect(String(o.client_id).length).toBeGreaterThan(0);
+      const p: unknown = o.payload;
+      if (p && typeof p === 'object' && 'column_id' in p) {
+        const cid: unknown = p.column_id;
+        expect(cid).toBe('col-2');
+      }
+      if (p && typeof p === 'object' && 'position' in p) {
+        const pos: unknown = p.position;
+        expect(typeof pos).toBe('number');
+      }
+    }
+    const batchPositions = ops.map((o) => {
+      const p: unknown = o.payload;
+      return p && typeof p === 'object' && 'position' in p ? p.position : 0;
+    });
+    expect(new Set(batchPositions).size).toBe(batchPositions.length);
+    const targets = ops.map((o) => o.target);
+    expect(targets).not.toContain('t1');
+  });
+
+  it('offline suffix bumps go to the outbox instead of /sync', async () => {
+    stubRects({
+      'col-1': { left: 0, top: 0, width: 240, height: 400 },
+      'col-2': { left: 260, top: 0, width: 240, height: 400 },
+      t1: { left: 10, top: 60, width: 220, height: 56 },
+      t2: { left: 10, top: 130, width: 220, height: 56 },
+      t3: { left: 10, top: 200, width: 220, height: 56 },
+    });
+    mountTwoColBoard([
+      makeTask({ id: 't1', number: 1, column_id: 'col-1', title: 'Card One', position: 0 }),
+      makeTask({ id: 't2', number: 2, column_id: 'col-1', title: 'Card Two', position: 0 }),
+      makeTask({ id: 't3', number: 3, column_id: 'col-1', title: 'Card Three', position: 0 }),
+    ]);
+    await screen.findByText('Card One');
+    tagBoardGeometry();
+
+    const outbox = await import('@/shared/offline/outbox');
+    const queue = vi.spyOn(outbox, 'queueMoveTask').mockResolvedValue('client-1');
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+
+    await dragCard(cardHandle(document.body, 'Card Three'), centerOf(rectOfT('t3')), {
+      x: rectOfT('t1').left + rectOfT('t1').width / 2,
+      y: rectOfT('t1').top + 12,
+    });
+
+    online.mockRestore();
+    // Offline: the PRIMARY move AND both suffix bumps go through the
+    // outbox (queueMoveTask) — nothing hits the network.
+    const syncCalls = stubHttp.post.mock.calls.filter(([u]) => u === '/api/v1/sync');
+    expect(syncCalls).toHaveLength(0);
+    expect(queue).toHaveBeenCalledTimes(3);
+    const primary = queue.mock.calls[0];
+    expect(primary[0]).toBe('t3');
+    for (const call of queue.mock.calls) {
+      expect(call[1]).toBe('col-1');
+      expect(typeof call[2]).toBe('number');
+    }
+  });
+
+  it('a burst of WS task events collapses into ONE board refetch', async () => {
+    let gets = 0;
+    stubHttp.get.mockImplementation((url: string) => {
+      if (url === '/api/v1/agents') return Promise.resolve({ data: { agents: [] } });
+      if (url === '/api/v1/projects/p1/tasks') {
+        gets += 1;
+        return Promise.resolve({ data: { tasks: [makeTask({ title: 'Alpha' })] } });
+      }
+      return Promise.reject(new Error(`unexpected GET ${url}`));
+    });
+    // Inline render (not mountBoard): mountBoard would overwrite the
+    // counted GET stub above with its own non-counting implementation.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <KanbanBoard projectId="p1" columns={[makeColumn()]} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByText('Alpha');
+    const getsAfterMount = gets;
+
+    // Five back-to-back task frames — what one suffix batch used to
+    // trigger. Every frame must reset the same trailing timer. Drive
+    // the underlying socket's onmessage exactly as a server frame
+    // would (the proven T106 idiom; jsdom's WebSocket never connects
+    // but openSocket assigns onmessage synchronously).
+    const { wsClient } = await import('@/shared/ws');
+    wsClient.connect();
+    const sock = (wsClient as unknown as { ws?: { onmessage?: (ev: { data: string }) => void } })
+      .ws;
+    for (let i = 0; i < 5; i++) {
+      sock?.onmessage?.({ data: JSON.stringify({ topic: 'tasks', body: {} }) });
+    }
+    wsClient.disconnect();
+
+    // shouldAdvanceTime lets the fake clock track real time, so the
+    // trailing window elapses during the awaits below. What matters:
+    // FIVE events must produce exactly ONE refetch total — not five.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(gets).toBe(getsAfterMount + 1);
   });
 });
 
