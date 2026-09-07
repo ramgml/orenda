@@ -407,3 +407,20 @@ describe('AgentsPage — Task 165 regenerate flow', () => {
     expect(await screen.findByText('rotation boom')).toBeTruthy();
   });
 });
+
+describe('AgentsPage — Task 168 type:null defense', () => {
+  it('renders an agent whose type is null (API regression) with an em-dash Labels cell', async () => {
+    // The storage layer used to marshal a nil label slice as JSON
+    // null; the page must survive it (defense-in-depth) until the
+    // server normalises the boundary.
+    mount([makeAgent({ id: 'a-null', name: 'null-labels', type: null as unknown as string[] })]);
+
+    await screen.findByText('null-labels');
+    // The row rendered with the em-dash placeholder for empty labels.
+    const row = screen.getByText('null-labels').closest('tr');
+    expect(row).toBeTruthy();
+    expect(row?.textContent).toContain('—');
+    // Status pill still rendered (page did not crash).
+    expect(row?.textContent).toContain('online');
+  });
+});

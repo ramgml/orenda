@@ -273,11 +273,11 @@ export function AgentsPage(): JSX.Element {
               <tr key={a.id} className="border-b border-border">
                 <td className="py-2 font-mono">{a.name}</td>
                 <td>
-                  {a.type.length === 0 ? (
+                  {(a.type ?? []).length === 0 ? (
                     <span className="text-slate-400">—</span>
                   ) : (
                     <span className="inline-flex flex-wrap gap-1">
-                      {a.type.map((l) => (
+                      {(a.type ?? []).map((l) => (
                         <span
                           key={l}
                           className="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200 text-xs font-mono"
