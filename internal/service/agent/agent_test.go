@@ -77,6 +77,22 @@ func setupAgentSvc(t *testing.T) (*agentsvc.Service, *recordingHub) {
 	return svc, hub
 }
 
+// setupAgentSvcWithDB is setupAgentSvc for tests that also need the raw
+// DB handle (e.g. asserting on the users table directly).
+func setupAgentSvcWithDB(t *testing.T) (*agentsvc.Service, *sql.DB) {
+	t.Helper()
+	db, _ := testutil.TemplateDBOpen(t)
+
+	users := sqlite.NewUserRepository(db)
+	agents := sqlite.NewAgentRepository(db)
+	adapter := &sqliteTokenMinter{db: db}
+
+	svc := agentsvc.New(agents, users, adapter, &recordingHub{}, nil)
+	svc.HashCostOverride = 4
+	svc.SweepTTL = 0
+	return svc, db
+}
+
 func TestService_Register(t *testing.T) {
 	svc, hub := setupAgentSvc(t)
 
@@ -239,4 +255,43 @@ func (m *failingMinter) MintToken(ctx context.Context, userID, name, hash, scope
 
 func (m *failingMinter) UpdateHash(ctx context.Context, tokenID, hash string) error {
 	return errors.New("injected UpdateHash failure")
+}
+
+// TestService_Register_SyntheticOwnerIsSystemRole pins the T171 hardening:
+// the synthetic agent-owner user that ensureOwner lazily creates on a
+// fresh database must carry role='system', NOT the Validate()'s
+// RoleOwner default. Before T171 the struct literal set no role, so the
+// constant "unusable" password bought a full owner session via
+// loginHandler.
+func TestService_Register_SyntheticOwnerIsSystemRole(t *testing.T) {
+	svc, db := setupAgentSvcWithDB(t)
+	ctx := context.Background()
+
+	_, err := svc.Register(ctx, "role-probe", []string{"qwen"}, "", nil)
+	require.NoError(t, err, "Register must create the synthetic owner on a fresh DB")
+
+	var role string
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT role FROM users WHERE email = 'agent-owner@orenda.local'`).Scan(&role))
+	assert.Equal(t, "system", role, "synthetic agent-owner must be created with role='system' in the DB")
+}
+
+// TestService_EnsureOwner_RoleStableOnLookup pins the second half of the
+// ensureOwner contract: when the row already exists (any role), the
+// service must return it as-is — no rewrite, no second normalize
+// mechanism (healing legacy rows is migration 044's job, and login is
+// gated in loginHandler).
+func TestService_EnsureOwner_RoleStableOnLookup(t *testing.T) {
+	svc, db := setupAgentSvcWithDB(t)
+	ctx := context.Background()
+
+	_, err := svc.Register(ctx, "first", []string{"qwen"}, "", nil)
+	require.NoError(t, err)
+	_, err = svc.Register(ctx, "second", []string{"qwen"}, "", nil)
+	require.NoError(t, err, "second Register must reuse, not recreate, the synthetic owner")
+
+	var n int
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT count(*) FROM users WHERE email = 'agent-owner@orenda.local'`).Scan(&n))
+	assert.Equal(t, 1, n, "exactly one synthetic owner row must exist")
 }

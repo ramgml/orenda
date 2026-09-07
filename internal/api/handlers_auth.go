@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ramgml/orenda/internal/auth"
+	"github.com/ramgml/orenda/internal/domain/user"
 )
 
 // loginRequest is the JSON body of POST /api/v1/auth/login.
@@ -45,6 +46,17 @@ func loginHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 		if err := auth.VerifyPassword(u.PasswordHash, req.Password); err != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
+			return
+		}
+		// T171: the synthetic agent-owner user carries the constant
+		// "unusable" password and must never hold a login session —
+		// same 401 shape as invalid credentials, no information leak.
+		// Non-owner roles in general get no session either; scopes are
+		// derived from the role at request time (scopesForRole), so a
+		// system-role session would be scope-less anyway — this closes
+		// the gap at the front door.
+		if u.Role != user.RoleOwner {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_credentials"})
 			return
 		}
