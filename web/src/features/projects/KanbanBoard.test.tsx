@@ -900,6 +900,12 @@ describe('KanbanBoard — T164 drag fan-out elimination', () => {
     expect(ids).toContain('t2');
     for (const o of ops) {
       expect(o.op).toBe('move_task');
+      // Review: the server rejects ops without a client_id, and the
+      // board swallows sync failures — pin the non-empty id here or a
+      // regression would fail silently (results[0].OK=false, no POST
+      // assertion trips).
+      expect(typeof o.client_id).toBe('string');
+      expect(String(o.client_id).length).toBeGreaterThan(0);
     }
     // Ascending position order (server applies them in array order).
     const positions = ops.map((o) => {
@@ -911,6 +917,10 @@ describe('KanbanBoard — T164 drag fan-out elimination', () => {
       return 0;
     });
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+    // Review: F5 reload order relies on ORDER BY position, created_at,
+    // so the batch must carry strictly distinct positions (ties would
+    // fall back to insert order and resurrect the pre-batch layout).
+    expect(new Set(positions).size).toBe(positions.length);
   });
 
   it('cross-column drop with tied suffix batches the bumps into the target column', async () => {
@@ -939,16 +949,35 @@ describe('KanbanBoard — T164 drag fan-out elimination', () => {
     });
 
     expect(movesFor('t1')).toHaveLength(1);
+    // Review: pin EXACTLY one /sync round-trip (flat-mapping syncOps()
+    // alone would pass with a silent re-fan-out into several calls).
+    expect(
+      stubHttp.post.mock.calls.filter(([u]) => String(u).endsWith('/api/v1/sync')),
+    ).toHaveLength(1);
+    // Fixture: t1 dropped between tied t2/t3 → only the t3 bump rides
+    // the batch (t2 precedes the insertion point, t1 rides the primary
+    // move) → exactly one op.
     const ops = syncOps();
-    expect(ops.length).toBeGreaterThanOrEqual(1);
+    expect(ops).toHaveLength(1);
     for (const o of ops) {
       expect(o.op).toBe('move_task');
+      expect(typeof o.client_id).toBe('string');
+      expect(String(o.client_id).length).toBeGreaterThan(0);
       const p: unknown = o.payload;
       if (p && typeof p === 'object' && 'column_id' in p) {
         const cid: unknown = p.column_id;
         expect(cid).toBe('col-2');
       }
+      if (p && typeof p === 'object' && 'position' in p) {
+        const pos: unknown = p.position;
+        expect(typeof pos).toBe('number');
+      }
     }
+    const batchPositions = ops.map((o) => {
+      const p: unknown = o.payload;
+      return p && typeof p === 'object' && 'position' in p ? p.position : 0;
+    });
+    expect(new Set(batchPositions).size).toBe(batchPositions.length);
     const targets = ops.map((o) => o.target);
     expect(targets).not.toContain('t1');
   });

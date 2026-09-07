@@ -423,7 +423,7 @@ export function KanbanBoard({
           } else {
             try {
               await api.moveTasksBatch(
-                others
+                [...others]
                   .sort((a, b) => a[1] - b[1])
                   .map(([id, pos]) => ({ taskId: id, columnId: targetColumnId, position: pos })),
               );
@@ -496,7 +496,7 @@ export function KanbanBoard({
       } else {
         try {
           await api.moveTasksBatch(
-            others
+            [...others]
               .sort((a, b) => a[1] - b[1])
               .map(([id, pos]) => ({ taskId: id, columnId, position: pos })),
           );
