@@ -706,7 +706,10 @@ export function KanbanBoard({
         onDragEnd={onDragEnd}
       >
         <SortableContext items={cols.map((c) => c.id)} strategy={horizontalListSortingStrategy}>
-          <div className="grid grid-cols-1 md:grid-cols-[repeat(5,minmax(0,1fr))] gap-3">
+          {/* T167: fixed-width columns in a horizontally scrollable
+              strip. The old 1fr grid stretched columns on wide
+              screens and pushed "+ Add column" under the board. */}
+          <div className="flex gap-3 overflow-x-auto pb-2">
             {cols.map((col) => (
               <SortableColumnView
                 key={col.id}
@@ -831,7 +834,15 @@ function SortableColumnView({
     opacity: isDragging ? 0.4 : 1,
   };
   return (
-    <div ref={setNodeRef} style={style} {...attributes} className="min-w-0">
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      // T167: fixed track width + shrink-0 so the horizontalListSortingStrategy
+      // placeholder keeps the real column size while dragging; dnd-kit's
+      // transform stays in `style` (class-based sizing can't fight it).
+      className="w-[280px] shrink-0 min-w-0"
+    >
       <ColumnView
         columnId={column.id}
         projectId={projectId}
@@ -913,10 +924,11 @@ function AddColumnTile({
   if (!open) {
     return (
       <button
-        type="button"
+        // T167: matches the column track so the tile sits in the same
+        // flex row as the board instead of wrapping under it.
+        className="w-[280px] shrink-0 rounded-lg border border-dashed border-border bg-transparent hover:bg-slate-50 dark:hover:bg-slate-900 text-xs text-slate-500 hover:text-orenda-600 min-h-[200px] flex items-center justify-center"
         onClick={() => setOpen(true)}
         data-testid="add-column-tile"
-        className="rounded-lg border border-dashed border-border bg-transparent hover:bg-slate-50 dark:hover:bg-slate-900 text-xs text-slate-500 hover:text-orenda-600 min-h-[200px] flex items-center justify-center"
       >
         + Add column
       </button>
@@ -927,7 +939,8 @@ function AddColumnTile({
     <form
       onSubmit={submit}
       data-testid="add-column-form"
-      className="rounded-lg border border-border bg-muted p-3 flex flex-col gap-2 min-h-[200px]"
+      // T167: expanded form keeps the same fixed track as the tile.
+      className="w-[280px] shrink-0 rounded-lg border border-border bg-muted p-3 flex flex-col gap-2 min-h-[200px]"
     >
       <Input
         autoFocus

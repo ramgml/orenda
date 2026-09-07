@@ -117,6 +117,61 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
+describe('KanbanBoard — T167 wide-screen board layout', () => {
+  it('columns strip is a flex row with horizontal scroll (not a 1fr grid)', async () => {
+    mountBoard([makeTask()]);
+    await screen.findByText('Dense task');
+    // T167: the old `md:grid-cols-[repeat(5,minmax(0,1fr))]` stretched
+    // columns across wide screens and pushed "+ Add column" under the
+    // board. Pin the replacement: a plain flex row that scrolls.
+    const strip = document.querySelector('.space-y-3 > .overflow-x-auto');
+    expect(strip).toBeTruthy();
+    expect(strip?.className).toMatch(/\bflex\b/);
+    expect(strip?.className).toMatch(/\boverflow-x-auto\b/);
+  });
+
+  it('every column wrapper keeps a fixed 280px track and never shrinks', async () => {
+    mountBoard([makeTask()]);
+    await screen.findByText('Dense task');
+    // jsdom has no layout, so the fixed track is pinned by className:
+    // w-[280px] sizes the column, shrink-0 keeps it from being squeezed
+    // (and keeps the horizontalListSortingStrategy placeholder honest).
+    const wraps = document.querySelectorAll('.space-y-3 > div > .min-w-0');
+    expect(wraps.length).toBeGreaterThan(0);
+    for (const wrap of wraps) {
+      expect(wrap.className).toMatch(/\bw-\[280px\]/);
+      expect(wrap.className).toMatch(/\bshrink-0\b/);
+    }
+  });
+
+  it('add-column tile stays in the same strip at a fixed track', async () => {
+    mountBoard([makeTask()]);
+    await screen.findByText('Dense task');
+    const tile = screen.getByTestId('add-column-tile');
+    expect(tile.className).toMatch(/\bw-\[280px\]/);
+    expect(tile.className).toMatch(/\bshrink-0\b/);
+    // Same horizontally scrollable strip as the columns — not a row below.
+    expect(tile.parentElement?.className).toMatch(/\boverflow-x-auto\b/);
+  });
+
+  it('a 6-column board keeps all columns plus the tile in one scrollable strip', async () => {
+    mountTwoColBoard(
+      [],
+      Array.from({ length: 6 }, (_, i) =>
+        makeColumn({ id: `col-${i + 1}`, name: `C${i + 1}`, position: i + 1 }),
+      ),
+    );
+    await screen.findByTestId('add-column-tile');
+    const strip = document.querySelector('.space-y-3 > .overflow-x-auto');
+    expect(strip?.className).toMatch(/\boverflow-x-auto\b/);
+    expect(strip?.children.length).toBe(7); // 6 columns + add tile, one row
+    for (const wrap of strip?.querySelectorAll(':scope > .min-w-0') ?? []) {
+      expect(wrap.className).toMatch(/\bw-\[280px\]/);
+      expect(wrap.className).toMatch(/\bshrink-0\b/);
+    }
+  });
+});
+
 describe('KanbanBoard — card density toggle', () => {
   it('toggling "Compact cards" switches card density and persists the flag', async () => {
     mountBoard([makeTask()]);
