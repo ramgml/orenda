@@ -83,9 +83,6 @@ func notifierEventFor(a *agent.Agent) notifierservice.Event {
 	}
 }
 
-// TokenMinter is the small surface Service.Register needs from the
-// api_tokens storage. We pass a closure rather than a full Repo so the
-// service stays decoupled from sqlite.StoredToken.
 // TokenMinter is the small surface Service.Register and Service.RotateToken
 // need from the api_tokens storage. We pass a closure rather than a full
 // Repo so the service stays decoupled from sqlite.StoredToken.

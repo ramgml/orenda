@@ -14,7 +14,7 @@
  *     plaintext API token exactly once (until Dismiss).
  *   - Delete requires window.confirm; accepted calls deleteAgent.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
