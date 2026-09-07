@@ -28,6 +28,11 @@ export function AgentsPage(): JSX.Element {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [createdToken, setCreatedToken] = useState<string | null>(null);
+  // Task 165: copy feedback for the one-time token banner ("Copied"
+  // flips back to "Copy" after 2s). regeneratingId tracks which row's
+  // regenerate action is in flight.
+  const [copied, setCopied] = useState(false);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
 
   // Create-form labels (free-form, normalised on the server).
   const [labelDraft, setLabelDraft] = useState('');
@@ -70,6 +75,37 @@ export function AgentsPage(): JSX.Element {
       setCreating(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function copyToken(): Promise<void> {
+    if (!createdToken) return;
+    try {
+      await navigator.clipboard.writeText(createdToken);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  // Task 165: mint a new credential for this agent. Same window.confirm
+  // guard as delete — the old token dies immediately, so agents in the
+  // field lose access until reconfigured.
+  async function onRegenerate(id: string): Promise<void> {
+    if (
+      !confirm('Regenerate this agent\u2019s API token? The old token stops working immediately.')
+    )
+      return;
+    setRegeneratingId(id);
+    try {
+      const { plain_token } = await api.regenerateAgentToken(id);
+      setCreatedToken(plain_token);
+      setCopied(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRegeneratingId(null);
     }
   }
 
@@ -142,15 +178,26 @@ export function AgentsPage(): JSX.Element {
           <code className="block px-2 py-1 bg-white rounded text-xs font-mono break-all">
             {createdToken}
           </code>
-          <Button
-            type="button"
-            onClick={() => setCreatedToken(null)}
-            variant="ghost"
-            size="sm"
-            className="mt-2 text-xs underline"
-          >
-            Dismiss
-          </Button>
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              type="button"
+              onClick={copyToken}
+              variant="ghost"
+              size="sm"
+              className="text-xs underline"
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => setCreatedToken(null)}
+              variant="ghost"
+              size="sm"
+              className="text-xs underline"
+            >
+              Dismiss
+            </Button>
+          </div>
         </div>
       )}
 
@@ -258,6 +305,16 @@ export function AgentsPage(): JSX.Element {
                 <td>{a.last_seen_at ?? '—'}</td>
                 <td className="text-slate-500 text-xs">{a.created_at}</td>
                 <td>
+                  <Button
+                    type="button"
+                    onClick={() => onRegenerate(a.id)}
+                    disabled={regeneratingId === a.id}
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs hover:underline"
+                  >
+                    Regenerate token
+                  </Button>
                   <Button
                     type="button"
                     onClick={() => onDelete(a.id)}

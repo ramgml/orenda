@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ramgml/orenda/internal/api/ws"
+	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/domain/agent"
 	agentsvc "github.com/ramgml/orenda/internal/service/agent"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
@@ -54,6 +56,10 @@ func (m *sqliteTokenMinter) MintToken(ctx context.Context, userID, name, hash, s
 		return "", "", err
 	}
 	return row.ID, row.Name, nil
+}
+
+func (m *sqliteTokenMinter) UpdateHash(ctx context.Context, tokenID, hash string) error {
+	return sqlite.NewAPITokenRepository(m.db).UpdateHash(ctx, tokenID, hash)
 }
 
 func setupAgentSvc(t *testing.T) (*agentsvc.Service, *recordingHub) {
@@ -126,4 +132,111 @@ func TestService_SweepOffline(t *testing.T) {
 	n, err := svc.SweepOffline(context.Background())
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, n, int64(1))
+}
+
+// tokenRowByTokenID fetches the raw api_tokens row for an agent's
+// token — lets the rotation tests inspect the stored hash directly.
+func tokenRowByTokenID(t *testing.T, db *sql.DB, tokenID string) sqlite.StoredToken {
+	t.Helper()
+	row, err := sqlite.NewAPITokenRepository(db).GetByID(context.Background(), tokenID)
+	require.NoError(t, err)
+	return *row
+}
+
+func TestService_RotateToken(t *testing.T) {
+	svc, _ := setupAgentSvc(t)
+	ctx := context.Background()
+	reg, err := svc.Register(ctx, "rot", []string{"qwen"}, "", []string{"tasks:read"})
+	require.NoError(t, err)
+
+	db := svc.Tokens.(*sqliteTokenMinter).db
+	before := tokenRowByTokenID(t, db, reg.Agent.TokenID)
+
+	rot, err := svc.RotateToken(ctx, reg.Agent.ID)
+	require.NoError(t, err)
+
+	// New plaintext minted, distinct from the old one.
+	assert.NotEmpty(t, rot.PlainToken)
+	assert.NotEqual(t, reg.PlainToken, rot.PlainToken)
+
+	// Same api_tokens row (agent identity survives), new hash.
+	assert.Equal(t, reg.Agent.TokenID, rot.Agent.TokenID)
+	after := tokenRowByTokenID(t, db, rot.Agent.TokenID)
+	assert.Equal(t, before.ID, after.ID)
+	assert.Equal(t, before.UserID, after.UserID)
+	assert.Equal(t, before.ScopesJSON, after.ScopesJSON)
+	assert.NotEqual(t, before.Hash, after.Hash)
+
+	// The old plaintext no longer verifies against the stored hash;
+	// the new one does.
+	assert.Error(t, auth.VerifyAPIToken(after.Hash, reg.PlainToken))
+	assert.NoError(t, auth.VerifyAPIToken(after.Hash, rot.PlainToken))
+
+	// The agent row is untouched (same id/name/labels/settings).
+	fresh, err := svc.Agents.GetByID(ctx, reg.Agent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, reg.Agent.ID, fresh.ID)
+	assert.Equal(t, reg.Agent.Name, fresh.Name)
+	assert.Equal(t, reg.Agent.Type, fresh.Type)
+	assert.Equal(t, reg.Agent.Description, fresh.Description)
+	assert.Equal(t, reg.Agent.TokenID, fresh.TokenID)
+	assert.Equal(t, reg.Agent.MaxConcurrent, fresh.MaxConcurrent)
+}
+
+func TestService_RotateToken_PublishesEvent(t *testing.T) {
+	svc, hub := setupAgentSvc(t)
+	reg, err := svc.Register(context.Background(), "rot-ev", []string{"qwen"}, "", nil)
+	require.NoError(t, err)
+
+	_, err = svc.RotateToken(context.Background(), reg.Agent.ID)
+	require.NoError(t, err)
+
+	last := hub.events[len(hub.events)-1]
+	assert.Equal(t, "agents", last.topic)
+	assert.Equal(t, "agent.token_rotated", last.body.(map[string]any)["type"])
+}
+
+func TestService_RotateToken_NotFound(t *testing.T) {
+	svc, _ := setupAgentSvc(t)
+	_, err := svc.RotateToken(context.Background(), "no-such-agent")
+	assert.ErrorIs(t, err, agentsvc.ErrNotFound)
+}
+
+// UpdateHash failure must leave the old hash intact — the agent
+// keeps working with the old token after a failed rotation
+// (transactionality of the credential swap).
+func TestService_RotateToken_UpdateHashErrorLeavesOldHash(t *testing.T) {
+	ctx := context.Background()
+	db, _ := testutil.TemplateDBOpen(t)
+
+	users := sqlite.NewUserRepository(db)
+	agentsRepo := sqlite.NewAgentRepository(db)
+	svc := agentsvc.New(agentsRepo, users, &failingMinter{db: db}, nil, nil)
+	svc.HashCostOverride = 4
+
+	reg, err := svc.Register(ctx, "rot-fail", []string{"qwen"}, "", nil)
+	require.NoError(t, err)
+
+	before := tokenRowByTokenID(t, db, reg.Agent.TokenID)
+
+	_, err = svc.RotateToken(ctx, reg.Agent.ID)
+	require.Error(t, err)
+
+	after := tokenRowByTokenID(t, db, reg.Agent.TokenID)
+	assert.Equal(t, before.Hash, after.Hash, "failed rotation must not touch the stored hash")
+	assert.NoError(t, auth.VerifyAPIToken(after.Hash, reg.PlainToken), "old token still works")
+}
+
+// failingMinter wraps the real sqlite-backed minter but fails every
+// UpdateHash — simulates a storage error mid-rotation.
+type failingMinter struct {
+	db *sql.DB
+}
+
+func (m *failingMinter) MintToken(ctx context.Context, userID, name, hash, scopesJSON string, expiresAt *time.Time) (string, string, error) {
+	return (&sqliteTokenMinter{db: m.db}).MintToken(ctx, userID, name, hash, scopesJSON, expiresAt)
+}
+
+func (m *failingMinter) UpdateHash(ctx context.Context, tokenID, hash string) error {
+	return errors.New("injected UpdateHash failure")
 }

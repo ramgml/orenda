@@ -89,6 +89,10 @@ func (a adapterForTokens) MintToken(ctx context.Context, userID, name, hash, sco
 	return row.ID, row.Name, nil
 }
 
+func (a adapterForTokens) UpdateHash(ctx context.Context, tokenID, hash string) error {
+	return a.inner.UpdateHash(ctx, tokenID, hash)
+}
+
 // activityRecorderAdapter lets the test router record task-activity
 // rows the same way production does. Without it the Phase 11 project
 // activity feed is empty.
