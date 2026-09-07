@@ -34,7 +34,7 @@ func agentMeHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, a)
+		writeJSON(w, http.StatusOK, normalizeLabels(a))
 	}
 }
 
@@ -54,10 +54,10 @@ func agentHeartbeatHandler(deps *Dependencies) http.HandlerFunc {
 		if deps.WSHub != nil {
 			deps.WSHub.Publish(r.Context(), ws.Event{
 				Topic: "agents",
-				Body:  map[string]any{"type": "agent.heartbeat", "agent": a},
+				Body:  map[string]any{"type": "agent.heartbeat", "agent": normalizeLabels(a)},
 			})
 		}
-		writeJSON(w, http.StatusOK, a)
+		writeJSON(w, http.StatusOK, normalizeLabels(a))
 	}
 }
 
