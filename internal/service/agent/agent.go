@@ -243,6 +243,11 @@ func (s *Service) RotateToken(ctx context.Context, agentID string) (*Registered,
 		return nil, fmt.Errorf("agent service: rotate token: %w", err)
 	}
 
+	// Same JSON-boundary rule as the api handlers (Task 168): a nil
+	// label slice would marshal as null in the ws body.
+	if a.Type == nil {
+		a.Type = []string{}
+	}
 	if s.Hub != nil {
 		s.Hub.Publish(ctx, ws.Event{
 			Topic: "agents",
