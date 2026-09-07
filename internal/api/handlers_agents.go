@@ -124,6 +124,29 @@ func deleteAgentHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
+// regenerateAgentTokenHandler mints a fresh API token for an existing
+// agent (Task 165) and returns it once, alongside the agent row. The
+// previous plaintext stops working immediately; the api_tokens row
+// (and thus agents.token_id) is reused, so the agent's identity and
+// settings survive.
+func regenerateAgentTokenHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.AgentService == nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "agent service not wired"})
+			return
+		}
+		out, err := deps.AgentService.RotateToken(r.Context(), chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"agent":       out.Agent,
+			"plain_token": out.PlainToken,
+		})
+	}
+}
+
 // heartbeatHandler updates last_seen_at + status for an agent.
 // The body is optional and currently carries no fields we act on.
 func heartbeatHandler(deps *Dependencies) http.HandlerFunc {
