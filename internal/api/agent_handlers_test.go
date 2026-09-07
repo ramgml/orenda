@@ -77,19 +77,20 @@ func newAgentFixture(t *testing.T) *agentFixture {
 	require.NoError(t, err)
 
 	deps := api.Dependencies{
-		Logger:      zap.NewNop(),
-		Signer:      signer,
-		Users:       users,
-		Projects:    sqlite.NewProjectRepository(db),
-		Tasks:       sqlite.NewTaskRepository(db),
-		Tokens:      tokens,
-		TaskService: taskSvc,
-		TimeService: timeentryservice.New(sqlite.NewTimeEntryRepository(db), hub, nil),
-		Agents:      agents,
-		Comments:    commentSvc,
-		Activities:  sqlite.NewActivityRepository(db),
-		WSHub:       hub,
-		CookieName:  "orenda_session",
+		Logger:       zap.NewNop(),
+		Signer:       signer,
+		Users:        users,
+		Projects:     sqlite.NewProjectRepository(db),
+		Tasks:        sqlite.NewTaskRepository(db),
+		Tokens:       tokens,
+		TaskService:  taskSvc,
+		TimeService:  timeentryservice.New(sqlite.NewTimeEntryRepository(db), hub, nil),
+		Agents:       agents,
+		AgentService: agentSvc,
+		Comments:     commentSvc,
+		Activities:   sqlite.NewActivityRepository(db),
+		WSHub:        hub,
+		CookieName:   "orenda_session",
 	}
 	router := api.NewRouter(&deps)
 	t.Cleanup(deps.RateLimitClose)
@@ -109,6 +110,10 @@ func (a *agentFixtureTMinter) MintToken(ctx context.Context, userID, name, hash,
 		return "", "", err
 	}
 	return row.ID, row.Name, nil
+}
+
+func (a *agentFixtureTMinter) UpdateHash(ctx context.Context, tokenID, hash string) error {
+	return a.tokens.UpdateHash(ctx, tokenID, hash)
 }
 
 func TestAgent_MeReturnsAgent(t *testing.T) {
@@ -512,4 +517,111 @@ func TestAgent_AwaitRequiresAgentToken(t *testing.T) {
 	rr = httptest.NewRecorder()
 	fx.router.ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusNoContent, rr.Code, "body=%s", rr.Body.String())
+}
+
+// ---- Task 165: POST /api/v1/agents/{id}/regenerate-token ----
+
+// agentRegenFixtureLogin mints a user-session cookie via the login
+// endpoint (the regenerate route lives under RequireUser, like the
+// other owner-side agent routes).
+func agentRegenFixtureLogin(t *testing.T, fx *agentFixture) []*http.Cookie {
+	t.Helper()
+	row := fx.db.QueryRow("SELECT id, email FROM users LIMIT 1")
+	var ownerID, ownerEmail string
+	require.NoError(t, row.Scan(&ownerID, &ownerEmail))
+	loginBody, _ := json.Marshal(map[string]string{"email": ownerEmail, "password": "hunter2!"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginBody))
+	rr := httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code, "login body=%s", rr.Body.String())
+	return rr.Result().Cookies()
+}
+
+func TestRegenerateAgentToken_ReturnsNewTokenOnce(t *testing.T) {
+	t.Parallel()
+	fx := newAgentFixture(t)
+	cookies := agentRegenFixtureLogin(t, fx)
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/agents/"+fx.agentID+"/regenerate-token", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+
+	var resp struct {
+		Agent struct {
+			ID      string `json:"id"`
+			TokenID string `json:"token_id"`
+		} `json:"agent"`
+		PlainToken string `json:"plain_token"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+
+	// Same agent row, same api_tokens row (token_id unchanged).
+	assert.Equal(t, fx.agentID, resp.Agent.ID)
+	assert.NotEmpty(t, resp.Agent.TokenID)
+	assert.Equal(t, fx.tokenID(t), resp.Agent.TokenID)
+
+	// Fresh plaintext, distinct from the original, at least 43
+	// base64url chars (auth.NewAPIToken shape — no ort_ prefix).
+	assert.NotEqual(t, fx.token, resp.PlainToken)
+	assert.GreaterOrEqual(t, len(resp.PlainToken), 43)
+
+	// The OLD token is dead at the auth middleware...
+	oldReq := httptest.NewRequest(http.MethodGet, "/api/v1/agent/me", nil)
+	oldReq.Header.Set("Authorization", "Bearer "+fx.token)
+	oldRR := httptest.NewRecorder()
+	fx.router.ServeHTTP(oldRR, oldReq)
+	assert.Equal(t, http.StatusUnauthorized, oldRR.Code, "old token must stop working")
+
+	// ...and the NEW one authenticates.
+	newReq := httptest.NewRequest(http.MethodGet, "/api/v1/agent/me", nil)
+	newReq.Header.Set("Authorization", "Bearer "+resp.PlainToken)
+	newRR := httptest.NewRecorder()
+	fx.router.ServeHTTP(newRR, newReq)
+	require.Equal(t, http.StatusOK, newRR.Code, "new token must authenticate")
+
+	var me struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.Unmarshal(newRR.Body.Bytes(), &me))
+	assert.Equal(t, fx.agentID, me.ID)
+}
+
+// tokenID reads the agent's token_id straight from the DB.
+func (fx *agentFixture) tokenID(t *testing.T) string {
+	t.Helper()
+	var tokID string
+	require.NoError(t, fx.db.QueryRow(
+		"SELECT token_id FROM agents WHERE id = ?", fx.agentID).Scan(&tokID))
+	return tokID
+}
+
+func TestRegenerateAgentToken_UnknownAgentReturns404(t *testing.T) {
+	t.Parallel()
+	fx := newAgentFixture(t)
+	cookies := agentRegenFixtureLogin(t, fx)
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/agents/no-such-agent/regenerate-token", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusNotFound, rr.Code, "body=%s", rr.Body.String())
+}
+
+func TestRegenerateAgentToken_RequiresAuth(t *testing.T) {
+	t.Parallel()
+	fx := newAgentFixture(t)
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/v1/agents/"+fx.agentID+"/regenerate-token", nil)
+	rr := httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }

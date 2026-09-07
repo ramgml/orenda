@@ -471,6 +471,9 @@ func NewRouter(deps *Dependencies) http.Handler {
 					r.Get("/", getAgentHandler(deps))
 					r.Delete("/", deleteAgentHandler(deps))
 					r.Post("/heartbeat", heartbeatHandler(deps))
+					// Task 165: mint a new credential for the same
+					// api_tokens row — old token dies immediately.
+					r.Post("/regenerate-token", regenerateAgentTokenHandler(deps))
 				})
 			})
 

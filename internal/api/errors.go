@@ -14,6 +14,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
 	"github.com/ramgml/orenda/internal/domain/wiki"
+	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
@@ -67,7 +68,8 @@ func writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, wiki.ErrNotFound),
 		errors.Is(err, eventservice.ErrNotFound),
 		errors.Is(err, commentservice.ErrNotFound),
-		errors.Is(err, comment.ErrNotFound):
+		errors.Is(err, comment.ErrNotFound),
+		errors.Is(err, agentservice.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 	case errors.Is(err, user.ErrEmailTaken),
 		errors.Is(err, wiki.ErrSlugTaken),

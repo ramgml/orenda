@@ -89,6 +89,10 @@ func (a adapterForTokens) MintToken(ctx context.Context, userID, name, hash, sco
 	return row.ID, row.Name, nil
 }
 
+func (a adapterForTokens) UpdateHash(ctx context.Context, tokenID, hash string) error {
+	return a.inner.UpdateHash(ctx, tokenID, hash)
+}
+
 // activityRecorderAdapter lets the test router record task-activity
 // rows the same way production does. Without it the Phase 11 project
 // activity feed is empty.
@@ -466,4 +470,52 @@ func randLite() string {
 		b[i] = hex[(i*7)%16]
 	}
 	return string(b)
+}
+
+// Task 168: a label-less agent must serialise "type": [] at the JSON
+// boundary — the storage layer stores the empty set as a nil slice,
+// and Go marshals nil as null, which white-screened the SPA.
+func TestP3_ListAgents_LabelLessAgentTypeIsEmptyArray(t *testing.T) {
+	t.Parallel()
+	router, _ := buildP3Router(t)
+	cookie := p3Login(t, router)
+
+	// Register an agent with an empty label set through the service
+	// (the same path production create takes).
+	reg := p3AuthJSON(router, http.MethodPost, "/api/v1/agents", cookie,
+		map[string]any{"name": "bare-" + randLite()[:6], "type": []string{}})
+	require.Equal(t, http.StatusCreated, reg.Code, "body=%s", reg.Body.String())
+
+	rr := p3AuthGet(router, cookie, "/api/v1/agents")
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+
+	// Raw string check: the list payload must not contain "type":null.
+	assert.NotContains(t, rr.Body.String(), `"type":null`)
+
+	var body struct {
+		Agents []struct {
+			Name string   `json:"name"`
+			Type []string `json:"type"`
+		} `json:"agents"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
+	require.NotEmpty(t, body.Agents)
+	for _, a := range body.Agents {
+		if len(a.Name) >= 5 && a.Name[:5] == "bare-" {
+			require.NotNil(t, a.Type, "type must be [] not null")
+			assert.Empty(t, a.Type)
+		}
+	}
+}
+
+// Same contract on the create response itself.
+func TestP3_CreateAgent_LabelLessTypeIsEmptyArray(t *testing.T) {
+	t.Parallel()
+	router, _ := buildP3Router(t)
+	cookie := p3Login(t, router)
+
+	rr := p3AuthJSON(router, http.MethodPost, "/api/v1/agents", cookie,
+		map[string]any{"name": "bare2-" + randLite()[:6], "type": []string{}})
+	require.Equal(t, http.StatusCreated, rr.Code, "body=%s", rr.Body.String())
+	assert.NotContains(t, rr.Body.String(), `"type":null`)
 }

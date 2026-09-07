@@ -102,6 +102,10 @@ func (a *p6TokenMinter) MintToken(ctx context.Context, userID, name, hash, scope
 	return row.ID, row.Name, nil
 }
 
+func (a *p6TokenMinter) UpdateHash(ctx context.Context, tokenID, hash string) error {
+	return a.tokens.UpdateHash(ctx, tokenID, hash)
+}
+
 // p6Login returns the session cookie.
 func p6Login(t *testing.T, router http.Handler) string {
 	t.Helper()

@@ -25,6 +25,26 @@ export interface HealthResponse {
 }
 
 /**
+ * T164: per-op outcome of POST /api/v1/sync (mirrors Go's syncResult).
+ */
+interface SyncResultItem {
+  client_id: string;
+  ok: boolean;
+  error?: string;
+}
+
+interface SyncResponse {
+  results: SyncResultItem[];
+}
+
+/**
+ * T164: chunk size for batched sync moves. The endpoint answers
+ * too_many_ops above 200 ops (internal/api/handlers_sync.go), so
+ * batches are cut below that limit before POSTing.
+ */
+const SYNC_MOVE_CHUNK_SIZE = 150;
+
+/**
  * Phase 24: GET /api/v1/stats. Mirrors `statsResponse` in
  * `internal/api/handlers_stats.go`. Optional fields (last_backup_unix)
  * are only emitted when the server has a backup timestamp; the UI
@@ -815,6 +835,36 @@ class ApiClient {
     return this.http.post<Task>(`/api/v1/tasks/${taskId}/move`, body).then((r) => r.data);
   }
 
+  /**
+   * T164: batch of kanban moves through POST /api/v1/sync — one HTTP
+   * round-trip instead of one POST per suffix card (the fan-out that
+   * exhausted the per-user rate limiter). The wire shape is 1:1 with
+   * the offline outbox's wire() (see shared/offline/outbox.ts), so the
+   * server applies identical ops either way. Batches above
+   * SYNC_MOVE_CHUNK_SIZE ops are sent in sequential chunks (the
+   * endpoint rejects >200 ops with too_many_ops). Per-op failures are
+   * swallowed by callers — suffix bumps stay best-effort (a failed
+   * bump re-syncs on the next WS refetch).
+   */
+  async moveTasksBatch(
+    moves: Array<{ taskId: string; columnId: string; position?: number }>,
+  ): Promise<void> {
+    for (let i = 0; i < moves.length; i += SYNC_MOVE_CHUNK_SIZE) {
+      const chunk = moves.slice(i, i + SYNC_MOVE_CHUNK_SIZE);
+      const ops = chunk.map((m) => ({
+        op: 'move_task',
+        target: m.taskId,
+        payload:
+          typeof m.position === 'number'
+            ? { column_id: m.columnId, position: m.position }
+            : { column_id: m.columnId },
+        client_id: crypto.randomUUID(),
+        created_at: new Date().toISOString(),
+      }));
+      await this.http.post<SyncResponse>('/api/v1/sync', { ops });
+    }
+  }
+
   // ---- Agents (Phase 3 + Phase 28.19) ----
 
   /**
@@ -855,6 +905,17 @@ class ApiClient {
 
   deleteAgent(id: string): Promise<void> {
     return this.http.delete<void>(`/api/v1/agents/${id}`).then(() => undefined);
+  }
+
+  /**
+   * Task 165: mint a new API token for an existing agent. The
+   * previous plaintext stops working immediately; the new one is
+   * returned exactly once (the server never persists it).
+   */
+  regenerateAgentToken(id: string): Promise<{ agent: Agent; plain_token: string }> {
+    return this.http
+      .post<{ agent: Agent; plain_token: string }>(`/api/v1/agents/${id}/regenerate-token`)
+      .then((r) => r.data);
   }
 
   // ---- Agent-token namespace (/api/v1/agent/*) ----

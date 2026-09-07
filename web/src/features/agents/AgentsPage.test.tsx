@@ -271,3 +271,156 @@ describe('AgentsPage', () => {
     expect(screen.getByText('kept')).toBeTruthy();
   });
 });
+describe('AgentsPage — Task 165 token banner copy', () => {
+  it('Copy writes the token to the clipboard, shows Copied, reverts to Copy after 2s', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    stubHttp.post.mockResolvedValueOnce({
+      data: {
+        agent: makeAgent({ id: 'a-new', name: 'fresh-agent' }),
+        plain_token: 'plain_token_abc',
+      },
+    });
+
+    mount();
+    await screen.findByText(/No agents yet\./);
+
+    // Create an agent so the one-time banner is up.
+    fireEvent.click(screen.getByRole('button', { name: /new agent/i }));
+    fireEvent.change(screen.getByPlaceholderText('Agent name (unique)'), {
+      target: { value: 'fresh-agent' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    expect(await screen.findByText('plain_token_abc')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith('plain_token_abc');
+    });
+    expect(screen.getByRole('button', { name: 'Copied' })).toBeTruthy();
+
+    // The 2s feedback window elapses -> label reverts to Copy
+    // (real timers: the revert is driven by setTimeout(…, 2000)).
+    await waitFor(
+      () => {
+        expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy();
+      },
+      { timeout: 4000 },
+    );
+  });
+
+  it('Copy failure (clipboard rejects) keeps the label at Copy and the banner intact', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('denied'));
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    stubHttp.post.mockResolvedValueOnce({
+      data: { agent: makeAgent({ id: 'a-new', name: 'fresh-agent' }), plain_token: 'tok' },
+    });
+
+    mount();
+    await screen.findByText(/No agents yet\./);
+    fireEvent.click(screen.getByRole('button', { name: /new agent/i }));
+    fireEvent.change(screen.getByPlaceholderText('Agent name (unique)'), {
+      target: { value: 'fresh-agent' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await screen.findByText('tok');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalled();
+    });
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy();
+    // The token is still on screen — the banner is the only way to
+    // read it, so a failed copy must never clear it.
+    expect(screen.getByText('tok')).toBeTruthy();
+  });
+
+  it('Dismiss clears the token from the DOM', async () => {
+    stubHttp.post.mockResolvedValueOnce({
+      data: { agent: makeAgent({ id: 'a-new', name: 'fresh-agent' }), plain_token: 'tok-dismiss' },
+    });
+
+    mount();
+    await screen.findByText(/No agents yet\./);
+    fireEvent.click(screen.getByRole('button', { name: /new agent/i }));
+    fireEvent.change(screen.getByPlaceholderText('Agent name (unique)'), {
+      target: { value: 'fresh-agent' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    expect(await screen.findByText('tok-dismiss')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
+    expect(screen.queryByText('tok-dismiss')).toBeNull();
+  });
+});
+
+describe('AgentsPage — Task 165 regenerate flow', () => {
+  it('confirm accepted -> POSTs regenerateAgentToken -> banner shows the new token', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    stubHttp.post.mockImplementation((url: string) => {
+      if (url === '/api/v1/agents/a-1/regenerate-token') {
+        return Promise.resolve({
+          data: { agent: makeAgent({ id: 'a-1' }), plain_token: 'brand_new_token' },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    mount([makeAgent({ id: 'a-1', name: 'roty' })]);
+    await screen.findByText('roty');
+
+    fireEvent.click(screen.getByRole('button', { name: /regenerate token/i }));
+
+    await waitFor(() => {
+      expect(stubHttp.post).toHaveBeenCalledWith('/api/v1/agents/a-1/regenerate-token');
+    });
+    expect(await screen.findByText('brand_new_token')).toBeTruthy();
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('confirm declined -> no regenerate POST, no banner', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    mount([makeAgent({ id: 'a-1', name: 'kept-token' })]);
+    await screen.findByText('kept-token');
+
+    fireEvent.click(screen.getByRole('button', { name: /regenerate token/i }));
+
+    const regenCalls = stubHttp.post.mock.calls
+      .map((c) => c[0] as string)
+      .filter((u) => String(u).includes('regenerate-token'));
+    expect(regenCalls).toHaveLength(0);
+    expect(screen.queryByText(/copy now, it won/)).toBeNull();
+  });
+
+  it('regeneration failure surfaces the error inline', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    stubHttp.post.mockRejectedValueOnce(new Error('rotation boom'));
+
+    mount([makeAgent({ id: 'a-1', name: 'fails' })]);
+    await screen.findByText('fails');
+
+    fireEvent.click(screen.getByRole('button', { name: /regenerate token/i }));
+
+    expect(await screen.findByText('rotation boom')).toBeTruthy();
+  });
+});
+
+describe('AgentsPage — Task 168 type:null defense', () => {
+  it('renders an agent whose type is null (API regression) with an em-dash Labels cell', async () => {
+    // The storage layer used to marshal a nil label slice as JSON
+    // null; the page must survive it (defense-in-depth) until the
+    // server normalises the boundary.
+    mount([makeAgent({ id: 'a-null', name: 'null-labels', type: null as unknown as string[] })]);
+
+    await screen.findByText('null-labels');
+    // The row rendered with the em-dash placeholder for empty labels.
+    const row = screen.getByText('null-labels').closest('tr');
+    expect(row).toBeTruthy();
+    expect(row?.textContent).toContain('—');
+    // Status pill still rendered (page did not crash).
+    expect(row?.textContent).toContain('online');
+  });
+});

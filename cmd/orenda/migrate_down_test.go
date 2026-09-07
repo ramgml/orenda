@@ -68,16 +68,16 @@ func TestMigrateDownRepeatedMovesHead(t *testing.T) {
 	require.NoError(t, runMigrateCLI(t, cfgPath, "up"))
 
 	head := headVersion(t, dbPath)
-	require.Equal(t, "043_project_agent_access", head, "fresh up should end at 043")
+	require.Equal(t, "044_agent_owner_system_role", head, "fresh up should end at 044")
 
-	// Down ×2: 043 → 042 → 041. The head must move with every call
-	// — the old hidden-UP bug pinned the head at 043 forever.
+	// Down ×2: 044 → 043 → 042. The head must move with every call
+	// — the old hidden-UP bug pinned the head at the latest forever.
+	require.NoError(t, runMigrateCLI(t, cfgPath, "down"))
+	assert.Equal(t, "043_project_agent_access", headVersion(t, dbPath),
+		"first down must move the head 044 -> 043")
 	require.NoError(t, runMigrateCLI(t, cfgPath, "down"))
 	assert.Equal(t, "042_task_blocked_status", headVersion(t, dbPath),
-		"first down must move the head 043 -> 042")
-	require.NoError(t, runMigrateCLI(t, cfgPath, "down"))
-	assert.Equal(t, "041_comment_edited_at", headVersion(t, dbPath),
-		"second down must move the head 042 -> 041")
+		"second down must move the head 043 -> 042")
 
 	// Re-up restores everything (no schema_migrations drift).
 	require.NoError(t, runMigrateCLI(t, cfgPath, "up"))

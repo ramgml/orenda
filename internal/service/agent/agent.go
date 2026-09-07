@@ -83,11 +83,15 @@ func notifierEventFor(a *agent.Agent) notifierservice.Event {
 	}
 }
 
-// TokenMinter is the small surface Service.Register needs from the
-// api_tokens storage. We pass a closure rather than a full Repo so the
-// service stays decoupled from sqlite.StoredToken.
+// TokenMinter is the small surface Service.Register and Service.RotateToken
+// need from the api_tokens storage. We pass a closure rather than a full
+// Repo so the service stays decoupled from sqlite.StoredToken.
 type TokenMinter interface {
 	MintToken(ctx context.Context, userID, name, hash, scopesJSON string, expiresAt *time.Time) (tokenID, tokenName string, err error)
+	// UpdateHash replaces the bcrypt hash of an existing token row
+	// (Task 165 rotation: same row, new credential — the agent's
+	// token_id FK must keep pointing at the same row).
+	UpdateHash(ctx context.Context, tokenID, hash string) error
 }
 
 // Service is the dependency holder.
@@ -212,11 +216,63 @@ func (s *Service) Register(ctx context.Context, name string, labels []string, de
 	return &Registered{Agent: a, PlainToken: plain}, nil
 }
 
+// RotateToken mints a fresh API token for an existing agent and
+// replaces the bcrypt hash of the SAME api_tokens row (Task 165).
+// The agent row is untouched — agents.token_id keeps pointing at
+// the same token, so the agent's identity, task locks and settings
+// survive; only the credential changes and the old plaintext dies.
+// The new plaintext is returned exactly once and never persisted.
+func (s *Service) RotateToken(ctx context.Context, agentID string) (*Registered, error) {
+	a, err := s.Agents.GetByID(ctx, agentID)
+	if err != nil {
+		if errors.Is(err, agent.ErrNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("agent service: lookup agent: %w", err)
+	}
+
+	plain, err := auth.NewAPIToken()
+	if err != nil {
+		return nil, fmt.Errorf("agent service: mint token: %w", err)
+	}
+	hash, err := auth.HashAPIToken(plain, s.HashCostOverride)
+	if err != nil {
+		return nil, fmt.Errorf("agent service: hash token: %w", err)
+	}
+	if err := s.Tokens.UpdateHash(ctx, a.TokenID, hash); err != nil {
+		return nil, fmt.Errorf("agent service: rotate token: %w", err)
+	}
+
+	// Same JSON-boundary rule as the api handlers (Task 168): a nil
+	// label slice would marshal as null in the ws body.
+	if a.Type == nil {
+		a.Type = []string{}
+	}
+	if s.Hub != nil {
+		s.Hub.Publish(ctx, ws.Event{
+			Topic: "agents",
+			Body: map[string]any{
+				"type":  "agent.token_rotated",
+				"agent": a,
+			},
+		})
+	}
+
+	return &Registered{Agent: a, PlainToken: plain}, nil
+}
+
 // ensureOwner returns the (single) system user used as api_tokens.user_id.
 //
 // The Phase 3 data model has agents.token_id → api_tokens.id but no
 // agents.owner_id; the token row still needs a user_id. We use a single
-// synthetic "agent-owner" user — the seed migration ensures the row exists.
+// synthetic "agent-owner" user, created on first use.
+//
+// T171: the row is created with RoleSystem, not owner. The password is
+// the constant "unusable" (visible in source) and Validate would
+// otherwise default the role to owner — anyone who knows the constant
+// could mint a full owner session via loginHandler. Migration 044 heals
+// rows created before the role was set; loginHandler additionally
+// rejects non-owner logins (same 401 shape, no information leak).
 func (s *Service) ensureOwner(ctx context.Context) (*user.User, error) {
 	const email = "agent-owner@orenda.local"
 	u, err := s.Users.GetByEmail(ctx, email)
@@ -234,6 +290,7 @@ func (s *Service) ensureOwner(ctx context.Context) (*user.User, error) {
 		Email:        email,
 		PasswordHash: hash,
 		DisplayName:  "Agent Owner",
+		Role:         user.RoleSystem,
 	}
 	if err := s.Users.Create(ctx, u); err != nil {
 		return nil, fmt.Errorf("agent service: create owner: %w", err)

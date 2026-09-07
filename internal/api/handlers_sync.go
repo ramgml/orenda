@@ -218,6 +218,10 @@ func applySyncOp(r *http.Request, deps *Dependencies, id *Identity, op syncOp) s
 	case "move_task":
 		var in struct {
 			ColumnID string `json:"column_id"`
+			// T164: explicit fractional position. Pointer (not float)
+			// so absent vs 0 stay distinguishable — 0 would fall into
+			// derive-from-neighbours and silently reorder the card.
+			Position *float64 `json:"position"`
 		}
 		if err := json.Unmarshal(op.Payload, &in); err != nil || in.ColumnID == "" {
 			res.Error = "invalid_payload"
@@ -227,11 +231,15 @@ func applySyncOp(r *http.Request, deps *Dependencies, id *Identity, op syncOp) s
 			res.Error = "service_not_wired"
 			return res
 		}
+		opts := taskservice.MoveOptions{TargetColumnID: in.ColumnID, ActorID: id.UserID}
+		if in.Position != nil {
+			opts.Position = *in.Position
+		}
 		// Task 121: identify the mover for the task.moved activity
 		// row — Activity.Validate rejects an empty actor id, and
 		// without this the recorder silently dropped the audit row
 		// (same fix as the HTTP path, handlers_kanban.go).
-		tr, err := deps.TaskService.Move(ctx, op.Target, taskservice.MoveOptions{TargetColumnID: in.ColumnID, ActorID: id.UserID})
+		tr, err := deps.TaskService.Move(ctx, op.Target, opts)
 		if err != nil {
 			res.Error = err.Error()
 			return res
@@ -240,7 +248,6 @@ func applySyncOp(r *http.Request, deps *Dependencies, id *Identity, op syncOp) s
 		res.OK = true
 		res.ID = tr.ID
 		return res
-
 	case "create_comment":
 		var in struct {
 			BodyMD string `json:"body_md"`

@@ -43,8 +43,23 @@ func listAgentsHandler(deps *Dependencies) http.HandlerFunc {
 		if labels := r.URL.Query()["type"]; len(labels) > 0 {
 			agents = filterAgentsByLabels(agents, labels)
 		}
+		for _, a := range agents {
+			normalizeLabels(a)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"agents": agents})
 	}
+}
+
+// normalizeLabels guarantees an agent's label slice is never nil at
+// the JSON boundary (Task 168): the storage layer collapses empty
+// label sets to a nil slice for len()-checks, but Go marshals nil as
+// JSON null — the SPA dereferences a.type.length and white-screens.
+// Non-nil, possibly-empty slice → "[]" on the wire, never null.
+func normalizeLabels(a *agent.Agent) *agent.Agent {
+	if a.Type == nil {
+		a.Type = []string{}
+	}
+	return a
 }
 
 // filterAgentsByLabels returns the subset of agents whose label set has
@@ -95,7 +110,7 @@ func createAgentHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{
-			"agent":       out.Agent,
+			"agent":       normalizeLabels(out.Agent),
 			"plain_token": out.PlainToken,
 		})
 	}
@@ -109,7 +124,7 @@ func getAgentHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, a)
+		writeJSON(w, http.StatusOK, normalizeLabels(a))
 	}
 }
 
@@ -121,6 +136,29 @@ func deleteAgentHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// regenerateAgentTokenHandler mints a fresh API token for an existing
+// agent (Task 165) and returns it once, alongside the agent row. The
+// previous plaintext stops working immediately; the api_tokens row
+// (and thus agents.token_id) is reused, so the agent's identity and
+// settings survive.
+func regenerateAgentTokenHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.AgentService == nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "agent service not wired"})
+			return
+		}
+		out, err := deps.AgentService.RotateToken(r.Context(), chi.URLParam(r, "id"))
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"agent":       out.Agent,
+			"plain_token": out.PlainToken,
+		})
 	}
 }
 
@@ -136,10 +174,10 @@ func heartbeatHandler(deps *Dependencies) http.HandlerFunc {
 		if deps.WSHub != nil {
 			deps.WSHub.Publish(r.Context(), ws.Event{
 				Topic: "agents",
-				Body:  map[string]any{"type": "agent.heartbeat", "agent": a},
+				Body:  map[string]any{"type": "agent.heartbeat", "agent": normalizeLabels(a)},
 			})
 		}
-		writeJSON(w, http.StatusOK, a)
+		writeJSON(w, http.StatusOK, normalizeLabels(a))
 	}
 }
 

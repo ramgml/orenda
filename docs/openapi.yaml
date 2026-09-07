@@ -1307,6 +1307,38 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Agent' }
 
+  /api/v1/agents/{id}/regenerate-token:
+    post:
+      tags: [agents]
+      summary: Mint a new API token for the agent; returns it once.
+      description: |
+        Task 165: replaces the credential of the agent's EXISTING
+        api_tokens row (agents.token_id does not change, so the
+        agent's identity, locks and settings survive). The previous
+        plaintext stops working immediately. The new plaintext is
+        returned exactly once and never persisted.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent: { $ref: '#/components/schemas/Agent' }
+                  plain_token:
+                    type: string
+                    description: New opaque token; shown exactly once.
+        '404':
+          description: unknown agent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+
   # ---- inbox ----
   /api/v1/inbox/tasks:
     get:

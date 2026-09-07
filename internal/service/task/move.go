@@ -310,6 +310,15 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 	if err != nil {
 		return nil, ErrNotFound
 	}
+	// T164 no-op guard: a move that doesn't change the column or the
+	// position is a replay (double-fire of a drop, a batch retry, an
+	// optimistic echo). Persisting and re-publishing it would emit a
+	// task.moved event for nothing — which the board then refetches,
+	// burning rate-limiter budget. Return the current row untouched:
+	// no Update, no activity row, no WS publish.
+	if tr.ColumnID == opts.TargetColumnID && tr.Position == derivePosition(opts, tr.Position) {
+		return tr, nil
+	}
 	prevStatus := tr.Status
 
 	// WIP-limit check (count tasks in target column, excluding self).
