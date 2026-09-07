@@ -857,6 +857,17 @@ class ApiClient {
     return this.http.delete<void>(`/api/v1/agents/${id}`).then(() => undefined);
   }
 
+  /**
+   * Task 165: mint a new API token for an existing agent. The
+   * previous plaintext stops working immediately; the new one is
+   * returned exactly once (the server never persists it).
+   */
+  regenerateAgentToken(id: string): Promise<{ agent: Agent; plain_token: string }> {
+    return this.http
+      .post<{ agent: Agent; plain_token: string }>(`/api/v1/agents/${id}/regenerate-token`)
+      .then((r) => r.data);
+  }
+
   // ---- Agent-token namespace (/api/v1/agent/*) ----
 
   agentMe(): Promise<Agent> {
