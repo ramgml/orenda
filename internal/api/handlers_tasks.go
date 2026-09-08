@@ -368,7 +368,7 @@ func normalizePatchEffects(tr *task.Task, in taskInput, statusChanged bool, prev
 // recordPatchActivity writes the color/priority/assignee change
 // activity rows and applies the tag diff after a successful patch
 // persist. Status change activity is recorded by SyncAndSave.
-func recordPatchActivity(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput, actorID string, prevColor string, prevPriority task.Priority, prevAssigneeType task.AssigneeType, prevAssigneeID string) {
+func recordPatchActivity(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput, actorID, prevColor string, prevPriority task.Priority, prevAssigneeType task.AssigneeType, prevAssigneeID string) {
 	if in.Color != nil && prevColor != tr.Color && deps.TaskService != nil {
 		deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionColorChanged,
 			fmt.Sprintf(`{"from":%q,"to":%q}`, prevColor, tr.Color))

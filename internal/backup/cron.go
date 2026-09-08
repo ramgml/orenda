@@ -159,7 +159,7 @@ func parseCronField(s string, minVal, maxVal int) (cronField, error) {
 // parseCronStep splits a trailing "/step" suffix off one cron field
 // part, returning the step (default 1) and the part with the suffix
 // removed. An empty or non-positive step is rejected.
-func parseCronStep(part string) (int, string, error) {
+func parseCronStep(part string) (step int, rest string, err error) {
 	idx := strings.Index(part, "/")
 	if idx < 0 {
 		return 1, part, nil
@@ -181,7 +181,7 @@ func parseCronStep(part string) (int, string, error) {
 // parseCronRange parses the range portion of one cron field part:
 // "*", "n-m", or a bare value. Returns the inclusive [start, end]
 // bounds; reversed ranges are rejected.
-func parseCronRange(part string, minVal, maxVal int) (int, int, error) {
+func parseCronRange(part string, minVal, maxVal int) (start, end int, err error) {
 	switch {
 	case part == "*":
 		return minVal, maxVal, nil
