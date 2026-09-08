@@ -231,6 +231,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: [build]
+    # Browsers + system deps preinstalled; bump вместе с @playwright/test в web/package.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -257,10 +260,6 @@ jobs:
       - name: npm ci
         working-directory: web
         run: npm ci
-
-      - name: Install Playwright Chromium
-        working-directory: web
-        run: npx playwright install --with-deps chromium
 
       - name: make test-e2e
         run: make test-e2e
