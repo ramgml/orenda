@@ -13,9 +13,11 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 
@@ -168,74 +170,14 @@ func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		limit := 100
-		if v := r.URL.Query().Get("limit"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 500 {
-				limit = n
-			}
-		}
-		readyOnly := r.URL.Query().Get("ready") == "true"
-
-		// T153: grouped/tree reshapes. group_by accepts only
-		// "project"; tree only "true"/"false". Anything else is an
-		// explicit 400 — the T140 rule (unknown input must not be
-		// silently ignored) applied to values too. tree needs the
-		// group structure to nest into.
-		groupBy := r.URL.Query().Get("group_by")
-		if groupBy != "" && groupBy != "project" {
+		q := parseAgentTaskListParams(r.URL.Query())
+		if q.badRequest {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
 			return
 		}
-		treeParam := r.URL.Query().Get("tree")
-		switch treeParam {
-		case "", "false", "true":
-		default:
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
+		scopedProject, ok := resolveAgentTaskScope(r.Context(), deps, w, q)
+		if !ok {
 			return
-		}
-		tree := treeParam == "true"
-		if tree && groupBy == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
-			return
-		}
-
-		// Task 140: optional project scope. Both parameters at once
-		// is ambiguous input; the reference forms mirror the path
-		// resolution elsewhere (resolveProjectRef + GetByNumber).
-		projectIDParam := r.URL.Query().Get("project_id")
-		projectParam := r.URL.Query().Get("project")
-		if projectIDParam != "" && projectParam != "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
-			return
-		}
-		var scopedProject *project.Project
-		if projectIDParam != "" {
-			p, err := deps.Projects.GetProject(r.Context(), projectIDParam)
-			if err != nil {
-				writeProjectResolveError(w, err)
-				return
-			}
-			scopedProject = p
-		} else if projectParam != "" {
-			var err error
-			if n, ok := project.ParseProjectRef(projectParam); ok {
-				scopedProject, err = deps.Projects.GetByNumber(r.Context(), n)
-			} else if allDigits(projectParam) {
-				// Bare number form ("project=7") — ParseProjectRef
-				// only covers the P-prefixed spelling.
-				n, aerr := strconv.Atoi(projectParam)
-				if aerr != nil || n <= 0 {
-					writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
-					return
-				}
-				scopedProject, err = deps.Projects.GetByNumber(r.Context(), n)
-			} else {
-				scopedProject, err = deps.Projects.GetProject(r.Context(), projectParam)
-			}
-			if err != nil {
-				writeProjectResolveError(w, err)
-				return
-			}
 		}
 
 		// Task 140: access set once per request — the visibility
@@ -252,118 +194,22 @@ func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		// Single pass: list every "claimable" status task, then
-		// hydrate blockers with one batch query and filter. For a
-		// single-owner install the whole list is < few hundred.
-		// Phase 33.1: AssigneeTypeIncludeNull — an unassigned todo
-		// task (e.g. an agent-proposed task the owner just triaged
-		// from the review queue onto the board) is claimable by any
-		// agent, so it belongs on this surface.
-		//
-		// Task 140: with an explicit project scope one query returns
-		// exactly that project's claimable tasks (inbox is NOT
-		// appended — a scoped listing never mixes in no-project
-		// tasks). Without a scope the full surface is listed, minus
-		// tasks of projects this agent cannot access; inbox tasks
-		// (ProjectID == "") always stay visible.
-		var tasks []*task.Task
-		if scopedProject != nil {
-			f := task.Filter{ProjectID: scopedProject.ID, Status: task.StatusTodo, AssigneeType: task.AssigneeAgent, AssigneeTypeIncludeNull: true}
-			var err error
-			tasks, err = deps.Tasks.ListByProject(r.Context(), f)
-			if err != nil {
-				writeError(w, err)
-				return
-			}
-		} else {
-			f := task.Filter{Status: task.StatusTodo, AssigneeType: task.AssigneeAgent, AssigneeTypeIncludeNull: true}
-			var err error
-			tasks, err = deps.Tasks.ListByProject(r.Context(), f)
-			if err != nil {
-				writeError(w, err)
-				return
-			}
-			// Also include inbox tasks: Filter has NoProject for that.
-			// Task 151: query 1 has no project clause, so inbox tasks
-			// with assignee_type agent-or-NULL are already in `tasks`;
-			// merging query 2 raw used to duplicate each of them
-			// (T151: count doubled). Merge order-stable by id — first
-			// occurrence wins.
-			f2 := task.Filter{NoProject: true, Status: task.StatusTodo}
-			inboxTasks, err := deps.Tasks.ListByProject(r.Context(), f2)
-			if err != nil {
-				writeError(w, err)
-				return
-			}
-			seen := make(map[string]struct{}, len(tasks)+len(inboxTasks))
-			for _, tr := range tasks {
-				seen[tr.ID] = struct{}{}
-			}
-			for _, tr := range inboxTasks {
-				if _, dup := seen[tr.ID]; dup {
-					continue
-				}
-				seen[tr.ID] = struct{}{}
-				tasks = append(tasks, tr)
-			}
-		}
-
-		type row = taskRow // T153: alias — grouped shape re-uses the same payload
-		// Phase 28.22: batch the blocker lookup — one round-trip for
-		// the whole list instead of a per-task N+1.
-		ids := make([]string, 0, len(tasks))
-		for _, tr := range tasks {
-			ids = append(ids, tr.ID)
-		}
-		blockersByTask, err := deps.Tasks.BlockersForTasks(r.Context(), ids)
+		tasks, err := listAgentTaskCandidates(r.Context(), deps, scopedProject)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
-		out := make([]row, 0, len(tasks))
-		for _, tr := range tasks {
-			// Task 140: project tasks of inaccessible projects are
-			// invisible; inbox tasks (no project) are always shown.
-			if tr.ProjectID != "" && !accessSet[tr.ProjectID] {
-				continue
-			}
-			var blockedBy []string
-			ready := true
-			for _, b := range blockersByTask[tr.ID] {
-				if !b.Done {
-					blockedBy = append(blockedBy, b.BlockerID)
-					ready = false
-				}
-			}
-			// Task 115: status=blocked coincides with "has unfinished
-			// blockers" by construction (the auto-block flips it), but a
-			// legacy/rolled-back row could carry one without the other —
-			// exclude on BOTH so the ready list never lies.
-			if ready && tr.Status == task.StatusBlocked {
-				ready = false
-			}
-			// "ready" excludes tasks already claimed (by anyone) AND
-			// tasks assigned to a different agent. Phase 15: we also
-			// exclude tasks assigned to the calling agent itself —
-			// the agent shouldn't see its own in-flight tasks in the
-			// ready list (that's noise; the agent already knows it
-			// has them).
-			if ready && tr.AssigneeType == task.AssigneeAgent && tr.AssigneeID != "" && tr.AssigneeID != id.AgentID {
-				ready = false
-			}
-			if ready && tr.AssigneeType == task.AssigneeAgent && tr.AssigneeID == id.AgentID {
-				ready = false
-			}
-			if readyOnly && !ready {
-				continue
-			}
-			out = append(out, row{Task: tr, BlockedBy: blockedBy, Ready: ready})
+
+		out, err := buildAgentTaskRows(r.Context(), deps, tasks, accessSet, id.AgentID, q.readyOnly)
+		if err != nil {
+			writeError(w, err)
+			return
 		}
-		if len(out) > limit {
-			out = out[:limit]
+		if len(out) > q.limit {
+			out = out[:q.limit]
 		}
-		if groupBy == "project" {
-			writeJSON(w, http.StatusOK, buildGroupedResponse(deps, r, out, tree))
+		if q.groupBy == "project" {
+			writeJSON(w, http.StatusOK, buildGroupedResponse(deps, r, out, q.tree))
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -386,6 +232,194 @@ func allDigits(s string) bool {
 		}
 	}
 	return true
+}
+
+// agentTaskListParams is the parsed query of GET /agent/tasks.
+// limit defaults to 100 (values outside (0,500] keep the default);
+// readyOnly mirrors ?ready=true. group_by accepts only "project"
+// and tree only "true"/"false" — anything else sets badRequest (an
+// explicit 400, the T140 rule applied to values). tree requires
+// group_by=project. Passing both project_id and project is
+// ambiguous input and also a badRequest.
+type agentTaskListParams struct {
+	limit      int
+	readyOnly  bool
+	groupBy    string
+	tree       bool
+	projectID  string
+	projectRef string
+	badRequest bool
+}
+
+// parseAgentTaskListParams parses the query parameters of the agent
+// task listing. It never writes a response; the caller turns
+// badRequest into the 400 invalid_input reply.
+func parseAgentTaskListParams(values url.Values) agentTaskListParams {
+	q := agentTaskListParams{limit: 100}
+	if v := values.Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 500 {
+			q.limit = n
+		}
+	}
+	q.readyOnly = values.Get("ready") == "true"
+
+	q.groupBy = values.Get("group_by")
+	if q.groupBy != "" && q.groupBy != "project" {
+		q.badRequest = true
+		return q
+	}
+	treeParam := values.Get("tree")
+	switch treeParam {
+	case "", "false", "true":
+	default:
+		q.badRequest = true
+		return q
+	}
+	q.tree = treeParam == "true"
+	if q.tree && q.groupBy == "" {
+		q.badRequest = true
+		return q
+	}
+
+	q.projectID = values.Get("project_id")
+	q.projectRef = values.Get("project")
+	if q.projectID != "" && q.projectRef != "" {
+		q.badRequest = true
+		return q
+	}
+	return q
+}
+
+// resolveAgentTaskScope resolves the optional project scope of the
+// agent task listing (Task 140). The reference forms mirror the
+// path resolution elsewhere (resolveProjectRef + GetByNumber);
+// resolution failures are reported through writeProjectResolveError
+// exactly like the user-side handlers, and an unparseable bare
+// number is a 404 not_found. ok=false means a response was written.
+func resolveAgentTaskScope(ctx context.Context, deps *Dependencies, w http.ResponseWriter, q agentTaskListParams) (*project.Project, bool) {
+	if q.projectID != "" {
+		p, err := deps.Projects.GetProject(ctx, q.projectID)
+		if err != nil {
+			writeProjectResolveError(w, err)
+			return nil, false
+		}
+		return p, true
+	}
+	if q.projectRef == "" {
+		return nil, true
+	}
+	var (
+		p   *project.Project
+		err error
+	)
+	if n, ok := project.ParseProjectRef(q.projectRef); ok {
+		p, err = deps.Projects.GetByNumber(ctx, n)
+	} else if allDigits(q.projectRef) {
+		// Bare number form ("project=7") — ParseProjectRef
+		// only covers the P-prefixed spelling.
+		n, aerr := strconv.Atoi(q.projectRef)
+		if aerr != nil || n <= 0 {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+			return nil, false
+		}
+		p, err = deps.Projects.GetByNumber(ctx, n)
+	} else {
+		p, err = deps.Projects.GetProject(ctx, q.projectRef)
+	}
+	if err != nil {
+		writeProjectResolveError(w, err)
+		return nil, false
+	}
+	return p, true
+}
+
+// listAgentTaskCandidates lists the claimable tasks of the agent
+// surface. With a project scope one query returns exactly that
+// project's claimable tasks (inbox is NOT appended — a scoped
+// listing never mixes in no-project tasks). Without a scope the
+// full surface is listed and the inbox tasks are merged in
+// order-stable by id — first occurrence wins (T151: merging query 2
+// raw used to duplicate the inbox tasks already carried by query 1
+// and double the count). Phase 33.1: AssigneeTypeIncludeNull — an
+// unassigned todo task is claimable by any agent.
+func listAgentTaskCandidates(ctx context.Context, deps *Dependencies, scopedProject *project.Project) ([]*task.Task, error) {
+	if scopedProject != nil {
+		f := task.Filter{ProjectID: scopedProject.ID, Status: task.StatusTodo, AssigneeType: task.AssigneeAgent, AssigneeTypeIncludeNull: true}
+		return deps.Tasks.ListByProject(ctx, f)
+	}
+	f := task.Filter{Status: task.StatusTodo, AssigneeType: task.AssigneeAgent, AssigneeTypeIncludeNull: true}
+	tasks, err := deps.Tasks.ListByProject(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	// Also include inbox tasks: Filter has NoProject for that.
+	// Task 151: query 1 has no project clause, so inbox tasks
+	// with assignee_type agent-or-NULL are already in `tasks`.
+	f2 := task.Filter{NoProject: true, Status: task.StatusTodo}
+	inboxTasks, err := deps.Tasks.ListByProject(ctx, f2)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(tasks)+len(inboxTasks))
+	for _, tr := range tasks {
+		seen[tr.ID] = struct{}{}
+	}
+	for _, tr := range inboxTasks {
+		if _, dup := seen[tr.ID]; dup {
+			continue
+		}
+		seen[tr.ID] = struct{}{}
+		tasks = append(tasks, tr)
+	}
+	return tasks, nil
+}
+
+// buildAgentTaskRows hydrates the candidate tasks with their
+// blockers (one batched round-trip, Phase 28.22) and computes the
+// per-row ready flag: no unfinished blockers, not status=blocked
+// (Task 115: both signals are checked so the ready list never
+// lies), and not assigned — to another agent (Phase 15) nor to the
+// calling agent itself (in-flight work is noise in the ready list).
+// Tasks of inaccessible projects are invisible (Task 140); inbox
+// tasks are always shown. With readyOnly set, rows that are not
+// ready are skipped.
+func buildAgentTaskRows(ctx context.Context, deps *Dependencies, tasks []*task.Task, accessSet map[string]bool, agentID string, readyOnly bool) ([]taskRow, error) {
+	ids := make([]string, 0, len(tasks))
+	for _, tr := range tasks {
+		ids = append(ids, tr.ID)
+	}
+	blockersByTask, err := deps.Tasks.BlockersForTasks(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]taskRow, 0, len(tasks))
+	for _, tr := range tasks {
+		if tr.ProjectID != "" && !accessSet[tr.ProjectID] {
+			continue
+		}
+		var blockedBy []string
+		ready := true
+		for _, b := range blockersByTask[tr.ID] {
+			if !b.Done {
+				blockedBy = append(blockedBy, b.BlockerID)
+				ready = false
+			}
+		}
+		if ready && tr.Status == task.StatusBlocked {
+			ready = false
+		}
+		if ready && tr.AssigneeType == task.AssigneeAgent && tr.AssigneeID != "" && tr.AssigneeID != agentID {
+			ready = false
+		}
+		if ready && tr.AssigneeType == task.AssigneeAgent && tr.AssigneeID == agentID {
+			ready = false
+		}
+		if readyOnly && !ready {
+			continue
+		}
+		out = append(out, taskRow{Task: tr, BlockedBy: blockedBy, Ready: ready})
+	}
+	return out, nil
 }
 
 // --- T153: grouped / tree response shaping -----------------------------
