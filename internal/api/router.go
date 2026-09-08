@@ -346,6 +346,13 @@ func NewRouter(deps *Dependencies) http.Handler {
 		// Authenticated routes.
 		r.Group(func(r chi.Router) {
 			r.Use(RequireUser(cfg))
+			// T174: same-origin Origin/Referer check for cookie
+			// mutations. Guards only the user group — Bearer clients
+			// pass through untouched (a cross-site page cannot forge an
+			// Authorization header, so they have no CSRF surface).
+			// The agent group below deliberately does NOT get this
+			// middleware: agents authenticate via Bearer API tokens.
+			r.Use(csrfOriginCheck())
 
 			r.Get("/me", meHandler())
 
