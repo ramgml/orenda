@@ -262,7 +262,9 @@ jobs:
         run: npm ci
 
       - name: make test-e2e
-        run: make test-e2e
+        # Образ playwright не содержит make; make test-e2e = (build) + эта строка,
+        # а binary уже скачан артефактом и используется e2e-setup/run-server.sh.
+        run: cd web && npx playwright test
         env:
           # Don't let CI accidentally talk to the developer's local instance.
           ORENDA_SERVER__PORT: '21371'
