@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/domain/agent"
@@ -209,6 +210,12 @@ func RequireAgent(cfg AuthConfig) func(http.Handler) http.Handler {
 
 // verifyAPIToken is a small wrapper around the repo lookup that retries on
 // transient errors.
+//
+// T182 expiry semantics: a row is expired iff its deadline is set and has
+// passed — expires_at <= now counts as expired (nil = never expires). An
+// expired row is rejected exactly like a bcrypt non-match, so the middleware
+// answers the same generic 401 for unknown and expired credentials and the
+// wire cannot tell them apart (no "expired" leak in status or body).
 func verifyAPIToken(ctx context.Context, repo TokenLookup, plain string) (*auth.TokenRow, error) {
 	hashes, err := repo.ListAllHashes(ctx)
 	if err != nil {
@@ -216,6 +223,9 @@ func verifyAPIToken(ctx context.Context, repo TokenLookup, plain string) (*auth.
 	}
 	for hash, t := range hashes {
 		if err := auth.VerifyAPIToken(hash, plain); err == nil {
+			if t.ExpiresAt != nil && !t.ExpiresAt.After(time.Now()) {
+				return nil, errAPITokenNotFound
+			}
 			return &t, nil
 		}
 	}
