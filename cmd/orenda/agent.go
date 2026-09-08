@@ -85,11 +85,11 @@ type agentSettings struct {
 // domain names the command family in error messages ("orenda agent"
 // or "mcp-proxy").
 func resolveAgentSettings(cmd *cobra.Command, domain string) (*agentSettings, error) {
-	url, _ := cmd.Flags().GetString("url")
-	token, _ := cmd.Flags().GetString("token")
+	flagURL, _ := cmd.Flags().GetString("url")
+	flagToken, _ := cmd.Flags().GetString("token")
 	s := &agentSettings{
-		URL:   agentField{Value: url, Source: sourceFlag},
-		Token: agentField{Value: token, Source: sourceFlag},
+		URL:   agentField{Value: flagURL, Source: sourceFlag},
+		Token: agentField{Value: flagToken, Source: sourceFlag},
 	}
 	if s.URL.Value == "" {
 		s.URL = agentField{Value: os.Getenv("ORENDA_URL"), Source: sourceEnv}
