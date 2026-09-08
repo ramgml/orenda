@@ -34,11 +34,16 @@ import (
 //
 //   - Safe methods (GET/HEAD/OPTIONS) pass — they must stay side-effect
 //     free by contract anyway.
-//   - Requests carrying an Authorization header pass. A cross-site
-//     attacker cannot set arbitrary request headers (no CORS-preflight
-//     from a page it controls, no custom headers on top-level
-//     navigations), so Bearer-authenticated clients (agents, CLIs) are
-//     not CSRF-exploitable; skipping them keeps those flows untouched.
+//   - Requests carrying an Authorization header AND no session cookie
+//     pass. A cross-site attacker cannot set arbitrary request headers
+//     (no CORS-preflight from a page it controls, no custom headers on
+//     top-level navigations), so clean Bearer clients (agents, CLIs —
+//     which never carry the cookie) are not CSRF-exploitable. A request
+//     with BOTH the header and the session cookie is treated as a
+//     browser/hybrid request and falls through to the Origin check:
+//     extractUserToken prefers the cookie over the header, so a bogus
+//     "Authorization: Bearer dummy" must not launder a cookie mutation
+//     (T174-CSRF-AUTHZ-SKIP-BYPASS, security review of this PR).
 //   - If Origin or Referer is present, its URL host (host:port) is
 //     compared with r.Host, case-insensitively; both http and https
 //     schemes are accepted. A mismatch is a cross-site request → 403
@@ -53,7 +58,7 @@ import (
 //     check is deliberately lenient here so plain curl workflows and
 //     the existing Go integration suite (which performs cookie
 //     mutations without Origin headers) keep working.
-func csrfOriginCheck() func(http.Handler) http.Handler {
+func csrfOriginCheck(cookieName string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
@@ -61,9 +66,16 @@ func csrfOriginCheck() func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			// Bearer clients (agents/CLI) are immune: a cross-site page
-			// cannot plant an arbitrary Authorization header. Skip them.
-			if r.Header.Get("Authorization") != "" {
+			// Clean Bearer clients (agents/CLI) are immune: a cross-site
+			// page cannot plant an arbitrary Authorization header. The
+			// exemption requires the request to be cookie-free: a cookie
+			// NEXT TO an Authorization header means a browser/hybrid
+			// request — extractUserToken gives the cookie priority over
+			// the (possibly bogus) header, so skipping the Origin check
+			// here would let a same-site attacker page launder a cookie
+			// mutation through a dummy "Authorization: Bearer dummy"
+			// preflighted fetch (T174-CSRF-AUTHZ-SKIP-BYPASS).
+			if authz := r.Header.Get("Authorization"); authz != "" && !hasSessionCookie(r, cookieName) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -86,16 +98,27 @@ func csrfOriginCheck() func(http.Handler) http.Handler {
 	}
 }
 
+// hasSessionCookie reports whether the request carries the session
+// cookie. Used to keep the Authorization exemption narrow: a request
+// with both the header and the cookie is treated as a browser request.
+func hasSessionCookie(r *http.Request, cookieName string) bool {
+	_, err := r.Cookie(cookieName)
+	return err == nil
+}
+
 // sameOrigin reports whether raw (an Origin or Referer header value)
 // parses to the given host (r.Host form: "host" or "host:port"),
 // case-insensitively. Both http and https schemes are accepted — the
 // loopback install runs plain HTTP while proxied installs terminate
 // TLS, and the host comparison is the security-relevant part.
 //
-// "null" (sandboxed iframe) never matches.
+// Userinfo components ("https://evil.com@host:port") never match
+// either: browsers never send userinfo in Origin/Referer, so such a
+// value can only be a forged header — fail closed even when the
+// userinfo string embeds the app's own host:port.
 func sameOrigin(raw, host string) bool {
 	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" {
+	if err != nil || u.Host == "" || u.User != nil {
 		return false
 	}
 	return strings.EqualFold(u.Host, host)
