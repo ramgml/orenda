@@ -21,11 +21,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	_ "net/http/pprof" // Phase 28.6: registers /debug/pprof/* on http.DefaultServeMux
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -686,28 +688,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		zap.String("version", version),
 		zap.String("commit", commit),
 		zap.String("config", absCfg),
-		zap.String("addr", fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)),
+		zap.String("addr", net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))),
 	)
 
-	// Open SQLite database.
-	dbPath := cfg.ResolveDBPath(cwdOr(absCfg, "."))
-	db, err := sqlite.Open(cmd.Context(), dbPath, sqlite.OpenConfig{
-		WALMode:       cfg.Storage.WALMode,
-		EnableForeign: cfg.Storage.EnableForeign,
-		BusyTimeoutMs: cfg.Storage.BusyTimeoutMs,
-	})
+	db, err := serveOpenDB(cmd.Context(), cfg, logger, absCfg)
 	if err != nil {
-		return fmt.Errorf("db: %w", err)
+		return err
 	}
 	defer func() { _ = db.Close() }()
-
-	logger.Info("sqlite opened", zap.String("path", dbPath))
-
-	// Ensure migrations are up to date before serving traffic.
-	if err := sqlite.Migrate(cmd.Context(), db, sqlite.MigrationsFS, "migrations"); err != nil {
-		return fmt.Errorf("migrate: %w", err)
-	}
-	logger.Info("migrations applied")
 
 	// Calendar events can be created with or without a project — the
 	// event service no longer falls back to a system "Inbox" project,
@@ -727,65 +715,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// for graceful shutdown.
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	// Backup service + scheduler (Phase 7) — constructed before the other
-	// services so task/wiki services can hold a reference to the mirror.
-	var backupSvc *backup.Service
-	var mirrorSvc *mirror.Service
-	if cfg.Backup.Enabled {
-		if err := os.MkdirAll(cfg.Backup.MirrorDir, 0o755); err != nil {
-			return fmt.Errorf("backup mirror dir: %w", err)
-		}
-		if err := os.MkdirAll(cfg.Backup.SnapshotDir, 0o755); err != nil {
-			return fmt.Errorf("backup snapshot dir: %w", err)
-		}
-		// Phase 32.7: validate the cron expression at startup. A
-		// bad expression in config.yaml used to silently fall
-		// back to the scheduler's hard-coded default (Phase 7.5
-		// never even read the YAML value); now it's wired into
-		// the live cfg and the scheduler reads it on every
-		// iteration. We refuse to start rather than schedule on
-		// a default the operator didn't ask for — the typo is
-		// cheaper to fix than the surprise.
-		if cfg.Backup.SQLiteSnapshotCron != "" {
-			if _, err := backup.Parse(cfg.Backup.SQLiteSnapshotCron); err != nil {
-				return fmt.Errorf("backup.sqlite_snapshot_cron: %w", err)
-			}
-		}
-		mirrorSvc = mirror.New(cfg.Backup.MirrorDir)
-		backupSvc = backup.New(backup.Config{
-			MirrorDir:            cfg.Backup.MirrorDir,
-			SnapshotDir:          cfg.Backup.SnapshotDir,
-			DBPath:               cfg.ResolveDBPath("."),
-			RemoteURL:            cfg.Backup.RemoteURL,
-			RemoteAuth:           cfg.Backup.RemoteAuth,
-			SnapshotRotationDays: cfg.Backup.SnapshotRotationDays,
-			SnapshotCron:         cfg.Backup.SQLiteSnapshotCron,
-		}, db)
-		// Phase 32.7: merge persisted DB overrides into the
-		// live config BEFORE the scheduler goroutine starts so
-		// the snapshot loop's first iteration already sees the
-		// operator-saved schedule (the previous Phase 28.9
-		// design only merged on PUT — restart reset URL/auth to
-		// the YAML default, a known surprise that's now closed
-		// for the cron/rotation pair). The repo is constructed
-		// below alongside the rest of the dependencies, so we
-		// can't reuse Dependencies here; instead we read the
-		// rows directly off the DB and call UpdateConfig with
-		// the merged result. Failures are logged but not fatal
-		// — a corrupted settings row shouldn't keep the server
-		// from booting.
-		applyStartupBackupSettings(cmd.Context(), backupSvc, db, logger)
-		scheduler := backup.NewScheduler(backupSvc)
-		go scheduler.Run(ctx)
-		logger.Info("backup scheduler started",
-			zap.String("mirror_dir", cfg.Backup.MirrorDir),
-			zap.String("snapshot_dir", cfg.Backup.SnapshotDir),
-		)
-		// Save the scheduler handle so we can wire the
-		// notifier after notifierSvc is constructed below.
-		// Phase Wave 4 PR 2: `backup.failed` events fan out
-		// from the scheduler's run* helpers.
-		pendingNotifier = scheduler
+
+	backupSvc, mirrorSvc, err := serveBackupIfEnabled(cmd.Context(), ctx, cfg, logger, db)
+	if err != nil {
+		return err
 	}
 
 	// Build service layer (Phase 2: task_service.Move; Phase 3.6 adds
@@ -883,86 +816,12 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	courseActivityRecorder.IdentitySource = identitySourceFromAPI
 	courseSvc = courseSvc.WithActivity(courseActivityRecorder)
 
-	// Notifier (Phase 6): registry + console bot (always available) + WS
-	// hub publish. External transports land in Phase 10.
-	botRegistry := bot.NewRegistry()
-	botRegistry.Register(bot.Console{Out: os.Stderr})
-
-	// Phase 10: config-driven bots.
-	botSpecs := make([]bot.ConfigSpec, 0, len(cfg.Bots))
-	for _, b := range cfg.Bots {
-		botSpecs = append(botSpecs, bot.ConfigSpec{
-			Type:    b.Type,
-			Enabled: b.Enabled,
-			Config:  b.Config,
-		})
-	}
-	if err := bot.BuildFromConfig(botSpecs, botRegistry); err != nil {
-		return fmt.Errorf("bots: %w", err)
-	}
-	// Start any bots that have long-running loops (telegram long-poll).
-	for _, b := range botRegistry.List() {
-		if err := b.Start(cmd.Context()); err != nil {
-			logger.Warn("bot start failed", zap.String("name", b.Name()), zap.Error(err))
-		}
+	botRegistry, err := serveBots(cmd.Context(), cfg, logger)
+	if err != nil {
+		return err
 	}
 
-	// Phase 10: bot callback handler — converts approve/reject button presses
-	// into task review decisions.
-	var botCallback *bot.CallbackHandler
-	{
-		reviewDecider := reviewDeciderAdapter{svc: taskSvc}
-		ownerResolver := ownerResolverAdapter{users: usersRaw}
-		botCallback = bot.NewCallbackHandler(reviewDecider, ownerResolver)
-		// Telegram: route callbacks through the bot's OnCallback hook.
-		if tg, ok := botRegistry.Get("telegram").(*bot.Telegram); ok && tg != nil {
-			tg.OnCallback = func(ctx context.Context, q bot.CallbackQuery) error {
-				action, target, err := bot.ParseCallbackData(q.Data)
-				if err != nil {
-					return err
-				}
-				herr := botCallback.Handle(ctx, bot.CallbackAction{
-					Action:    action,
-					TaskID:    target,
-					Nonce:     q.ID,
-					BotUserID: int64ToString(q.ChatID),
-				})
-				if herr != nil {
-					return herr
-				}
-				return tg.AnswerCallback(ctx, q.ID, "ok")
-			}
-
-			// Phase 21: route plain text messages from a private chat
-			// into the Inbox. The simplest flow:
-			//   1. Look up the user subscribed to this chat_id.
-			//   2. Create an inbox task (project_id IS NULL) with the
-			//      message text as title (truncated to 200 chars).
-			//   3. Reply "✅ Captured to Inbox".
-			// Subscription lookup is best-effort: no subscription =
-			// ignore. The single-owner install has one user row, so
-			// "the user subscribed to this telegram chat" is the
-			// normal case after `orenda subscription add telegram …
-			// target=<chat_id>`.
-			tg.OnMessage = func(ctx context.Context, m bot.InboxMessage) error {
-				return captureToInbox(ctx, db, tasksRepo, "telegram", int64ToString(m.ChatID), m.Text, func(reply string) error {
-					return tg.SendReply(ctx, m.ChatID, reply)
-				})
-			}
-		}
-	}
-
-	// Phase 30.3: VK Long Poll OnMessage hook. Same inbox-capture flow
-	// as Telegram, but routed through vk.Send (peer_id is the same as
-	// the message's peer_id). Skipped when no VK bot is registered
-	// (e.g., telegram-only install).
-	if vk, ok := botRegistry.Get("vk").(*bot.VK); ok && vk != nil {
-		vk.OnMessage = func(ctx context.Context, m bot.InboxMessage) error {
-			return captureToInbox(ctx, db, tasksRepo, "vk", int64ToString(m.ChatID), m.Text, func(reply string) error {
-				return vk.Send(ctx, int64ToString(m.ChatID), bot.Message{Title: reply})
-			})
-		}
-	}
+	botCallback := serveWireBotHooks(db, tasksRepo, usersRaw, botRegistry, taskSvc)
 
 	notifierSvc := notifierservice.New(
 		sqlite.NewNotificationRepository(db),
@@ -1000,35 +859,12 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		bindCodes = tg.BindCodes
 	}
 
-	// Phase 8 follow-up: recurring-event reminder scheduler.
-	// Scans the [now+Lead, now+Lead+Window] band every Tick and fires
-	// event.upcoming_1h notifications for the project owner. PRD F-C-4.
-	reminder := &eventservice.Reminder{
-		Repo:   sqlite.NewTaskRepository(db),
-		Notify: notifierSvc.Notify,
-		NotifyProjectOwner: func(ctx context.Context, eventID string) (ownerID, title, link string, err error) {
-			ev, err := eventSvc.Get(ctx, eventID)
-			if err != nil || ev == nil {
-				return "", "", "", err
-			}
-			if ev.ProjectID == "" {
-				return "", "", "", nil
-			}
-			p, err := projects.GetProject(ctx, ev.ProjectID)
-			if err != nil || p == nil {
-				return "", "", "", err
-			}
-			return p.OwnerID, ev.Title, "/calendar", nil
-		},
-	}
+	reminder := serveEventReminder(db, eventSvc, projects, notifierSvc)
 
-	// Build the JWT signer. JWT secret is mandatory for Phase 1+ — refuse
-	// to start without it so the operator doesn't discover the missing
-	// config at first login.
-	if cfg.Auth.JWTSecret == "" {
-		return fmt.Errorf("auth: ORENDA_AUTH__JWT_SECRET (or auth.jwt_secret in config, or ORENDA_AUTH__JWT_SECRET_FILE / auth.jwt_secret_file pointing to a file with the secret) is required for `serve`")
+	signer, err := serveSigner(cfg)
+	if err != nil {
+		return err
 	}
-	signer := auth.NewSigner(cfg.Auth.JWTSecret, cfg.Auth.JWTTTL, "orenda")
 
 	// Build the router.
 	api.Version = version
@@ -1126,7 +962,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 
 	// HTTP server with graceful shutdown.
 	srv := &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
+		Addr:         net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port)),
 		Handler:      router,
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
@@ -1136,84 +972,16 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// ctx.Done() and exits with the server.
 	go reminder.Run(ctx)
 
-	// Phase 30.5: weekly digest scheduler. Ticks every 7 days
-	// (configurable via cfg.Notifier.DigestInterval — default 168h).
-	// The scheduler queries the storage layer per-owner for the
-	// period stats, renders via notifier.RenderWeeklyDigest, and
-	// pushes a "digest.weekly" event through the same notifier
-	// pipeline as any other notification — so every bot the
-	// operator has subscribed to (Telegram, VK, Email, Webhook,
-	// Console) gets the digest. Disabled when DigestInterval is
-	// zero or negative (operator opt-out).
-	if cfg.Notifier.DigestInterval > 0 {
-		digest := &digestScheduler{
-			interval: cfg.Notifier.DigestInterval,
-			logger:   logger,
-			db:       db,
-			users:    userListerAdapter{repo: sqlite.NewUserRepository(db)},
-			notifier: notifierDigestAdapter{svc: notifierSvc},
-		}
-		go digest.Run(ctx)
-		logger.Info("weekly digest scheduler started",
-			zap.Duration("interval", cfg.Notifier.DigestInterval))
+	serveDigestScheduler(ctx, cfg, logger, db, notifierSvc)
+
+	pprofSrv := servePProfIfEnabled(cfg, logger)
+
+	shutdownCtx, shutdownCancel, err := serveListen(ctx, srv, cfg, logger)
+	if err != nil {
+		return err
 	}
-
-	// Phase 28.6: opt-in pprof listener for live debugging. Off by
-	// default — pprof endpoints expose heap, goroutine, and CPU
-	// state that are an information leak on any reachable port.
-	// When enabled, a SECOND listener runs on cfg.Server.PProfAddr
-	// bound to http.DefaultServeMux (net/http/pprof registers itself
-	// there on import). Loopback-only by design — operators who
-	// want remote profiling should set up an ssh tunnel rather
-	// than bind 0.0.0.0.
-	var pprofSrv *http.Server
-	if cfg.Server.DebugPProf {
-		pprofSrv = &http.Server{
-			Addr:              cfg.Server.PProfAddr,
-			Handler:           http.DefaultServeMux,
-			ReadHeaderTimeout: 5 * time.Second,
-		}
-		go func() {
-			logger.Warn("pprof listening (debug only)",
-				zap.String("addr", cfg.Server.PProfAddr),
-				zap.String("hint", "stop with cfg.server.debug_pprof=false"),
-			)
-			if err := pprofSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				logger.Warn("pprof listener stopped", zap.Error(err))
-			}
-		}()
-	}
-
-	serverErr := make(chan error, 1)
-	go func() {
-		// Phase 28.20: db_path in the startup log makes "which instance is
-		// this?" answerable from `journalctl --user -u orenda` alone —
-		// important when dev (./data/) and usage (~/.local/share/orenda/)
-		// both run on the same box under the same operator.
-		logger.Info("http listening",
-			zap.String("addr", srv.Addr),
-			zap.String("db_path", cfg.ResolveDBPath(".")),
-		)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			serverErr <- err
-		}
-		close(serverErr)
-	}()
-
-	select {
-	case <-ctx.Done():
-		logger.Info("shutdown signal received")
-	case err := <-serverErr:
-		if err != nil {
-			return fmt.Errorf("http server: %w", err)
-		}
-	}
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
 	defer shutdownCancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("graceful shutdown: %w", err)
-	}
+
 	// Phase 28.6: shut the pprof listener down too. We bound the
 	// shutdown to the same timeout — the pprof server is debug-only
 	// and a few in-flight profile requests can wait for the
@@ -1242,6 +1010,321 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	logger.Info("shutdown complete")
 	return nil
+}
+
+// serveOpenDB opens the SQLite database at the configured path and
+// applies pending migrations before serving traffic.
+func serveOpenDB(ctx context.Context, cfg *config.Config, logger *zap.Logger, absCfg string) (*sql.DB, error) {
+	// Open SQLite database.
+	dbPath := cfg.ResolveDBPath(cwdOr(absCfg, "."))
+	db, err := sqlite.Open(ctx, dbPath, sqlite.OpenConfig{
+		WALMode:       cfg.Storage.WALMode,
+		EnableForeign: cfg.Storage.EnableForeign,
+		BusyTimeoutMs: cfg.Storage.BusyTimeoutMs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("db: %w", err)
+	}
+
+	logger.Info("sqlite opened", zap.String("path", dbPath))
+
+	// Ensure migrations are up to date before serving traffic.
+	if err := sqlite.Migrate(ctx, db, sqlite.MigrationsFS, "migrations"); err != nil {
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	logger.Info("migrations applied")
+	return db, nil
+}
+
+// serveBackupIfEnabled constructs the backup service + mirror and
+// starts the backup scheduler when backups are enabled in the
+// config. baseCtx is the command context (settings merge), runCtx
+// is the signal-aware context (scheduler lifetime). Returns nil
+// services when backups are disabled.
+func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, logger *zap.Logger, db *sql.DB) (backupSvc *backup.Service, mirrorSvc *mirror.Service, err error) {
+	if !cfg.Backup.Enabled {
+		return nil, nil, nil
+	}
+	// Backup service + scheduler (Phase 7) — constructed before the other
+	// services so task/wiki services can hold a reference to the mirror.
+	if err := os.MkdirAll(cfg.Backup.MirrorDir, 0o755); err != nil {
+		return nil, nil, fmt.Errorf("backup mirror dir: %w", err)
+	}
+	if err := os.MkdirAll(cfg.Backup.SnapshotDir, 0o755); err != nil {
+		return nil, nil, fmt.Errorf("backup snapshot dir: %w", err)
+	}
+	// Phase 32.7: validate the cron expression at startup. A
+	// bad expression in config.yaml used to silently fall
+	// back to the scheduler's hard-coded default (Phase 7.5
+	// never even read the YAML value); now it's wired into
+	// the live cfg and the scheduler reads it on every
+	// iteration. We refuse to start rather than schedule on
+	// a default the operator didn't ask for — the typo is
+	// cheaper to fix than the surprise.
+	if cfg.Backup.SQLiteSnapshotCron != "" {
+		if _, err := backup.Parse(cfg.Backup.SQLiteSnapshotCron); err != nil {
+			return nil, nil, fmt.Errorf("backup.sqlite_snapshot_cron: %w", err)
+		}
+	}
+	mirrorSvc = mirror.New(cfg.Backup.MirrorDir)
+	backupSvc = backup.New(backup.Config{
+		MirrorDir:            cfg.Backup.MirrorDir,
+		SnapshotDir:          cfg.Backup.SnapshotDir,
+		DBPath:               cfg.ResolveDBPath("."),
+		RemoteURL:            cfg.Backup.RemoteURL,
+		RemoteAuth:           cfg.Backup.RemoteAuth,
+		SnapshotRotationDays: cfg.Backup.SnapshotRotationDays,
+		SnapshotCron:         cfg.Backup.SQLiteSnapshotCron,
+	}, db)
+	// Phase 32.7: merge persisted DB overrides into the
+	// live config BEFORE the scheduler goroutine starts so
+	// the snapshot loop's first iteration already sees the
+	// operator-saved schedule (the previous Phase 28.9
+	// design only merged on PUT — restart reset URL/auth to
+	// the YAML default, a known surprise that's now closed
+	// for the cron/rotation pair). The repo is constructed
+	// below alongside the rest of the dependencies, so we
+	// can't reuse Dependencies here; instead we read the
+	// rows directly off the DB and call UpdateConfig with
+	// the merged result. Failures are logged but not fatal
+	// — a corrupted settings row shouldn't keep the server
+	// from booting.
+	applyStartupBackupSettings(baseCtx, backupSvc, db, logger)
+	scheduler := backup.NewScheduler(backupSvc)
+	go scheduler.Run(runCtx)
+	logger.Info("backup scheduler started",
+		zap.String("mirror_dir", cfg.Backup.MirrorDir),
+		zap.String("snapshot_dir", cfg.Backup.SnapshotDir),
+	)
+	// Save the scheduler handle so we can wire the
+	// notifier after notifierSvc is constructed below.
+	// Phase Wave 4 PR 2: `backup.failed` events fan out
+	// from the scheduler's run* helpers.
+	pendingNotifier = scheduler
+	return backupSvc, mirrorSvc, nil
+}
+
+// serveBots builds the bot registry (console bot always available,
+// config-driven bots via BuildFromConfig) and starts every bot with
+// a long-running loop (telegram long-poll).
+func serveBots(ctx context.Context, cfg *config.Config, logger *zap.Logger) (*bot.Registry, error) {
+	// Notifier (Phase 6): registry + console bot (always available) + WS
+	// hub publish. External transports land in Phase 10.
+	botRegistry := bot.NewRegistry()
+	botRegistry.Register(bot.Console{Out: os.Stderr})
+
+	// Phase 10: config-driven bots.
+	botSpecs := make([]bot.ConfigSpec, 0, len(cfg.Bots))
+	for _, b := range cfg.Bots {
+		botSpecs = append(botSpecs, bot.ConfigSpec{
+			Type:    b.Type,
+			Enabled: b.Enabled,
+			Config:  b.Config,
+		})
+	}
+	if err := bot.BuildFromConfig(botSpecs, botRegistry); err != nil {
+		return nil, fmt.Errorf("bots: %w", err)
+	}
+	// Start any bots that have long-running loops (telegram long-poll).
+	for _, b := range botRegistry.List() {
+		if err := b.Start(ctx); err != nil {
+			logger.Warn("bot start failed", zap.String("name", b.Name()), zap.Error(err))
+		}
+	}
+	return botRegistry, nil
+}
+
+// serveWireBotHooks installs the bot callbacks: approve/reject
+// button presses routed into task review decisions, and Telegram/VK
+// plain-text messages captured into the Inbox. Returns the shared
+// callback handler (wired into the API dependencies).
+func serveWireBotHooks(db *sql.DB, tasks task.Repository, users firstIDer, registry *bot.Registry, taskSvc *taskservice.Service) *bot.CallbackHandler {
+	// Phase 10: bot callback handler — converts approve/reject button presses
+	// into task review decisions.
+	var botCallback *bot.CallbackHandler
+	{
+		reviewDecider := reviewDeciderAdapter{svc: taskSvc}
+		ownerResolver := ownerResolverAdapter{users: users}
+		botCallback = bot.NewCallbackHandler(reviewDecider, ownerResolver)
+		// Telegram: route callbacks through the bot's OnCallback hook.
+		if tg, ok := registry.Get("telegram").(*bot.Telegram); ok && tg != nil {
+			tg.OnCallback = func(ctx context.Context, q bot.CallbackQuery) error {
+				action, target, err := bot.ParseCallbackData(q.Data)
+				if err != nil {
+					return err
+				}
+				herr := botCallback.Handle(ctx, bot.CallbackAction{
+					Action:    action,
+					TaskID:    target,
+					Nonce:     q.ID,
+					BotUserID: int64ToString(q.ChatID),
+				})
+				if herr != nil {
+					return herr
+				}
+				return tg.AnswerCallback(ctx, q.ID, "ok")
+			}
+
+			// Phase 21: route plain text messages from a private chat
+			// into the Inbox. The simplest flow:
+			//   1. Look up the user subscribed to this chat_id.
+			//   2. Create an inbox task (project_id IS NULL) with the
+			//      message text as title (truncated to 200 chars).
+			//   3. Reply "✅ Captured to Inbox".
+			// Subscription lookup is best-effort: no subscription =
+			// ignore. The single-owner install has one user row, so
+			// "the user subscribed to this telegram chat" is the
+			// normal case after `orenda subscription add telegram …
+			// target=<chat_id>`.
+			tg.OnMessage = func(ctx context.Context, m bot.InboxMessage) error {
+				return captureToInbox(ctx, db, tasks, "telegram", int64ToString(m.ChatID), m.Text, func(reply string) error {
+					return tg.SendReply(ctx, m.ChatID, reply)
+				})
+			}
+		}
+	}
+
+	// Phase 30.3: VK Long Poll OnMessage hook. Same inbox-capture flow
+	// as Telegram, but routed through vk.Send (peer_id is the same as
+	// the message's peer_id). Skipped when no VK bot is registered
+	// (e.g., telegram-only install).
+	if vk, ok := registry.Get("vk").(*bot.VK); ok && vk != nil {
+		vk.OnMessage = func(ctx context.Context, m bot.InboxMessage) error {
+			return captureToInbox(ctx, db, tasks, "vk", int64ToString(m.ChatID), m.Text, func(reply string) error {
+				return vk.Send(ctx, int64ToString(m.ChatID), bot.Message{Title: reply})
+			})
+		}
+	}
+	return botCallback
+}
+
+// serveEventReminder builds the Phase 8 recurring-event reminder
+// scheduler: it scans the [now+Lead, now+Lead+Window] band every
+// Tick and fires event.upcoming_1h notifications for the project
+// owner. PRD F-C-4.
+func serveEventReminder(db *sql.DB, eventSvc *eventservice.Service, projects project.Repository, notifierSvc *notifierservice.Service) *eventservice.Reminder {
+	return &eventservice.Reminder{
+		Repo:   sqlite.NewTaskRepository(db),
+		Notify: notifierSvc.Notify,
+		NotifyProjectOwner: func(ctx context.Context, eventID string) (ownerID, title, link string, err error) {
+			ev, err := eventSvc.Get(ctx, eventID)
+			if err != nil || ev == nil {
+				return "", "", "", err
+			}
+			if ev.ProjectID == "" {
+				return "", "", "", nil
+			}
+			p, err := projects.GetProject(ctx, ev.ProjectID)
+			if err != nil || p == nil {
+				return "", "", "", err
+			}
+			return p.OwnerID, ev.Title, "/calendar", nil
+		},
+	}
+}
+
+// serveSigner builds the JWT signer. JWT secret is mandatory for
+// Phase 1+ — refuse to start without it so the operator doesn't
+// discover the missing config at first login.
+func serveSigner(cfg *config.Config) (*auth.Signer, error) {
+	if cfg.Auth.JWTSecret == "" {
+		return nil, fmt.Errorf("auth: ORENDA_AUTH__JWT_SECRET (or auth.jwt_secret in config, or ORENDA_AUTH__JWT_SECRET_FILE / auth.jwt_secret_file pointing to a file with the secret) is required for `serve`")
+	}
+	return auth.NewSigner(cfg.Auth.JWTSecret, cfg.Auth.JWTTTL, "orenda"), nil
+}
+
+// serveDigestScheduler starts the Phase 30.5 weekly digest
+// scheduler goroutine. Ticks every 7 days (configurable via
+// cfg.Notifier.DigestInterval — default 168h). The scheduler
+// queries the storage layer per-owner for the period stats, renders
+// via notifier.RenderWeeklyDigest, and pushes a "digest.weekly"
+// event through the same notifier pipeline as any other
+// notification — so every bot the operator has subscribed to
+// (Telegram, VK, Email, Webhook, Console) gets the digest.
+// Disabled when DigestInterval is zero or negative (operator
+// opt-out).
+func serveDigestScheduler(ctx context.Context, cfg *config.Config, logger *zap.Logger, db *sql.DB, notifierSvc *notifierservice.Service) {
+	if cfg.Notifier.DigestInterval <= 0 {
+		return
+	}
+	digest := &digestScheduler{
+		interval: cfg.Notifier.DigestInterval,
+		logger:   logger,
+		db:       db,
+		users:    userListerAdapter{repo: sqlite.NewUserRepository(db)},
+		notifier: notifierDigestAdapter{svc: notifierSvc},
+	}
+	go digest.Run(ctx)
+	logger.Info("weekly digest scheduler started",
+		zap.Duration("interval", cfg.Notifier.DigestInterval))
+}
+
+// servePProfIfEnabled starts the Phase 28.6 opt-in pprof listener
+// for live debugging. Off by default — pprof endpoints expose heap,
+// goroutine, and CPU state that are an information leak on any
+// reachable port. When enabled, a SECOND listener runs on
+// cfg.Server.PProfAddr bound to http.DefaultServeMux
+// (net/http/pprof registers itself there on import). Loopback-only
+// by design — operators who want remote profiling should set up an
+// ssh tunnel rather than bind 0.0.0.0. Returns nil when disabled.
+func servePProfIfEnabled(cfg *config.Config, logger *zap.Logger) *http.Server {
+	var pprofSrv *http.Server
+	if !cfg.Server.DebugPProf {
+		return pprofSrv
+	}
+	pprofSrv = &http.Server{
+		Addr:              cfg.Server.PProfAddr,
+		Handler:           http.DefaultServeMux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		logger.Warn("pprof listening (debug only)",
+			zap.String("addr", cfg.Server.PProfAddr),
+			zap.String("hint", "stop with cfg.server.debug_pprof=false"),
+		)
+		if err := pprofSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Warn("pprof listener stopped", zap.Error(err))
+		}
+	}()
+	return pprofSrv
+}
+
+// serveListen starts the HTTP server in the background and blocks
+// until the signal context is cancelled or the listener fails.
+// On a clean signal it performs the graceful http.Server shutdown
+// and returns the (still live) shutdown context so the caller can
+// stop auxiliary listeners within the same deadline.
+func serveListen(ctx context.Context, srv *http.Server, cfg *config.Config, logger *zap.Logger) (context.Context, context.CancelFunc, error) {
+	serverErr := make(chan error, 1)
+	go func() {
+		// Phase 28.20: db_path in the startup log makes "which instance is
+		// this?" answerable from `journalctl --user -u orenda` alone —
+		// important when dev (./data/) and usage (~/.local/share/orenda/)
+		// both run on the same box under the same operator.
+		logger.Info("http listening",
+			zap.String("addr", srv.Addr),
+			zap.String("db_path", cfg.ResolveDBPath(".")),
+		)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+		}
+		close(serverErr)
+	}()
+
+	select {
+	case <-ctx.Done():
+		logger.Info("shutdown signal received")
+	case err := <-serverErr:
+		if err != nil {
+			return nil, nil, fmt.Errorf("http server: %w", err)
+		}
+	}
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return shutdownCtx, shutdownCancel, fmt.Errorf("graceful shutdown: %w", err)
+	}
+	return shutdownCtx, shutdownCancel, nil
 }
 
 // cwdOr returns the current working directory, falling back to fallback if
