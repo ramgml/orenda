@@ -53,6 +53,7 @@ Thumbs.db
 *.key
 .env
 .env.local
+.orenda/
 
 # --- Logs ---
 *.log
