@@ -153,6 +153,7 @@ func putBackupSettingsHandler(deps *Dependencies) http.HandlerFunc {
 		if in.Enabled == nil {
 			in.Enabled = &currentEnabled
 		}
+		defaultBackupRemoteSettings(ctx, deps, &in)
 		defaultBackupScheduleSettings(ctx, deps, &in)
 
 		if err := validateBackupSettingsInput(in); err != nil {
