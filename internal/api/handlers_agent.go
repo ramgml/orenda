@@ -90,10 +90,6 @@ func agentClaimTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeResolveError(w, rerr)
 			return
 		}
-		// Task 140 (agent-project-scope): claiming is refused before
-		// the lock is taken when the task's project is closed to this
-		// agent (agents_allowed = 0 and no grant row). Inbox tasks
-		// (no project) are exempt.
 		tr, err := deps.Tasks.GetByID(r.Context(), taskID)
 		if err != nil {
 			if errors.Is(err, task.ErrNotFound) {
@@ -103,57 +99,12 @@ func agentClaimTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		if tr.ProjectID != "" {
-			p, err := deps.Projects.GetProject(r.Context(), tr.ProjectID)
-			if err != nil {
-				writeError(w, err)
-				return
-			}
-			inList := false
-			if !p.AgentsAllowed {
-				ids, lerr := deps.Projects.ListAllowedAgentIDs(r.Context(), p.ID)
-				if lerr != nil {
-					writeError(w, lerr)
-					return
-				}
-				for _, gid := range ids {
-					if gid == id.AgentID {
-						inList = true
-						break
-					}
-				}
-			}
-			if !p.AgentsAllowed && !inList {
-				writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "not_in_scope"})
-				return
-			}
+		if tr.ProjectID != "" && !writeAgentScopeCheck(w, r, deps, tr.ProjectID, id.AgentID) {
+			return
 		}
 		claimed, err := deps.TaskService.Claim(r.Context(), taskID, id.AgentID)
 		if err != nil {
-			if errors.Is(err, taskservice.ErrLockTaken) {
-				// Phase 15: extend 409 with the current holder
-				// (agent_id / agent_name / claimed_at) when the
-				// TaskLockHolder seam is wired. Bare
-				// {"error":"lock_taken"} is the backwards-compatible
-				// fallback when the lookup fails or returns empty.
-				writeJSON(w, http.StatusConflict, lockTakenResponse(deps, r.Context(), taskID))
-				return
-			}
-			// Phase 15.3: 422 with the unfinished blockers list so
-			// the agent knows exactly what's still outstanding.
-			var blocked *taskservice.BlockedError
-			if errors.As(err, &blocked) {
-				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
-					"error":               "task_blocked",
-					"unfinished_blockers": blocked.BlockerIDs,
-				})
-				return
-			}
-			if errors.Is(err, taskservice.ErrNotFound) {
-				writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
-				return
-			}
-			writeError(w, err)
+			writeClaimError(w, deps, r.Context(), taskID, err)
 			return
 		}
 		// Notify owner: agent picked this up.
@@ -161,6 +112,71 @@ func agentClaimTaskHandler(deps *Dependencies) http.HandlerFunc {
 			"task.assigned_to_me:"+claimed.ID, claimed, id.AgentID)
 		writeJSON(w, http.StatusOK, claimed)
 	}
+}
+
+// writeAgentScopeCheck implements the Task 140 (agent-project-scope)
+// gate: claiming is refused before the lock is taken when the task's
+// project is closed to this agent (agents_allowed = 0 and no grant
+// row). Inbox tasks (no project) are exempt — callers skip this for
+// them. Writes the 422 not_in_scope response and returns false when
+// the agent is out of scope; transport errors are surfaced via
+// writeError.
+func writeAgentScopeCheck(w http.ResponseWriter, r *http.Request, deps *Dependencies, projectID, agentID string) bool {
+	p, err := deps.Projects.GetProject(r.Context(), projectID)
+	if err != nil {
+		writeError(w, err)
+		return false
+	}
+	inList := false
+	if !p.AgentsAllowed {
+		ids, lerr := deps.Projects.ListAllowedAgentIDs(r.Context(), p.ID)
+		if lerr != nil {
+			writeError(w, lerr)
+			return false
+		}
+		for _, gid := range ids {
+			if gid == agentID {
+				inList = true
+				break
+			}
+		}
+	}
+	if !p.AgentsAllowed && !inList {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "not_in_scope"})
+		return false
+	}
+	return true
+}
+
+// writeClaimError maps a Claim failure onto its response: 409 with
+// the lock-holder payload, 422 with the unfinished blockers list
+// (Phase 15.3 — the agent knows exactly what's still outstanding),
+// 404, or the generic error path.
+func writeClaimError(w http.ResponseWriter, deps *Dependencies, ctx context.Context, taskID string, err error) {
+	if errors.Is(err, taskservice.ErrLockTaken) {
+		// Phase 15: extend 409 with the current holder
+		// (agent_id / agent_name / claimed_at) when the
+		// TaskLockHolder seam is wired. Bare
+		// {"error":"lock_taken"} is the backwards-compatible
+		// fallback when the lookup fails or returns empty.
+		writeJSON(w, http.StatusConflict, lockTakenResponse(deps, ctx, taskID))
+		return
+	}
+	// Phase 15.3: 422 with the unfinished blockers list so
+	// the agent knows exactly what's still outstanding.
+	var blocked *taskservice.BlockedError
+	if errors.As(err, &blocked) {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error":               "task_blocked",
+			"unfinished_blockers": blocked.BlockerIDs,
+		})
+		return
+	}
+	if errors.Is(err, taskservice.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+	writeError(w, err)
 }
 
 // agentReleaseTaskHandler releases a task the bearer agent holds.
