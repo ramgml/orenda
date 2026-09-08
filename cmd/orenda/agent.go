@@ -598,24 +598,9 @@ func newAgentNextCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// List the ready queue (Phase 15); T140: optional
-			// --project scopes the queue to one project. T153:
-			// --group-by project / --tree reshape the output.
-			if tree && groupBy == "" {
-				return fmt.Errorf("agent next: --tree requires --group-by project")
-			}
-			q := url.Values{"ready": {"true"}, "limit": {strconv.Itoa(limit)}}
-			if project != "" {
-				q.Set("project", project)
-			}
-			if groupBy != "" {
-				if groupBy != "project" {
-					return fmt.Errorf("agent next: unsupported --group-by %q (only \"project\")", groupBy)
-				}
-				q.Set("group_by", groupBy)
-			}
-			if tree {
-				q.Set("tree", "true")
+			q, err := agentNextQueryValues(limit, project, groupBy, tree)
+			if err != nil {
+				return err
 			}
 			raw, code, err := ctx.agentGet(cmd.Context(), "/api/v1/agent/tasks?"+q.Encode())
 			if err != nil {
@@ -630,48 +615,7 @@ func newAgentNextCmd() *cobra.Command {
 				// to the flat shape.
 				return printGroupedAgentTasks(cmd, raw, tree)
 			}
-			var resp struct {
-				Tasks []struct {
-					Task struct {
-						ID     string `json:"id"`
-						Number int    `json:"number"`
-						Title  string `json:"title"`
-					} `json:"task"`
-					Ready bool `json:"ready"`
-				} `json:"tasks"`
-				Count int `json:"count"`
-			}
-			if err := json.Unmarshal(raw, &resp); err != nil {
-				return err
-			}
-			if resp.Count == 0 {
-				_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
-				// Exit code 2 — convention from the spec.
-				os.Exit(2)
-			}
-			first := resp.Tasks[0]
-			if !first.Ready {
-				// Shouldn't happen with ?ready=true, but defensive.
-				_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
-				os.Exit(2)
-			}
-			// Print the candidate, then claim it.
-			printTaskRefHeader(cmd, first.Task.Number, first.Task.Title, first.Task.ID)
-			if err := printJSON(cmd, first); err != nil {
-				return err
-			}
-			claimRaw, claimCode, err := ctx.agentPost(cmd.Context(),
-				"/api/v1/agent/tasks/"+first.Task.ID+"/claim", nil)
-			if err != nil {
-				return err
-			}
-			if claimCode != http.StatusOK {
-				return fmt.Errorf("agent claim: HTTP %d: %s", claimCode, claimRaw)
-			}
-			// Echo the claim response so the agent sees the new state.
-			_, _ = cmd.OutOrStdout().Write(claimRaw)
-			_, _ = cmd.OutOrStdout().Write([]byte("\n"))
-			return nil
+			return agentNextClaim(cmd, ctx, raw)
 		},
 	}
 	cmd.Flags().IntVar(&limit, "limit", 5, "max tasks to consider before claiming")
@@ -680,6 +624,80 @@ func newAgentNextCmd() *cobra.Command {
 	cmd.Flags().StringVar(&groupBy, "group-by", "", "Reshape output into per-project sections (only \"project\"; disables the claim flow)")
 	cmd.Flags().BoolVar(&tree, "tree", false, "With --group-by project: nest tasks under their parents (ASCII indent)")
 	return cmd
+}
+
+// agentNextQueryValues builds the ready-queue query for
+// `agent next` from its flags, validating the --tree / --group-by
+// combination. List the ready queue (Phase 15); T140: optional
+// --project scopes the queue to one project. T153: --group-by
+// project / --tree reshape the output.
+func agentNextQueryValues(limit int, project, groupBy string, tree bool) (url.Values, error) {
+	if tree && groupBy == "" {
+		return nil, fmt.Errorf("agent next: --tree requires --group-by project")
+	}
+	q := url.Values{"ready": {"true"}, "limit": {strconv.Itoa(limit)}}
+	if project != "" {
+		q.Set("project", project)
+	}
+	if groupBy != "" {
+		if groupBy != "project" {
+			return nil, fmt.Errorf("agent next: unsupported --group-by %q (only \"project\")", groupBy)
+		}
+		q.Set("group_by", groupBy)
+	}
+	if tree {
+		q.Set("tree", "true")
+	}
+	return q, nil
+}
+
+// agentNextClaim handles the flat (ungrouped) ready-queue response:
+// decodes it, prints the top candidate and claims it. Writes
+// "no work\n" and exits with code 2 when the queue is empty
+// (convention from the spec).
+func agentNextClaim(cmd *cobra.Command, ctx *agentCtx, raw []byte) error {
+	var resp struct {
+		Tasks []struct {
+			Task struct {
+				ID     string `json:"id"`
+				Number int    `json:"number"`
+				Title  string `json:"title"`
+			} `json:"task"`
+			Ready bool `json:"ready"`
+		} `json:"tasks"`
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return err
+	}
+	if resp.Count == 0 {
+		_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
+		// Exit code 2 — convention from the spec.
+		os.Exit(2)
+	}
+	first := resp.Tasks[0]
+	if !first.Ready {
+		// Shouldn't happen with ?ready=true, but defensive.
+		_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
+		os.Exit(2)
+	}
+	// Print the candidate, then claim it.
+	printTaskRefHeader(cmd, first.Task.Number, first.Task.Title, first.Task.ID)
+	if err := printJSON(cmd, first); err != nil {
+		return err
+	}
+	claimRaw, claimCode, err := ctx.agentPost(cmd.Context(),
+		"/api/v1/agent/tasks/"+first.Task.ID+"/claim", nil)
+	if err != nil {
+		return err
+	}
+	if claimCode != http.StatusOK {
+		return fmt.Errorf("agent claim: HTTP %d: %s", claimCode, claimRaw)
+	}
+	// Echo the claim response so the agent sees the new state.
+	_, _ = cmd.OutOrStdout().Write(claimRaw)
+	_, _ = cmd.OutOrStdout().Write([]byte("\n"))
+	return nil
 }
 
 // printGroupedAgentTasks renders the T153 grouped listing: one
@@ -787,66 +805,16 @@ func newAgentProposeCmd() *cobra.Command {
 		Short: "Propose a new task (lands in backlog, awaiting human triage)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if projectID == "" || title == "" {
-				return fmt.Errorf("agent propose: --project and --title are required")
+			desc, err := agentProposePrepare(cmd, projectID, title, description, descFile)
+			if err != nil {
+				return err
 			}
-			desc := description
-			if descFile != "" {
-				var (
-					raw []byte
-					err error
-				)
-				if descFile == "-" {
-					raw, err = io.ReadAll(cmd.InOrStdin())
-				} else {
-					raw, err = os.ReadFile(descFile)
-				}
-				if err != nil {
-					return fmt.Errorf("agent propose: read description: %w", err)
-				}
-				desc = string(raw)
-			}
-			if strings.TrimSpace(desc) == "" {
-				return fmt.Errorf("agent propose: --description or --description-file is required")
-			}
-			body := map[string]any{
-				"project_id":     projectID,
-				"title":          title,
-				"description_md": desc,
-			}
-			if priority != "" {
-				body["priority"] = priority
-			}
-			if parentID != "" {
-				body["parent_task_id"] = parentID
-			}
-			if blockedBy != "" {
-				var ids []string
-				for _, part := range strings.Split(blockedBy, ",") {
-					if v := strings.TrimSpace(part); v != "" {
-						ids = append(ids, v)
-					}
-				}
-				if len(ids) > 0 {
-					body["blocked_by"] = ids
-				}
-			}
+			body := agentProposeBody(projectID, title, desc, priority, blockedBy, parentID)
 			ctx, err := resolveAgentCtx(cmd)
 			if err != nil {
 				return err
 			}
-			raw, code, err := ctx.agentPost(cmd.Context(), "/api/v1/agent/tasks", body)
-			if err != nil {
-				return err
-			}
-			if code != http.StatusCreated {
-				return fmt.Errorf("agent propose: HTTP %d: %s", code, raw)
-			}
-			var v any
-			if err := json.Unmarshal(raw, &v); err != nil {
-				return err
-			}
-			return printJSON(cmd, v)
+			return agentProposeSubmit(cmd, ctx, body)
 		},
 	}
 	cmd.Flags().StringVar(&projectID, "project", "", "project id the task belongs to (required)")
@@ -857,6 +825,82 @@ func newAgentProposeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&blockedBy, "blocked-by", "", "comma-separated blocker task ids")
 	cmd.Flags().StringVar(&parentID, "parent", "", "parent task id (creates a subtask)")
 	return cmd
+}
+
+// agentProposePrepare validates the `agent propose` flags and
+// resolves the effective markdown description: --description-file
+// overrides --description ('-' reads stdin); the result must not be
+// blank.
+func agentProposePrepare(cmd *cobra.Command, projectID, title, description, descFile string) (string, error) {
+	if projectID == "" || title == "" {
+		return "", fmt.Errorf("agent propose: --project and --title are required")
+	}
+	desc := description
+	if descFile != "" {
+		var (
+			raw []byte
+			err error
+		)
+		if descFile == "-" {
+			raw, err = io.ReadAll(cmd.InOrStdin())
+		} else {
+			raw, err = os.ReadFile(descFile)
+		}
+		if err != nil {
+			return "", fmt.Errorf("agent propose: read description: %w", err)
+		}
+		desc = string(raw)
+	}
+	if strings.TrimSpace(desc) == "" {
+		return "", fmt.Errorf("agent propose: --description or --description-file is required")
+	}
+	return desc, nil
+}
+
+// agentProposeBody builds the POST /api/v1/agent/tasks payload.
+// Optional flags (priority, parent, blocked-by) are included only
+// when set.
+func agentProposeBody(projectID, title, desc, priority, blockedBy, parentID string) map[string]any {
+	body := map[string]any{
+		"project_id":     projectID,
+		"title":          title,
+		"description_md": desc,
+	}
+	if priority != "" {
+		body["priority"] = priority
+	}
+	if parentID != "" {
+		body["parent_task_id"] = parentID
+	}
+	if blockedBy != "" {
+		var ids []string
+		for _, part := range strings.Split(blockedBy, ",") {
+			if v := strings.TrimSpace(part); v != "" {
+				ids = append(ids, v)
+			}
+		}
+		if len(ids) > 0 {
+			body["blocked_by"] = ids
+		}
+	}
+	return body
+}
+
+// agentProposeSubmit POSTs the proposal and prints the created task
+// as JSON. 201 Created is the only success status.
+func agentProposeSubmit(cmd *cobra.Command, ctx *agentCtx, body map[string]any) error {
+	raw, code, err := ctx.agentPost(cmd.Context(), "/api/v1/agent/tasks", body)
+	if err != nil {
+		return err
+	}
+	if code != http.StatusCreated {
+		return fmt.Errorf("agent propose: HTTP %d: %s", code, raw)
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return err
+	}
+	return printJSON(cmd, v)
 }
 
 func newAgentContextCmd() *cobra.Command {
