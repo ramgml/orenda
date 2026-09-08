@@ -79,6 +79,8 @@ Hook contract:
 |-------------|----------------|-------------------------------------------------------------------|------------|
 | `pre-commit`| `git commit`   | `gofmt -l` on staged `.go` + `prettier --check` on staged web     | <2 s       |
 | `pre-push`  | `git push`     | `make lint-new` + `make web-typecheck` + `make test`              | ~1 min cold, seconds warm |
+  `make lint` / `make lint-new` require **golangci-lint ≥ v2** (`.golangci.yml` carries `version: "2"` — the v1 binary fails the config schema). Install:
+  `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`
 
 Deletion-only pushes (e.g. `git push origin --delete <branch>`) skip
 the gates entirely — no code crosses the wire, so there is nothing to
@@ -107,9 +109,10 @@ This is the compensator class for unit tests that inject fake timers
 (Task 149): the injected test pins the logic, the real-tick smoke pins
 the wake-up. Run it nightly / pre-release, not per-PR.
 
-`make lint-new` is `golangci-lint run --new-from-merge-base=origin/dev ./...`
-— exactly the gate the old PR CI used, minus the pre-existing lint debt
-(see Phase 30.16). ~8.5 s warm.
+`make lint-new` is `golangci-lint run --new-from-rev=$(git rev-parse origin/dev) ./...`
+(golangci-lint v2 dropped `--new-from-merge-base`; the base ref is resolved to a
+SHA first — same semantics as the old PR CI gate), minus the pre-existing lint
+debt (see Phase 30.16). ~8.5 s warm.
 
 Process rules (binary, like the rest of this file):
 
