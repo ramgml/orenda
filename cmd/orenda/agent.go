@@ -116,6 +116,7 @@ func resolveAgentSettings(cmd *cobra.Command, domain string) (*agentSettings, er
 		}
 	}
 	if s.URL.Value != "" && s.Token.Value != "" {
+		s.warnMixedSources(cmd, localPath)
 		return s, nil
 	}
 	globalPath, err := agentConfigPath()
@@ -140,7 +141,20 @@ func resolveAgentSettings(cmd *cobra.Command, domain string) (*agentSettings, er
 	if s.Token.Value == "" {
 		return nil, fmt.Errorf("%s: --token (or ORENDA_AGENT_TOKEN, or token: in %s, or token: in %s) is required", domain, localPath, globalPath)
 	}
+	s.warnMixedSources(cmd, localPath)
 	return s, nil
+}
+
+// warnMixedSources flags the one risky provenance combination: the
+// url comes from the project-local config but the token does not,
+// so the external token is sent to the project-config URL. Legal
+// per the per-field chain — just warn once on stderr.
+func (s *agentSettings) warnMixedSources(cmd *cobra.Command, localPath string) {
+	if s.URL.Source == sourceLocal && s.Token.Source != sourceLocal {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+			"warning: url comes from %s but the token does not — requests will send that token to the project-config URL; verify you trust this checkout (sources: orenda agent config)\n",
+			localPath)
+	}
 }
 
 // resolveAgentCtx reads the CLI flags, then env, then the config
@@ -208,20 +222,21 @@ func readAgentConfigFile(path string) (*agentConfig, agentConfigStatus, error) {
 	return &c, agentConfigOK, nil
 }
 
-// maskToken masks a token for diagnostics: first 8 characters plus
+// maskToken masks a token for diagnostics: first 4 runes plus
 // "…". Shorter tokens collapse to just the ellipsis so nothing
 // usable leaks.
 func maskToken(token string) string {
-	if len(token) < 12 {
+	runes := []rune(token)
+	if len(runes) < 12 {
 		return "…"
 	}
-	return token[:8] + "…"
+	return string(runes[:4]) + "…"
 }
 
 // newAgentConfigCmd wires `orenda agent config` (Task 178): print
 // the resolved url/token and where each came from (flag, env,
 // ./.orenda/agent.yaml, global config). The token is masked by
-// default in every output mode; `-json --show-secret` prints the
+// default in every output mode; `--json --show-secret` prints the
 // raw values for scripts that template a client config.
 func newAgentConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -250,7 +265,7 @@ func newAgentConfigCmd() *cobra.Command {
 			_, _ = fmt.Fprintf(out, "url    %s  %s\n", report.URL.Source, report.URL.Value)
 			_, _ = fmt.Fprintf(out, "token  %s  %s\n", report.Token.Source, report.Token.Value)
 			if masked {
-				_, _ = fmt.Fprintln(out, "(token masked; -json --show-secret prints the raw value)")
+				_, _ = fmt.Fprintln(out, "(token masked; --json --show-secret prints the raw value)")
 			}
 			return nil
 		},

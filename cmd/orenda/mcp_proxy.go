@@ -50,11 +50,7 @@ import (
 //	--url    Orenda server URL (env: ORENDA_URL, config files too)
 //	--token  agent bearer token (env: ORENDA_AGENT_TOKEN, config files too)
 func newMCPCmd() *cobra.Command {
-	var (
-		url    string
-		token  string
-		inHTTP bool
-	)
+	var inHTTP bool
 	cmd := &cobra.Command{
 		Use:   "mcp-proxy",
 		Short: "stdio↔HTTP bridge that exposes Orenda as an MCP server",
@@ -90,8 +86,8 @@ come from ./.orenda/agent.yaml, so no --token is passed:
 			return runStdioProxy(cmd.Context(), s.URL.Value, s.Token.Value)
 		},
 	}
-	cmd.Flags().StringVar(&url, "url", "", "Orenda server URL (env: ORENDA_URL)")
-	cmd.Flags().StringVar(&token, "token", "", "agent API token (env: ORENDA_AGENT_TOKEN)")
+	cmd.Flags().String("url", "", "Orenda server URL (env: ORENDA_URL, config files too)")
+	cmd.Flags().String("token", "", "agent API token (env: ORENDA_AGENT_TOKEN, config files too)")
 	cmd.Flags().BoolVar(&inHTTP, "http", false, "run as an HTTP server (Phase 25.2 future: bind to a port)")
 	return cmd
 }

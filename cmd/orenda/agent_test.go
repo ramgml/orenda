@@ -70,10 +70,9 @@ func TestAgentPost_SendsBody(t *testing.T) {
 	assert.Equal(t, "in_progress", got["status"])
 }
 
-// resolveAgentCtx precedence: flag > env > config file.
-//
-// We use AgentCLI for tests so we can inject a fake command without
-// pulling cobra into the test scaffolding.
+// resolveAgentCtx precedence: flag > env > ./.orenda/agent.yaml >
+// global config file. The helper drives a real cobra command so
+// flag parsing matches production exactly.
 
 type agentCLIOptions struct {
 	URL   string
@@ -304,12 +303,37 @@ func TestAgentConfigCmd_MasksToken(t *testing.T) {
 	}
 
 	masked := run()
-	assert.Contains(t, masked, "tok-1234…")
+	assert.Contains(t, masked, "tok-…")
 	assert.NotContains(t, masked, "tok-1234567890abcdef")
 	assert.Contains(t, masked, "\"source\":\"local\"")
 
 	shown := run("--show-secret")
 	assert.Contains(t, shown, "tok-1234567890abcdef")
+}
+
+// TestResolveAgentSettings_MixedSourcesWarns: local url + external
+// (env) token is legal, but the token then travels to the
+// project-config URL — the resolver must warn on stderr.
+func TestResolveAgentSettings_MixedSourcesWarns(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+	t.Setenv("ORENDA_URL", "")
+	t.Setenv("ORENDA_AGENT_TOKEN", "tok-from-env")
+	raw, err := yaml.Marshal(agentConfig{URL: "http://from-local"})
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(".orenda", 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(".orenda", "agent.yaml"), raw, 0o600))
+
+	root := newAgentCmd()
+	var errOut strings.Builder
+	root.SetErr(&errOut)
+	require.NoError(t, root.ParseFlags(nil))
+	s, err := resolveAgentSettings(root, "orenda agent")
+	require.NoError(t, err)
+	assert.Equal(t, sourceLocal, s.URL.Source)
+	assert.Equal(t, sourceEnv, s.Token.Source)
+	assert.Contains(t, errOut.String(), "warning: url comes from .orenda/agent.yaml")
+	assert.Contains(t, errOut.String(), "orenda agent config")
 }
 
 func TestResolveAgentCtx_Missing(t *testing.T) {
