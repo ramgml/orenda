@@ -264,7 +264,9 @@ jobs:
       - name: make test-e2e
         # Образ playwright не содержит make; make test-e2e = (build) + эта строка,
         # а binary уже скачан артефактом и используется e2e-setup/run-server.sh.
-        run: cd web && npx playwright test
+        # chmod нужен: upload-artifact не хранит exec-бит (раньше это маскировал
+        # rebuild в make build).
+        run: chmod +x bin/orenda && cd web && npx playwright test
         env:
           # Don't let CI accidentally talk to the developer's local instance.
           ORENDA_SERVER__PORT: '21371'
