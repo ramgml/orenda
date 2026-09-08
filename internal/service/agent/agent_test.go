@@ -58,8 +58,8 @@ func (m *sqliteTokenMinter) MintToken(ctx context.Context, userID, name, hash, s
 	return row.ID, row.Name, nil
 }
 
-func (m *sqliteTokenMinter) UpdateHash(ctx context.Context, tokenID, hash string) error {
-	return sqlite.NewAPITokenRepository(m.db).UpdateHash(ctx, tokenID, hash)
+func (m *sqliteTokenMinter) UpdateHash(ctx context.Context, tokenID, hash string, expiresAt *time.Time) error {
+	return sqlite.NewAPITokenRepository(m.db).UpdateHash(ctx, tokenID, hash, expiresAt)
 }
 
 func setupAgentSvc(t *testing.T) (*agentsvc.Service, *recordingHub) {
@@ -253,7 +253,7 @@ func (m *failingMinter) MintToken(ctx context.Context, userID, name, hash, scope
 	return (&sqliteTokenMinter{db: m.db}).MintToken(ctx, userID, name, hash, scopesJSON, expiresAt)
 }
 
-func (m *failingMinter) UpdateHash(ctx context.Context, tokenID, hash string) error {
+func (m *failingMinter) UpdateHash(ctx context.Context, tokenID, hash string, expiresAt *time.Time) error {
 	return errors.New("injected UpdateHash failure")
 }
 

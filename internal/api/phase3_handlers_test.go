@@ -89,8 +89,8 @@ func (a adapterForTokens) MintToken(ctx context.Context, userID, name, hash, sco
 	return row.ID, row.Name, nil
 }
 
-func (a adapterForTokens) UpdateHash(ctx context.Context, tokenID, hash string) error {
-	return a.inner.UpdateHash(ctx, tokenID, hash)
+func (a adapterForTokens) UpdateHash(ctx context.Context, tokenID, hash string, expiresAt *time.Time) error {
+	return a.inner.UpdateHash(ctx, tokenID, hash, expiresAt)
 }
 
 // activityRecorderAdapter lets the test router record task-activity
