@@ -1,28 +1,27 @@
-# golangci-lint configuration for Orenda.
+# golangci-lint v2 configuration for Orenda (tooling/lint-complexity-deadcode).
 #
-# Docs: https://golangci-lint.run/usage/configuration/
+# Docs: https://golangci-lint.run/docs/configuration/file/
+# Migrated from v1 format + extended with complexity / dead-code linters.
 #
-# Keep this file conservative: linters should catch real bugs, not
-# bikeshed style. Style is enforced by gofmt + goimports.
+# Keep this file conservative: linters should catch real bugs and real
+# debt, not bikeshed style. Style is enforced by gofmt + goimports.
+
+version: "2"
 
 run:
   timeout: 5m
   tests: true
-  build-tags: []
 
 linters:
-  disable-all: true
+  default: none
   enable:
-    # Default-ish set tuned for a small Go service.
+    # ---- correctness / hygiene (as before the migration) ----
     - errcheck       # unchecked errors in defer/file ops
     - govet          # suspicious constructs
     - ineffassign    # unused assignments
-    - staticcheck    # the canonical "things you forgot"
-    - unused         # unused locals/params
-    - gosimple       # simplifications
+    - staticcheck    # the canonical "things you forgot" (absorbs gosimple+stylecheck in v2)
+    - unused         # unused unexported identifiers
     - gocritic       # opinionated style + perf
-    - gofmt          # formatting
-    - goimports      # import grouping
     - misspell       # typos in comments
     - bodyclose      # http.Response.Body.Close
     - contextcheck   # ctx propagation
@@ -33,51 +32,72 @@ linters:
     - unconvert      # redundant conversions
     - unparam        # unused function params
 
-linters-settings:
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - performance
-    disabled-checks:
-      - ifElseChain       # noisy
-      - tooManyResultsChecker
-      # hugeParam is an opinionated style recommendation, not a correctness
-      # bug. Phase 28.15 already converted internal/api handler factories to
-      # pass Dependencies by pointer; for the remaining service / bot /
-      # storage / cmd code we deliberately keep value semantics — the
-      # structs are small enough that copy cost is below noise, and the
-      # API surface (function signatures) stays explicit.
-      - hugeParam
-  revive:
+    # ---- complexity (new) ----
+    - gocyclo        # cyclomatic complexity per function
+    - gocognit       # cognitive complexity per function (how hard to READ)
+    # ---- dead code ----
+    # `unused` (above) is Go's dead-code workhorse; unreachable code is
+    # covered by govet/revive/staticcheck. Exported-but-dead API in the
+    # SPA is covered by knip (see web/knip.json + make web-knip).
+  settings:
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-checks:
+        - ifElseChain       # noisy
+        - tooManyResultsChecker
+        # hugeParam is an opinionated style recommendation, not a correctness
+        # bug. Phase 28.15 already converted internal/api handler factories to
+        # pass Dependencies by pointer; for the remaining service / bot /
+        # storage / cmd code we deliberately keep value semantics — the
+        # structs are small enough that copy cost is below noise, and the
+        # API surface (function signatures) stays explicit.
+        - hugeParam
+    revive:
+      rules:
+        - name: package-comments
+        - name: exported
+        - name: var-naming
+        - name: error-strings
+        - name: error-return
+        - name: error-naming
+        - name: import-shadowing
+        - name: indent-error-flow
+        - name: superfluous-else
+        - name: unreachable-code
+    # Complexity thresholds — deliberately generous first pass; tighten later.
+    funlen:
+      lines: 120          # a function that scrolls is a design smell
+      statements: 80
+    nestif:
+      min-complexity: 6
+    gocyclo:
+      min-complexity: 20
+  exclusions:
+    # node_modules ships third-party Go files (e.g. flatted's wasm helper)
+    # that `./...` would otherwise scan; they are npm deps, not our code.
+    paths:
+      - web/node_modules
     rules:
-      - name: package-comments
-      - name: exported
-      - name: var-naming
-      - name: error-strings
-      - name: error-return
-      - name: error-naming
-      - name: import-shadowing
-      - name: indent-error-flow
-      - name: superfluous-else
-      - name: unreachable-code
-  goimports:
-    local-prefixes: github.com/ramgml/orenda
-  misspell:
-    locale: ru,en
+      # Tests can use package-level helpers liberally, and complexity
+      # linters on table-driven tests just punish thoroughness.
+      - path: _test\.go
+        linters:
+          - gocritic
+          - revive
+          - gocyclo
+          - gocognit
+          - funlen
+          - nestif
 
-issues:
-  # node_modules ships third-party Go files (e.g. flatted's wasm helper)
-  # that `./...` would otherwise scan; they are npm deps, not our code.
-  exclude-dirs:
-    - web/node_modules
-  exclude-rules:
-    # Tests can use package-level helpers liberally.
-    - path: _test\.go
-      linters:
-        - gocritic
-        - revive
-  exclude-use-default: true
-  max-issues-per-linter: 0
-  max-same-issues: 0
-  new: false  # don't gate on new issues only
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes: [github.com/ramgml/orenda]
+
+# issues.* defaults are fine in v2: no cap on reported issues.
