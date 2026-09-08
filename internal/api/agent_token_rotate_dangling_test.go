@@ -107,11 +107,16 @@ func (fx *tokenRotateFixture) danglingTokenID(t *testing.T) {
 }
 
 // OBSERVATION (pre-fix, kept verbatim from the first run of this test before
-// the writeError mapping landed):
+// the writeError mapping landed — the run FAILED as expected):
 //
 //	=== RUN   TestRotateToken_DanglingTokenID
-//	    agent_token_rotate_dangling_test.go:112: body: {"error":"internal"}
-//	    Error Trace: ... require.Equal expected: 500 actual: 500 (passed)
+//	    agent_token_rotate_dangling_test.go:131:
+//	        Error Trace:	.../internal/api/agent_token_rotate_dangling_test.go:131
+//	        Error:      	Not equal:
+//	                expected: 404
+//	                actual  : 500
+//	        Messages:   	body: {"error":"internal"}
+//	--- FAIL: TestRotateToken_DanglingTokenID (0.21s)
 //	i.e. sqlite.ErrTokenNotFound fell through to the 500 default.
 //
 // REGRESSION (post-fix): the dangling token is a missing resource on a
