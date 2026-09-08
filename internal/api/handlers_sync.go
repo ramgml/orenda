@@ -111,238 +111,270 @@ func applySyncOp(r *http.Request, deps *Dependencies, id *Identity, op syncOp) s
 
 	switch op.Op {
 	case "create_task":
-		var in struct {
-			Title       string  `json:"title"`
-			ColumnID    string  `json:"column_id"`
-			Description string  `json:"description"`
-			ProjectID   *string `json:"project_id,omitempty"` // Phase 16: optional
-		}
-		if err := json.Unmarshal(op.Payload, &in); err != nil || in.Title == "" {
-			res.Error = "invalid_payload"
-			return res
-		}
-		// ProjectID resolution order (Phase 16):
-		//   1. body.project_id (explicit)        wins
-		//   2. op.Target (the request URL slug) — preserves the older
-		//      single-target semantics for clients that pin the URL
-		//   3. "" (Inbox) — the new default for "I just want to
-		//      capture this idea"
-		projectID := ""
-		if in.ProjectID != nil {
-			projectID = *in.ProjectID
-		} else if op.Target != "" {
-			projectID = op.Target
-		}
-		tr := &task.Task{
-			ProjectID:   projectID,
-			ColumnID:    in.ColumnID,
-			Title:       in.Title,
-			Description: in.Description,
-		}
-		if err := deps.Tasks.Create(ctx, tr); err != nil {
-			res.Error = err.Error()
-			return res
-		}
-		if deps.TaskService != nil {
-			deps.TaskService.MirrorSave(ctx, tr)
-		}
-		_ = syncOpsRecord(ctx, deps, op.ClientID, tr.ID)
-		res.OK = true
-		res.ID = tr.ID
-		return res
-
+		return applySyncCreateTask(ctx, deps, op)
 	case "update_task":
-		tr, err := deps.Tasks.GetByID(ctx, op.Target)
-		if err != nil {
-			res.Error = "not_found"
-			return res
-		}
-		// Apply payload fields. Last-write-wins per PLAN#8.6 — we don't
-		// compare updated_at since ops arrive in chronological order.
-		//
-		// Phase 13 additions: `color` is *string (absent vs explicit
-		// "" clear); `tags` is *[]string (nil = leave, &[] = clear,
-		// non-empty = replace). Both mirror the user-side PATCH
-		// semantics so the offline outbox and the online API behave
-		// identically.
-		var in struct {
-			Title       string    `json:"title,omitempty"`
-			Description string    `json:"description,omitempty"`
-			Status      string    `json:"status,omitempty"`
-			Priority    string    `json:"priority,omitempty"`
-			Color       *string   `json:"color,omitempty"`
-			Tags        *[]string `json:"tags,omitempty"`
-		}
-		if err := json.Unmarshal(op.Payload, &in); err != nil {
-			res.Error = "invalid_payload"
-			return res
-		}
-		if in.Title != "" {
-			tr.Title = in.Title
-		}
-		if in.Description != "" {
-			tr.Description = in.Description
-		}
-		prevStatus := tr.Status
-		if in.Status != "" {
-			tr.Status = task.Status(in.Status)
-		}
-		if in.Priority != "" {
-			tr.Priority = task.Priority(in.Priority)
-		}
-		if in.Color != nil {
-			tr.Color = *in.Color
-		}
-		// T46: use SyncAndSave for status↔column sync + persist.
-		if deps.TaskService != nil {
-			if err := deps.TaskService.SyncAndSave(ctx, tr, op.ClientID, activity.ActorSystem, prevStatus); err != nil {
-				res.Error = err.Error()
-				return res
-			}
-		} else {
-			if err := deps.Tasks.Update(ctx, tr); err != nil {
-				res.Error = err.Error()
-				return res
-			}
-		}
-		// Tag replacement goes through the same diff path as the
-		// user-side PATCH so a no-op doesn't spam the activity feed.
-		if in.Tags != nil {
-			applyTaskTagsChange(ctx, deps, tr.ID, *in.Tags)
-		}
-		_ = syncOpsRecord(ctx, deps, op.ClientID, tr.ID)
-		res.OK = true
-		res.ID = tr.ID
-		return res
-
+		return applySyncUpdateTask(ctx, deps, id, op)
 	case "move_task":
-		var in struct {
-			ColumnID string `json:"column_id"`
-			// T164: explicit fractional position. Pointer (not float)
-			// so absent vs 0 stay distinguishable — 0 would fall into
-			// derive-from-neighbours and silently reorder the card.
-			Position *float64 `json:"position"`
-		}
-		if err := json.Unmarshal(op.Payload, &in); err != nil || in.ColumnID == "" {
-			res.Error = "invalid_payload"
-			return res
-		}
-		if deps.TaskService == nil {
-			res.Error = "service_not_wired"
-			return res
-		}
-		opts := taskservice.MoveOptions{TargetColumnID: in.ColumnID, ActorID: id.UserID}
-		if in.Position != nil {
-			opts.Position = *in.Position
-		}
-		// Task 121: identify the mover for the task.moved activity
-		// row — Activity.Validate rejects an empty actor id, and
-		// without this the recorder silently dropped the audit row
-		// (same fix as the HTTP path, handlers_kanban.go).
-		tr, err := deps.TaskService.Move(ctx, op.Target, opts)
-		if err != nil {
-			res.Error = err.Error()
-			return res
-		}
-		_ = syncOpsRecord(ctx, deps, op.ClientID, tr.ID)
-		res.OK = true
-		res.ID = tr.ID
-		return res
+		return applySyncMoveTask(ctx, deps, id, op)
 	case "create_comment":
-		var in struct {
-			BodyMD string `json:"body_md"`
-		}
-		if err := json.Unmarshal(op.Payload, &in); err != nil || in.BodyMD == "" {
-			res.Error = "invalid_payload"
-			return res
-		}
-		if deps.Comments == nil {
-			res.Error = "service_not_wired"
-			return res
-		}
-		c := &comment.Comment{
-			TargetID:   op.Target,
-			AuthorType: comment.AuthorUser,
-			AuthorID:   id.UserID,
-			BodyMD:     in.BodyMD,
-		}
-		got, err := deps.Comments.Add(ctx, c)
-		if err != nil {
-			res.Error = err.Error()
-			return res
-		}
-		_ = syncOpsRecord(ctx, deps, op.ClientID, got.ID)
-		res.OK = true
-		res.ID = got.ID
-		return res
-
+		return applySyncCreateComment(ctx, deps, id, op)
 	case "create_event":
-		var in struct {
-			Title     string    `json:"title"`
-			StartAt   time.Time `json:"start_at"`
-			EndAt     time.Time `json:"end_at"`
-			AllDay    bool      `json:"all_day"`
-			Color     string    `json:"color"`
-			ProjectID string    `json:"project_id"`
-		}
-		if err := json.Unmarshal(op.Payload, &in); err != nil || in.Title == "" {
-			res.Error = "invalid_payload"
-			return res
-		}
-		if deps.EventService == nil {
-			res.Error = "service_not_wired"
-			return res
-		}
-		ev := &event.Event{
-			Title:   in.Title,
-			StartAt: in.StartAt,
-			EndAt:   in.EndAt,
-			AllDay:  in.AllDay,
-			Color:   in.Color,
-		}
-		if in.ProjectID != "" {
-			ev.ProjectID = in.ProjectID
-		}
-		got, err := deps.EventService.Create(ctx, ev)
-		if err != nil {
-			res.Error = err.Error()
-			return res
-		}
-		_ = syncOpsRecord(ctx, deps, op.ClientID, got.ID)
-		res.OK = true
-		res.ID = got.ID
-		return res
-
+		return applySyncCreateEvent(ctx, deps, op)
 	case "create_page":
-		var in struct {
-			Slug      string `json:"slug"`
-			Title     string `json:"title"`
-			ContentMD string `json:"content_md"`
-		}
-		if err := json.Unmarshal(op.Payload, &in); err != nil || in.Slug == "" {
-			res.Error = "invalid_payload"
-			return res
-		}
-		if deps.WikiService == nil {
-			res.Error = "service_not_wired"
-			return res
-		}
-		got, err := deps.WikiService.Save(ctx, &wiki.Page{
-			Slug:      in.Slug,
-			Title:     in.Title,
-			ContentMD: in.ContentMD,
-		})
-		if err != nil {
-			res.Error = err.Error()
-			return res
-		}
-		_ = syncOpsRecord(ctx, deps, op.ClientID, got.ID)
-		res.OK = true
-		res.ID = got.ID
-		return res
+		return applySyncCreatePage(ctx, deps, op)
 	}
 
 	res.Error = "unsupported_op"
+	return res
+}
+
+// applySyncCreateTask applies the "create_task" op.
+func applySyncCreateTask(ctx context.Context, deps *Dependencies, op syncOp) syncResult {
+	res := syncResult{ClientID: op.ClientID}
+	var in struct {
+		Title       string  `json:"title"`
+		ColumnID    string  `json:"column_id"`
+		Description string  `json:"description"`
+		ProjectID   *string `json:"project_id,omitempty"` // Phase 16: optional
+	}
+	if err := json.Unmarshal(op.Payload, &in); err != nil || in.Title == "" {
+		res.Error = "invalid_payload"
+		return res
+	}
+	// ProjectID resolution order (Phase 16):
+	//   1. body.project_id (explicit)        wins
+	//   2. op.Target (the request URL slug) — preserves the older
+	//      single-target semantics for clients that pin the URL
+	//   3. "" (Inbox) — the new default for "I just want to
+	//      capture this idea"
+	projectID := ""
+	if in.ProjectID != nil {
+		projectID = *in.ProjectID
+	} else if op.Target != "" {
+		projectID = op.Target
+	}
+	tr := &task.Task{
+		ProjectID:   projectID,
+		ColumnID:    in.ColumnID,
+		Title:       in.Title,
+		Description: in.Description,
+	}
+	if err := deps.Tasks.Create(ctx, tr); err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	if deps.TaskService != nil {
+		deps.TaskService.MirrorSave(ctx, tr)
+	}
+	_ = syncOpsRecord(ctx, deps, op.ClientID, tr.ID)
+	res.OK = true
+	res.ID = tr.ID
+	return res
+}
+
+// applySyncUpdateTask applies the "update_task" op.
+func applySyncUpdateTask(ctx context.Context, deps *Dependencies, id *Identity, op syncOp) syncResult {
+	res := syncResult{ClientID: op.ClientID}
+	tr, err := deps.Tasks.GetByID(ctx, op.Target)
+	if err != nil {
+		res.Error = "not_found"
+		return res
+	}
+	// Apply payload fields. Last-write-wins per PLAN#8.6 — we don't
+	// compare updated_at since ops arrive in chronological order.
+	//
+	// Phase 13 additions: `color` is *string (absent vs explicit
+	// "" clear); `tags` is *[]string (nil = leave, &[] = clear,
+	// non-empty = replace). Both mirror the user-side PATCH
+	// semantics so the offline outbox and the online API behave
+	// identically.
+	var in struct {
+		Title       string    `json:"title,omitempty"`
+		Description string    `json:"description,omitempty"`
+		Status      string    `json:"status,omitempty"`
+		Priority    string    `json:"priority,omitempty"`
+		Color       *string   `json:"color,omitempty"`
+		Tags        *[]string `json:"tags,omitempty"`
+	}
+	if err := json.Unmarshal(op.Payload, &in); err != nil {
+		res.Error = "invalid_payload"
+		return res
+	}
+	if in.Title != "" {
+		tr.Title = in.Title
+	}
+	if in.Description != "" {
+		tr.Description = in.Description
+	}
+	prevStatus := tr.Status
+	if in.Status != "" {
+		tr.Status = task.Status(in.Status)
+	}
+	if in.Priority != "" {
+		tr.Priority = task.Priority(in.Priority)
+	}
+	if in.Color != nil {
+		tr.Color = *in.Color
+	}
+	// T46: use SyncAndSave for status↔column sync + persist.
+	if deps.TaskService != nil {
+		if err := deps.TaskService.SyncAndSave(ctx, tr, op.ClientID, activity.ActorSystem, prevStatus); err != nil {
+			res.Error = err.Error()
+			return res
+		}
+	} else {
+		if err := deps.Tasks.Update(ctx, tr); err != nil {
+			res.Error = err.Error()
+			return res
+		}
+	}
+	// Tag replacement goes through the same diff path as the
+	// user-side PATCH so a no-op doesn't spam the activity feed.
+	if in.Tags != nil {
+		applyTaskTagsChange(ctx, deps, tr.ID, *in.Tags)
+	}
+	_ = syncOpsRecord(ctx, deps, op.ClientID, tr.ID)
+	res.OK = true
+	res.ID = tr.ID
+	return res
+}
+
+// applySyncMoveTask applies the "move_task" op.
+func applySyncMoveTask(ctx context.Context, deps *Dependencies, id *Identity, op syncOp) syncResult {
+	res := syncResult{ClientID: op.ClientID}
+	var in struct {
+		ColumnID string `json:"column_id"`
+		// T164: explicit fractional position. Pointer (not float)
+		// so absent vs 0 stay distinguishable — 0 would fall into
+		// derive-from-neighbours and silently reorder the card.
+		Position *float64 `json:"position"`
+	}
+	if err := json.Unmarshal(op.Payload, &in); err != nil || in.ColumnID == "" {
+		res.Error = "invalid_payload"
+		return res
+	}
+	if deps.TaskService == nil {
+		res.Error = "service_not_wired"
+		return res
+	}
+	opts := taskservice.MoveOptions{TargetColumnID: in.ColumnID, ActorID: id.UserID}
+	if in.Position != nil {
+		opts.Position = *in.Position
+	}
+	// Task 121: identify the mover for the task.moved activity
+	// row — Activity.Validate rejects an empty actor id, and
+	// without this the recorder silently dropped the audit row
+	// (same fix as the HTTP path, handlers_kanban.go).
+	tr, err := deps.TaskService.Move(ctx, op.Target, opts)
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	_ = syncOpsRecord(ctx, deps, op.ClientID, tr.ID)
+	res.OK = true
+	res.ID = tr.ID
+	return res
+}
+
+// applySyncCreateComment applies the "create_comment" op.
+func applySyncCreateComment(ctx context.Context, deps *Dependencies, id *Identity, op syncOp) syncResult {
+	res := syncResult{ClientID: op.ClientID}
+	var in struct {
+		BodyMD string `json:"body_md"`
+	}
+	if err := json.Unmarshal(op.Payload, &in); err != nil || in.BodyMD == "" {
+		res.Error = "invalid_payload"
+		return res
+	}
+	if deps.Comments == nil {
+		res.Error = "service_not_wired"
+		return res
+	}
+	c := &comment.Comment{
+		TargetID:   op.Target,
+		AuthorType: comment.AuthorUser,
+		AuthorID:   id.UserID,
+		BodyMD:     in.BodyMD,
+	}
+	got, err := deps.Comments.Add(ctx, c)
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	_ = syncOpsRecord(ctx, deps, op.ClientID, got.ID)
+	res.OK = true
+	res.ID = got.ID
+	return res
+}
+
+// applySyncCreateEvent applies the "create_event" op.
+func applySyncCreateEvent(ctx context.Context, deps *Dependencies, op syncOp) syncResult {
+	res := syncResult{ClientID: op.ClientID}
+	var in struct {
+		Title     string    `json:"title"`
+		StartAt   time.Time `json:"start_at"`
+		EndAt     time.Time `json:"end_at"`
+		AllDay    bool      `json:"all_day"`
+		Color     string    `json:"color"`
+		ProjectID string    `json:"project_id"`
+	}
+	if err := json.Unmarshal(op.Payload, &in); err != nil || in.Title == "" {
+		res.Error = "invalid_payload"
+		return res
+	}
+	if deps.EventService == nil {
+		res.Error = "service_not_wired"
+		return res
+	}
+	ev := &event.Event{
+		Title:   in.Title,
+		StartAt: in.StartAt,
+		EndAt:   in.EndAt,
+		AllDay:  in.AllDay,
+		Color:   in.Color,
+	}
+	if in.ProjectID != "" {
+		ev.ProjectID = in.ProjectID
+	}
+	got, err := deps.EventService.Create(ctx, ev)
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	_ = syncOpsRecord(ctx, deps, op.ClientID, got.ID)
+	res.OK = true
+	res.ID = got.ID
+	return res
+}
+
+// applySyncCreatePage applies the "create_page" op.
+func applySyncCreatePage(ctx context.Context, deps *Dependencies, op syncOp) syncResult {
+	res := syncResult{ClientID: op.ClientID}
+	var in struct {
+		Slug      string `json:"slug"`
+		Title     string `json:"title"`
+		ContentMD string `json:"content_md"`
+	}
+	if err := json.Unmarshal(op.Payload, &in); err != nil || in.Slug == "" {
+		res.Error = "invalid_payload"
+		return res
+	}
+	if deps.WikiService == nil {
+		res.Error = "service_not_wired"
+		return res
+	}
+	got, err := deps.WikiService.Save(ctx, &wiki.Page{
+		Slug:      in.Slug,
+		Title:     in.Title,
+		ContentMD: in.ContentMD,
+	})
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	_ = syncOpsRecord(ctx, deps, op.ClientID, got.ID)
+	res.OK = true
+	res.ID = got.ID
 	return res
 }
 
