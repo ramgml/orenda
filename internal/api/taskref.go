@@ -28,14 +28,21 @@ func resolveTaskRef(ctx context.Context, deps *Dependencies, ref string) (string
 	return tr.ID, nil
 }
 
-// writeResolveError translates a resolveTaskRef failure: 404 with the
-// explicit "task T42 not found" message for T-refs (the agent needs
-// to see WHICH ref didn't resolve), the generic not_found body
+// writeResolveError translates a resolveTaskRef failure: 404 with
+// the explicit "task T42 not found" message for T-refs (the agent
+// needs to see WHICH ref didn't resolve), 404 with the Task-48
+// migration hint for legacy-shaped refs ("#42"/"42" — the message
+// names the T-ref replacement), the generic not_found body
 // otherwise. Non-not-found errors fall through to writeError.
 func writeResolveError(w http.ResponseWriter, err error) {
 	var refErr *task.RefNotFoundError
 	if errors.As(err, &refErr) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": refErr.Error()})
+		return
+	}
+	var legacyErr *task.LegacyRefNotFoundError
+	if errors.As(err, &legacyErr) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": legacyErr.Error()})
 		return
 	}
 	if errors.Is(err, task.ErrNotFound) {
