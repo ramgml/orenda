@@ -74,19 +74,19 @@ func agentCreateTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		recordAgentCommentActivity(r, deps, taskID, got.ID, id.AgentID, len(in.BodyMD), false)
+		recordAgentCommentActivity(r, deps, taskID, got.ID, id.AgentID, len(in.BodyMD))
 		notifyAgentCommentMentions(r, deps, taskID, got.ID, in.BodyMD)
 		writeJSON(w, http.StatusCreated, got)
 	}
 }
 
 // recordAgentCommentActivity emits the task.commented activity row
-// for agent-side comment writes (Phase 28.5: create and edit share
-// it; the payload carries `edited` so the timeline can tell them
-// apart). Same nil-safe + log-on-error pattern as the user-side
+// for the agent-side comment create (Phase 28.5). The agent edit
+// path (agentUpdateTaskCommentHandler) keeps writing its own row
+// inline. Same nil-safe + log-on-error pattern as the user-side
 // handler. ActorType is `agent` so the timeline can colour human vs
 // agent comments distinctly.
-func recordAgentCommentActivity(r *http.Request, deps *Dependencies, taskID, commentID, agentID string, bodyLen int, edited bool) {
+func recordAgentCommentActivity(r *http.Request, deps *Dependencies, taskID, commentID, agentID string, bodyLen int) {
 	if deps.ActivityRecorder == nil {
 		return
 	}
@@ -94,7 +94,6 @@ func recordAgentCommentActivity(r *http.Request, deps *Dependencies, taskID, com
 		"comment_id":  commentID,
 		"author_type": "agent",
 		"length":      bodyLen,
-		"edited":      edited,
 	})
 	if rerr := deps.ActivityRecorder.RecordTask(
 		r.Context(), taskID,

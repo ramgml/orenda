@@ -304,26 +304,25 @@ func createTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		recordUserCommentActivity(r, deps, taskID, got.ID, userID, len(in.BodyMD), false)
+		recordUserCommentActivity(r, deps, taskID, got.ID, userID, len(in.BodyMD))
 		notifyUserCommentMentions(r, deps, taskID, got.ID, in.BodyMD, userID)
 		writeJSON(w, http.StatusCreated, got)
 	}
 }
 
 // recordUserCommentActivity emits the task.commented activity row
-// for user-side comment writes (Phase 28.5; create and edit share
-// it, the payload carries `edited` so the timeline can tell them
-// apart). We log on failure and keep the response going: the
-// comment landed; an audit gap is recoverable, a failed
-// user-visible request isn't.
-func recordUserCommentActivity(r *http.Request, deps *Dependencies, taskID, commentID, userID string, bodyLen int, edited bool) {
+// for the user-side comment create (Phase 28.5). The edit path
+// (updateTaskCommentHandler) keeps writing its own row inline, with
+// `edited: true` in the payload. We log on failure and keep the
+// response going: the comment landed; an audit gap is recoverable,
+// a failed user-visible request isn't.
+func recordUserCommentActivity(r *http.Request, deps *Dependencies, taskID, commentID, userID string, bodyLen int) {
 	if deps.ActivityRecorder == nil {
 		return
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"comment_id": commentID,
 		"length":     bodyLen,
-		"edited":     edited,
 	})
 	if rerr := deps.ActivityRecorder.RecordTask(
 		r.Context(), taskID,

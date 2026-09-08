@@ -180,6 +180,12 @@ func agentPatchProjectHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
+		if in.Description == nil && in.WikiSlug == nil {
+			// Nothing to change — return the current row rather than
+			// write a no-op activity row.
+			writeJSON(w, http.StatusOK, p)
+			return
+		}
 		beforeDesc := p.Description
 		beforeSlug := p.WikiSlug
 		descChanged, slugChanged, ok := applyAgentProjectPatch(w, r, deps, p, in)
