@@ -218,6 +218,99 @@ func TestService_RotateToken_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, agentsvc.ErrNotFound)
 }
 
+// T175: rotation must refresh expires_at under the service's TokenTTL
+// policy instead of letting the row keep the original mint's deadline.
+// With TokenTTL=1h and a pre-set (stale) expires_at two hours in the
+// past, RotateToken must store now+1h — the old value must not survive.
+func TestService_RotateToken_RefreshesExpiresAt(t *testing.T) {
+	ctx := context.Background()
+	svc, db := setupAgentSvcWithDB(t)
+	svc.TokenTTL = time.Hour
+
+	reg, err := svc.Register(ctx, "rot-exp", []string{"qwen"}, "", nil)
+	require.NoError(t, err)
+
+	// Simulate a token minted long ago: expires_at two hours in the past.
+	_, err = db.ExecContext(ctx,
+		`UPDATE api_tokens SET expires_at = datetime('now', '-2 hours') WHERE id = ?`,
+		reg.Agent.TokenID)
+	require.NoError(t, err)
+	before := tokenRowByTokenID(t, db, reg.Agent.TokenID)
+	require.NotNil(t, before.ExpiresAt)
+
+	_, err = svc.RotateToken(ctx, reg.Agent.ID)
+	require.NoError(t, err)
+
+	after := tokenRowByTokenID(t, db, reg.Agent.TokenID)
+	require.NotNil(t, after.ExpiresAt, "TokenTTL>0 rotation must set expires_at")
+	assert.NotEqual(t, before.ExpiresAt, after.ExpiresAt, "stale expiry must not survive rotation")
+	delta := after.ExpiresAt.Sub(time.Now())
+	assert.InDelta(t, float64(time.Hour), float64(delta), float64(time.Minute),
+		"expires_at must be refreshed to now+TokenTTL (±1min)")
+}
+
+// T175: with TokenTTL=0 rotation must CLEAR a stale expires_at (stored
+// as NULL), not leave the previous deadline in place — "no expiry" is
+// the policy, so inheriting an old deadline would revive a token that
+// the policy says should live forever.
+func TestService_RotateToken_ClearsExpiresAtWhenTTLZero(t *testing.T) {
+	ctx := context.Background()
+	svc, db := setupAgentSvcWithDB(t)
+	require.Zero(t, svc.TokenTTL, "New default must be the no-expiry policy")
+
+	reg, err := svc.Register(ctx, "rot-clear", []string{"qwen"}, "", nil)
+	require.NoError(t, err)
+
+	// Pre-set a FUTURE deadline so clearing is observable.
+	_, err = db.ExecContext(ctx,
+		`UPDATE api_tokens SET expires_at = datetime('now', '+2 hours') WHERE id = ?`,
+		reg.Agent.TokenID)
+	require.NoError(t, err)
+	before := tokenRowByTokenID(t, db, reg.Agent.TokenID)
+	require.NotNil(t, before.ExpiresAt)
+
+	_, err = svc.RotateToken(ctx, reg.Agent.ID)
+	require.NoError(t, err)
+
+	after := tokenRowByTokenID(t, db, reg.Agent.TokenID)
+	assert.Nil(t, after.ExpiresAt, "TokenTTL=0 rotation must clear expires_at to NULL")
+}
+
+// T175: Register must apply the same expiry policy as rotation — the
+// shared tokenExpiry helper. Table-driven over the policy: TTL=0 mints
+// a NULL expires_at, TTL=1h stamps now+1h (±1min).
+func TestService_Register_ExpiresAtPolicy(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		ttl     time.Duration
+		wantNil bool
+		wantMin time.Duration // lower bound vs now when !wantNil
+	}{
+		{"zero ttl means no expiry", 0, true, 0},
+		{"one hour ttl stamps now+ttl", time.Hour, false, 59 * time.Minute},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, db := setupAgentSvcWithDB(t)
+			svc.TokenTTL = tt.ttl
+
+			reg, err := svc.Register(ctx, "reg-exp-"+tt.name, []string{"qwen"}, "", nil)
+			require.NoError(t, err)
+
+			row := tokenRowByTokenID(t, db, reg.Agent.TokenID)
+			if tt.wantNil {
+				assert.Nil(t, row.ExpiresAt)
+				return
+			}
+			require.NotNil(t, row.ExpiresAt)
+			assert.GreaterOrEqual(t, row.ExpiresAt.Sub(time.Now()), tt.wantMin,
+				"expires_at must be stamped at mint time to now+TokenTTL")
+		})
+	}
+}
+
 // UpdateHash failure must leave the old hash intact — the agent
 // keeps working with the old token after a failed rotation
 // (transactionality of the credential swap).
@@ -240,6 +333,9 @@ func TestService_RotateToken_UpdateHashErrorLeavesOldHash(t *testing.T) {
 
 	after := tokenRowByTokenID(t, db, reg.Agent.TokenID)
 	assert.Equal(t, before.Hash, after.Hash, "failed rotation must not touch the stored hash")
+	// T175: expires_at must be equally untouched — a failed rotation
+	// must not extend (or clear) the row's lifetime as a side effect.
+	assert.Equal(t, before.ExpiresAt, after.ExpiresAt, "failed rotation must not touch expires_at")
 	assert.NoError(t, auth.VerifyAPIToken(after.Hash, reg.PlainToken), "old token still works")
 }
 
