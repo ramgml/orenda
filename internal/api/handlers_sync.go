@@ -113,7 +113,7 @@ func applySyncOp(r *http.Request, deps *Dependencies, id *Identity, op syncOp) s
 	case "create_task":
 		return applySyncCreateTask(ctx, deps, op)
 	case "update_task":
-		return applySyncUpdateTask(ctx, deps, id, op)
+		return applySyncUpdateTask(ctx, deps, op)
 	case "move_task":
 		return applySyncMoveTask(ctx, deps, id, op)
 	case "create_comment":
@@ -173,7 +173,7 @@ func applySyncCreateTask(ctx context.Context, deps *Dependencies, op syncOp) syn
 }
 
 // applySyncUpdateTask applies the "update_task" op.
-func applySyncUpdateTask(ctx context.Context, deps *Dependencies, id *Identity, op syncOp) syncResult {
+func applySyncUpdateTask(ctx context.Context, deps *Dependencies, op syncOp) syncResult {
 	res := syncResult{ClientID: op.ClientID}
 	tr, err := deps.Tasks.GetByID(ctx, op.Target)
 	if err != nil {
