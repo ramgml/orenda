@@ -102,11 +102,18 @@ func TestAgentRef_UnknownNumber404(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rr := fx.agentDo(t, http.MethodPost, "/api/v1/agent/tasks/"+tc.ref+"/claim")
 			require.Equal(t, http.StatusNotFound, rr.Code, "body=%s", rr.Body.String())
-			// T-form error names the ref; legacy forms fall through to not_found
-			// (they don't match T/N parsing and go to UUID lookup, which returns
-			// generic not_found).
+			// T-form error names the ref; legacy forms get the Task-48
+			// migration hint (they don't match T-ref parsing; after the
+			// UUID lookup misses, the resolver detects the legacy shape).
 			if tc.name == "T form" || tc.name == "t form" {
 				assert.Contains(t, rr.Body.String(), "task "+tc.ref+" not found")
+			} else {
+				// Quotes are JSON-escaped on the wire — decode first.
+				var resp struct {
+					Error string `json:"error"`
+				}
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+				assert.Contains(t, resp.Error, `use "T999999"`)
 			}
 		})
 	}
@@ -175,10 +182,15 @@ func TestUserRef_GetTaskByNumber(t *testing.T) {
 	assert.Equal(t, fx.taskID, tr.ID)
 	assert.Equal(t, fx.taskNumber, tr.Number)
 
-	// Bare number no longer resolves — falls through to UUID lookup.
+	// Bare number no longer resolves — the UUID lookup misses and the
+	// resolver answers with the Task-48 migration hint.
 	rr = fx.doWithCookie(t, http.MethodGet, "/api/v1/tasks/424242", nil)
 	require.Equal(t, http.StatusNotFound, rr.Code)
-	assert.Contains(t, rr.Body.String(), "not_found")
+	var resp struct {
+		Error string `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	assert.Contains(t, resp.Error, `use "T424242"`)
 }
 
 // TestServiceResolve_RefShapes: the service-level resolver pins the
@@ -208,11 +220,16 @@ func TestServiceResolve_RefShapes(t *testing.T) {
 	assert.Equal(t, "task T424242 not found", refErr.Error())
 	assert.ErrorIs(t, err, task.ErrNotFound, "RefNotFoundError must match ErrNotFound")
 
-	// Legacy forms are rejected (not T-prefixed).
+	// Legacy forms are rejected (not T-prefixed) and get the
+	// migration hint on a miss.
 	_, err = svc.Resolve(ctx, "#424242")
 	require.Error(t, err)
 	assert.NotErrorAs(t, err, &refErr, "#N should not produce RefNotFoundError")
+	var legacyErr *task.LegacyRefNotFoundError
+	require.ErrorAs(t, err, &legacyErr)
+	assert.Contains(t, err.Error(), `use "T424242"`)
 
 	_, err = svc.Resolve(ctx, "424242")
 	require.Error(t, err)
+	require.ErrorAs(t, err, &legacyErr)
 }

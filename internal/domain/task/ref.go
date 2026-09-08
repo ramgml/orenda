@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // RefNotFoundError is returned when a T-prefixed task reference ("T42")
@@ -23,6 +24,27 @@ func (e *RefNotFoundError) Error() string {
 // Is implements the errors.Is contract: a RefNotFoundError matches
 // ErrNotFound so handlers can keep matching on the single sentinel.
 func (e *RefNotFoundError) Is(target error) bool {
+	return target == ErrNotFound
+}
+
+// LegacyRefNotFoundError is returned when a task reference in the
+// pre-Task-48 syntax ("#42" or bare "42") matches no task. Like
+// RefNotFoundError it matches ErrNotFound so the 404 plumbing keeps
+// working; the message names the T-ref replacement so agents
+// following stale docs get a direct fix instead of diagnosing a
+// missing route.
+type LegacyRefNotFoundError struct {
+	Ref string
+}
+
+// Error implements error.
+func (e *LegacyRefNotFoundError) Error() string {
+	digits, _ := legacyRefDigits(e.Ref)
+	return fmt.Sprintf("task %s not found; use %q — task refs are T-prefixed since Task 48", e.Ref, "T"+digits)
+}
+
+// Is implements the errors.Is contract against ErrNotFound.
+func (e *LegacyRefNotFoundError) Is(target error) bool {
 	return target == ErrNotFound
 }
 
@@ -57,13 +79,31 @@ func ParseRefNumber(ref string) (int, bool) {
 	return n, true
 }
 
+// legacyRefDigits reports the digits of a pre-Task-48 task ref and
+// whether ref has that shape: "#42" → ("42", true), "42" →
+// ("42", true). T-refs, UUIDs and anything else → ("", false).
+func legacyRefDigits(ref string) (string, bool) {
+	s := strings.TrimPrefix(ref, "#")
+	if s == "" {
+		return "", false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return "", false
+		}
+	}
+	return s, true
+}
+
 // ResolveRef returns the task identified by ref. ref may be a task
 // UUID or a T-prefixed number ("T42" / "t42"). Legacy "#42" and bare
 // "42" are rejected (Task 48 cutover).
 //
 // Unknown T-refs surface as *RefNotFoundError ("task T42 not
-// found"); unknown ids as ErrNotFound. Both match ErrNotFound via
-// errors.Is.
+// found"); legacy-shaped refs ("#42", bare "42") that match nothing
+// surface as *LegacyRefNotFoundError, whose message names the T-ref
+// replacement; any other unknown id stays a bare ErrNotFound. All
+// match ErrNotFound via errors.Is.
 //
 // This is the single resolver every task-id-taking surface should
 // funnel through (agent REST, agent CLI via REST, MCP id arguments,
@@ -80,5 +120,14 @@ func ResolveRef(ctx context.Context, repo Repository, ref string) (*Task, error)
 		}
 		return tr, nil
 	}
-	return repo.GetByID(ctx, ref)
+	tr, err := repo.GetByID(ctx, ref)
+	if err == nil {
+		return tr, nil
+	}
+	if err == ErrNotFound {
+		if _, ok := legacyRefDigits(ref); ok {
+			return nil, &LegacyRefNotFoundError{Ref: ref}
+		}
+	}
+	return nil, err
 }

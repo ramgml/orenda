@@ -477,9 +477,10 @@ Workflow shape:
   orenda agent release <task-id>      # drop a claim
   orenda agent await                   # long-poll for the next event
 
-<task-id> accepts the UUID or the human number: "42" or "#42"
+<task-id> accepts the task UUID or the T-ref: "T42"
 (tasks carry a sequential number alongside the UUID — it is what
-branch names, commit messages and PR titles reference).
+branch names, commit messages and PR titles reference; only the
+resolver uses the T-prefixed form).
 
 Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN),
 ./.orenda/agent.yaml in the current project (gitignored — carries a
@@ -1051,8 +1052,8 @@ func newAgentCommentCmd() *cobra.Command {
 
 // ---------------------------------------------------------------------------
 // T96: checklist subcommands — the CLI twin of the agent-namespace
-// checklist routes. The task argument accepts the UUID or the human
-// number ("42" / "#42"), like every other `agent` task command.
+// checklist routes. The task argument accepts the task UUID or the
+// T-ref ("T42"), like every other `agent` task command.
 // ---------------------------------------------------------------------------
 
 func newAgentChecklistsCmd() *cobra.Command {
