@@ -9,7 +9,7 @@
 //
 // Configuration precedence (highest first):
 //
-//	flag  >  env (ORENDA_URL / ORENDA_AGENT_TOKEN)  >  config file
+//	flag  >  env (ORENDA_URL / ORENDA_AGENT_TOKEN)  >  ./.orenda/agent.yaml  >  global config file
 //
 // Exit codes:
 //
@@ -50,48 +50,106 @@ type agentCtx struct {
 	Token   string
 }
 
-// resolveAgentCtx reads the CLI flags, then env, then a config file
-// in ~/.config/orenda/agent.yaml. Missing token is a soft error
+// agentSource names where a resolved connection value came from.
+type agentSource string
+
+const (
+	sourceFlag   agentSource = "flag"
+	sourceEnv    agentSource = "env"
+	sourceLocal  agentSource = "local"  // ./.orenda/agent.yaml
+	sourceGlobal agentSource = "global" // ~/.config/orenda/agent.yaml
+)
+
+// agentField is one resolved connection value plus its provenance.
+// url and token resolve independently — first non-empty source wins.
+type agentField struct {
+	Value  string      `json:"value"`
+	Source agentSource `json:"source"`
+}
+
+// agentSettings is the per-field resolution outcome.
+type agentSettings struct {
+	URL   agentField
+	Token agentField
+}
+
+// resolveAgentSettings walks the configuration chain per field:
+//
+//	flag > env (ORENDA_URL / ORENDA_AGENT_TOKEN) >
+//	./.orenda/agent.yaml > ~/.config/orenda/agent.yaml
+//
+// and records the winning source for `agent config`. A config file
+// that exists but cannot be parsed is a hard error naming the path —
+// never a silent fallback to the next source. A missing file is
+// normal (most checkouts have no ./.orenda) and is skipped.
+// domain names the command family in error messages ("orenda agent"
+// or "mcp-proxy").
+func resolveAgentSettings(cmd *cobra.Command, domain string) (*agentSettings, error) {
+	url, _ := cmd.Flags().GetString("url")
+	token, _ := cmd.Flags().GetString("token")
+	s := &agentSettings{
+		URL:   agentField{Value: url, Source: sourceFlag},
+		Token: agentField{Value: token, Source: sourceFlag},
+	}
+	if s.URL.Value == "" {
+		s.URL = agentField{Value: os.Getenv("ORENDA_URL"), Source: sourceEnv}
+	}
+	if s.Token.Value == "" {
+		s.Token = agentField{Value: os.Getenv("ORENDA_AGENT_TOKEN"), Source: sourceEnv}
+	}
+	if s.URL.Value != "" && s.Token.Value != "" {
+		return s, nil
+	}
+	// Fall back to the config files whenever either value is still
+	// missing — flags and env win per-field over the files.
+	localPath := localAgentConfigPath()
+	local, st, err := readAgentConfigFile(localPath)
+	if err != nil {
+		return nil, fmt.Errorf("project config: %w", err)
+	}
+	if st == agentConfigOK {
+		if s.URL.Value == "" {
+			s.URL = agentField{Value: local.URL, Source: sourceLocal}
+		}
+		if s.Token.Value == "" {
+			s.Token = agentField{Value: local.Token, Source: sourceLocal}
+		}
+	}
+	if s.URL.Value != "" && s.Token.Value != "" {
+		return s, nil
+	}
+	globalPath, err := agentConfigPath()
+	if err != nil {
+		globalPath = "~/.config/orenda/agent.yaml"
+	}
+	global, st, err := readAgentConfigFile(globalPath)
+	if err != nil {
+		return nil, fmt.Errorf("global config: %w", err)
+	}
+	if st == agentConfigOK {
+		if s.URL.Value == "" {
+			s.URL = agentField{Value: global.URL, Source: sourceGlobal}
+		}
+		if s.Token.Value == "" {
+			s.Token = agentField{Value: global.Token, Source: sourceGlobal}
+		}
+	}
+	if s.URL.Value == "" {
+		return nil, fmt.Errorf("%s: --url (or ORENDA_URL, or url: in %s, or url: in %s) is required", domain, localPath, globalPath)
+	}
+	return nil, fmt.Errorf("%s: --token (or ORENDA_AGENT_TOKEN, or token: in %s, or token: in %s) is required", domain, localPath, globalPath)
+}
+
+// resolveAgentCtx reads the CLI flags, then env, then the config
+// files (./.orenda/agent.yaml in the current working directory,
+// then ~/.config/orenda/agent.yaml). Missing token is a soft error
 // only for the no-auth subcommands (`help`).
 func resolveAgentCtx(cmd *cobra.Command) (*agentCtx, error) {
-	baseURL, _ := cmd.Flags().GetString("url")
-	token, _ := cmd.Flags().GetString("token")
-	if baseURL == "" {
-		baseURL = os.Getenv("ORENDA_URL")
+	s, err := resolveAgentSettings(cmd, "orenda agent")
+	if err != nil {
+		return nil, err
 	}
-	if token == "" {
-		token = os.Getenv("ORENDA_AGENT_TOKEN")
-	}
-	if baseURL == "" || token == "" {
-		// Fall back to the config file whenever either value is
-		// still missing — flags and env win per-field over the file.
-		path, err := agentConfigPath()
-		if err == nil {
-			cfg, err := loadAgentConfig(path)
-			if err == nil {
-				if baseURL == "" {
-					baseURL = cfg.URL
-				}
-				if token == "" {
-					token = cfg.Token
-				}
-			}
-		}
-	}
-	if baseURL == "" || token == "" {
-		// Mention the config file path in the error so a fresh
-		// machine knows where to put the credentials instead of
-		// hunting for the token across the filesystem.
-		cfgHint, err := agentConfigPath()
-		if err != nil {
-			cfgHint = "~/.config/orenda/agent.yaml"
-		}
-		if baseURL == "" {
-			return nil, fmt.Errorf("orenda agent: --url (or ORENDA_URL, or url: in %s) is required", cfgHint)
-		}
-		return nil, fmt.Errorf("orenda agent: --token (or ORENDA_AGENT_TOKEN, or token: in %s) is required", cfgHint)
-	}
-	return &agentCtx{BaseURL: baseURL, Token: token}, nil
+	return &agentCtx{BaseURL: s.URL.Value, Token: s.Token.Value}, nil
 }
 
 // agentConfig is the YAML file shape — `url` and `token` only.
@@ -100,6 +158,8 @@ type agentConfig struct {
 	Token string `yaml:"token"`
 }
 
+// agentConfigPath is the host-global config path —
+// <os.UserConfigDir>/orenda/agent.yaml.
 func agentConfigPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -108,16 +168,92 @@ func agentConfigPath() (string, error) {
 	return filepath.Join(dir, "orenda", "agent.yaml"), nil
 }
 
-func loadAgentConfig(path string) (*agentConfig, error) {
+// localAgentConfigPath is the project-local config discovered in
+// the CURRENT working directory (Task 178). Relative on purpose: an
+// agent working inside a repo checkout picks up that repo's
+// connection settings without touching the host-global file.
+func localAgentConfigPath() string {
+	return filepath.Join(".orenda", "agent.yaml")
+}
+
+// agentConfigStatus distinguishes "no file" (normal, skip) from
+// "file present" and "file present but unparsable" (hard error —
+// a broken config must never silently fall through the chain).
+type agentConfigStatus int
+
+const (
+	agentConfigMissing agentConfigStatus = iota
+	agentConfigOK
+	agentConfigBroken
+)
+
+// readAgentConfigFile loads an agent.yaml. Missing file →
+// (nil, agentConfigMissing, nil); unparsable → agentConfigBroken
+// with an error that names the path.
+func readAgentConfigFile(path string) (*agentConfig, agentConfigStatus, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		if os.IsNotExist(err) {
+			return nil, agentConfigMissing, nil
+		}
+		return nil, agentConfigBroken, fmt.Errorf("%s: %w", path, err)
 	}
 	var c agentConfig
 	if err := yaml.Unmarshal(raw, &c); err != nil {
-		return nil, err
+		return nil, agentConfigBroken, fmt.Errorf("%s: invalid agent config yaml: %w", path, err)
 	}
-	return &c, nil
+	return &c, agentConfigOK, nil
+}
+
+// maskToken masks a token for diagnostics: first 8 characters plus
+// "…". Shorter tokens collapse to just the ellipsis so nothing
+// usable leaks.
+func maskToken(token string) string {
+	if len(token) < 12 {
+		return "…"
+	}
+	return token[:8] + "…"
+}
+
+// newAgentConfigCmd wires `orenda agent config` (Task 178): print
+// the resolved url/token and where each came from (flag, env,
+// ./.orenda/agent.yaml, global config). The token is masked by
+// default in every output mode; `-json --show-secret` prints the
+// raw values for scripts that template a client config.
+func newAgentConfigCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Show resolved agent connection config and its sources",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			s, err := resolveAgentSettings(cmd, "orenda agent")
+			if err != nil {
+				return err
+			}
+			showSecret, _ := cmd.Flags().GetBool("show-secret")
+			masked := !showSecret
+			token := s.Token.Value
+			if masked {
+				token = maskToken(token)
+			}
+			report := struct {
+				URL         agentField `json:"url"`
+				Token       agentField `json:"token"`
+				TokenMasked bool       `json:"token_masked"`
+			}{s.URL, agentField{Value: token, Source: s.Token.Source}, masked}
+			if jsonFlag, _ := cmd.Flags().GetBool("json"); jsonFlag {
+				return printJSON(cmd, report)
+			}
+			out := cmd.OutOrStdout()
+			_, _ = fmt.Fprintf(out, "url    %s  %s\n", report.URL.Source, report.URL.Value)
+			_, _ = fmt.Fprintf(out, "token  %s  %s\n", report.Token.Source, report.Token.Value)
+			if masked {
+				_, _ = fmt.Fprintln(out, "(token masked; -json --show-secret prints the raw value)")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().Bool("show-secret", false, "print the raw token instead of the masked form")
+	return cmd
 }
 
 // agentGet issues a GET against the agent namespace and returns the
@@ -252,8 +388,10 @@ Workflow shape:
 (tasks carry a sequential number alongside the UUID — it is what
 branch names, commit messages and PR titles reference).
 
-Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
-~/.config/orenda/agent.yaml.`,
+Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN),
+./.orenda/agent.yaml in the current project (gitignored — carries a
+secret), or ~/.config/orenda/agent.yaml. Per-field priority: flag >
+env > project config > global config.`,
 	}
 
 	// Persistent flags applied to every subcommand.
@@ -263,6 +401,7 @@ Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
 	pflags.Bool("json", false, "emit compact JSON instead of pretty")
 
 	cmd.AddCommand(newAgentMeCmd())
+	cmd.AddCommand(newAgentConfigCmd())
 	cmd.AddCommand(newAgentNextCmd())
 	cmd.AddCommand(newAgentProposeCmd())
 	cmd.AddCommand(newAgentContextCmd())
