@@ -80,11 +80,12 @@ func resolveGuardSettings(t *testing.T) (*agentSettings, string) {
 	return s, errOut.String()
 }
 
-// TestResolveAgentSettings_GitGuard walks the four git states of the
-// project-local config: ignored → silence, tracked / not gitignored →
-// a one-line warning, non-repo → silence (the guard must never break
-// an arbitrary checkout). Each warning fires exactly once per run —
-// the two return paths of resolveAgentSettings share one call site.
+// TestResolveAgentSettings_GitGuard walks the five git states of the
+// project-local config: tracked (even when also ignored) /
+// not gitignored → a one-line warning, ignored → silence, non-repo →
+// silence (the guard must never break an arbitrary checkout). Each
+// warning fires exactly once per run — the two return paths of
+// resolveAgentSettings share one call site.
 func TestResolveAgentSettings_GitGuard(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -117,6 +118,18 @@ func TestResolveAgentSettings_GitGuard(t *testing.T) {
 				t.Chdir(initGuardRepo(t))
 				writeGuardConfig(t, 0o600)
 				gitRun(t, "", "add", ".orenda/agent.yaml")
+				gitRun(t, "", "commit", "-m", "leak the token")
+			},
+			wantSubstr: "warning: .orenda/agent.yaml is tracked by git — the token will be committed to history; remove it from the index (git rm --cached) and rotate the token",
+		},
+		{
+			name:     "tracked-and-ignored",
+			needsGit: true,
+			makeRepo: func(t *testing.T) {
+				t.Chdir(initGuardRepo(t))
+				require.NoError(t, os.WriteFile(".gitignore", []byte(".orenda/\n"), 0o644))
+				writeGuardConfig(t, 0o600)
+				gitRun(t, "", "add", "-f", ".orenda/agent.yaml")
 				gitRun(t, "", "commit", "-m", "leak the token")
 			},
 			wantSubstr: "warning: .orenda/agent.yaml is tracked by git — the token will be committed to history; remove it from the index (git rm --cached) and rotate the token",

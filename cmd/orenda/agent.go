@@ -204,16 +204,18 @@ var gitExit = func(args ...string) (int, bool) {
 //     the plaintext token;
 //   - mode wider than 0600 → other local users can read it.
 //
-// An ignored file and a non-repository directory (or a missing git
-// binary) produce no output — the guard must never break a command.
+// An untracked, ignored file and a non-repository directory (or a
+// missing git binary) produce no output — the guard must never break
+// a command. Tracked is checked before ignored: a token already in
+// the index is the worst outcome even when an ignore rule exists.
 func warnAgentConfigGitGuard(cmd *cobra.Command, localPath string) {
 	var out = cmd.ErrOrStderr()
-	if code, ok := gitExit("check-ignore", "-q", localPath); ok && code == 0 {
-		// Ignored: the intended state for a secret — nothing to say.
-	} else if code, ok := gitExit("ls-files", "--error-unmatch", localPath); ok && code == 0 {
+	if code, ok := gitExit("ls-files", "--error-unmatch", localPath); ok && code == 0 {
 		_, _ = fmt.Fprintf(out,
 			"warning: %s is tracked by git — the token will be committed to history; remove it from the index (git rm --cached) and rotate the token\n",
 			localPath)
+	} else if code, ok := gitExit("check-ignore", "-q", localPath); ok && code == 0 {
+		// Ignored and untracked: the intended state for a secret — nothing to say.
 	} else if ok && code == 1 {
 		_, _ = fmt.Fprintf(out,
 			"warning: %s is not gitignored — 'git add .' would commit the plaintext token; add '.orenda/' to .gitignore\n",
