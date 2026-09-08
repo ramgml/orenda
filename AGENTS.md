@@ -156,7 +156,7 @@ Process rules (binary, like the rest of this file):
 ## Conventions for AI agents
 
 ### When you start a task
-1. Work comes from the dogfood instance (`orenda agent next` / MCP `orenda_list_tasks`) — see `docs/DOGFOOD.md`. `docs/PLAN.md` is a frozen archive of phases ≤ 32, not a queue.
+1. Work comes from the dogfood instance (`orenda agent next` / MCP `orenda_list_tasks` — plain `next` CLAIMS; for a read-only queue check use `orenda agent next --peek`) — see `docs/DOGFOOD.md`. `docs/PLAN.md` is a frozen archive of phases ≤ 32, not a queue.
 2. Check Definition of Done (in the task description / linked wiki постановка).
 3. Create worktree + branch `task-123-short-slug` (123 = номер задачи; см. «Worktree per task» — обязательно, без исключений).
 4. Implement tasks in order.

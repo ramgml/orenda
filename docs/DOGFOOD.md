@@ -22,7 +22,7 @@
 
 1. **Постановка** — wiki-страница в инстансе: мотивация, дизайн-решения, evidence, DoD. Агенты пишут через MCP (`orenda_pages_save`) или REST `PUT /api/v1/agent/pages/{slug}`.
 2. **Задача** — в проекте «Orenda dev», в описании ссылка на постановку. Критерий готовности — в самой задаче (CONTEXT.md: «задача без критерия тлеет»).
-3. **Claim** — `orenda agent next` (готовая к работе задача) → `orenda agent claim <id>`. Вместо UUID везде принимается человекочитаемый номер с префиксом T: `orenda agent claim T42` или `orenda agent claim t42` (REST `/api/v1/agent/tasks/{id}/*`, CLI и MCP резолвят `T<N>` через `tasks.number`; неизвестный номер → 404 `task T42 not found`). Legacy-формы `#N` и голый `N` больше НЕ резолвятся (Task 48 cutover). 409 `lock_taken` несёт holder-поля — спроси holder'а или возьми следующую.
+3. **Claim** — `orenda agent next` (готовая к работе задача) → `orenda agent claim <id>`. Просмотр без клейма — `orenda agent next --peek` (exit 2 = очередь пуста). Вместо UUID везде принимается человекочитаемый номер с префиксом T: `orenda agent claim T42` или `orenda agent claim t42` (REST `/api/v1/agent/tasks/{id}/*`, CLI и MCP резолвят `T<N>` через `tasks.number`; неизвестный номер → 404 `task T42 not found`). Legacy-формы `#N` и голый `N` больше НЕ резолвятся (Task 48 cutover). 409 `lock_taken` несёт holder-поля — спроси holder'а или возьми следующую.
 4. **Работа** — код в git по правилам `AGENTS.md`: `git fetch origin`, затем worktree per task **от `origin/dev`** (не от локального `dev` — он может молча отставать), тесты, минимальные диффы. Контекст задачи: `orenda agent context <id>` — блокеры, комментарии, дети, lock holder.
 
 ### Именование по номеру задачи (task numbers)
@@ -113,9 +113,8 @@ global); токен по умолчанию маскируется, сырое �
 
 ```bash
 orenda agent me          # кто я, жив ли токен
-orenda agent next        # первая готовая задача (exit 2 = работы нет); печатает T<N> рядом с UUID
-orenda agent context T42 # <id> = UUID или T-prefixed ref («T42»)
-orenda agent next --group-by project [--tree]   # обзор своих задач по проектам (T153); только просмотр
+orenda agent next        # КЛЕЙМИТ первую готовую задачу (mutation!); --peek = только посмотреть; exit 2 = работы нет; печатает T<N> рядом с UUID
+orenda agent next --group-by project [--tree]   # обзор своих задач по проектам (T153); только просмотр; плоская альтернатива без групп — `--peek`
 ```
 
 или через MCP: `orenda_list_tasks` → `orenda_claim` → `orenda_context`.
