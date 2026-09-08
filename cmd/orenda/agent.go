@@ -28,6 +28,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -116,7 +117,7 @@ func resolveAgentSettings(cmd *cobra.Command, domain string) (*agentSettings, er
 		}
 	}
 	if s.URL.Value != "" && s.Token.Value != "" {
-		s.warnMixedSources(cmd, localPath)
+		s.warnResolved(cmd, localPath)
 		return s, nil
 	}
 	globalPath, err := agentConfigPath()
@@ -141,8 +142,21 @@ func resolveAgentSettings(cmd *cobra.Command, domain string) (*agentSettings, er
 	if s.Token.Value == "" {
 		return nil, fmt.Errorf("%s: --token (or ORENDA_AGENT_TOKEN, or token: in %s, or token: in %s) is required", domain, localPath, globalPath)
 	}
-	s.warnMixedSources(cmd, localPath)
+	s.warnResolved(cmd, localPath)
 	return s, nil
+}
+
+// warnResolved emits the stderr warnings for a fully-resolved setting:
+// the mixed-provenance case (url from the project-local config, token
+// from elsewhere — the token then travels to that URL) plus the
+// Task 181 git-aware guard for the local file itself. Called exactly
+// once per resolveAgentSettings (both return paths funnel here), so
+// each warning fires at most one time per run.
+func (s *agentSettings) warnResolved(cmd *cobra.Command, localPath string) {
+	s.warnMixedSources(cmd, localPath)
+	if s.URL.Source == sourceLocal || s.Token.Source == sourceLocal {
+		warnAgentConfigGitGuard(cmd, localPath)
+	}
 }
 
 // warnMixedSources flags the one risky provenance combination: the
@@ -154,6 +168,67 @@ func (s *agentSettings) warnMixedSources(cmd *cobra.Command, localPath string) {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
 			"warning: url comes from %s but the token does not — requests will send that token to the project-config URL; verify you trust this checkout (sources: orenda agent config)\n",
 			localPath)
+	}
+}
+
+// gitExit runs a git command with devnull stdio and returns its exit
+// code. gitMissing signals that git is unusable in this environment
+// (binary absent, not a repository, hard exec failure) — the guard
+// then stays silent, which is right for arbitrary checkouts. Exit
+// code 1 is a real, meaningful answer ("not ignored" / "not tracked").
+var gitExit = func(args ...string) (int, bool) {
+	if _, err := exec.LookPath("git"); err != nil { //nolint:gosec // fixed name, no user input
+		return 0, false
+	}
+	cmd := exec.Command("git", args...)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+	err := cmd.Run()
+	if err == nil {
+		return 0, true
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode(), true
+	}
+	return 0, false
+}
+
+// warnAgentConfigGitGuard (Task 181): the project-local config holds
+// a plaintext token, so before trusting it the CLI checks how git
+// sees the file. Warnings, one line each, on stderr:
+//
+//   - tracked by git → the token is already in history;
+//   - present but not gitignored → a blanket `git add .` would commit
+//     the plaintext token;
+//   - mode wider than 0600 → other local users can read it.
+//
+// An untracked, ignored file and a non-repository directory (or a
+// missing git binary) produce no output — the guard must never break
+// a command. Tracked is checked before ignored: a token already in
+// the index is the worst outcome even when an ignore rule exists.
+func warnAgentConfigGitGuard(cmd *cobra.Command, localPath string) {
+	var out = cmd.ErrOrStderr()
+	if code, ok := gitExit("ls-files", "--error-unmatch", localPath); ok && code == 0 {
+		_, _ = fmt.Fprintf(out,
+			"warning: %s is tracked by git — the token will be committed to history; remove it from the index (git rm --cached) and rotate the token\n",
+			localPath)
+	} else if code, ok := gitExit("check-ignore", "-q", localPath); ok && code == 0 {
+		// Ignored and untracked: the intended state for a secret — nothing to say.
+	} else if ok && code == 1 {
+		_, _ = fmt.Fprintf(out,
+			"warning: %s is not gitignored — 'git add .' would commit the plaintext token; add '.orenda/' to .gitignore\n",
+			localPath)
+	}
+	if info, err := os.Stat(localPath); err == nil && info.Mode().Perm()&0o077 != 0 {
+		abs, err := filepath.Abs(localPath)
+		if err != nil {
+			abs = localPath
+		}
+		_, _ = fmt.Fprintf(out,
+			"warning: %s is readable by other users (perm %o) — run 'chmod 600 %s'\n",
+			localPath, info.Mode().Perm(), abs)
 	}
 }
 
