@@ -270,6 +270,7 @@ func TestAgentNext_Await_NoWork_BudgetThenExit2(t *testing.T) {
 
 	assert.GreaterOrEqual(t, f.count(http.MethodPost, "/events/await"), 1, "at least one long-poll POST")
 	assert.Greater(t, f.count(http.MethodGet, "/api/v1/agent/tasks"), 1, "loop re-listed after wake-ups")
+	assert.Equal(t, 1, strings.Count(out, "no work"), "exactly one no-work line — runAgentNext must not print before delegating to awaitAgentWork")
 	assert.Contains(t, out, "no work")
 	assert.Equal(t, 2, *exitCode, "budget exhausted exits 2")
 }

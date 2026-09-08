@@ -739,11 +739,14 @@ func runAgentNext(cmd *cobra.Command, agent *agentCtx, opts nextOpts) error {
 		return nil
 	}
 	if resp.Count == 0 {
-		_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
 		if opts.AwaitSecs > 0 {
 			// Long-poll for work, then claim it.
+			// awaitAgentWork owns the budget-exhaustion
+			// "no work" output — print nothing here, or the
+			// line lands twice.
 			return awaitAgentWork(cmd, agent, opts)
 		}
+		_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
 		// Exit code 2 — convention from the spec.
 		osExit(2)
 		return nil

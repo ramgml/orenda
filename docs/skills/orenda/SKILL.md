@@ -177,6 +177,8 @@ orenda agent submit t-1
 #    free to look for the next task.
 ```
 
+### 3.3 The "no work" exit code
+
 `orenda agent next` exits with code `2` when the ready queue is
 empty. This is the contract: bash loops can branch on it. (`--peek`
 follows the same contract: view-only listing, exit `2` on empty.)

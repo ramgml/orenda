@@ -114,6 +114,7 @@ global); токен по умолчанию маскируется, сырое �
 ```bash
 orenda agent me          # кто я, жив ли токен
 orenda agent next        # КЛЕЙМИТ первую готовую задачу (mutation!); --peek = только посмотреть; exit 2 = работы нет; печатает T<N> рядом с UUID
+orenda agent context T42 # <id> = UUID или T-prefixed ref («T42»)
 orenda agent next --group-by project [--tree]   # обзор своих задач по проектам (T153); только просмотр; плоская альтернатива без групп — `--peek`
 ```
 
