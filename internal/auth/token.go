@@ -1,5 +1,7 @@
 package auth
 
+import "time"
+
 // TokenRow is the storage-layer projection of api_tokens used by auth
 // middleware (and by the repo that backs it).
 //
@@ -12,4 +14,9 @@ type TokenRow struct {
 	Name       string
 	Hash       string
 	ScopesJSON string
+	// ExpiresAt is the credential deadline (api_tokens.expires_at).
+	// nil means the token never expires. T182: the auth middleware
+	// treats a row whose deadline has passed as if the token did not
+	// exist — expired ≡ not found on the wire.
+	ExpiresAt *time.Time
 }

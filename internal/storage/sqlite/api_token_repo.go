@@ -13,12 +13,14 @@ import (
 
 // StoredToken is one row in the api_tokens table, decoded into a struct.
 //
-// It extends auth.TokenRow with storage-only fields (LastUsedAt, ExpiresAt,
-// CreatedAt). The auth layer only needs the public subset.
+// It extends auth.TokenRow with storage-only fields (LastUsedAt,
+// CreatedAt). ExpiresAt is deliberately NOT redeclared here: it lives on
+// the embedded TokenRow, so ListAllHashes — which projects t.TokenRow
+// into its result map — carries the deadline through to the auth
+// middleware (T182). An outer field would shadow the promoted one.
 type StoredToken struct {
 	auth.TokenRow
 	LastUsedAt *time.Time
-	ExpiresAt  *time.Time
 	CreatedAt  time.Time
 }
 
@@ -89,8 +91,11 @@ func (r *apiTokenRepo) GetByID(ctx context.Context, id string) (*StoredToken, er
 	return &t, nil
 }
 
-// ListAllHashes returns every token keyed by hash; used by auth middleware to
-// find the row matching an incoming Authorization: Bearer header.
+// ListAllHashes returns every token keyed by hash; used by auth middleware
+// to find the row matching an incoming Authorization: Bearer header.
+// ExpiresAt is projected into the result (T182) so the middleware can
+// reject rows whose deadline has passed; NULL expiry scans as nil —
+// never expires.
 func (r *apiTokenRepo) ListAllHashes(ctx context.Context) (map[string]auth.TokenRow, error) {
 	const q = `SELECT id, user_id, name, hash, scopes, last_used_at, expires_at, created_at FROM api_tokens`
 	rows, err := r.db.QueryContext(ctx, q)
