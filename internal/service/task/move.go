@@ -681,13 +681,54 @@ func (s *Service) SetTaskDependencies(ctx context.Context, taskID string, depend
 	if taskID == "" {
 		return ErrInvalidInput
 	}
+	cleaned, err := s.validateDependencySet(ctx, taskID, dependsOnIDs)
+	if err != nil {
+		return err
+	}
+
+	// Task 115: snapshot the CURRENT blockers BEFORE the replace —
+	// the edge diff (added → auto-block, removed → auto-unblock)
+	// needs the pre-write set; after the swap it would be empty and
+	// the state machine would never fire.
+	before, berr := s.Tasks.Blockers(ctx, taskID)
+	if berr != nil {
+		return fmt.Errorf("task service: SetTaskDependencies: pre-diff blockers: %w", berr)
+	}
+
+	if err := s.Tasks.SetTaskDependencies(ctx, taskID, cleaned); err != nil {
+		// Translate domain sentinels so the handler only deals with
+		// service-level errors.
+		if errors.Is(err, task.ErrSelfDependency) {
+			return ErrSelfDependency
+		}
+		return err
+	}
+	if err := s.applyDependencyEdgeDiff(ctx, taskID, before, cleaned); err != nil {
+		return err
+	}
+	// Fire WS event so other tabs refresh their badge/blockers view.
+	if s.Hub != nil {
+		s.Hub.Publish(ctx, ws.Event{Topic: "tasks", Body: map[string]any{
+			"type":       "task.deps_changed",
+			"task_id":    taskID,
+			"depends_on": cleaned,
+		}})
+	}
+	return nil
+}
+
+// validateDependencySet rejects direct self-loops, de-dupes the
+// requested set, confirms the target task exists, and runs the DFS
+// cycle check — everything that must pass before the persisted set
+// is replaced.
+func (s *Service) validateDependencySet(ctx context.Context, taskID string, dependsOnIDs []string) ([]string, error) {
 	// Reject direct self-loops early.
 	for _, dep := range dependsOnIDs {
 		if dep == "" {
 			continue
 		}
 		if dep == taskID {
-			return ErrSelfDependency
+			return nil, ErrSelfDependency
 		}
 	}
 	// De-dupe (the caller may pass the same id twice; we don't
@@ -709,41 +750,27 @@ func (s *Service) SetTaskDependencies(ctx context.Context, taskID string, depend
 	// below returns false anyway; we want a clean ErrNotFound up front.
 	if _, err := s.Tasks.GetByID(ctx, taskID); err != nil {
 		if errors.Is(err, task.ErrNotFound) {
-			return ErrNotFound
+			return nil, ErrNotFound
 		}
-		return err
+		return nil, err
 	}
 
 	// Cycle check: build an adjacency map of "current graph + new edges"
 	// (capped to nodes we actually care about — the deps of deps), then
 	// DFS from each new edge looking for taskID.
 	if err := s.checkDependencyCycles(ctx, taskID, cleaned); err != nil {
-		return err
+		return nil, err
 	}
+	return cleaned, nil
+}
 
-	// Task 115: snapshot the CURRENT blockers BEFORE the replace —
-	// the edge diff (added → auto-block, removed → auto-unblock)
-	// needs the pre-write set; after the swap it would be empty and
-	// the state machine would never fire.
-	before, berr := s.Tasks.Blockers(ctx, taskID)
-	if berr != nil {
-		return fmt.Errorf("task service: SetTaskDependencies: pre-diff blockers: %w", berr)
-	}
-
-	if err := s.Tasks.SetTaskDependencies(ctx, taskID, cleaned); err != nil {
-		// Translate domain sentinels so the handler only deals with
-		// service-level errors.
-		if errors.Is(err, task.ErrSelfDependency) {
-			return ErrSelfDependency
-		}
-		return err
-	}
-	// Run BOTH state machines so every path that replaces the set
-	// (PUT /dependencies, agent propose blocked_by, agent PATCH
-	// blocked_by) gets the identical auto-block / auto-unblock +
-	// activity behaviour as the single-edge endpoints. Added edges →
-	// auto-block flip (per edge, one task.blocked row); removed edges
-	// → auto-unblock check.
+// applyDependencyEdgeDiff runs BOTH state machines so every path
+// that replaces the set (PUT /dependencies, agent propose blocked_by,
+// agent PATCH blocked_by) gets the identical auto-block /
+// auto-unblock + activity behaviour as the single-edge endpoints.
+// Added edges → auto-block flip (per edge, one task.blocked row);
+// removed edges → auto-unblock check.
+func (s *Service) applyDependencyEdgeDiff(ctx context.Context, taskID string, before []task.BlockerRow, cleaned []string) error {
 	beforeSet := make(map[string]struct{}, len(before))
 	for _, b := range before {
 		beforeSet[b.BlockerID] = struct{}{}
@@ -772,14 +799,6 @@ func (s *Service) SetTaskDependencies(ctx context.Context, taskID string, depend
 		if _, err := s.blockerEdgeRemoved(ctx, taskID, dep); err != nil {
 			return fmt.Errorf("task service: SetTaskDependencies: auto-unblock: %w", err)
 		}
-	}
-	// Fire WS event so other tabs refresh their badge/blockers view.
-	if s.Hub != nil {
-		s.Hub.Publish(ctx, ws.Event{Topic: "tasks", Body: map[string]any{
-			"type":       "task.deps_changed",
-			"task_id":    taskID,
-			"depends_on": cleaned,
-		}})
 	}
 	return nil
 }
