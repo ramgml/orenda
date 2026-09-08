@@ -180,80 +180,17 @@ func agentPatchProjectHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		if in.Description == nil && in.WikiSlug == nil {
-			// Nothing to change — return the current row rather than
-			// write a no-op activity row.
-			writeJSON(w, http.StatusOK, p)
-			return
-		}
 		beforeDesc := p.Description
 		beforeSlug := p.WikiSlug
-		descChanged := false
-		slugChanged := false
-		if in.Description != nil {
-			p.Description = *in.Description
-			descChanged = beforeDesc != p.Description
-		}
-		if in.WikiSlug != nil {
-			slug := strings.TrimSpace(*in.WikiSlug)
-			if slug == "" {
-				p.WikiSlug = ""
-			} else {
-				if _, gerr := deps.WikiService.GetBySlug(r.Context(), slug); gerr != nil {
-					status := http.StatusInternalServerError
-					body := map[string]string{"error": "wiki_slug_lookup_failed"}
-					if isWikiNotFound(gerr) {
-						status = http.StatusUnprocessableEntity
-						body = map[string]string{"error": "wiki_slug_not_found", "slug": slug}
-					}
-					writeJSON(w, status, body)
-					return
-				}
-				p.WikiSlug = slug
-			}
-			slugChanged = beforeSlug != p.WikiSlug
+		descChanged, slugChanged, ok := applyAgentProjectPatch(w, r, deps, p, in)
+		if !ok {
+			return
 		}
 		if err := deps.Projects.UpdateProject(r.Context(), p); err != nil {
 			writeError(w, err)
 			return
 		}
-		// Audit: one activity row per changed field. Log-and-continue on
-		// recorder failure — an audit gap must not fail the user-visible
-		// mutation (same convention as ActivityRecorder callers).
-		if deps.ProjectActivityRecorder != nil {
-			if descChanged {
-				payload, _ := json.Marshal(map[string]string{
-					"before": beforeDesc,
-					"after":  p.Description,
-				})
-				if rerr := deps.ProjectActivityRecorder.RecordProjectAuto(
-					r.Context(), p.ID,
-					project.ActivityDescriptionChanged, string(payload),
-				); rerr != nil && deps.Logger != nil {
-					deps.Logger.Warn("project activity record failed",
-						zap.String("project_id", p.ID),
-						zap.String("kind", "description_changed"),
-						zap.Error(rerr),
-					)
-				}
-			}
-			if slugChanged {
-				payload, _ := json.Marshal(map[string]string{
-					"before": beforeSlug,
-					"after":  p.WikiSlug,
-				})
-				if rerr := deps.ProjectActivityRecorder.RecordProjectAuto(
-					r.Context(), p.ID,
-					project.ActivityWikiSlugChanged, string(payload),
-				); rerr != nil && deps.Logger != nil {
-					deps.Logger.Warn("project activity record failed",
-						zap.String("project_id", p.ID),
-						zap.String("kind", "wiki_slug_changed"),
-						zap.Error(rerr),
-					)
-				}
-			}
-		}
+		recordAgentProjectPatchActivity(r, deps, p, beforeDesc, beforeSlug, descChanged, slugChanged)
 		// Live update: WS event on the "projects" topic so the
 		// project page / settings refresh without a reload.
 		if deps.WSHub != nil {
@@ -268,6 +205,82 @@ func agentPatchProjectHandler(deps *Dependencies) http.HandlerFunc {
 			})
 		}
 		writeJSON(w, http.StatusOK, p)
+	}
+}
+
+// applyAgentProjectPatch applies the decoded patch fields onto the
+// project row and reports which ones changed. The wiki slug is
+// trimmed; an empty slug clears it, otherwise it must resolve in the
+// wiki (422) or the lookup failure surfaces as a 500. Writes the
+// error response and returns ok=false when the slug check fails.
+func applyAgentProjectPatch(w http.ResponseWriter, r *http.Request, deps *Dependencies, p *project.Project, in agentPatchProjectRequest) (descChanged, slugChanged, ok bool) {
+	beforeDesc := p.Description
+	beforeSlug := p.WikiSlug
+	if in.Description != nil {
+		p.Description = *in.Description
+		descChanged = beforeDesc != p.Description
+	}
+	if in.WikiSlug != nil {
+		slug := strings.TrimSpace(*in.WikiSlug)
+		if slug == "" {
+			p.WikiSlug = ""
+		} else {
+			if _, gerr := deps.WikiService.GetBySlug(r.Context(), slug); gerr != nil {
+				status := http.StatusInternalServerError
+				body := map[string]string{"error": "wiki_slug_lookup_failed"}
+				if isWikiNotFound(gerr) {
+					status = http.StatusUnprocessableEntity
+					body = map[string]string{"error": "wiki_slug_not_found", "slug": slug}
+				}
+				writeJSON(w, status, body)
+				return false, false, false
+			}
+			p.WikiSlug = slug
+		}
+		slugChanged = beforeSlug != p.WikiSlug
+	}
+	return descChanged, slugChanged, true
+}
+
+// recordAgentProjectPatchActivity writes one audit row per changed
+// field (Task 140 agent namespace variant). Log-and-continue on
+// recorder failure — an audit gap must not fail the user-visible
+// mutation (same convention as ActivityRecorder callers).
+func recordAgentProjectPatchActivity(r *http.Request, deps *Dependencies, p *project.Project, beforeDesc, beforeSlug string, descChanged, slugChanged bool) {
+	if deps.ProjectActivityRecorder == nil {
+		return
+	}
+	if descChanged {
+		payload, _ := json.Marshal(map[string]string{
+			"before": beforeDesc,
+			"after":  p.Description,
+		})
+		if rerr := deps.ProjectActivityRecorder.RecordProjectAuto(
+			r.Context(), p.ID,
+			project.ActivityDescriptionChanged, string(payload),
+		); rerr != nil && deps.Logger != nil {
+			deps.Logger.Warn("project activity record failed",
+				zap.String("project_id", p.ID),
+				zap.String("kind", "description_changed"),
+				zap.Error(rerr),
+			)
+		}
+	}
+	if slugChanged {
+		payload, _ := json.Marshal(map[string]string{
+			"before": beforeSlug,
+			"after":  p.WikiSlug,
+		})
+		if rerr := deps.ProjectActivityRecorder.RecordProjectAuto(
+			r.Context(), p.ID,
+			project.ActivityWikiSlugChanged, string(payload),
+		); rerr != nil && deps.Logger != nil {
+			deps.Logger.Warn("project activity record failed",
+				zap.String("project_id", p.ID),
+				zap.String("kind", "wiki_slug_changed"),
+				zap.Error(rerr),
+			)
+		}
 	}
 }
 
