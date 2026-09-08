@@ -55,51 +55,75 @@ func getOverviewHandler(deps *Dependencies) http.HandlerFunc {
 			TasksByStatus: map[string]int{},
 			Activity:      []activityDay{},
 		}
-
-		if deps.Tasks != nil {
-			all, err := deps.Tasks.ListByProject(r.Context(), task.Filter{})
-			if err == nil {
-				byDay := newActivityBuckets(startOfDay, 30)
-				for _, t := range all {
-					resp.TasksByStatus[string(t.Status)]++
-					if d, ok := dayKey(t.CreatedAt, startOfDay, now); ok {
-						byDay[d].Created++
-					}
-					if t.CompletedAt != nil {
-						if d, ok := dayKey(*t.CompletedAt, startOfDay, now); ok {
-							byDay[d].Completed++
-						}
-					}
-				}
-				resp.Activity = flattenActivity(byDay)
-			}
-		}
-
-		if deps.Projects != nil && deps.Tasks != nil {
-			// ListProjects is scoped to an owner; the single-owner
-			// convention (same as /today) means any known user id
-			// sees the full set. We resolve the caller's id.
-			if id, ok := IdentityFrom(r.Context()); ok {
-				projects, err := deps.Projects.ListProjects(r.Context(), id.UserID)
-				if err == nil {
-					resp.Projects = len(projects)
-				}
-			}
-		}
-
-		if deps.WikiService != nil {
-			if tree, err := deps.WikiService.Tree(r.Context()); err == nil {
-				resp.WikiPages = countTreeNodes(tree)
-			}
-		}
-
-		if deps.Tasks != nil {
-			if evs, err := deps.Tasks.ListInRange(r.Context(), startOfDay, now.Add(24*time.Hour), ""); err == nil {
-				resp.Events = len(evs)
-			}
-		}
+		collectOverviewTasks(r, deps, &resp, startOfDay, now)
+		collectOverviewProjectCount(r, deps, &resp)
+		collectOverviewWikiPages(r, deps, &resp)
+		collectOverviewEvents(r, deps, &resp, startOfDay, now)
 
 		writeJSON(w, http.StatusOK, resp)
+	}
+}
+
+// collectOverviewTasks folds the full task list into the status
+// counters and the 30-day created/completed activity series. On a
+// list failure the section is skipped entirely (zeros), matching the
+// original single error check.
+func collectOverviewTasks(r *http.Request, deps *Dependencies, resp *overviewResponse, startOfDay, now time.Time) {
+	if deps.Tasks == nil {
+		return
+	}
+	all, err := deps.Tasks.ListByProject(r.Context(), task.Filter{})
+	if err != nil {
+		return
+	}
+	byDay := newActivityBuckets(startOfDay, 30)
+	for _, t := range all {
+		resp.TasksByStatus[string(t.Status)]++
+		if d, ok := dayKey(t.CreatedAt, startOfDay, now); ok {
+			byDay[d].Created++
+		}
+		if t.CompletedAt != nil {
+			if d, ok := dayKey(*t.CompletedAt, startOfDay, now); ok {
+				byDay[d].Completed++
+			}
+		}
+	}
+	resp.Activity = flattenActivity(byDay)
+}
+
+// collectOverviewProjectCount counts the caller's projects
+// (ListProjects is scoped to an owner; the single-owner convention
+// — same as /today — means any known user id sees the full set).
+func collectOverviewProjectCount(r *http.Request, deps *Dependencies, resp *overviewResponse) {
+	if deps.Projects == nil || deps.Tasks == nil {
+		return
+	}
+	if id, ok := IdentityFrom(r.Context()); ok {
+		if projects, err := deps.Projects.ListProjects(r.Context(), id.UserID); err == nil {
+			resp.Projects = len(projects)
+		}
+	}
+}
+
+// collectOverviewWikiPages counts every page in the wiki tree
+// (nil-safe: a partial test fixture gets zero).
+func collectOverviewWikiPages(r *http.Request, deps *Dependencies, resp *overviewResponse) {
+	if deps.WikiService == nil {
+		return
+	}
+	if tree, err := deps.WikiService.Tree(r.Context()); err == nil {
+		resp.WikiPages = countTreeNodes(tree)
+	}
+}
+
+// collectOverviewEvents counts tasks with activity inside the
+// overview window extended through tomorrow.
+func collectOverviewEvents(r *http.Request, deps *Dependencies, resp *overviewResponse, startOfDay, now time.Time) {
+	if deps.Tasks == nil {
+		return
+	}
+	if evs, err := deps.Tasks.ListInRange(r.Context(), startOfDay, now.Add(24*time.Hour), ""); err == nil {
+		resp.Events = len(evs)
 	}
 }
 
