@@ -304,54 +304,69 @@ func createTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		// Phase 28.5: emit task.commented. The action constant has
-		// existed in `internal/domain/activity` since Phase 6, but
-		// nothing ever wrote the row — the comment handler was the
-		// only mutation that didn't go through taskSvc and therefore
-		// didn't get the standard side-effect. We log on failure
-		// and keep the 201 going: the comment landed; an audit gap
-		// is recoverable, a failed user-visible request isn't.
-		if deps.ActivityRecorder != nil {
-			payload, _ := json.Marshal(map[string]any{
-				"comment_id": got.ID,
-				"length":     len(in.BodyMD),
-			})
-			if rerr := deps.ActivityRecorder.RecordTask(
-				r.Context(), taskID,
-				activity.ActorUser, userID,
-				activity.ActionCommented, string(payload),
-			); rerr != nil && deps.Logger != nil {
-				deps.Logger.Warn("activity record failed",
-					zap.String("action", string(activity.ActionCommented)),
-					zap.String("task_id", taskID),
-					zap.Error(rerr),
-				)
-			}
-		}
-		// Phase 6.4: notify mentioned users.
-		if deps.Notifier != nil {
-			if mentions, merr := deps.Comments.MentionsForComment(r.Context(), got.ID); merr == nil {
-				for _, m := range mentions {
-					if string(m.TargetType) != "user" {
-						continue
-					}
-					if m.TargetID == userID {
-						continue // don't notify the author
-					}
-					notifyEvent(r.Context(), deps, notifierservice.Event{
-						Type:       "mention.created",
-						UserID:     m.TargetID,
-						TargetType: "task",
-						TargetID:   taskID,
-						Title:      "You were mentioned",
-						Body:       in.BodyMD,
-						Link:       "/tasks/" + taskID,
-						DedupKey:   "mention.created:" + got.ID + ":" + m.TargetID,
-					})
-				}
-			}
-		}
+		recordUserCommentActivity(r, deps, taskID, got.ID, userID, len(in.BodyMD), false)
+		notifyUserCommentMentions(r, deps, taskID, got.ID, in.BodyMD, userID)
 		writeJSON(w, http.StatusCreated, got)
+	}
+}
+
+// recordUserCommentActivity emits the task.commented activity row
+// for user-side comment writes (Phase 28.5; create and edit share
+// it, the payload carries `edited` so the timeline can tell them
+// apart). We log on failure and keep the response going: the
+// comment landed; an audit gap is recoverable, a failed
+// user-visible request isn't.
+func recordUserCommentActivity(r *http.Request, deps *Dependencies, taskID, commentID, userID string, bodyLen int, edited bool) {
+	if deps.ActivityRecorder == nil {
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"comment_id": commentID,
+		"length":     bodyLen,
+		"edited":     edited,
+	})
+	if rerr := deps.ActivityRecorder.RecordTask(
+		r.Context(), taskID,
+		activity.ActorUser, userID,
+		activity.ActionCommented, string(payload),
+	); rerr != nil && deps.Logger != nil {
+		deps.Logger.Warn("activity record failed",
+			zap.String("action", string(activity.ActionCommented)),
+			zap.String("task_id", taskID),
+			zap.Error(rerr),
+		)
+	}
+}
+
+// notifyUserCommentMentions notifies mentioned users (Phase 6.4).
+// Mentions of the author are skipped; agent targets don't route
+// anywhere today. Lookup failures are swallowed, matching the
+// original handler.
+func notifyUserCommentMentions(r *http.Request, deps *Dependencies, taskID, commentID, bodyMD, authorID string) {
+	if deps.Notifier == nil {
+		return
+	}
+	mentions, merr := deps.Comments.MentionsForComment(r.Context(), commentID)
+	if merr != nil {
+		return
+	}
+	for _, m := range mentions {
+		if string(m.TargetType) != "user" {
+			continue
+		}
+		if m.TargetID == authorID {
+			continue // don't notify the author
+		}
+		notifyEvent(r.Context(), deps, notifierservice.Event{
+			Type:       "mention.created",
+			UserID:     m.TargetID,
+			TargetType: "task",
+			TargetID:   taskID,
+			Title:      "You were mentioned",
+			Body:       bodyMD,
+			Link:       "/tasks/" + taskID,
+			DedupKey:   "mention.created:" + commentID + ":" + m.TargetID,
+		})
 	}
 }
 
