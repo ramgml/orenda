@@ -244,7 +244,7 @@ func TestService_RotateToken_RefreshesExpiresAt(t *testing.T) {
 	after := tokenRowByTokenID(t, db, reg.Agent.TokenID)
 	require.NotNil(t, after.ExpiresAt, "TokenTTL>0 rotation must set expires_at")
 	assert.NotEqual(t, before.ExpiresAt, after.ExpiresAt, "stale expiry must not survive rotation")
-	delta := after.ExpiresAt.Sub(time.Now())
+	delta := time.Until(*after.ExpiresAt)
 	assert.InDelta(t, float64(time.Hour), float64(delta), float64(time.Minute),
 		"expires_at must be refreshed to now+TokenTTL (±1min)")
 }
@@ -282,6 +282,8 @@ func TestService_RotateToken_ClearsExpiresAtWhenTTLZero(t *testing.T) {
 func TestService_Register_ExpiresAtPolicy(t *testing.T) {
 	ctx := context.Background()
 
+	// Flat loop (no t.Run closures): the api_tokens inspection helpers
+	// take no ctx, and contextcheck would flag them inside a closure.
 	tests := []struct {
 		name    string
 		ttl     time.Duration
@@ -292,22 +294,20 @@ func TestService_Register_ExpiresAtPolicy(t *testing.T) {
 		{"one hour ttl stamps now+ttl", time.Hour, false, 59 * time.Minute},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			svc, db := setupAgentSvcWithDB(t)
-			svc.TokenTTL = tt.ttl
+		svc, db := setupAgentSvcWithDB(t)
 
-			reg, err := svc.Register(ctx, "reg-exp-"+tt.name, []string{"qwen"}, "", nil)
-			require.NoError(t, err)
+		svc.TokenTTL = tt.ttl
+		reg, err := svc.Register(ctx, "reg-exp", []string{"qwen"}, "", nil)
+		require.NoError(t, err)
 
-			row := tokenRowByTokenID(t, db, reg.Agent.TokenID)
-			if tt.wantNil {
-				assert.Nil(t, row.ExpiresAt)
-				return
-			}
-			require.NotNil(t, row.ExpiresAt)
-			assert.GreaterOrEqual(t, row.ExpiresAt.Sub(time.Now()), tt.wantMin,
+		row := tokenRowByTokenID(t, db, reg.Agent.TokenID)
+		if tt.wantNil {
+			assert.Nil(t, row.ExpiresAt, tt.name)
+		} else {
+			require.NotNil(t, row.ExpiresAt, tt.name)
+			assert.GreaterOrEqual(t, time.Until(*row.ExpiresAt), tt.wantMin,
 				"expires_at must be stamped at mint time to now+TokenTTL")
-		})
+		}
 	}
 }
 
