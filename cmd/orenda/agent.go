@@ -646,11 +646,12 @@ Modes:
              queue, exactly like claim mode.
   --await N  claim mode only: when the queue is empty, long-poll POST
              /api/v1/agent/events/await in chunks of at most 60s until
-             N seconds are spent, re-listing after every wake-up (an
-             event of any topic is just a signal — the re-list is
-             authoritative) and claiming as soon as work appears. If
-             the first listing already has work, --await never fires.
-             Budget exhausted → "no work", exit 2.
+             N seconds are spent, re-listing after every wake-up (each
+             chunk subscribes to the "tasks" topic — task.created,
+             task.updated, deps_changed; any event is just a signal,
+             the re-list is authoritative) and claiming as soon as
+             work appears. If the first listing already has work,
+             --await never fires. Budget exhausted → "no work", exit 2.
 
 Invalid combinations fail loudly instead of being ignored:
   --peek --await              --await applies to claim mode (drop --peek)
@@ -695,6 +696,9 @@ bad response); 2 — no work (empty queue in claim or peek mode, and
 func runAgentNext(cmd *cobra.Command, agent *agentCtx, opts nextOpts) error {
 	if opts.Tree && opts.GroupBy == "" {
 		return fmt.Errorf("agent next: --tree requires --group-by project")
+	}
+	if opts.AwaitSecs < 0 {
+		return fmt.Errorf("agent next: --await must be >= 0")
 	}
 	if opts.Peek && opts.AwaitSecs > 0 {
 		return fmt.Errorf("agent next: --await applies to claim mode (drop --peek)")
@@ -824,7 +828,8 @@ func claimFirstReady(cmd *cobra.Command, agent *agentCtx, resp *agentReadyResp) 
 
 // awaitAgentWork implements `agent next --await N` (Task 188): the
 // queue was empty, so long-poll POST /api/v1/agent/events/await with
-// timeout_s = min(remaining budget, 60) rounded up to at least 1s,
+// topic "tasks" (what the task publishers write) and timeout_s =
+// min(remaining budget, 60) rounded up to at least 1s,
 // then re-list — a 204 (chunk timeout) or 200 (event of any topic)
 // are both just wake-up signals, the re-list is authoritative. Work
 // on a re-list → the normal claim path. Budget exhausted → "no work",
@@ -842,8 +847,12 @@ func awaitAgentWork(cmd *cobra.Command, agent *agentCtx, opts nextOpts) error {
 		if timeout > 60 {
 			timeout = 60
 		}
+		// The hub keys subscriptions by exact topic string;
+		// task.created / task.updated / deps_changed all publish
+		// under "tasks". An empty topic would block every chunk
+		// for its full duration — no early wake-up.
 		awaitRaw, code, err := agent.agentPost(cmd.Context(),
-			"/api/v1/agent/events/await", map[string]any{"timeout_s": timeout})
+			"/api/v1/agent/events/await", map[string]any{"topic": "tasks", "timeout_s": timeout})
 		if err != nil {
 			return err
 		}

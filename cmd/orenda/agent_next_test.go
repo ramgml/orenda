@@ -51,6 +51,11 @@ type nextFakeServer struct {
 	reqs     []nextReq
 	listGets int      // flat list GETs served so far
 	lists    []string // scripted list bodies; the last one repeats; empty = always empty
+	// awaitEvents scripts the POST /events/await responses: index
+	// 0 = first await POST, etc.; the last entry repeats. A nil
+	// entry (or past the end) means the default 204 chunk timeout.
+	awaitEvents []string
+	awaitPosts  int
 }
 
 func newNextFakeServer(t *testing.T, lists ...string) *nextFakeServer {
@@ -92,6 +97,23 @@ func (f *nextFakeServer) handle(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(out))
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/events/await"):
+		f.mu.Lock()
+		idx := f.awaitPosts
+		f.awaitPosts++
+		var ev string
+		switch {
+		case idx < len(f.awaitEvents):
+			ev = f.awaitEvents[idx]
+		case len(f.awaitEvents) > 0:
+			ev = f.awaitEvents[len(f.awaitEvents)-1]
+		}
+		f.mu.Unlock()
+		if ev != "" {
+			// 200 = wake-up with an event payload.
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(ev))
+			return
+		}
 		// 204 No Content = chunk timeout, no events (the wake-up
 		// the loop treats identically to an event).
 		w.WriteHeader(http.StatusNoContent)
@@ -239,6 +261,7 @@ func TestAgentNext_Await_WakesAndClaims(t *testing.T) {
 	reqs := f.snapshot()
 	for _, r := range reqs {
 		if r.Method == http.MethodPost && strings.HasSuffix(r.Path, "/events/await") {
+			assert.Equal(t, "tasks", r.Body["topic"], "hub keys subscriptions by exact topic — task publishers write under \"tasks\"; empty topic never wakes early")
 			ts, ok := r.Body["timeout_s"].(float64)
 			require.True(t, ok, "timeout_s must be a JSON number, got %v", r.Body["timeout_s"])
 			awaitBodies = append(awaitBodies, ts)
@@ -259,6 +282,54 @@ func TestAgentNext_Await_WakesAndClaims(t *testing.T) {
 	assert.Contains(t, out, "#42  Do the thing  (t-uuid-1)")
 	assert.Contains(t, out, `"in_progress"`)
 	assert.Equal(t, -1, *exitCode, "claim exit 0, no recorded exit")
+}
+
+// TestAgentNext_Await_EventWake_ClaimsEarly scripts the await POST to
+// return 200 with an event payload on the FIRST call — the wake path
+// (not just the 204 chunk-timeout path) must re-list and claim, and
+// it must do so without waiting out the budget.
+func TestAgentNext_Await_EventWake_ClaimsEarly(t *testing.T) {
+	f := newNextFakeServer(t, t188EmptyList, t188ReadyList)
+	f.awaitEvents = []string{`{"topic":"tasks","body":{"type":"task.created"}}`}
+	exitCode := stubExit(t)
+
+	out, err := runAgentCLI(t, f.srv, "next", "--await", "30")
+	require.NoError(t, err)
+
+	reqs := f.snapshot()
+	for _, r := range reqs {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.Path, "/events/await") {
+			assert.Equal(t, "tasks", r.Body["topic"])
+		}
+	}
+	assert.Equal(t, 1, f.count(http.MethodPost, "/events/await"), "200 event wakes the first chunk — early claim, no budget burn")
+	last := reqs[len(reqs)-1]
+	require.Equal(t, http.MethodPost, last.Method)
+	assert.True(t, strings.HasSuffix(last.Path, "/claim"), "wake-up leads to claim")
+	assert.Contains(t, out, `"in_progress"`)
+	assert.Equal(t, -1, *exitCode)
+}
+
+func TestAgentNext_Await_Negative_Rejected(t *testing.T) {
+	f := newNextFakeServer(t, t188ReadyList)
+	exitCode := stubExit(t)
+
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"bare negative", []string{"next", "--await", "-5"}},
+		{"peek combo", []string{"next", "--peek", "--await", "-5"}},
+		{"group-by combo", []string{"next", "--group-by", "project", "--await", "-5"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := runAgentCLI(t, f.srv, tc.args...)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "--await must be >= 0")
+		})
+	}
+	assert.Empty(t, f.snapshot(), "rejected input must not touch the server")
+	assert.Equal(t, -1, *exitCode)
 }
 
 func TestAgentNext_Await_NoWork_BudgetThenExit2(t *testing.T) {
