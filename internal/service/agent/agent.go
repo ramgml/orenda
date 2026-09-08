@@ -35,7 +35,10 @@ const HashCost = 4
 
 // TokenTTL is how long an issued token is valid. Phase 3 has no per-token
 // expiry check in middleware yet — the JWT layer still uses the user
-// session. Tokens are infinite-lived until the row is deleted.
+// session. Zero means tokens are infinite-lived until the row is deleted.
+//
+// It seeds Service.TokenTTL in New; tests and embedders can override the
+// per-service value.
 const TokenTTL = 0 // 0 = no expiry
 
 // Hub interface used by Service.Publish (mirrors task.Service).
@@ -88,10 +91,13 @@ func notifierEventFor(a *agent.Agent) notifierservice.Event {
 // Repo so the service stays decoupled from sqlite.StoredToken.
 type TokenMinter interface {
 	MintToken(ctx context.Context, userID, name, hash, scopesJSON string, expiresAt *time.Time) (tokenID, tokenName string, err error)
-	// UpdateHash replaces the bcrypt hash of an existing token row
-	// (Task 165 rotation: same row, new credential — the agent's
-	// token_id FK must keep pointing at the same row).
-	UpdateHash(ctx context.Context, tokenID, hash string) error
+	// UpdateHash replaces the bcrypt hash of an existing token row and
+	// re-stamps its expiry in one atomic update: a non-nil expiresAt
+	// sets api_tokens.expires_at, nil clears it. Task 165 rotation
+	// reuses the SAME row so the agent's token_id FK keeps pointing at
+	// the same identity; T175 keeps the row's lifetime in sync with the
+	// new credential instead of inheriting the old mint's expiry.
+	UpdateHash(ctx context.Context, tokenID, hash string, expiresAt *time.Time) error
 }
 
 // Service is the dependency holder.
@@ -111,6 +117,13 @@ type Service struct {
 	// SweepInterval is the period between background sweeps. cmd/orenda
 	// wires a ticker that calls SweepOffline.
 	SweepInterval time.Duration
+
+	// TokenTTL is how long freshly issued tokens stay valid: Register
+	// and RotateToken both stamp expires_at = now + TokenTTL via
+	// tokenExpiry, so issuance and rotation share one policy. Zero (the
+	// New default, mirroring the TokenTTL constant) means tokens never
+	// expire.
+	TokenTTL time.Duration
 
 	// SweepTTL is the threshold after which an online agent is considered
 	// stale and flipped to offline. Defaults to 2 minutes per PLAN#3.5.
@@ -132,8 +145,22 @@ func New(agents agent.Repository, users user.Repository, tokens TokenMinter, hub
 		Recorder:         rec,
 		SweepInterval:    30 * time.Second,
 		SweepTTL:         2 * time.Minute,
+		TokenTTL:         TokenTTL,
 		HashCostOverride: HashCost,
 	}
+}
+
+// tokenExpiry is the single expiry policy for freshly issued tokens:
+// ttl > 0 yields now+ttl; ttl <= 0 means the token never expires
+// (nil, stored as NULL in api_tokens.expires_at). Register and
+// RotateToken both route through it so issuance and rotation can
+// never drift apart.
+func tokenExpiry(ttl time.Duration) *time.Time {
+	if ttl <= 0 {
+		return nil
+	}
+	t := time.Now().Add(ttl)
+	return &t
 }
 
 // Registered is the result of Register.
@@ -172,11 +199,9 @@ func (s *Service) Register(ctx context.Context, name string, labels []string, de
 		return nil, err
 	}
 
-	var expiresAt *time.Time
-	if TokenTTL > 0 {
-		t := time.Now().Add(TokenTTL)
-		expiresAt = &t
-	}
+	// Single expiry policy (T175): freshly issued tokens — via Register
+	// or RotateToken — share tokenExpiry(s.TokenTTL).
+	expiresAt := tokenExpiry(s.TokenTTL)
 	// The middleware that authenticates agent requests reads scopes
 	// as a JSON array, so we convert the comma-joined "scopes" arg
 	// into that shape once. Empty → [].
@@ -217,7 +242,10 @@ func (s *Service) Register(ctx context.Context, name string, labels []string, de
 }
 
 // RotateToken mints a fresh API token for an existing agent and
-// replaces the bcrypt hash of the SAME api_tokens row (Task 165).
+// replaces the bcrypt hash of the SAME api_tokens row (Task 165),
+// re-stamping expires_at under the same TokenTTL policy as Register
+// (T175): a rotated token no longer inherits the original mint's
+// expiry, and TTL=0 clears any stale deadline.
 // The agent row is untouched — agents.token_id keeps pointing at
 // the same token, so the agent's identity, task locks and settings
 // survive; only the credential changes and the old plaintext dies.
@@ -239,7 +267,7 @@ func (s *Service) RotateToken(ctx context.Context, agentID string) (*Registered,
 	if err != nil {
 		return nil, fmt.Errorf("agent service: hash token: %w", err)
 	}
-	if err := s.Tokens.UpdateHash(ctx, a.TokenID, hash); err != nil {
+	if err := s.Tokens.UpdateHash(ctx, a.TokenID, hash, tokenExpiry(s.TokenTTL)); err != nil {
 		return nil, fmt.Errorf("agent service: rotate token: %w", err)
 	}
 

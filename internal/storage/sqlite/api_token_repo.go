@@ -135,15 +135,22 @@ func (r *apiTokenRepo) TouchLastUsed(ctx context.Context, id string) error {
 	return nil
 }
 
-// UpdateHash replaces the bcrypt hash of an existing token row.
+// UpdateHash replaces the bcrypt hash of an existing token row and
+// re-stamps its expiry in the same atomic UPDATE: a non-nil expiresAt
+// sets api_tokens.expires_at, nil clears it.
 //
 // Task 165: token rotation reuses the SAME api_tokens row so that
 // agents.token_id (an FK to it) keeps pointing at the same agent
-// identity — only the credential changes. Returns ErrTokenNotFound
-// when no row matches (0 rows affected).
-func (r *apiTokenRepo) UpdateHash(ctx context.Context, id, hash string) error {
+// identity — only the credential changes. T175: rotation also refreshes
+// the row's lifetime so it never inherits the original mint's expiry.
+// Returns ErrTokenNotFound when no row matches (0 rows affected).
+func (r *apiTokenRepo) UpdateHash(ctx context.Context, id, hash string, expiresAt *time.Time) error {
+	var exp sql.NullString
+	if expiresAt != nil {
+		exp = sql.NullString{String: formatTime(*expiresAt), Valid: true}
+	}
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE api_tokens SET hash = ? WHERE id = ?`, hash, id)
+		`UPDATE api_tokens SET hash = ?, expires_at = ? WHERE id = ?`, hash, exp, id)
 	if err != nil {
 		return fmt.Errorf("apiToken.UpdateHash: %w", err)
 	}

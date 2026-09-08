@@ -90,8 +90,8 @@ func (a sqliteTokenMinterAdapter) MintToken(ctx context.Context, userID, name, h
 	return row.ID, row.Name, nil
 }
 
-func (a sqliteTokenMinterAdapter) UpdateHash(ctx context.Context, tokenID, hash string) error {
-	return a.repo.UpdateHash(ctx, tokenID, hash)
+func (a sqliteTokenMinterAdapter) UpdateHash(ctx context.Context, tokenID, hash string, expiresAt *time.Time) error {
+	return a.repo.UpdateHash(ctx, tokenID, hash, expiresAt)
 }
 
 // commentAdderAdapter bridges comment.Service.Add (which returns
