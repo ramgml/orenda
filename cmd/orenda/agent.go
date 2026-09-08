@@ -137,7 +137,10 @@ func resolveAgentSettings(cmd *cobra.Command, domain string) (*agentSettings, er
 	if s.URL.Value == "" {
 		return nil, fmt.Errorf("%s: --url (or ORENDA_URL, or url: in %s, or url: in %s) is required", domain, localPath, globalPath)
 	}
-	return nil, fmt.Errorf("%s: --token (or ORENDA_AGENT_TOKEN, or token: in %s, or token: in %s) is required", domain, localPath, globalPath)
+	if s.Token.Value == "" {
+		return nil, fmt.Errorf("%s: --token (or ORENDA_AGENT_TOKEN, or token: in %s, or token: in %s) is required", domain, localPath, globalPath)
+	}
+	return s, nil
 }
 
 // resolveAgentCtx reads the CLI flags, then env, then the config

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -81,43 +80,23 @@ type agentCLIOptions struct {
 	Token string
 }
 
+// resolveAgentCtxForTest mirrors resolveAgentCtx but with
+// test-injectable sources: opts carry flag values; env and the
+// config files are read as usual (t.Setenv + t.TempDir control
+// them). Run inside t.Chdir's working directory.
 func resolveAgentCtxForTest(opts agentCLIOptions) (*agentCtx, error) {
-	url := opts.URL
-	token := opts.Token
-	if url == "" {
-		url = os.Getenv("ORENDA_URL")
+	root := newAgentCmd()
+	args := []string{}
+	if opts.URL != "" {
+		args = append(args, "--url", opts.URL)
 	}
-	if token == "" {
-		token = os.Getenv("ORENDA_AGENT_TOKEN")
+	if opts.Token != "" {
+		args = append(args, "--token", opts.Token)
 	}
-	if url == "" || token == "" {
-		path, err := agentConfigPath()
-		if err == nil {
-			cfg, err := loadAgentConfig(path)
-			if err == nil {
-				if url == "" {
-					url = cfg.URL
-				}
-				if token == "" {
-					token = cfg.Token
-				}
-			}
-		}
+	if err := root.ParseFlags(args); err != nil {
+		panic(err)
 	}
-	if url == "" || token == "" {
-		// Same message shape as resolveAgentCtx: name the config
-		// file path so the failure tells the operator where to
-		// put the credentials.
-		cfgHint, err := agentConfigPath()
-		if err != nil {
-			cfgHint = "~/.config/orenda/agent.yaml"
-		}
-		if url == "" {
-			return nil, fmt.Errorf("orenda agent: --url (or ORENDA_URL, or url: in %s) is required", cfgHint)
-		}
-		return nil, fmt.Errorf("orenda agent: --token (or ORENDA_AGENT_TOKEN, or token: in %s) is required", cfgHint)
-	}
-	return &agentCtx{BaseURL: url, Token: token}, nil
+	return resolveAgentCtx(root)
 }
 
 func TestResolveAgentCtx_ConfigFile(t *testing.T) {
@@ -155,6 +134,182 @@ func TestResolveAgentCtx_Flag(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "http://from-flag", got.BaseURL)
 	assert.Equal(t, "tok-from-flag", got.Token)
+}
+
+// TestResolveAgentSettings_Chain walks the full per-field chain:
+// flag > env (ORENDA_URL / ORENDA_AGENT_TOKEN) > ./.orenda/agent.yaml >
+// ~/.config/orenda/agent.yaml. Local file with only token + global with
+// only url must also resolve (fields are independent).
+func TestResolveAgentSettings_Chain(t *testing.T) {
+	tests := []struct {
+		name    string
+		flagURL string
+		flagTok string
+		envURL  string
+		envTok  string
+		local   *agentConfig
+		global  *agentConfig
+		wantURL string
+		wantTok string
+	}{
+		{
+			name:    "flag wins over everything",
+			flagURL: "http://flag", flagTok: "tok-flag",
+			envURL: "http://env", envTok: "tok-env",
+			local:   &agentConfig{URL: "http://local", Token: "tok-local"},
+			global:  &agentConfig{URL: "http://global", Token: "tok-global"},
+			wantURL: "http://flag", wantTok: "tok-flag",
+		},
+		{
+			name:   "env beats both files per field",
+			envURL: "http://env", envTok: "tok-env",
+			local:   &agentConfig{URL: "http://local", Token: "tok-local"},
+			global:  &agentConfig{URL: "http://global", Token: "tok-global"},
+			wantURL: "http://env", wantTok: "tok-env",
+		},
+		{
+			name:    "local beats global",
+			local:   &agentConfig{URL: "http://local", Token: "tok-local"},
+			global:  &agentConfig{URL: "http://global", Token: "tok-global"},
+			wantURL: "http://local", wantTok: "tok-local",
+		},
+		{
+			name:    "mixed: local token + global url",
+			local:   &agentConfig{Token: "tok-local"},
+			global:  &agentConfig{URL: "http://global"},
+			wantURL: "http://global", wantTok: "tok-local",
+		},
+		{
+			name:    "global fills both when no local",
+			global:  &agentConfig{URL: "http://global", Token: "tok-global"},
+			wantURL: "http://global", wantTok: "tok-global",
+		},
+		{
+			name:    "no sources at all errors on url first",
+			wantURL: "", wantTok: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			t.Chdir(tmp)
+			t.Setenv("ORENDA_URL", tt.envURL)
+			t.Setenv("ORENDA_AGENT_TOKEN", tt.envTok)
+			xdg := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", xdg)
+			writeCfg := func(rel string, cfg *agentConfig) {
+				if cfg == nil {
+					return
+				}
+				dir := filepath.Dir(rel)
+				require.NoError(t, os.MkdirAll(dir, 0o755))
+				raw, err := yaml.Marshal(cfg)
+				require.NoError(t, err)
+				require.NoError(t, os.WriteFile(rel, raw, 0o600))
+			}
+			writeCfg(localAgentConfigPath(), tt.local)
+			writeCfg(filepath.Join(xdg, "orenda", "agent.yaml"), tt.global)
+
+			root := newAgentCmd()
+			args := []string{}
+			if tt.flagURL != "" {
+				args = append(args, "--url", tt.flagURL)
+			}
+			if tt.flagTok != "" {
+				args = append(args, "--token", tt.flagTok)
+			}
+			require.NoError(t, root.ParseFlags(args))
+			s, err := resolveAgentSettings(root, "orenda agent")
+			if tt.wantURL == "" && tt.wantTok == "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "--url")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantURL, s.URL.Value)
+			assert.Equal(t, tt.wantTok, s.Token.Value)
+		})
+	}
+}
+
+// TestResolveAgentSettings_LocalNotRequired: without ./.orenda the
+// chain degrades to the old behavior (env > global).
+func TestResolveAgentSettings_LocalNotRequired(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("ORENDA_URL", "http://from-env")
+	t.Setenv("ORENDA_AGENT_TOKEN", "")
+	raw, err := yaml.Marshal(agentConfig{URL: "http://global", Token: "tok-global"})
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(xdg, "orenda"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(xdg, "orenda", "agent.yaml"), raw, 0o600))
+	t.Chdir(t.TempDir())
+
+	root := newAgentCmd()
+	require.NoError(t, root.ParseFlags(nil))
+	s, err := resolveAgentSettings(root, "orenda agent")
+	require.NoError(t, err)
+	assert.Equal(t, "http://from-env", s.URL.Value)
+	assert.Equal(t, "tok-global", s.Token.Value)
+	assert.Equal(t, sourceEnv, s.URL.Source)
+	assert.Equal(t, sourceGlobal, s.Token.Source)
+}
+
+// TestResolveAgentSettings_BrokenLocalYaml: a local config that
+// exists but cannot be parsed is a hard error naming the path —
+// never a silent fallback to the global file.
+func TestResolveAgentSettings_BrokenLocalYaml(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("ORENDA_URL", "")
+	t.Setenv("ORENDA_AGENT_TOKEN", "")
+	require.NoError(t, os.MkdirAll(".orenda", 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(".orenda", "agent.yaml"), []byte("{unparsable: ["), 0o600))
+	globalRaw, err := yaml.Marshal(agentConfig{URL: "http://global", Token: "tok-global"})
+	require.NoError(t, err)
+	xdg := os.Getenv("XDG_CONFIG_HOME")
+	require.NoError(t, os.MkdirAll(filepath.Join(xdg, "orenda"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(xdg, "orenda", "agent.yaml"), globalRaw, 0o600))
+
+	root := newAgentCmd()
+	require.NoError(t, root.ParseFlags(nil))
+	_, err = resolveAgentSettings(root, "orenda agent")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), filepath.Join(".orenda", "agent.yaml"),
+		"error must name the broken local path")
+}
+
+// TestAgentConfigCmd_MasksToken: `orenda agent config` masks the
+// token by default (human and json); --show-secret reveals it.
+func TestAgentConfigCmd_MasksToken(t *testing.T) {
+	t.Setenv("ORENDA_URL", "")
+	t.Setenv("ORENDA_AGENT_TOKEN", "")
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+	raw, err := yaml.Marshal(agentConfig{URL: "http://from-local", Token: "tok-1234567890abcdef"})
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(".orenda", 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(".orenda", "agent.yaml"), raw, 0o600))
+
+	run := func(extra ...string) string {
+		t.Helper()
+		root := newAgentCmd()
+		var out strings.Builder
+		root.SetOut(&out)
+		args := append([]string{"config", "--json"}, extra...)
+		root.SetArgs(args)
+		require.NoError(t, root.Execute())
+		return out.String()
+	}
+
+	masked := run()
+	assert.Contains(t, masked, "tok-1234…")
+	assert.NotContains(t, masked, "tok-1234567890abcdef")
+	assert.Contains(t, masked, "\"source\":\"local\"")
+
+	shown := run("--show-secret")
+	assert.Contains(t, shown, "tok-1234567890abcdef")
 }
 
 func TestResolveAgentCtx_Missing(t *testing.T) {
