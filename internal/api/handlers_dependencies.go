@@ -550,8 +550,42 @@ func buildTaskTree(rows []taskRow) []taskNode {
 	for i := range rows {
 		byID[rows[i].Task.ID] = &rows[i]
 	}
-	children := make(map[string][]*taskRow)
-	inCycle := make(map[string]bool)
+	children, inCycle := mapParentEdges(rows, byID)
+	roots := selectTreeRoots(rows, byID, inCycle)
+	var build func(row *taskRow, depth int) taskNode
+	build = func(row *taskRow, depth int) taskNode {
+		node := taskNode{TaskRow: *row}
+		if depth > 64 { // paranoia bound; chains are short in practice
+			return node
+		}
+		for _, c := range children[row.Task.ID] {
+			if c.Task.ID == row.Task.ID {
+				continue // self-parent guard (already a root)
+			}
+			node.Children = append(node.Children, build(c, depth+1))
+		}
+		return node
+	}
+	out := make([]taskNode, 0, len(roots))
+	for _, root := range roots {
+		n := build(root, 0)
+		n.Cyclic = inCycle[root.Task.ID]
+		if root.Task.ParentTaskID != "" && !inCycle[root.Task.ID] && byID[root.Task.ParentTaskID] == nil {
+			n.Orphaned = true
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+// mapParentEdges indexes the child rows by parent id and walks each
+// row's parent chain once to detect parent cycles. Members of a
+// cycle are reported in the inCycle set; the walk always terminates
+// because a re-entered node triggers a single loop walk that marks
+// every member and stops.
+func mapParentEdges(rows []taskRow, byID map[string]*taskRow) (children map[string][]*taskRow, inCycle map[string]bool) {
+	children = make(map[string][]*taskRow)
+	inCycle = make(map[string]bool)
 	for i := range rows {
 		tr := &rows[i]
 		parentID := tr.Task.ParentTaskID
@@ -581,6 +615,14 @@ func buildTaskTree(rows []taskRow) []taskNode {
 			cur = byID[cur].Task.ParentTaskID
 		}
 	}
+	return children, inCycle
+}
+
+// selectTreeRoots picks the root rows of the tree in first-seen
+// order: a row is a root when it has no parent, is its own parent,
+// its parent falls outside the selection (orphaned), or it is a
+// member of a parent cycle (hoisted and flagged cyclic later).
+func selectTreeRoots(rows []taskRow, byID map[string]*taskRow, inCycle map[string]bool) []*taskRow {
 	var roots []*taskRow
 	for i := range rows {
 		tr := &rows[i]
@@ -596,30 +638,5 @@ func buildTaskTree(rows []taskRow) []taskNode {
 			roots = append(roots, tr)
 		}
 	}
-	var build func(row *taskRow, depth int) taskNode
-	build = func(row *taskRow, depth int) taskNode {
-		node := taskNode{TaskRow: *row}
-		if depth > 64 { // paranoia bound; chains are short in practice
-			return node
-		}
-		for _, c := range children[row.Task.ID] {
-			if c.Task.ID == row.Task.ID {
-				continue // self-parent guard (already a root)
-			}
-			node.Children = append(node.Children, build(c, depth+1))
-		}
-		return node
-	}
-	out := make([]taskNode, 0, len(roots))
-	for _, root := range roots {
-		n := build(root, 0)
-		if inCycle[root.Task.ID] {
-			n.Cyclic = true
-		}
-		if root.Task.ParentTaskID != "" && !inCycle[root.Task.ID] && byID[root.Task.ParentTaskID] == nil {
-			n.Orphaned = true
-		}
-		out = append(out, n)
-	}
-	return out
+	return roots
 }
