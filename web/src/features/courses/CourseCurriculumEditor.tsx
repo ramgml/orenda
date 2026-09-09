@@ -64,7 +64,7 @@ export interface EditorQuiz {
   kind: 'exact' | 'open';
 }
 
-export interface EditorLesson {
+interface EditorLesson {
   id: string;
   title: string;
   position: number;

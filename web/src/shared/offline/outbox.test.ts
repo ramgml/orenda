@@ -21,8 +21,6 @@ vi.mock('@/shared/offline/db', () => {
       const next = arr.filter((x) => x.id !== id);
       store['outbox'] = next;
     }),
-    cachePut: vi.fn(async () => undefined),
-    cacheGet: vi.fn(async () => undefined),
   };
 });
 

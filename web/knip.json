@@ -1,13 +1,10 @@
 {
   "$schema": "./node_modules/knip/schema.json",
-  "entry": ["src/main.tsx", "e2e/**/*.spec.ts", "src/**/*.test.{ts,tsx}", "vite.config.ts"],
-  "ignoreDependencies": [
-    "tailwindcss",
-    "tailwindcss-animate",
-    "@tailwindcss/typography",
-    "autoprefixer",
-    "postcss",
-    "jsdom"
-  ],
-  "ignore": ["src/test-setup.ts"]
+  "entry": ["e2e/**/*.spec.ts", "src/**/*.test.{ts,tsx}"],
+  "ignoreIssues": {
+    "src/shared/ui/{badge,button,calendar,card,dialog,dropdown-menu,select,tooltip}.tsx": [
+      "exports",
+      "types"
+    ]
+  }
 }
