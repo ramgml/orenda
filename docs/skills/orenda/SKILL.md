@@ -74,7 +74,7 @@ Then drive the workflow with subcommands:
 ```bash
 orenda agent me           # confirm the token works
 orenda agent projects list  # list projects (source of --project for propose)
-orenda agent next          # await + claim a task in one shot
+orenda agent next          # claims the first ready task; --peek to just look; --await N to wait
 orenda agent propose --project <id> --title "..." --description-file task.md
                            # file NEW work (lands in the human's review queue)
 orenda agent claim <id>    # claim a specific task by id
@@ -155,6 +155,9 @@ orenda agent next
 # → prints: {"task":{"id":"t-1","title":"..."},"ready":true}
 # → exit 0 with the task already claimed (200 from /claim).
 
+#    Peek first (no claim): `orenda agent next --peek`.
+#    Plain `next` CLAIMS — never run it for a read-only look.
+
 # 2. Read the snapshot.
 orenda agent context t-1 > /tmp/snap.json
 # Check status, comments, blocked_by, children.
@@ -177,7 +180,13 @@ orenda agent submit t-1
 ### 3.3 The "no work" exit code
 
 `orenda agent next` exits with code `2` when the ready queue is
-empty. This is the contract: bash loops can branch on it.
+empty. This is the contract: bash loops can branch on it. (`--peek`
+follows the same contract: view-only listing, exit `2` on empty.)
+
+**Warning:** plain `next` CLAIMS the first ready task — it is a
+mutation. Never run it for a read-only look at the queue; use
+`orenda agent next --peek` (prints `#N  title  (uuid)` lines, or the
+raw response under `--json`, and claims nothing).
 
 ```bash
 while true; do
@@ -185,8 +194,18 @@ while true; do
 done
 ```
 
-`orenda agent await --timeout 60` does the same thing but waits
-on the server side (long-poll) instead of polling.
+Two ways to wait instead of sleep-polling:
+
+```bash
+orenda agent await --timeout 60        # long-poll for the next event, print it
+orenda agent next --await 60           # claim mode: if the queue is empty,
+                                       # long-poll (chunks ≤60s) and claim as
+                                       # soon as work appears; exit 2 when the
+                                       # N-second budget is exhausted
+```
+
+Invalid combinations (`--peek --await`, `--group-by project
+--await`) are loud errors, not silent ignores.
 
 ---
 

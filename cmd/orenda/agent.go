@@ -15,8 +15,9 @@
 //
 //	0  ok
 //	1  generic failure (network, bad response)
-//	2  "no work" — set on `await` timeout and `next` empty inbox;
-//	   lets `while orenda agent next; do ...; done` work.
+//	2  "no work" — set on `await` timeout, on `next` empty inbox
+//	   (claim mode AND view-only --peek mode, plus `next --await`
+//	   budget exhaustion); lets `while orenda agent next; do ...; done` work.
 //
 // We deliberately keep the CLI transport-agnostic: every command
 // is a thin shim over the same HTTP the agent-namespace handlers
@@ -31,6 +32,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -466,8 +468,9 @@ func newAgentCmd() *cobra.Command {
 
 Workflow shape:
   orenda agent me                     # confirm the token works
-  orenda agent next                    # await + claim the next task
-  orenda agent next --project 7   # only project P7 (number, P-number or UUID)
+  orenda agent next                   # claims the first ready task (mutation)
+  orenda agent next --peek            # list the queue without claiming (view-only)
+  orenda agent next --await 60        # claim; if empty, long-poll up to 60s first
   orenda agent propose --project <id> --title ... --description-file task.md
                                        # propose a NEW task (human triages it)
   orenda agent context <task-id>       # pull the full snapshot
@@ -582,6 +585,43 @@ func newAgentProjectsCmd() *cobra.Command {
 	return cmd
 }
 
+// nextOpts is the parsed flag set of `orenda agent next`, decoupled
+// from cobra so the RunE body runs in-process under test (with osExit
+// swapped for a recorder — a real os.Exit(2) would kill the test).
+type nextOpts struct {
+	Limit     int
+	AwaitSecs int
+	Project   string
+	GroupBy   string
+	Tree      bool
+	Peek      bool
+}
+
+// osExit is the process-exit hook for `agent next`: package-level so
+// tests can record the code instead of losing the test binary. The
+// code is 2 ("no work") — the shell-loop contract of SKILL.md §3.3.
+// Only the next command routes through it; the older exits in
+// printGroupedAgentTasks and `agent await` keep calling os.Exit
+// directly (pre-Task-188 paths).
+var osExit = os.Exit
+
+// agentReadyTask is one row of the flat ready-queue listing.
+type agentReadyTask struct {
+	Task struct {
+		ID     string `json:"id"`
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+	} `json:"task"`
+	Ready bool `json:"ready"`
+}
+
+// agentReadyResp is the envelope of the flat ready-queue listing
+// (GET /api/v1/agent/tasks?ready=true&limit=N).
+type agentReadyResp struct {
+	Tasks []agentReadyTask `json:"tasks"`
+	Count int              `json:"count"`
+}
+
 func newAgentNextCmd() *cobra.Command {
 	var (
 		limit     int
@@ -589,104 +629,190 @@ func newAgentNextCmd() *cobra.Command {
 		project   string
 		groupBy   string
 		tree      bool
+		peek      bool
 	)
 	cmd := &cobra.Command{
 		Use:   "next",
-		Short: "List ready tasks; with --claim, await + claim the first one",
+		Short: "Claim the first ready task; use --peek to list without claiming",
+		Long: `List the ready queue and claim the first task. Claim-by-default is the
+shell-loop contract (while orenda agent next; do ...; done).
+
+Modes:
+  default    MUTATING: prints the candidate, POSTs /claim on the first
+             ready task, echoes the claim response. Exit 0.
+  --peek     view-only: prints the queue, never claims. Human output is
+             one "#N  title  (uuid)" line per task; under --json the raw
+             server response is echoed losslessly. Exit 2 on an empty
+             queue, exactly like claim mode.
+  --await N  claim mode only: when the queue is empty, long-poll POST
+             /api/v1/agent/events/await in chunks of at most 60s until
+             N seconds are spent, re-listing after every wake-up (each
+             chunk subscribes to the "tasks" topic — task.created,
+             task.updated, deps_changed; any event is just a signal,
+             the re-list is authoritative) and claiming as soon as
+             work appears. If the first listing already has work,
+             --await never fires. Budget exhausted → "no work", exit 2.
+
+Invalid combinations fail loudly instead of being ignored:
+  --peek --await              --await applies to claim mode (drop --peek)
+  --group-by project --await  --await does not combine with --group-by
+  --tree without --group-by   --tree requires --group-by project
+
+There is no --claim flag: claim IS the default, so the name stays an
+unknown-flag error — a mistyped call is visible, not silently reinterpreted.
+
+Exit codes: 0 — task claimed or queue listed; 1 — failure (network,
+bad response); 2 — no work (empty queue in claim or peek mode, and
+--await budget exhaustion).`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			ctx, err := resolveAgentCtx(cmd)
+			agent, err := resolveAgentCtx(cmd)
 			if err != nil {
 				return err
 			}
-			q, err := agentNextQueryValues(limit, project, groupBy, tree)
-			if err != nil {
-				return err
-			}
-			raw, code, err := ctx.agentGet(cmd.Context(), "/api/v1/agent/tasks?"+q.Encode())
-			if err != nil {
-				return err
-			}
-			if code != http.StatusOK {
-				return fmt.Errorf("agent tasks: HTTP %d: %s", code, raw)
-			}
-			if groupBy != "" {
-				// Grouped listing: print per-project sections (and the
-				// tree, when asked) and stop — claim flow stays tied
-				// to the flat shape.
-				return printGroupedAgentTasks(cmd, raw, tree)
-			}
-			return agentNextClaim(cmd, ctx, raw)
+			return runAgentNext(cmd, agent, nextOpts{
+				Limit:     limit,
+				AwaitSecs: awaitSecs,
+				Project:   project,
+				GroupBy:   groupBy,
+				Tree:      tree,
+				Peek:      peek,
+			})
 		},
 	}
 	cmd.Flags().IntVar(&limit, "limit", 5, "max tasks to consider before claiming")
-	cmd.Flags().IntVar(&awaitSecs, "await", 0, "if no work, long-poll up to N seconds (0 = no wait)")
+	cmd.Flags().IntVar(&awaitSecs, "await", 0, "if no work, wait up to N seconds for tasks to appear, then claim (claim mode only; 0 = no wait)")
 	cmd.Flags().StringVar(&project, "project", "", "Filter ready tasks to one project: number (7), P-number (P7) or UUID")
 	cmd.Flags().StringVar(&groupBy, "group-by", "", "Reshape output into per-project sections (only \"project\"; disables the claim flow)")
 	cmd.Flags().BoolVar(&tree, "tree", false, "With --group-by project: nest tasks under their parents (ASCII indent)")
+	cmd.Flags().BoolVar(&peek, "peek", false, "list ready tasks without claiming (view-only)")
 	return cmd
 }
 
-// agentNextQueryValues builds the ready-queue query for
-// `agent next` from its flags, validating the --tree / --group-by
-// combination. List the ready queue (Phase 15); T140: optional
-// --project scopes the queue to one project. T153: --group-by
-// project / --tree reshape the output.
-func agentNextQueryValues(limit int, project, groupBy string, tree bool) (url.Values, error) {
-	if tree && groupBy == "" {
-		return nil, fmt.Errorf("agent next: --tree requires --group-by project")
+// runAgentNext is the testable body of `agent next` (Task 188):
+// validate combinations, list the ready queue, then either print it
+// (--peek / --group-by) or claim the first task; with --await an
+// empty queue long-polls and re-lists before giving up. All HTTP
+// runs through cmd.Context() so cancellation propagates.
+func runAgentNext(cmd *cobra.Command, agent *agentCtx, opts nextOpts) error {
+	if opts.Tree && opts.GroupBy == "" {
+		return fmt.Errorf("agent next: --tree requires --group-by project")
 	}
-	q := url.Values{"ready": {"true"}, "limit": {strconv.Itoa(limit)}}
-	if project != "" {
-		q.Set("project", project)
+	if opts.AwaitSecs < 0 {
+		return fmt.Errorf("agent next: --await must be >= 0")
 	}
-	if groupBy != "" {
-		if groupBy != "project" {
-			return nil, fmt.Errorf("agent next: unsupported --group-by %q (only \"project\")", groupBy)
-		}
-		q.Set("group_by", groupBy)
+	if opts.Peek && opts.AwaitSecs > 0 {
+		return fmt.Errorf("agent next: --await applies to claim mode (drop --peek)")
 	}
-	if tree {
-		q.Set("tree", "true")
+	if opts.GroupBy != "" && opts.AwaitSecs > 0 {
+		return fmt.Errorf("agent next: --await does not combine with --group-by (it is view-only)")
 	}
-	return q, nil
-}
-
-// agentNextClaim handles the flat (ungrouped) ready-queue response:
-// decodes it, prints the top candidate and claims it. Writes
-// "no work\n" and exits with code 2 when the queue is empty
-// (convention from the spec).
-func agentNextClaim(cmd *cobra.Command, ctx *agentCtx, raw []byte) error {
-	var resp struct {
-		Tasks []struct {
-			Task struct {
-				ID     string `json:"id"`
-				Number int    `json:"number"`
-				Title  string `json:"title"`
-			} `json:"task"`
-			Ready bool `json:"ready"`
-		} `json:"tasks"`
-		Count int `json:"count"`
-	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
+	raw, err := listReady(cmd, agent, opts)
+	if err != nil {
 		return err
 	}
+	if opts.GroupBy != "" {
+		// Grouped listing: print per-project sections (and the
+		// tree, when asked) and stop — claim flow stays tied
+		// to the flat shape.
+		return printGroupedAgentTasks(cmd, raw, opts.Tree)
+	}
+	resp, err := decodeReadyResp(raw)
+	if err != nil {
+		return err
+	}
+	if opts.Peek {
+		// View-only: same queue, zero mutation. Under --json the
+		// raw server response is echoed losslessly; otherwise one
+		// "#N  title  (uuid)" line per task. Empty queue exits 2
+		// like claim mode.
+		if resp.Count == 0 {
+			_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
+			osExit(2)
+			return nil
+		}
+		if jsonFlag, _ := cmd.Flags().GetBool("json"); jsonFlag {
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		}
+		for _, row := range resp.Tasks {
+			printTaskRefHeader(cmd, row.Task.Number, row.Task.Title, row.Task.ID)
+		}
+		return nil
+	}
 	if resp.Count == 0 {
+		if opts.AwaitSecs > 0 {
+			// Long-poll for work, then claim it.
+			// awaitAgentWork owns the budget-exhaustion
+			// "no work" output — print nothing here, or the
+			// line lands twice.
+			return awaitAgentWork(cmd, agent, opts)
+		}
 		_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
 		// Exit code 2 — convention from the spec.
-		os.Exit(2)
+		osExit(2)
+		return nil
 	}
+	return claimFirstReady(cmd, agent, resp)
+}
+
+// listReady GETs the ready-queue listing for opts (query mirrors
+// Phase 15 + T140 + T153: ready=true, limit, optional
+// project/group_by/tree) and returns the raw body. Non-200 is an
+// error carrying the status and body.
+func listReady(cmd *cobra.Command, agent *agentCtx, opts nextOpts) ([]byte, error) {
+	q := url.Values{"ready": {"true"}, "limit": {strconv.Itoa(opts.Limit)}}
+	if opts.Project != "" {
+		q.Set("project", opts.Project)
+	}
+	if opts.GroupBy != "" {
+		if opts.GroupBy != "project" {
+			return nil, fmt.Errorf("agent next: unsupported --group-by %q (only \"project\")", opts.GroupBy)
+		}
+		q.Set("group_by", opts.GroupBy)
+	}
+	if opts.Tree {
+		q.Set("tree", "true")
+	}
+	raw, code, err := agent.agentGet(cmd.Context(), "/api/v1/agent/tasks?"+q.Encode())
+	if err != nil {
+		return nil, err
+	}
+	if code != http.StatusOK {
+		return nil, fmt.Errorf("agent tasks: HTTP %d: %s", code, raw)
+	}
+	return raw, nil
+}
+
+// decodeReadyResp parses the flat ready-queue envelope.
+func decodeReadyResp(raw []byte) (*agentReadyResp, error) {
+	var resp agentReadyResp
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// claimFirstReady prints the first row's ref header and candidate
+// JSON, then POSTs /claim on it and echoes the claim response. Shared
+// by the plain path and the post-await wake-up path. The !ready
+// branch is the defensive case (shouldn't happen with ?ready=true).
+func claimFirstReady(cmd *cobra.Command, agent *agentCtx, resp *agentReadyResp) error {
 	first := resp.Tasks[0]
 	if !first.Ready {
 		// Shouldn't happen with ?ready=true, but defensive.
 		_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
-		os.Exit(2)
+		osExit(2)
+		return nil
 	}
 	// Print the candidate, then claim it.
 	printTaskRefHeader(cmd, first.Task.Number, first.Task.Title, first.Task.ID)
 	if err := printJSON(cmd, first); err != nil {
 		return err
 	}
-	claimRaw, claimCode, err := ctx.agentPost(cmd.Context(),
+	claimRaw, claimCode, err := agent.agentPost(cmd.Context(),
 		"/api/v1/agent/tasks/"+first.Task.ID+"/claim", nil)
 	if err != nil {
 		return err
@@ -698,6 +824,53 @@ func agentNextClaim(cmd *cobra.Command, ctx *agentCtx, raw []byte) error {
 	_, _ = cmd.OutOrStdout().Write(claimRaw)
 	_, _ = cmd.OutOrStdout().Write([]byte("\n"))
 	return nil
+}
+
+// awaitAgentWork implements `agent next --await N` (Task 188): the
+// queue was empty, so long-poll POST /api/v1/agent/events/await with
+// topic "tasks" (what the task publishers write) and timeout_s =
+// min(remaining budget, 60) rounded up to at least 1s,
+// then re-list — a 204 (chunk timeout) or 200 (event of any topic)
+// are both just wake-up signals, the re-list is authoritative. Work
+// on a re-list → the normal claim path. Budget exhausted → "no work",
+// exit 2.
+func awaitAgentWork(cmd *cobra.Command, agent *agentCtx, opts nextOpts) error {
+	deadline := time.Now().Add(time.Duration(opts.AwaitSecs) * time.Second)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
+			osExit(2)
+			return nil
+		}
+		timeout := int(math.Ceil(remaining.Seconds()))
+		if timeout > 60 {
+			timeout = 60
+		}
+		// The hub keys subscriptions by exact topic string;
+		// task.created / task.updated / deps_changed all publish
+		// under "tasks". An empty topic would block every chunk
+		// for its full duration — no early wake-up.
+		awaitRaw, code, err := agent.agentPost(cmd.Context(),
+			"/api/v1/agent/events/await", map[string]any{"topic": "tasks", "timeout_s": timeout})
+		if err != nil {
+			return err
+		}
+		if code != http.StatusOK && code != http.StatusNoContent {
+			return fmt.Errorf("agent await: HTTP %d: %s", code, awaitRaw)
+		}
+		listRaw, err := listReady(cmd, agent, opts)
+		if err != nil {
+			return err
+		}
+		resp, err := decodeReadyResp(listRaw)
+		if err != nil {
+			return err
+		}
+		if resp.Count > 0 {
+			return claimFirstReady(cmd, agent, resp)
+		}
+	}
 }
 
 // printGroupedAgentTasks renders the T153 grouped listing: one
