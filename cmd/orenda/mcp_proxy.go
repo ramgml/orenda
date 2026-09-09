@@ -47,14 +47,10 @@ import (
 
 // newMCPCmd wires the `orenda mcp-proxy` subcommand. Flags:
 //
-//	--url    Orenda server URL (env: ORENDA_URL)
-//	--token  agent bearer token (env: ORENDA_AGENT_TOKEN)
+//	--url    Orenda server URL (env: ORENDA_URL, config files too)
+//	--token  agent bearer token (env: ORENDA_AGENT_TOKEN, config files too)
 func newMCPCmd() *cobra.Command {
-	var (
-		url    string
-		token  string
-		inHTTP bool
-	)
+	var inHTTP bool
 	cmd := &cobra.Command{
 		Use:   "mcp-proxy",
 		Short: "stdio↔HTTP bridge that exposes Orenda as an MCP server",
@@ -67,33 +63,31 @@ Use this when your MCP client only supports stdio transport
 and --token to an agent API token; the proxy handles tool
 discovery, call dispatch, and Bearer auth.
 
-Example MCP client config (Claude Code mcpServers):
+Connection settings resolve per field: flag > env (ORENDA_URL,
+ORENDA_AGENT_TOKEN) > ./.orenda/agent.yaml (project-local) >
+~/.config/orenda/agent.yaml (global). When a config file provides
+both values, mcp-proxy needs no inline token.
+
+Example MCP client config (Claude Code mcpServers) — credentials
+come from ./.orenda/agent.yaml, so no --token is passed:
 
   "orenda": {
     "command": "/path/to/orenda",
-    "args": ["mcp-proxy", "--url", "http://localhost:2137", "--token", "..."],
+    "args": ["mcp-proxy", "--url", "http://localhost:2137"],
   }`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if url == "" {
-				url = os.Getenv("ORENDA_URL")
-			}
-			if token == "" {
-				token = os.Getenv("ORENDA_AGENT_TOKEN")
-			}
-			if url == "" {
-				return fmt.Errorf("mcp-proxy: --url (or the ORENDA_URL env var) is required; mcp-proxy does not read the agent config file")
-			}
-			if token == "" {
-				return fmt.Errorf("mcp-proxy: --token (or the ORENDA_AGENT_TOKEN env var) is required; mcp-proxy does not read the agent config file")
+			s, err := resolveAgentSettings(cmd, "mcp-proxy")
+			if err != nil {
+				return err
 			}
 			if inHTTP {
-				return runHTTPProxy(cmd.Context(), url, token)
+				return runHTTPProxy(cmd.Context(), s.URL.Value, s.Token.Value)
 			}
-			return runStdioProxy(cmd.Context(), url, token)
+			return runStdioProxy(cmd.Context(), s.URL.Value, s.Token.Value)
 		},
 	}
-	cmd.Flags().StringVar(&url, "url", "", "Orenda server URL (env: ORENDA_URL)")
-	cmd.Flags().StringVar(&token, "token", "", "agent API token (env: ORENDA_AGENT_TOKEN)")
+	cmd.Flags().String("url", "", "Orenda server URL (env: ORENDA_URL, config files too)")
+	cmd.Flags().String("token", "", "agent API token (env: ORENDA_AGENT_TOKEN, config files too)")
 	cmd.Flags().BoolVar(&inHTTP, "http", false, "run as an HTTP server (Phase 25.2 future: bind to a port)")
 	return cmd
 }

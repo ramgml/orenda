@@ -31,7 +31,7 @@ LDFLAGS    := -ldflags "-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT
         backup backup-push backup-snapshot backup-status \
         web-install web-dev web-build web-test web-typecheck test-e2e \
         embed-dists openapi-sync run version help govulncheck hooks \
-        web-format web-format-check
+        web-format web-format-check web-knip
 
 all: build
 
@@ -119,30 +119,53 @@ test-full:
 	$(GO) test ./... -race -count=1
 	cd $(WEB_DIR) && $(NPM) run test
 
-## lint: Run linters (golangci-lint + eslint)
+## lint: Run linters (golangci-lint v2 + eslint)
+## golangci-lint v2: config (.golangci.yml) carries `version: "2"`.
+## Version 2 config schema + Go 1.22+ required. Install:
+##   go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 lint:
-	@command -v golangci-lint >/dev/null 2>&1 || echo "install: https://golangci-lint.run/usage/install/"
+	@command -v golangci-lint >/dev/null 2>&1 || { \
+		echo "install: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest" >&2; exit 1; }
+	@golangci-lint --version 2>/dev/null | grep -q "version 2" || { \
+		echo "golangci-lint v2 required (config schema is v2). Upgrade:" >&2; \
+		echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest" >&2; exit 1; }
 	golangci-lint run ./...
 	cd $(WEB_DIR) && $(NPM) run lint
 
-## lint-new: golangci-lint on NEW code only (--new-from-merge-base=origin/dev).
+
+## lint-new: golangci-lint v2 on NEW code only (vs BASE_REF, default origin/dev).
 ## wiki:ci-local-gates-hooks — mirrors the PR CI gate semantics locally so
-## pre-existing debt (Phase 30.16) does not drown out new issues. ~8.5s
-## warm on this repo. Used by the tracked pre-push hook.
+## pre-existing debt (Phase 30.16) does not drown out new issues. Used by
+## the tracked pre-push hook.
 ##
-## Override the base ref: `make lint-new BASE_REF=origin/main` (e.g. when
-## preparing a release PR off main).
+## golangci-lint v2 replaced --new-from-merge-base with --new-from-rev;
+## we resolve the base ref to a SHA ourselves (same semantics).
+## Override the base ref: `make lint-new BASE_REF=origin/main`.
 lint-new:
 	@command -v golangci-lint >/dev/null 2>&1 || { \
-		echo "install: https://golangci-lint.run/usage/install/" >&2; exit 1; }
+		echo "install: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest" >&2; exit 1; }
+	@golangci-lint --version 2>/dev/null | grep -q "version 2" || { \
+		echo "golangci-lint v2 required (config schema is v2). Upgrade:" >&2; \
+		echo "  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest" >&2; exit 1; }
 	@base="$${BASE_REF:-origin/dev}"; \
 	if ! git rev-parse --verify --quiet "$$base" >/dev/null; then \
 		echo "lint-new: $$base not local; fetching…" >&2; \
 		git fetch --no-tags origin "$${base#origin/}" || { \
 			echo "lint-new: fetch failed; aborting" >&2; exit 1; }; \
 	fi; \
-	echo "lint-new: golangci-lint run --new-from-merge-base=$$base ./..."; \
-	golangci-lint run --new-from-merge-base="$$base" ./...
+	rev=$$(git rev-parse "$$base"); \
+	echo "lint-new: golangci-lint run --new-from-rev=$${rev} ./..."; \
+	golangci-lint run --new-from-rev="$${rev}" ./...
+
+## web-knip: unused exports / files / dependencies audit for the SPA
+## (web/knip.json, type-aware via tsconfig.json). BLOCKING: exits
+## non-zero on any finding. Triaged clean in Task 180 (dead e2e/offline
+## helpers removed; canonical shadcn/ui templates allow-listed in
+## knip.json via ignoreIssues). Wired into scripts/git-hooks/pre-push
+## next to web-typecheck; keep it green before you push.
+web-knip:
+	cd $(WEB_DIR) && $(NPM) run knip
+
 
 ## hooks: Install tracked git hooks (scripts/git-hooks/) into core.hooksPath.
 ## wiki:ci-local-gates-hooks. Idempotent — safe to re-run. Writes

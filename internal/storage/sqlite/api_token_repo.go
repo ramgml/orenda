@@ -13,12 +13,14 @@ import (
 
 // StoredToken is one row in the api_tokens table, decoded into a struct.
 //
-// It extends auth.TokenRow with storage-only fields (LastUsedAt, ExpiresAt,
-// CreatedAt). The auth layer only needs the public subset.
+// It extends auth.TokenRow with storage-only fields (LastUsedAt,
+// CreatedAt). ExpiresAt is deliberately NOT redeclared here: it lives on
+// the embedded TokenRow, so ListAllHashes — which projects t.TokenRow
+// into its result map — carries the deadline through to the auth
+// middleware (T182). An outer field would shadow the promoted one.
 type StoredToken struct {
 	auth.TokenRow
 	LastUsedAt *time.Time
-	ExpiresAt  *time.Time
 	CreatedAt  time.Time
 }
 
@@ -89,8 +91,11 @@ func (r *apiTokenRepo) GetByID(ctx context.Context, id string) (*StoredToken, er
 	return &t, nil
 }
 
-// ListAllHashes returns every token keyed by hash; used by auth middleware to
-// find the row matching an incoming Authorization: Bearer header.
+// ListAllHashes returns every token keyed by hash; used by auth middleware
+// to find the row matching an incoming Authorization: Bearer header.
+// ExpiresAt is projected into the result (T182) so the middleware can
+// reject rows whose deadline has passed; NULL expiry scans as nil —
+// never expires.
 func (r *apiTokenRepo) ListAllHashes(ctx context.Context) (map[string]auth.TokenRow, error) {
 	const q = `SELECT id, user_id, name, hash, scopes, last_used_at, expires_at, created_at FROM api_tokens`
 	rows, err := r.db.QueryContext(ctx, q)
@@ -135,15 +140,22 @@ func (r *apiTokenRepo) TouchLastUsed(ctx context.Context, id string) error {
 	return nil
 }
 
-// UpdateHash replaces the bcrypt hash of an existing token row.
+// UpdateHash replaces the bcrypt hash of an existing token row and
+// re-stamps its expiry in the same atomic UPDATE: a non-nil expiresAt
+// sets api_tokens.expires_at, nil clears it.
 //
 // Task 165: token rotation reuses the SAME api_tokens row so that
 // agents.token_id (an FK to it) keeps pointing at the same agent
-// identity — only the credential changes. Returns ErrTokenNotFound
-// when no row matches (0 rows affected).
-func (r *apiTokenRepo) UpdateHash(ctx context.Context, id, hash string) error {
+// identity — only the credential changes. T175: rotation also refreshes
+// the row's lifetime so it never inherits the original mint's expiry.
+// Returns ErrTokenNotFound when no row matches (0 rows affected).
+func (r *apiTokenRepo) UpdateHash(ctx context.Context, id, hash string, expiresAt *time.Time) error {
+	var exp sql.NullString
+	if expiresAt != nil {
+		exp = sql.NullString{String: formatTime(*expiresAt), Valid: true}
+	}
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE api_tokens SET hash = ? WHERE id = ?`, hash, id)
+		`UPDATE api_tokens SET hash = ?, expires_at = ? WHERE id = ?`, hash, exp, id)
 	if err != nil {
 		return fmt.Errorf("apiToken.UpdateHash: %w", err)
 	}

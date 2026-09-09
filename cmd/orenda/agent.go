@@ -9,14 +9,15 @@
 //
 // Configuration precedence (highest first):
 //
-//	flag  >  env (ORENDA_URL / ORENDA_AGENT_TOKEN)  >  config file
+//	flag  >  env (ORENDA_URL / ORENDA_AGENT_TOKEN)  >  ./.orenda/agent.yaml  >  global config file
 //
 // Exit codes:
 //
 //	0  ok
 //	1  generic failure (network, bad response)
-//	2  "no work" — set on `await` timeout and `next` empty inbox;
-//	   lets `while orenda agent next; do ...; done` work.
+//	2  "no work" — set on `await` timeout, on `next` empty inbox
+//	   (claim mode AND view-only --peek mode, plus `next --await`
+//	   budget exhaustion); lets `while orenda agent next; do ...; done` work.
 //
 // We deliberately keep the CLI transport-agnostic: every command
 // is a thin shim over the same HTTP the agent-namespace handlers
@@ -28,8 +29,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -50,48 +53,197 @@ type agentCtx struct {
 	Token   string
 }
 
-// resolveAgentCtx reads the CLI flags, then env, then a config file
-// in ~/.config/orenda/agent.yaml. Missing token is a soft error
+// agentSource names where a resolved connection value came from.
+type agentSource string
+
+const (
+	sourceFlag   agentSource = "flag"
+	sourceEnv    agentSource = "env"
+	sourceLocal  agentSource = "local"  // ./.orenda/agent.yaml
+	sourceGlobal agentSource = "global" // ~/.config/orenda/agent.yaml
+)
+
+// agentField is one resolved connection value plus its provenance.
+// url and token resolve independently — first non-empty source wins.
+type agentField struct {
+	Value  string      `json:"value"`
+	Source agentSource `json:"source"`
+}
+
+// agentSettings is the per-field resolution outcome.
+type agentSettings struct {
+	URL   agentField
+	Token agentField
+}
+
+// resolveAgentSettings walks the configuration chain per field:
+//
+//	flag > env (ORENDA_URL / ORENDA_AGENT_TOKEN) >
+//	./.orenda/agent.yaml > ~/.config/orenda/agent.yaml
+//
+// and records the winning source for `agent config`. A config file
+// that exists but cannot be parsed is a hard error naming the path —
+// never a silent fallback to the next source. A missing file is
+// normal (most checkouts have no ./.orenda) and is skipped.
+// domain names the command family in error messages ("orenda agent"
+// or "mcp-proxy").
+func resolveAgentSettings(cmd *cobra.Command, domain string) (*agentSettings, error) {
+	flagURL, _ := cmd.Flags().GetString("url")
+	flagToken, _ := cmd.Flags().GetString("token")
+	s := &agentSettings{
+		URL:   agentField{Value: flagURL, Source: sourceFlag},
+		Token: agentField{Value: flagToken, Source: sourceFlag},
+	}
+	if s.URL.Value == "" {
+		s.URL = agentField{Value: os.Getenv("ORENDA_URL"), Source: sourceEnv}
+	}
+	if s.Token.Value == "" {
+		s.Token = agentField{Value: os.Getenv("ORENDA_AGENT_TOKEN"), Source: sourceEnv}
+	}
+	if s.URL.Value != "" && s.Token.Value != "" {
+		return s, nil
+	}
+	// Fall back to the config files whenever either value is still
+	// missing — flags and env win per-field over the files.
+	localPath := localAgentConfigPath()
+	local, st, err := readAgentConfigFile(localPath)
+	if err != nil {
+		return nil, fmt.Errorf("project config: %w", err)
+	}
+	if st == agentConfigOK {
+		if s.URL.Value == "" {
+			s.URL = agentField{Value: local.URL, Source: sourceLocal}
+		}
+		if s.Token.Value == "" {
+			s.Token = agentField{Value: local.Token, Source: sourceLocal}
+		}
+	}
+	if s.URL.Value != "" && s.Token.Value != "" {
+		s.warnResolved(cmd, localPath)
+		return s, nil
+	}
+	globalPath, err := agentConfigPath()
+	if err != nil {
+		globalPath = "~/.config/orenda/agent.yaml"
+	}
+	global, st, err := readAgentConfigFile(globalPath)
+	if err != nil {
+		return nil, fmt.Errorf("global config: %w", err)
+	}
+	if st == agentConfigOK {
+		if s.URL.Value == "" {
+			s.URL = agentField{Value: global.URL, Source: sourceGlobal}
+		}
+		if s.Token.Value == "" {
+			s.Token = agentField{Value: global.Token, Source: sourceGlobal}
+		}
+	}
+	if s.URL.Value == "" {
+		return nil, fmt.Errorf("%s: --url (or ORENDA_URL, or url: in %s, or url: in %s) is required", domain, localPath, globalPath)
+	}
+	if s.Token.Value == "" {
+		return nil, fmt.Errorf("%s: --token (or ORENDA_AGENT_TOKEN, or token: in %s, or token: in %s) is required", domain, localPath, globalPath)
+	}
+	s.warnResolved(cmd, localPath)
+	return s, nil
+}
+
+// warnResolved emits the stderr warnings for a fully-resolved setting:
+// the mixed-provenance case (url from the project-local config, token
+// from elsewhere — the token then travels to that URL) plus the
+// Task 181 git-aware guard for the local file itself. Called exactly
+// once per resolveAgentSettings (both return paths funnel here), so
+// each warning fires at most one time per run.
+func (s *agentSettings) warnResolved(cmd *cobra.Command, localPath string) {
+	s.warnMixedSources(cmd, localPath)
+	if s.URL.Source == sourceLocal || s.Token.Source == sourceLocal {
+		warnAgentConfigGitGuard(cmd, localPath)
+	}
+}
+
+// warnMixedSources flags the one risky provenance combination: the
+// url comes from the project-local config but the token does not,
+// so the external token is sent to the project-config URL. Legal
+// per the per-field chain — just warn once on stderr.
+func (s *agentSettings) warnMixedSources(cmd *cobra.Command, localPath string) {
+	if s.URL.Source == sourceLocal && s.Token.Source != sourceLocal {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(),
+			"warning: url comes from %s but the token does not — requests will send that token to the project-config URL; verify you trust this checkout (sources: orenda agent config)\n",
+			localPath)
+	}
+}
+
+// gitExit runs a git command with devnull stdio and returns its exit
+// code. gitMissing signals that git is unusable in this environment
+// (binary absent, not a repository, hard exec failure) — the guard
+// then stays silent, which is right for arbitrary checkouts. Exit
+// code 1 is a real, meaningful answer ("not ignored" / "not tracked").
+var gitExit = func(args ...string) (int, bool) {
+	if _, err := exec.LookPath("git"); err != nil { //nolint:gosec // fixed name, no user input
+		return 0, false
+	}
+	cmd := exec.Command("git", args...)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+	err := cmd.Run()
+	if err == nil {
+		return 0, true
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode(), true
+	}
+	return 0, false
+}
+
+// warnAgentConfigGitGuard (Task 181): the project-local config holds
+// a plaintext token, so before trusting it the CLI checks how git
+// sees the file. Warnings, one line each, on stderr:
+//
+//   - tracked by git → the token is already in history;
+//   - present but not gitignored → a blanket `git add .` would commit
+//     the plaintext token;
+//   - mode wider than 0600 → other local users can read it.
+//
+// An untracked, ignored file and a non-repository directory (or a
+// missing git binary) produce no output — the guard must never break
+// a command. Tracked is checked before ignored: a token already in
+// the index is the worst outcome even when an ignore rule exists.
+func warnAgentConfigGitGuard(cmd *cobra.Command, localPath string) {
+	var out = cmd.ErrOrStderr()
+	if code, ok := gitExit("ls-files", "--error-unmatch", localPath); ok && code == 0 {
+		_, _ = fmt.Fprintf(out,
+			"warning: %s is tracked by git — the token will be committed to history; remove it from the index (git rm --cached) and rotate the token\n",
+			localPath)
+	} else if code, ok := gitExit("check-ignore", "-q", localPath); ok && code == 0 {
+		// Ignored and untracked: the intended state for a secret — nothing to say.
+	} else if ok && code == 1 {
+		_, _ = fmt.Fprintf(out,
+			"warning: %s is not gitignored — 'git add .' would commit the plaintext token; add '.orenda/' to .gitignore\n",
+			localPath)
+	}
+	if info, err := os.Stat(localPath); err == nil && info.Mode().Perm()&0o077 != 0 {
+		abs, err := filepath.Abs(localPath)
+		if err != nil {
+			abs = localPath
+		}
+		_, _ = fmt.Fprintf(out,
+			"warning: %s is readable by other users (perm %o) — run 'chmod 600 %s'\n",
+			localPath, info.Mode().Perm(), abs)
+	}
+}
+
+// resolveAgentCtx reads the CLI flags, then env, then the config
+// files (./.orenda/agent.yaml in the current working directory,
+// then ~/.config/orenda/agent.yaml). Missing token is a soft error
 // only for the no-auth subcommands (`help`).
 func resolveAgentCtx(cmd *cobra.Command) (*agentCtx, error) {
-	baseURL, _ := cmd.Flags().GetString("url")
-	token, _ := cmd.Flags().GetString("token")
-	if baseURL == "" {
-		baseURL = os.Getenv("ORENDA_URL")
+	s, err := resolveAgentSettings(cmd, "orenda agent")
+	if err != nil {
+		return nil, err
 	}
-	if token == "" {
-		token = os.Getenv("ORENDA_AGENT_TOKEN")
-	}
-	if baseURL == "" || token == "" {
-		// Fall back to the config file whenever either value is
-		// still missing — flags and env win per-field over the file.
-		path, err := agentConfigPath()
-		if err == nil {
-			cfg, err := loadAgentConfig(path)
-			if err == nil {
-				if baseURL == "" {
-					baseURL = cfg.URL
-				}
-				if token == "" {
-					token = cfg.Token
-				}
-			}
-		}
-	}
-	if baseURL == "" || token == "" {
-		// Mention the config file path in the error so a fresh
-		// machine knows where to put the credentials instead of
-		// hunting for the token across the filesystem.
-		cfgHint, err := agentConfigPath()
-		if err != nil {
-			cfgHint = "~/.config/orenda/agent.yaml"
-		}
-		if baseURL == "" {
-			return nil, fmt.Errorf("orenda agent: --url (or ORENDA_URL, or url: in %s) is required", cfgHint)
-		}
-		return nil, fmt.Errorf("orenda agent: --token (or ORENDA_AGENT_TOKEN, or token: in %s) is required", cfgHint)
-	}
-	return &agentCtx{BaseURL: baseURL, Token: token}, nil
+	return &agentCtx{BaseURL: s.URL.Value, Token: s.Token.Value}, nil
 }
 
 // agentConfig is the YAML file shape — `url` and `token` only.
@@ -100,6 +252,8 @@ type agentConfig struct {
 	Token string `yaml:"token"`
 }
 
+// agentConfigPath is the host-global config path —
+// <os.UserConfigDir>/orenda/agent.yaml.
 func agentConfigPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -108,16 +262,93 @@ func agentConfigPath() (string, error) {
 	return filepath.Join(dir, "orenda", "agent.yaml"), nil
 }
 
-func loadAgentConfig(path string) (*agentConfig, error) {
+// localAgentConfigPath is the project-local config discovered in
+// the CURRENT working directory (Task 178). Relative on purpose: an
+// agent working inside a repo checkout picks up that repo's
+// connection settings without touching the host-global file.
+func localAgentConfigPath() string {
+	return filepath.Join(".orenda", "agent.yaml")
+}
+
+// agentConfigStatus distinguishes "no file" (normal, skip) from
+// "file present" and "file present but unparsable" (hard error —
+// a broken config must never silently fall through the chain).
+type agentConfigStatus int
+
+const (
+	agentConfigMissing agentConfigStatus = iota
+	agentConfigOK
+	agentConfigBroken
+)
+
+// readAgentConfigFile loads an agent.yaml. Missing file →
+// (nil, agentConfigMissing, nil); unparsable → agentConfigBroken
+// with an error that names the path.
+func readAgentConfigFile(path string) (*agentConfig, agentConfigStatus, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		if os.IsNotExist(err) {
+			return nil, agentConfigMissing, nil
+		}
+		return nil, agentConfigBroken, fmt.Errorf("%s: %w", path, err)
 	}
 	var c agentConfig
 	if err := yaml.Unmarshal(raw, &c); err != nil {
-		return nil, err
+		return nil, agentConfigBroken, fmt.Errorf("%s: invalid agent config yaml: %w", path, err)
 	}
-	return &c, nil
+	return &c, agentConfigOK, nil
+}
+
+// maskToken masks a token for diagnostics: first 4 runes plus
+// "…". Shorter tokens collapse to just the ellipsis so nothing
+// usable leaks.
+func maskToken(token string) string {
+	runes := []rune(token)
+	if len(runes) < 12 {
+		return "…"
+	}
+	return string(runes[:4]) + "…"
+}
+
+// newAgentConfigCmd wires `orenda agent config` (Task 178): print
+// the resolved url/token and where each came from (flag, env,
+// ./.orenda/agent.yaml, global config). The token is masked by
+// default in every output mode; `--json --show-secret` prints the
+// raw values for scripts that template a client config.
+func newAgentConfigCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Show resolved agent connection config and its sources",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			s, err := resolveAgentSettings(cmd, "orenda agent")
+			if err != nil {
+				return err
+			}
+			showSecret, _ := cmd.Flags().GetBool("show-secret")
+			masked := !showSecret
+			token := s.Token.Value
+			if masked {
+				token = maskToken(token)
+			}
+			report := struct {
+				URL         agentField `json:"url"`
+				Token       agentField `json:"token"`
+				TokenMasked bool       `json:"token_masked"`
+			}{s.URL, agentField{Value: token, Source: s.Token.Source}, masked}
+			if jsonFlag, _ := cmd.Flags().GetBool("json"); jsonFlag {
+				return printJSON(cmd, report)
+			}
+			out := cmd.OutOrStdout()
+			_, _ = fmt.Fprintf(out, "url    %s  %s\n", report.URL.Source, report.URL.Value)
+			_, _ = fmt.Fprintf(out, "token  %s  %s\n", report.Token.Source, report.Token.Value)
+			if masked {
+				_, _ = fmt.Fprintln(out, "(token masked; --json --show-secret prints the raw value)")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().Bool("show-secret", false, "print the raw token instead of the masked form")
+	return cmd
 }
 
 // agentGet issues a GET against the agent namespace and returns the
@@ -237,8 +468,9 @@ func newAgentCmd() *cobra.Command {
 
 Workflow shape:
   orenda agent me                     # confirm the token works
-  orenda agent next                    # await + claim the next task
-  orenda agent next --project 7   # only project P7 (number, P-number or UUID)
+  orenda agent next                   # claims the first ready task (mutation)
+  orenda agent next --peek            # list the queue without claiming (view-only)
+  orenda agent next --await 60        # claim; if empty, long-poll up to 60s first
   orenda agent propose --project <id> --title ... --description-file task.md
                                        # propose a NEW task (human triages it)
   orenda agent context <task-id>       # pull the full snapshot
@@ -248,12 +480,15 @@ Workflow shape:
   orenda agent release <task-id>      # drop a claim
   orenda agent await                   # long-poll for the next event
 
-<task-id> accepts the UUID or the human number: "42" or "#42"
+<task-id> accepts the task UUID or the T-ref: "T42"
 (tasks carry a sequential number alongside the UUID — it is what
-branch names, commit messages and PR titles reference).
+branch names, commit messages and PR titles reference; only the
+resolver uses the T-prefixed form).
 
-Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
-~/.config/orenda/agent.yaml.`,
+Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN),
+./.orenda/agent.yaml in the current project (gitignored — carries a
+secret), or ~/.config/orenda/agent.yaml. Per-field priority: flag >
+env > project config > global config.`,
 	}
 
 	// Persistent flags applied to every subcommand.
@@ -263,6 +498,7 @@ Configure via flags, env (ORENDA_URL, ORENDA_AGENT_TOKEN), or
 	pflags.Bool("json", false, "emit compact JSON instead of pretty")
 
 	cmd.AddCommand(newAgentMeCmd())
+	cmd.AddCommand(newAgentConfigCmd())
 	cmd.AddCommand(newAgentNextCmd())
 	cmd.AddCommand(newAgentProposeCmd())
 	cmd.AddCommand(newAgentContextCmd())
@@ -349,6 +585,43 @@ func newAgentProjectsCmd() *cobra.Command {
 	return cmd
 }
 
+// nextOpts is the parsed flag set of `orenda agent next`, decoupled
+// from cobra so the RunE body runs in-process under test (with osExit
+// swapped for a recorder — a real os.Exit(2) would kill the test).
+type nextOpts struct {
+	Limit     int
+	AwaitSecs int
+	Project   string
+	GroupBy   string
+	Tree      bool
+	Peek      bool
+}
+
+// osExit is the process-exit hook for `agent next`: package-level so
+// tests can record the code instead of losing the test binary. The
+// code is 2 ("no work") — the shell-loop contract of SKILL.md §3.3.
+// Only the next command routes through it; the older exits in
+// printGroupedAgentTasks and `agent await` keep calling os.Exit
+// directly (pre-Task-188 paths).
+var osExit = os.Exit
+
+// agentReadyTask is one row of the flat ready-queue listing.
+type agentReadyTask struct {
+	Task struct {
+		ID     string `json:"id"`
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+	} `json:"task"`
+	Ready bool `json:"ready"`
+}
+
+// agentReadyResp is the envelope of the flat ready-queue listing
+// (GET /api/v1/agent/tasks?ready=true&limit=N).
+type agentReadyResp struct {
+	Tasks []agentReadyTask `json:"tasks"`
+	Count int              `json:"count"`
+}
+
 func newAgentNextCmd() *cobra.Command {
 	var (
 		limit     int
@@ -356,97 +629,248 @@ func newAgentNextCmd() *cobra.Command {
 		project   string
 		groupBy   string
 		tree      bool
+		peek      bool
 	)
 	cmd := &cobra.Command{
 		Use:   "next",
-		Short: "List ready tasks; with --claim, await + claim the first one",
+		Short: "Claim the first ready task; use --peek to list without claiming",
+		Long: `List the ready queue and claim the first task. Claim-by-default is the
+shell-loop contract (while orenda agent next; do ...; done).
+
+Modes:
+  default    MUTATING: prints the candidate, POSTs /claim on the first
+             ready task, echoes the claim response. Exit 0.
+  --peek     view-only: prints the queue, never claims. Human output is
+             one "#N  title  (uuid)" line per task; under --json the raw
+             server response is echoed losslessly. Exit 2 on an empty
+             queue, exactly like claim mode.
+  --await N  claim mode only: when the queue is empty, long-poll POST
+             /api/v1/agent/events/await in chunks of at most 60s until
+             N seconds are spent, re-listing after every wake-up (each
+             chunk subscribes to the "tasks" topic — task.created,
+             task.updated, deps_changed; any event is just a signal,
+             the re-list is authoritative) and claiming as soon as
+             work appears. If the first listing already has work,
+             --await never fires. Budget exhausted → "no work", exit 2.
+
+Invalid combinations fail loudly instead of being ignored:
+  --peek --await              --await applies to claim mode (drop --peek)
+  --group-by project --await  --await does not combine with --group-by
+  --tree without --group-by   --tree requires --group-by project
+
+There is no --claim flag: claim IS the default, so the name stays an
+unknown-flag error — a mistyped call is visible, not silently reinterpreted.
+
+Exit codes: 0 — task claimed or queue listed; 1 — failure (network,
+bad response); 2 — no work (empty queue in claim or peek mode, and
+--await budget exhaustion).`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			ctx, err := resolveAgentCtx(cmd)
+			agent, err := resolveAgentCtx(cmd)
 			if err != nil {
 				return err
 			}
-			// List the ready queue (Phase 15); T140: optional
-			// --project scopes the queue to one project. T153:
-			// --group-by project / --tree reshape the output.
-			if tree && groupBy == "" {
-				return fmt.Errorf("agent next: --tree requires --group-by project")
-			}
-			q := url.Values{"ready": {"true"}, "limit": {strconv.Itoa(limit)}}
-			if project != "" {
-				q.Set("project", project)
-			}
-			if groupBy != "" {
-				if groupBy != "project" {
-					return fmt.Errorf("agent next: unsupported --group-by %q (only \"project\")", groupBy)
-				}
-				q.Set("group_by", groupBy)
-			}
-			if tree {
-				q.Set("tree", "true")
-			}
-			raw, code, err := ctx.agentGet(cmd.Context(), "/api/v1/agent/tasks?"+q.Encode())
-			if err != nil {
-				return err
-			}
-			if code != http.StatusOK {
-				return fmt.Errorf("agent tasks: HTTP %d: %s", code, raw)
-			}
-			if groupBy != "" {
-				// Grouped listing: print per-project sections (and the
-				// tree, when asked) and stop — claim flow stays tied
-				// to the flat shape.
-				return printGroupedAgentTasks(cmd, raw, tree)
-			}
-			var resp struct {
-				Tasks []struct {
-					Task struct {
-						ID     string `json:"id"`
-						Number int    `json:"number"`
-						Title  string `json:"title"`
-					} `json:"task"`
-					Ready bool `json:"ready"`
-				} `json:"tasks"`
-				Count int `json:"count"`
-			}
-			if err := json.Unmarshal(raw, &resp); err != nil {
-				return err
-			}
-			if resp.Count == 0 {
-				_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
-				// Exit code 2 — convention from the spec.
-				os.Exit(2)
-			}
-			first := resp.Tasks[0]
-			if !first.Ready {
-				// Shouldn't happen with ?ready=true, but defensive.
-				_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
-				os.Exit(2)
-			}
-			// Print the candidate, then claim it.
-			printTaskRefHeader(cmd, first.Task.Number, first.Task.Title, first.Task.ID)
-			if err := printJSON(cmd, first); err != nil {
-				return err
-			}
-			claimRaw, claimCode, err := ctx.agentPost(cmd.Context(),
-				"/api/v1/agent/tasks/"+first.Task.ID+"/claim", nil)
-			if err != nil {
-				return err
-			}
-			if claimCode != http.StatusOK {
-				return fmt.Errorf("agent claim: HTTP %d: %s", claimCode, claimRaw)
-			}
-			// Echo the claim response so the agent sees the new state.
-			_, _ = cmd.OutOrStdout().Write(claimRaw)
-			_, _ = cmd.OutOrStdout().Write([]byte("\n"))
-			return nil
+			return runAgentNext(cmd, agent, nextOpts{
+				Limit:     limit,
+				AwaitSecs: awaitSecs,
+				Project:   project,
+				GroupBy:   groupBy,
+				Tree:      tree,
+				Peek:      peek,
+			})
 		},
 	}
 	cmd.Flags().IntVar(&limit, "limit", 5, "max tasks to consider before claiming")
-	cmd.Flags().IntVar(&awaitSecs, "await", 0, "if no work, long-poll up to N seconds (0 = no wait)")
+	cmd.Flags().IntVar(&awaitSecs, "await", 0, "if no work, wait up to N seconds for tasks to appear, then claim (claim mode only; 0 = no wait)")
 	cmd.Flags().StringVar(&project, "project", "", "Filter ready tasks to one project: number (7), P-number (P7) or UUID")
 	cmd.Flags().StringVar(&groupBy, "group-by", "", "Reshape output into per-project sections (only \"project\"; disables the claim flow)")
 	cmd.Flags().BoolVar(&tree, "tree", false, "With --group-by project: nest tasks under their parents (ASCII indent)")
+	cmd.Flags().BoolVar(&peek, "peek", false, "list ready tasks without claiming (view-only)")
 	return cmd
+}
+
+// runAgentNext is the testable body of `agent next` (Task 188):
+// validate combinations, list the ready queue, then either print it
+// (--peek / --group-by) or claim the first task; with --await an
+// empty queue long-polls and re-lists before giving up. All HTTP
+// runs through cmd.Context() so cancellation propagates.
+func runAgentNext(cmd *cobra.Command, agent *agentCtx, opts nextOpts) error {
+	if opts.Tree && opts.GroupBy == "" {
+		return fmt.Errorf("agent next: --tree requires --group-by project")
+	}
+	if opts.AwaitSecs < 0 {
+		return fmt.Errorf("agent next: --await must be >= 0")
+	}
+	if opts.Peek && opts.AwaitSecs > 0 {
+		return fmt.Errorf("agent next: --await applies to claim mode (drop --peek)")
+	}
+	if opts.GroupBy != "" && opts.AwaitSecs > 0 {
+		return fmt.Errorf("agent next: --await does not combine with --group-by (it is view-only)")
+	}
+	raw, err := listReady(cmd, agent, opts)
+	if err != nil {
+		return err
+	}
+	if opts.GroupBy != "" {
+		// Grouped listing: print per-project sections (and the
+		// tree, when asked) and stop — claim flow stays tied
+		// to the flat shape.
+		return printGroupedAgentTasks(cmd, raw, opts.Tree)
+	}
+	resp, err := decodeReadyResp(raw)
+	if err != nil {
+		return err
+	}
+	if opts.Peek {
+		// View-only: same queue, zero mutation. Under --json the
+		// raw server response is echoed losslessly; otherwise one
+		// "#N  title  (uuid)" line per task. Empty queue exits 2
+		// like claim mode.
+		if resp.Count == 0 {
+			_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
+			osExit(2)
+			return nil
+		}
+		if jsonFlag, _ := cmd.Flags().GetBool("json"); jsonFlag {
+			var v any
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			return printJSON(cmd, v)
+		}
+		for _, row := range resp.Tasks {
+			printTaskRefHeader(cmd, row.Task.Number, row.Task.Title, row.Task.ID)
+		}
+		return nil
+	}
+	if resp.Count == 0 {
+		if opts.AwaitSecs > 0 {
+			// Long-poll for work, then claim it.
+			// awaitAgentWork owns the budget-exhaustion
+			// "no work" output — print nothing here, or the
+			// line lands twice.
+			return awaitAgentWork(cmd, agent, opts)
+		}
+		_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
+		// Exit code 2 — convention from the spec.
+		osExit(2)
+		return nil
+	}
+	return claimFirstReady(cmd, agent, resp)
+}
+
+// listReady GETs the ready-queue listing for opts (query mirrors
+// Phase 15 + T140 + T153: ready=true, limit, optional
+// project/group_by/tree) and returns the raw body. Non-200 is an
+// error carrying the status and body.
+func listReady(cmd *cobra.Command, agent *agentCtx, opts nextOpts) ([]byte, error) {
+	q := url.Values{"ready": {"true"}, "limit": {strconv.Itoa(opts.Limit)}}
+	if opts.Project != "" {
+		q.Set("project", opts.Project)
+	}
+	if opts.GroupBy != "" {
+		if opts.GroupBy != "project" {
+			return nil, fmt.Errorf("agent next: unsupported --group-by %q (only \"project\")", opts.GroupBy)
+		}
+		q.Set("group_by", opts.GroupBy)
+	}
+	if opts.Tree {
+		q.Set("tree", "true")
+	}
+	raw, code, err := agent.agentGet(cmd.Context(), "/api/v1/agent/tasks?"+q.Encode())
+	if err != nil {
+		return nil, err
+	}
+	if code != http.StatusOK {
+		return nil, fmt.Errorf("agent tasks: HTTP %d: %s", code, raw)
+	}
+	return raw, nil
+}
+
+// decodeReadyResp parses the flat ready-queue envelope.
+func decodeReadyResp(raw []byte) (*agentReadyResp, error) {
+	var resp agentReadyResp
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// claimFirstReady prints the first row's ref header and candidate
+// JSON, then POSTs /claim on it and echoes the claim response. Shared
+// by the plain path and the post-await wake-up path. The !ready
+// branch is the defensive case (shouldn't happen with ?ready=true).
+func claimFirstReady(cmd *cobra.Command, agent *agentCtx, resp *agentReadyResp) error {
+	first := resp.Tasks[0]
+	if !first.Ready {
+		// Shouldn't happen with ?ready=true, but defensive.
+		_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
+		osExit(2)
+		return nil
+	}
+	// Print the candidate, then claim it.
+	printTaskRefHeader(cmd, first.Task.Number, first.Task.Title, first.Task.ID)
+	if err := printJSON(cmd, first); err != nil {
+		return err
+	}
+	claimRaw, claimCode, err := agent.agentPost(cmd.Context(),
+		"/api/v1/agent/tasks/"+first.Task.ID+"/claim", nil)
+	if err != nil {
+		return err
+	}
+	if claimCode != http.StatusOK {
+		return fmt.Errorf("agent claim: HTTP %d: %s", claimCode, claimRaw)
+	}
+	// Echo the claim response so the agent sees the new state.
+	_, _ = cmd.OutOrStdout().Write(claimRaw)
+	_, _ = cmd.OutOrStdout().Write([]byte("\n"))
+	return nil
+}
+
+// awaitAgentWork implements `agent next --await N` (Task 188): the
+// queue was empty, so long-poll POST /api/v1/agent/events/await with
+// topic "tasks" (what the task publishers write) and timeout_s =
+// min(remaining budget, 60) rounded up to at least 1s,
+// then re-list — a 204 (chunk timeout) or 200 (event of any topic)
+// are both just wake-up signals, the re-list is authoritative. Work
+// on a re-list → the normal claim path. Budget exhausted → "no work",
+// exit 2.
+func awaitAgentWork(cmd *cobra.Command, agent *agentCtx, opts nextOpts) error {
+	deadline := time.Now().Add(time.Duration(opts.AwaitSecs) * time.Second)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			_, _ = cmd.OutOrStdout().Write([]byte("no work\n"))
+			osExit(2)
+			return nil
+		}
+		timeout := int(math.Ceil(remaining.Seconds()))
+		if timeout > 60 {
+			timeout = 60
+		}
+		// The hub keys subscriptions by exact topic string;
+		// task.created / task.updated / deps_changed all publish
+		// under "tasks". An empty topic would block every chunk
+		// for its full duration — no early wake-up.
+		awaitRaw, code, err := agent.agentPost(cmd.Context(),
+			"/api/v1/agent/events/await", map[string]any{"topic": "tasks", "timeout_s": timeout})
+		if err != nil {
+			return err
+		}
+		if code != http.StatusOK && code != http.StatusNoContent {
+			return fmt.Errorf("agent await: HTTP %d: %s", code, awaitRaw)
+		}
+		listRaw, err := listReady(cmd, agent, opts)
+		if err != nil {
+			return err
+		}
+		resp, err := decodeReadyResp(listRaw)
+		if err != nil {
+			return err
+		}
+		if resp.Count > 0 {
+			return claimFirstReady(cmd, agent, resp)
+		}
+	}
 }
 
 // printGroupedAgentTasks renders the T153 grouped listing: one
@@ -554,66 +978,16 @@ func newAgentProposeCmd() *cobra.Command {
 		Short: "Propose a new task (lands in backlog, awaiting human triage)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if projectID == "" || title == "" {
-				return fmt.Errorf("agent propose: --project and --title are required")
+			desc, err := agentProposePrepare(cmd, projectID, title, description, descFile)
+			if err != nil {
+				return err
 			}
-			desc := description
-			if descFile != "" {
-				var (
-					raw []byte
-					err error
-				)
-				if descFile == "-" {
-					raw, err = io.ReadAll(cmd.InOrStdin())
-				} else {
-					raw, err = os.ReadFile(descFile)
-				}
-				if err != nil {
-					return fmt.Errorf("agent propose: read description: %w", err)
-				}
-				desc = string(raw)
-			}
-			if strings.TrimSpace(desc) == "" {
-				return fmt.Errorf("agent propose: --description or --description-file is required")
-			}
-			body := map[string]any{
-				"project_id":     projectID,
-				"title":          title,
-				"description_md": desc,
-			}
-			if priority != "" {
-				body["priority"] = priority
-			}
-			if parentID != "" {
-				body["parent_task_id"] = parentID
-			}
-			if blockedBy != "" {
-				var ids []string
-				for _, part := range strings.Split(blockedBy, ",") {
-					if v := strings.TrimSpace(part); v != "" {
-						ids = append(ids, v)
-					}
-				}
-				if len(ids) > 0 {
-					body["blocked_by"] = ids
-				}
-			}
+			body := agentProposeBody(projectID, title, desc, priority, blockedBy, parentID)
 			ctx, err := resolveAgentCtx(cmd)
 			if err != nil {
 				return err
 			}
-			raw, code, err := ctx.agentPost(cmd.Context(), "/api/v1/agent/tasks", body)
-			if err != nil {
-				return err
-			}
-			if code != http.StatusCreated {
-				return fmt.Errorf("agent propose: HTTP %d: %s", code, raw)
-			}
-			var v any
-			if err := json.Unmarshal(raw, &v); err != nil {
-				return err
-			}
-			return printJSON(cmd, v)
+			return agentProposeSubmit(cmd, ctx, body)
 		},
 	}
 	cmd.Flags().StringVar(&projectID, "project", "", "project id the task belongs to (required)")
@@ -624,6 +998,82 @@ func newAgentProposeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&blockedBy, "blocked-by", "", "comma-separated blocker task ids")
 	cmd.Flags().StringVar(&parentID, "parent", "", "parent task id (creates a subtask)")
 	return cmd
+}
+
+// agentProposePrepare validates the `agent propose` flags and
+// resolves the effective markdown description: --description-file
+// overrides --description ('-' reads stdin); the result must not be
+// blank.
+func agentProposePrepare(cmd *cobra.Command, projectID, title, description, descFile string) (string, error) {
+	if projectID == "" || title == "" {
+		return "", fmt.Errorf("agent propose: --project and --title are required")
+	}
+	desc := description
+	if descFile != "" {
+		var (
+			raw []byte
+			err error
+		)
+		if descFile == "-" {
+			raw, err = io.ReadAll(cmd.InOrStdin())
+		} else {
+			raw, err = os.ReadFile(descFile)
+		}
+		if err != nil {
+			return "", fmt.Errorf("agent propose: read description: %w", err)
+		}
+		desc = string(raw)
+	}
+	if strings.TrimSpace(desc) == "" {
+		return "", fmt.Errorf("agent propose: --description or --description-file is required")
+	}
+	return desc, nil
+}
+
+// agentProposeBody builds the POST /api/v1/agent/tasks payload.
+// Optional flags (priority, parent, blocked-by) are included only
+// when set.
+func agentProposeBody(projectID, title, desc, priority, blockedBy, parentID string) map[string]any {
+	body := map[string]any{
+		"project_id":     projectID,
+		"title":          title,
+		"description_md": desc,
+	}
+	if priority != "" {
+		body["priority"] = priority
+	}
+	if parentID != "" {
+		body["parent_task_id"] = parentID
+	}
+	if blockedBy != "" {
+		var ids []string
+		for _, part := range strings.Split(blockedBy, ",") {
+			if v := strings.TrimSpace(part); v != "" {
+				ids = append(ids, v)
+			}
+		}
+		if len(ids) > 0 {
+			body["blocked_by"] = ids
+		}
+	}
+	return body
+}
+
+// agentProposeSubmit POSTs the proposal and prints the created task
+// as JSON. 201 Created is the only success status.
+func agentProposeSubmit(cmd *cobra.Command, ctx *agentCtx, body map[string]any) error {
+	raw, code, err := ctx.agentPost(cmd.Context(), "/api/v1/agent/tasks", body)
+	if err != nil {
+		return err
+	}
+	if code != http.StatusCreated {
+		return fmt.Errorf("agent propose: HTTP %d: %s", code, raw)
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return err
+	}
+	return printJSON(cmd, v)
 }
 
 func newAgentContextCmd() *cobra.Command {
@@ -819,8 +1269,8 @@ func newAgentCommentCmd() *cobra.Command {
 
 // ---------------------------------------------------------------------------
 // T96: checklist subcommands — the CLI twin of the agent-namespace
-// checklist routes. The task argument accepts the UUID or the human
-// number ("42" / "#42"), like every other `agent` task command.
+// checklist routes. The task argument accepts the task UUID or the
+// T-ref ("T42"), like every other `agent` task command.
 // ---------------------------------------------------------------------------
 
 func newAgentChecklistsCmd() *cobra.Command {

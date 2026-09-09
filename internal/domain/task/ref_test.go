@@ -1,9 +1,11 @@
 package task
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseRefNumber(t *testing.T) {
@@ -50,4 +52,56 @@ func TestRefNotFoundError(t *testing.T) {
 	err2 := &RefNotFoundError{Ref: "t999"}
 	assert.Equal(t, "task t999 not found", err2.Error())
 	assert.ErrorIs(t, err2, ErrNotFound)
+}
+
+func TestLegacyRefNotFoundError(t *testing.T) {
+	err := &LegacyRefNotFoundError{Ref: "#42"}
+	assert.Equal(t,
+		`task #42 not found; use "T42" — task refs are T-prefixed since Task 48`,
+		err.Error())
+	assert.ErrorIs(t, err, ErrNotFound)
+
+	err2 := &LegacyRefNotFoundError{Ref: "42"}
+	assert.Contains(t, err2.Error(), `use "T42"`)
+	assert.ErrorIs(t, err2, ErrNotFound)
+}
+
+// stubRepo answers "not found" for every lookup so ResolveRef's
+// error shaping can be pinned without a database.
+type stubRepo struct{ Repository }
+
+func (stubRepo) GetByID(context.Context, string) (*Task, error) {
+	return nil, ErrNotFound
+}
+
+func (stubRepo) GetByNumber(context.Context, int) (*Task, error) {
+	return nil, ErrNotFound
+}
+
+// TestResolveRef_LegacyHint: legacy-shaped refs get the migration
+// hint, unknown T-refs keep the ref-naming error, everything else
+// keeps the bare sentinel.
+func TestResolveRef_LegacyHint(t *testing.T) {
+	ctx := context.Background()
+	repo := stubRepo{}
+
+	for _, ref := range []string{"#42", "42"} {
+		_, err := ResolveRef(ctx, repo, ref)
+		require.Error(t, err, ref)
+		var legacy *LegacyRefNotFoundError
+		require.ErrorAs(t, err, &legacy, ref)
+		assert.Contains(t, err.Error(), `use "T42"`, ref)
+		assert.ErrorIs(t, err, ErrNotFound, ref)
+	}
+
+	_, err := ResolveRef(ctx, repo, "T42")
+	require.Error(t, err)
+	var refErr *RefNotFoundError
+	require.ErrorAs(t, err, &refErr)
+
+	_, err = ResolveRef(ctx, repo, "01234567-89ab-cdef-0123-456789abcdef")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNotFound)
+	var legacy *LegacyRefNotFoundError
+	assert.NotErrorAs(t, err, &legacy)
 }

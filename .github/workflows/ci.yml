@@ -21,7 +21,7 @@
 # when a PR gets force-pushed or amended.
 #
 # Pre-existing lint debt (≈71 issues on dev) is gated locally by `make lint-new`
-# (--new-from-merge-base=origin/dev) — not blocked here. See Phase 30.16.
+# (--new-from-rev, base ref origin/dev) — not blocked here. See Phase 30.16.
 name: ci
 
 on:
@@ -65,8 +65,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          # golangci-lint runs full on the release branch — needs the
-          # merge-base commit in the local history.
+          # golangci-lint runs incremental vs origin/main — needs the
+          # base commit in the local history.
           fetch-depth: 0
 
       - name: Setup Go
@@ -83,26 +83,20 @@ jobs:
           cache-dependency-path: web/package-lock.json
 
       - name: Install golangci-lint
-        # Build from source with the local Go toolchain — the published
-        # v1.64.x binaries were built with go1.24 and refuse to load
-        # .golangci.yml against go.mod's `go 1.26.4` directive. Slower
-        # than the action's prebuilt cache, but always matches the
-        # project's Go version. When v2 stabilises and we migrate the
-        # config, switch back to golangci/golangci-lint-action@v6 with
-        # `version: v2.x.y`.
-        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.6
+        # Build from source with the local Go toolchain (v2 module path).
+        # v2.13.x matches `.golangci.yml` schema `version: "2"` and the
+        # local gates (`make lint`/`lint-new`, Task 183). The published
+        # prebuilt binaries can lag the project's Go version, so building
+        # via `go install` always matches the setup-go toolchain.
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 
       - name: golangci-lint run (new vs main)
-        # Release gate — incremental against origin/main, mirroring the
-        # local `make lint-new` contract (wiki:ci-local-gates-hooks).
-        # The previous full-lint-on-release-branch step never passed:
-        # both v0.2.0 pushes to main ran red on the Phase 30.16
-        # pre-existing debt (≈71 issues, tolerated on dev by decision).
-        # A permanently-red gate is not a gate — what a release ADDS
-        # must be clean; the debt closes opportunistically via 30.16.
+        # Release gate — incremental against origin/main. golangci-lint v2
+        # removed --new-from-merge-base; resolve the merge-base ref to a SHA
+        # ourselves with --new-from-rev, mirroring `make lint-new` (Task 187).
         run: |
           git fetch --no-tags origin main
-          "$(go env GOPATH)/bin/golangci-lint" run --new-from-merge-base=origin/main ./...
+          "$(go env GOPATH)/bin/golangci-lint" run --new-from-rev="$(git rev-parse origin/main)" ./...
 
       - name: npm ci
         working-directory: web
@@ -231,6 +225,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: [build]
+    # Browsers + system deps preinstalled; bump вместе с @playwright/test в web/package.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -258,12 +255,12 @@ jobs:
         working-directory: web
         run: npm ci
 
-      - name: Install Playwright Chromium
-        working-directory: web
-        run: npx playwright install --with-deps chromium
-
       - name: make test-e2e
-        run: make test-e2e
+        # Образ playwright не содержит make; make test-e2e = (build) + эта строка,
+        # а binary уже скачан артефактом и используется e2e-setup/run-server.sh.
+        # chmod нужен: upload-artifact не хранит exec-бит (раньше это маскировал
+        # rebuild в make build).
+        run: chmod +x bin/orenda && cd web && npx playwright test
         env:
           # Don't let CI accidentally talk to the developer's local instance.
           ORENDA_SERVER__PORT: '21371'

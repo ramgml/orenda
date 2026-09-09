@@ -346,6 +346,16 @@ func NewRouter(deps *Dependencies) http.Handler {
 		// Authenticated routes.
 		r.Group(func(r chi.Router) {
 			r.Use(RequireUser(cfg))
+			// T174: same-origin Origin/Referer check for cookie
+			// mutations. Guards only the user group. The Authorization
+			// exemption applies only to cookie-free (clean Bearer)
+			// requests: cookie + header together still gets the Origin
+			// check (T174-CSRF-AUTHZ-SKIP-BYPASS). The agent group below
+			// deliberately does NOT get this middleware: agents
+			// authenticate via Bearer API tokens only.
+			// deps.CookieName is normalized to "orenda_session" at the
+			// top of NewRouter, so the empty-name case cannot occur here.
+			r.Use(csrfOriginCheck(deps.CookieName))
 
 			r.Get("/me", meHandler())
 

@@ -119,49 +119,8 @@ func patchProjectHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		if in.Name != nil {
-			if *in.Name == "" {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name_required"})
-				return
-			}
-			p.Name = *in.Name
-		}
-		if in.Color != nil {
-			if *in.Color == "" {
-				p.Color = project.DefaultColor
-			} else {
-				p.Color = *in.Color
-			}
-		}
-		if in.Description != nil {
-			p.Description = *in.Description
-		}
-		if in.WikiSlug != nil {
-			slug := strings.TrimSpace(*in.WikiSlug)
-			if slug == "" {
-				p.WikiSlug = ""
-			} else {
-				if deps.WikiService == nil {
-					http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
-					return
-				}
-				if _, err := deps.WikiService.GetBySlug(r.Context(), slug); err != nil {
-					if errors.Is(err, wiki.ErrNotFound) {
-						writeJSON(w, http.StatusUnprocessableEntity,
-							map[string]string{"error": "wiki_slug_not_found", "slug": slug})
-						return
-					}
-					writeError(w, err)
-					return
-				}
-				p.WikiSlug = slug
-			}
-		}
-		if in.Archived != nil {
-			p.Archived = *in.Archived
-		}
-		if in.AgentsAllowed != nil {
-			p.AgentsAllowed = *in.AgentsAllowed
+		if !applyProjectPatchFields(w, r, deps, p, &in) {
+			return
 		}
 		if err := deps.Projects.UpdateProject(r.Context(), p); err != nil {
 			writeError(w, err)
@@ -169,6 +128,60 @@ func patchProjectHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, p)
 	}
+}
+
+// applyProjectPatchFields applies the decoded patch fields onto the
+// project row: name (required non-empty), color ("" resets to the
+// default), description, wiki_slug ("" unlinks; non-empty must
+// reference an existing wiki page or 422), archived, and the Task
+// 140 agents_allowed switch. Writes the error response and returns
+// false on any rejection.
+func applyProjectPatchFields(w http.ResponseWriter, r *http.Request, deps *Dependencies, p *project.Project, in *projectInput) bool {
+	if in.Name != nil {
+		if *in.Name == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name_required"})
+			return false
+		}
+		p.Name = *in.Name
+	}
+	if in.Color != nil {
+		if *in.Color == "" {
+			p.Color = project.DefaultColor
+		} else {
+			p.Color = *in.Color
+		}
+	}
+	if in.Description != nil {
+		p.Description = *in.Description
+	}
+	if in.WikiSlug != nil {
+		slug := strings.TrimSpace(*in.WikiSlug)
+		if slug == "" {
+			p.WikiSlug = ""
+		} else {
+			if deps.WikiService == nil {
+				http.Error(w, "wiki service not wired", http.StatusServiceUnavailable)
+				return false
+			}
+			if _, err := deps.WikiService.GetBySlug(r.Context(), slug); err != nil {
+				if errors.Is(err, wiki.ErrNotFound) {
+					writeJSON(w, http.StatusUnprocessableEntity,
+						map[string]string{"error": "wiki_slug_not_found", "slug": slug})
+					return false
+				}
+				writeError(w, err)
+				return false
+			}
+			p.WikiSlug = slug
+		}
+	}
+	if in.Archived != nil {
+		p.Archived = *in.Archived
+	}
+	if in.AgentsAllowed != nil {
+		p.AgentsAllowed = *in.AgentsAllowed
+	}
+	return true
 }
 
 // deleteProjectHandler removes a project.

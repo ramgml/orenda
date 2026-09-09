@@ -19,6 +19,7 @@ import (
 	eventservice "github.com/ramgml/orenda/internal/service/event"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
+	"github.com/ramgml/orenda/internal/storage/sqlite"
 )
 
 // apiLogger is the package-level logger used by writeError for unexpected
@@ -69,7 +70,12 @@ func writeError(w http.ResponseWriter, err error) {
 		errors.Is(err, eventservice.ErrNotFound),
 		errors.Is(err, commentservice.ErrNotFound),
 		errors.Is(err, comment.ErrNotFound),
-		errors.Is(err, agentservice.ErrNotFound):
+		errors.Is(err, agentservice.ErrNotFound),
+		// T182: a dangling agents.token_id (agent row exists, its
+		// api_tokens row does not) makes RotateToken's UPDATE hit zero
+		// rows. Pre-fix this fell through to the 500 default on
+		// POST /api/v1/agents/{id}/regenerate-token.
+		errors.Is(err, sqlite.ErrTokenNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 	case errors.Is(err, user.ErrEmailTaken),
 		errors.Is(err, wiki.ErrSlugTaken),

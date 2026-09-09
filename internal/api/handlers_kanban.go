@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -229,78 +230,22 @@ func patchColumnHandler(deps *Dependencies) http.HandlerFunc {
 
 		// Apply mutable fields. Empty name is rejected (the column must
 		// stay non-empty so the kanban header never goes blank).
-		if in.Name != "" {
-			col.Name = in.Name
-		}
-		if in.Position != 0 {
-			col.Position = in.Position
-		}
-		if in.Color != "" {
-			col.Color = in.Color
-		}
-		// WIPLimit uses a pointer to distinguish "unchanged" from "clear".
-		// The JSON decoder produces nil for missing; we use a *int in the
-		// input struct already (above). nil here = leave as-is; non-nil =
-		// explicit clear when 0, or set when > 0.
-		if in.WIPLimit != nil {
-			if *in.WIPLimit < 0 {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "wip_limit_negative"})
-				return
-			}
-			if *in.WIPLimit == 0 {
-				col.WIPLimit = nil // clear
-			} else {
-				v := *in.WIPLimit
-				col.WIPLimit = &v
-			}
+		if !applyColumnMutableFields(w, col, in) {
+			return
 		}
 
 		// Validate the new limit against the current task count.
-		if col.WIPLimit != nil && deps.Tasks != nil {
-			n, err := deps.Tasks.CountByColumn(r.Context(), col.ID)
-			if err != nil {
-				writeError(w, err)
-				return
-			}
-			if n > *col.WIPLimit {
-				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
-					"error":       "wip_limit_too_small",
-					"current":     n,
-					"wip_limit":   *col.WIPLimit,
-					"snapshot_id": col.ID,
-				})
-				return
-			}
+		if !validateColumnWIP(r.Context(), w, deps, col) {
+			return
 		}
 
 		// Phase 30.14: validate a machine-key change before applying it.
 		// nil = leave unchanged, "&"" = clear, "&<name>" = set.
 		// Clear is only acceptable when no tasks live in the column (the
 		// fan-out below can't migrate them to "no status").
-		statusChanged := false
-		if in.Status != nil {
-			if *in.Status != "" && !taskdomain.StatusMachineKeyPattern.MatchString(*in.Status) {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_status"})
-				return
-			}
-			if *in.Status != col.Status {
-				if *in.Status == "" && deps.Tasks != nil {
-					n, err := deps.Tasks.CountByColumn(r.Context(), col.ID)
-					if err != nil {
-						writeError(w, err)
-						return
-					}
-					if n > 0 {
-						writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
-							"error":   "column_not_empty",
-							"current": n,
-						})
-						return
-					}
-				}
-				col.Status = *in.Status
-				statusChanged = true
-			}
+		statusChanged, ok := applyColumnStatusChange(r.Context(), w, deps, col, in.Status)
+		if !ok {
+			return
 		}
 
 		if err := deps.Projects.UpdateColumn(r.Context(), col); err != nil {
@@ -317,19 +262,10 @@ func patchColumnHandler(deps *Dependencies) http.HandlerFunc {
 		// stay in the same column, the axis collapse invariant
 		// `task.status ≡ column.status` is restored by the manual
 		// status write). On any per-task failure we keep the column
-		// update (column has the new status) and return the first
-		// fan-out error in the body; the UI's "task.updated" events
-		// already notify the affected tasks. We log the error so an
-		// operator can see the partial state.
+		// update (column has the new status); the error is only logged
+		// so an operator can see the partial state.
 		if statusChanged && col.Status != "" && deps.Tasks != nil {
-			if err := fanOutColumnStatus(r.Context(), deps, col); err != nil {
-				if deps.Logger != nil {
-					deps.Logger.Warn("column.status fan-out partial",
-						zap.String("column_id", col.ID),
-						zap.String("status", col.Status),
-						zap.Error(err))
-				}
-			}
+			fanOutColumnStatusQuiet(r.Context(), deps, col)
 		}
 
 		// Phase 27.10: parity with create/delete — broadcast
@@ -348,6 +284,116 @@ func patchColumnHandler(deps *Dependencies) http.HandlerFunc {
 			})
 		}
 		writeJSON(w, http.StatusOK, col)
+	}
+}
+
+// applyColumnMutableFields copies the plain mutable column fields
+// from the patch input onto col: name, position, colour and the WIP
+// limit. WIPLimit uses a pointer to distinguish "unchanged" from
+// "clear": nil leaves the limit as-is, 0 clears it, > 0 sets it.
+// A negative limit writes a 400 and returns false; true means the
+// caller may proceed.
+func applyColumnMutableFields(w http.ResponseWriter, col *project.Column, in columnInput) bool {
+	if in.Name != "" {
+		col.Name = in.Name
+	}
+	if in.Position != 0 {
+		col.Position = in.Position
+	}
+	if in.Color != "" {
+		col.Color = in.Color
+	}
+	if in.WIPLimit != nil {
+		if *in.WIPLimit < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "wip_limit_negative"})
+			return false
+		}
+		if *in.WIPLimit == 0 {
+			col.WIPLimit = nil // clear
+		} else {
+			v := *in.WIPLimit
+			col.WIPLimit = &v
+		}
+	}
+	return true
+}
+
+// validateColumnWIP checks a new non-zero wip limit against the
+// current task count in the column. It writes a 422 when the limit
+// is already exceeded (and returns false); a repo failure is
+// reported via writeError. True means the caller may proceed.
+func validateColumnWIP(ctx context.Context, w http.ResponseWriter, deps *Dependencies, col *project.Column) bool {
+	if col.WIPLimit == nil || deps.Tasks == nil {
+		return true
+	}
+	n, err := deps.Tasks.CountByColumn(ctx, col.ID)
+	if err != nil {
+		writeError(w, err)
+		return false
+	}
+	if n > *col.WIPLimit {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error":       "wip_limit_too_small",
+			"current":     n,
+			"wip_limit":   *col.WIPLimit,
+			"snapshot_id": col.ID,
+		})
+		return false
+	}
+	return true
+}
+
+// applyColumnStatusChange validates and applies a machine-key
+// change (Phase 30.14). nil = leave unchanged, "" = clear,
+// otherwise set. Clear is only acceptable when no tasks live in the
+// column (the fan-out can't migrate them to "no status"). A changed
+// key is reported via changed so the caller can run the fan-out
+// after the column update; ok=false means a response was written
+// and the caller must stop.
+func applyColumnStatusChange(ctx context.Context, w http.ResponseWriter, deps *Dependencies, col *project.Column, status *string) (changed, ok bool) {
+	if status == nil {
+		return false, true
+	}
+	if *status != "" && !taskdomain.StatusMachineKeyPattern.MatchString(*status) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_status"})
+		return false, false
+	}
+	if *status == col.Status {
+		return false, true
+	}
+	if *status == "" && deps.Tasks != nil {
+		n, err := deps.Tasks.CountByColumn(ctx, col.ID)
+		if err != nil {
+			writeError(w, err)
+			return false, false
+		}
+		if n > 0 {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+				"error":   "column_not_empty",
+				"current": n,
+			})
+			return false, false
+		}
+	}
+	col.Status = *status
+	return true, true
+}
+
+// fanOutColumnStatusQuiet runs the Phase 30.14 status fan-out: all
+// tasks in this column adopt the new machine key; we don't touch
+// their column_id (they stay in the same column, the axis collapse
+// invariant `task.status ≡ column.status` is restored by the manual
+// status write). On any per-task failure we keep the column update
+// (column has the new status); the error is only logged so an
+// operator can see the partial state.
+func fanOutColumnStatusQuiet(ctx context.Context, deps *Dependencies, col *project.Column) {
+	if err := fanOutColumnStatus(ctx, deps, col); err != nil {
+		if deps.Logger != nil {
+			deps.Logger.Warn("column.status fan-out partial",
+				zap.String("column_id", col.ID),
+				zap.String("status", col.Status),
+				zap.Error(err))
+		}
 	}
 }
 

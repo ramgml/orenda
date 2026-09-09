@@ -48,6 +48,19 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 	// the MCP spec renders the dot path as a tree on the client
 	// side; flat is fine for ~10 tools.
 
+	// The per-group registrars below keep the original registration
+	// order — the tool listing surfaces it as-is.
+	registerCoreTaskTools(s, httpc, cfg)
+	registerChecklistTools(s, httpc, cfg)
+	registerAwaitTool(s, httpc, cfg)
+	registerWikiTools(s, httpc, cfg)
+	registerSearchTool(s, httpc, cfg)
+	registerStudyTools(s, httpc, cfg)
+}
+
+// registerCoreTaskTools registers the identity, task-listing and
+// task-lifecycle tools (claim/release/submit/time/context).
+func registerCoreTaskTools(s *Server, httpc *http.Client, cfg ServerConfig) {
 	s.Register(Tool{
 		Name:        "orenda_me",
 		Description: "Confirm the agent token works. Returns the agent profile bound to the bearer token.",
@@ -80,39 +93,11 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
-			// T140: unknown keys are a caller bug — fail loudly instead
-			// of silently dropping them. T153: unknown VALUES too.
-			allowed := map[string]bool{"ready": true, "limit": true, "project": true, "group_by": true, "tree": true}
-			for k := range params {
-				if !allowed[k] {
-					return nil, fmt.Errorf("unknown parameter %q (allowed: group_by, limit, project, ready, tree)", k)
-				}
+			path, err := listTasksPath(params)
+			if err != nil {
+				return nil, err
 			}
-			groupBy, _ := params["group_by"].(string)
-			if groupBy != "" && groupBy != "project" {
-				return nil, fmt.Errorf("invalid group_by %q (only \"project\" is supported)", groupBy)
-			}
-			tree, _ := params["tree"].(bool)
-			if tree && groupBy == "" {
-				return nil, fmt.Errorf("tree requires group_by=\"project\"")
-			}
-			q := url.Values{}
-			if r, _ := params["ready"].(bool); r {
-				q.Set("ready", "true")
-			}
-			if l, ok := params["limit"].(float64); ok {
-				q.Set("limit", fmt.Sprintf("%d", int(l)))
-			}
-			if p, ok := params["project"].(string); ok && p != "" {
-				q.Set("project", p)
-			}
-			if groupBy != "" {
-				q.Set("group_by", groupBy)
-			}
-			if tree {
-				q.Set("tree", "true")
-			}
-			return agentGet(ctx, httpc, cfg, "/api/v1/agent/tasks?"+q.Encode())
+			return agentGet(ctx, httpc, cfg, path)
 		},
 	})
 
@@ -132,33 +117,9 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
-			projectID, _ := params["project_id"].(string)
-			title, _ := params["title"].(string)
-			desc, _ := params["description_md"].(string)
-			if projectID == "" || title == "" || strings.TrimSpace(desc) == "" {
-				return nil, fmt.Errorf("project_id, title and description_md are required")
-			}
-			body := map[string]any{
-				"project_id":     projectID,
-				"title":          title,
-				"description_md": desc,
-			}
-			if p := stringParam(params, "priority"); p != "" {
-				body["priority"] = p
-			}
-			if p := stringParam(params, "parent_task_id"); p != "" {
-				body["parent_task_id"] = p
-			}
-			if raw, ok := params["blocked_by"].([]any); ok && len(raw) > 0 {
-				ids := make([]string, 0, len(raw))
-				for _, v := range raw {
-					if s, ok := v.(string); ok && s != "" {
-						ids = append(ids, s)
-					}
-				}
-				if len(ids) > 0 {
-					body["blocked_by"] = ids
-				}
+			body, err := taskProposeBody(params)
+			if err != nil {
+				return nil, err
 			}
 			return agentPost(ctx, httpc, cfg, "/api/v1/agent/tasks", body)
 		},
@@ -185,27 +146,9 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
-			id, _ := params["task_id"].(string)
-			if id == "" {
-				return nil, fmt.Errorf("task_id is required")
-			}
-			body := map[string]any{}
-			for _, k := range []string{"title", "description_md", "priority", "due_at", "parent_task_id", "agent_notes"} {
-				if v, _ := params[k].(string); v != "" {
-					body[k] = v
-				}
-			}
-			// Task 115: blocked_by distinguishes absent (untouched)
-			// from [] (clear all) — forward the raw array whenever
-			// the field was supplied.
-			if raw, ok := params["blocked_by"].([]any); ok {
-				ids := make([]string, 0, len(raw))
-				for _, v := range raw {
-					if s, ok := v.(string); ok && s != "" {
-						ids = append(ids, s)
-					}
-				}
-				body["blocked_by"] = ids
+			id, body, err := taskUpdateArgs(params)
+			if err != nil {
+				return nil, err
 			}
 			return agentPatch(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id), body)
 		},
@@ -332,7 +275,11 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			return agentGet(ctx, httpc, cfg, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/context")
 		},
 	})
+}
 
+// registerChecklistTools registers the T96 checklist facades over
+// the agent-namespace checklist routes.
+func registerChecklistTools(s *Server, httpc *http.Client, cfg ServerConfig) {
 	// ------------------------------------------------------------------
 	// T96: checklist tools. Thin facades over the agent-namespace
 	// checklist routes: list (any agent) + holder-only mutations —
@@ -467,7 +414,10 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 				"/api/v1/agent/tasks/"+url.PathEscape(id)+"/checklists/"+url.PathEscape(listID)+"/items/"+url.PathEscape(itemID))
 		},
 	})
+}
 
+// registerAwaitTool registers the long-poll events tool.
+func registerAwaitTool(s *Server, httpc *http.Client, cfg ServerConfig) {
 	s.Register(Tool{
 		Name:        "orenda_await",
 		Description: "Long-poll for the next event (task.created, task.reviewed, mention.created, etc.). Returns the event or empty when the timeout elapses.",
@@ -496,7 +446,10 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			return agentPost(ctx, httpc, cfg, "/api/v1/agent/events/await", body)
 		},
 	})
+}
 
+// registerWikiTools registers the Phase 29.3 wiki page tools.
+func registerWikiTools(s *Server, httpc *http.Client, cfg ServerConfig) {
 	// ------------------------------------------------------------------
 	// Phase 29.3: wiki + search tools. Same flat naming as the task
 	// tools; each wraps one agent-namespace endpoint from Phase 29.1.
@@ -702,7 +655,10 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 				"/api/v1/agent/pages/"+url.PathEscape(slug)+"/attachments")
 		},
 	})
+}
 
+// registerSearchTool registers the full-text search tool.
+func registerSearchTool(s *Server, httpc *http.Client, cfg ServerConfig) {
 	s.Register(Tool{
 		Name:        "orenda_search",
 		Description: "Full-text search across wiki pages, tasks, and comments (FTS5, snippet-highlighted).",
@@ -731,7 +687,10 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			return agentGet(ctx, httpc, cfg, "/api/v1/agent/search?"+v.Encode())
 		},
 	})
+}
 
+// registerStudyTools registers the Phase 31.8 study-planning tools.
+func registerStudyTools(s *Server, httpc *http.Client, cfg ServerConfig) {
 	// ------------------------------------------------------------------
 	// Phase 31.8: study-planning surface. The external planner
 	// calls `orenda_study_propose` to file a pending proposal; the
@@ -796,6 +755,106 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 			return agentPost(ctx, httpc, cfg, "/api/v1/agent/study-proposals", body)
 		},
 	})
+}
+
+// listTasksPath validates the orenda_list_tasks arguments and
+// returns the agent-namespace path with the encoded query string.
+func listTasksPath(params map[string]any) (string, error) {
+	// T140: unknown keys are a caller bug — fail loudly instead
+	// of silently dropping them. T153: unknown VALUES too.
+	allowed := map[string]bool{"ready": true, "limit": true, "project": true, "group_by": true, "tree": true}
+	for k := range params {
+		if !allowed[k] {
+			return "", fmt.Errorf("unknown parameter %q (allowed: group_by, limit, project, ready, tree)", k)
+		}
+	}
+	groupBy, _ := params["group_by"].(string)
+	if groupBy != "" && groupBy != "project" {
+		return "", fmt.Errorf("invalid group_by %q (only \"project\" is supported)", groupBy)
+	}
+	tree, _ := params["tree"].(bool)
+	if tree && groupBy == "" {
+		return "", fmt.Errorf("tree requires group_by=\"project\"")
+	}
+	q := url.Values{}
+	if r, _ := params["ready"].(bool); r {
+		q.Set("ready", "true")
+	}
+	if l, ok := params["limit"].(float64); ok {
+		q.Set("limit", fmt.Sprintf("%d", int(l)))
+	}
+	if p, ok := params["project"].(string); ok && p != "" {
+		q.Set("project", p)
+	}
+	if groupBy != "" {
+		q.Set("group_by", groupBy)
+	}
+	if tree {
+		q.Set("tree", "true")
+	}
+	return "/api/v1/agent/tasks?" + q.Encode(), nil
+}
+
+// taskProposeBody validates the orenda_task_propose arguments and
+// builds the POST body.
+func taskProposeBody(params map[string]any) (map[string]any, error) {
+	projectID, _ := params["project_id"].(string)
+	title, _ := params["title"].(string)
+	desc, _ := params["description_md"].(string)
+	if projectID == "" || title == "" || strings.TrimSpace(desc) == "" {
+		return nil, fmt.Errorf("project_id, title and description_md are required")
+	}
+	body := map[string]any{
+		"project_id":     projectID,
+		"title":          title,
+		"description_md": desc,
+	}
+	if p := stringParam(params, "priority"); p != "" {
+		body["priority"] = p
+	}
+	if p := stringParam(params, "parent_task_id"); p != "" {
+		body["parent_task_id"] = p
+	}
+	if raw, ok := params["blocked_by"].([]any); ok && len(raw) > 0 {
+		ids := make([]string, 0, len(raw))
+		for _, v := range raw {
+			if s, ok := v.(string); ok && s != "" {
+				ids = append(ids, s)
+			}
+		}
+		if len(ids) > 0 {
+			body["blocked_by"] = ids
+		}
+	}
+	return body, nil
+}
+
+// taskUpdateArgs validates the orenda_task_update arguments and
+// returns the task id together with the PATCH body.
+func taskUpdateArgs(params map[string]any) (taskID string, body map[string]any, err error) {
+	id, _ := params["task_id"].(string)
+	if id == "" {
+		return "", nil, fmt.Errorf("task_id is required")
+	}
+	body = map[string]any{}
+	for _, k := range []string{"title", "description_md", "priority", "due_at", "parent_task_id", "agent_notes"} {
+		if v, _ := params[k].(string); v != "" {
+			body[k] = v
+		}
+	}
+	// Task 115: blocked_by distinguishes absent (untouched)
+	// from [] (clear all) — forward the raw array whenever
+	// the field was supplied.
+	if raw, ok := params["blocked_by"].([]any); ok {
+		ids := make([]string, 0, len(raw))
+		for _, v := range raw {
+			if s, ok := v.(string); ok && s != "" {
+				ids = append(ids, s)
+			}
+		}
+		body["blocked_by"] = ids
+	}
+	return id, body, nil
 }
 
 // stringParam reads an optional string parameter.

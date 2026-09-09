@@ -112,8 +112,8 @@ func (a *agentFixtureTMinter) MintToken(ctx context.Context, userID, name, hash,
 	return row.ID, row.Name, nil
 }
 
-func (a *agentFixtureTMinter) UpdateHash(ctx context.Context, tokenID, hash string) error {
-	return a.tokens.UpdateHash(ctx, tokenID, hash)
+func (a *agentFixtureTMinter) UpdateHash(ctx context.Context, tokenID, hash string, expiresAt *time.Time) error {
+	return a.tokens.UpdateHash(ctx, tokenID, hash, expiresAt)
 }
 
 func TestAgent_MeReturnsAgent(t *testing.T) {

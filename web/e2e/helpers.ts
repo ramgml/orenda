@@ -26,13 +26,13 @@
 import { request as plRequest, expect, type APIRequestContext } from '@playwright/test';
 
 /** Base URL shared by every call in this suite — matches playwright.config.ts. */
-export const BASE_URL = 'http://127.0.0.1:21371';
+const BASE_URL = 'http://127.0.0.1:21371';
 
-export const E2E_EMAIL = 'e2e@orenda.local';
+const E2E_EMAIL = 'e2e@orenda.local';
 export const E2E_PASSWORD = 'testpass123';
-export const E2E_AGENT_NAME = 'e2e-agent';
-export const E2E_PROJECT_NAME = 'E2E project';
-export const E2E_PROJECT_COLOR = '#0ea5e9';
+const E2E_AGENT_NAME = 'e2e-agent';
+const E2E_PROJECT_NAME = 'E2E project';
+const E2E_PROJECT_COLOR = '#0ea5e9';
 
 /**
  * Log in as the seeded e2e user and return a request context that
@@ -158,15 +158,6 @@ export async function listTaskActivity(
 ): Promise<{ activity: { action: string; payload?: string }[] }> {
   const resp = await ctx.get(`/api/v1/tasks/${taskId}/activity`);
   expect(resp.status(), `listTaskActivity: ${await resp.text()}`).toBe(200);
-  return resp.json();
-}
-
-/** Phase 27.7: list agents so the Assignee dropdown can be exercised. */
-export async function listAgents(
-  ctx: APIRequestContext,
-): Promise<{ agents: { id: string; name: string }[] }> {
-  const resp = await ctx.get('/api/v1/agents');
-  expect(resp.status(), `listAgents: ${await resp.text()}`).toBe(200);
   return resp.json();
 }
 
@@ -355,20 +346,6 @@ export async function materializeLesson(
   expect(resp.status(), `materializeLesson: ${await resp.text()}`).toBe(200);
 }
 
-/** Student-side: submit a quiz answer. */
-export async function answerQuiz(
-  ctx: APIRequestContext,
-  lessonId: string,
-  quizId: string,
-  answer: string,
-): Promise<{ correct: boolean; feedback_md?: string; review_task_id?: string }> {
-  const resp = await ctx.post(`/api/v1/lessons/${lessonId}/quizzes/${quizId}/answer`, {
-    data: { answer },
-  });
-  expect(resp.status(), `answerQuiz: ${await resp.text()}`).toBe(200);
-  return resp.json();
-}
-
 /** Student-side: mark a lesson done (unlocks the next). */
 export async function completeLesson(ctx: APIRequestContext, lessonId: string): Promise<void> {
   const resp = await ctx.post(`/api/v1/lessons/${lessonId}/complete`, {});
@@ -388,19 +365,6 @@ export async function setTaskTags(
     data: { tag_ids: tagIds },
   });
   expect(resp.status(), `setTaskTags: ${await resp.text()}`).toBe(200);
-}
-
-/**
- * Create a task in the Inbox (project_id IS NULL). The endpoint
- * accepts title + a few optional fields.
- */
-export async function createInboxTask(
-  ctx: APIRequestContext,
-  input: { title: string; description?: string },
-): Promise<TaskResp> {
-  const resp = await ctx.post('/api/v1/inbox/tasks', { data: input });
-  expect(resp.status(), `createInboxTask: ${await resp.text()}`).toBe(201);
-  return resp.json();
 }
 
 /**
@@ -434,17 +398,4 @@ export async function submitTask(
   const resp = await agentCtx.post(`/api/v1/agent/tasks/${taskId}/submit`, { data: { note } });
   expect(resp.status(), `submitTask: ${await resp.text()}`).toBe(200);
   return resp.json();
-}
-
-/** Approve or reject a task from the user side. */
-export async function reviewTask(
-  userCtx: APIRequestContext,
-  taskId: string,
-  decision: 'approve' | 'reject',
-  comment = '',
-): Promise<void> {
-  const resp = await userCtx.post(`/api/v1/tasks/${taskId}/review`, {
-    data: { decision, comment },
-  });
-  expect(resp.status(), `reviewTask: ${await resp.text()}`).toBe(200);
 }

@@ -1,6 +1,6 @@
 import axios, { AxiosError } from 'axios';
 
-import { outboxAdd, outboxAll, outboxRemove, cachePut, cacheGet, type OutboxItem } from './db';
+import { outboxAdd, outboxAll, outboxRemove, type OutboxItem } from './db';
 
 /**
  * Outbox manager: queues mutations while offline, flushes them via
@@ -12,23 +12,12 @@ import { outboxAdd, outboxAll, outboxRemove, cachePut, cacheGet, type OutboxItem
  *     generated id the UI can render optimistically.
  */
 
-export interface SyncResultItem {
-  client_id: string;
-  ok: boolean;
-  error?: string;
-}
-
 export interface SyncResponse {
-  results: SyncResultItem[];
+  results: { client_id: string; ok: boolean; error?: string }[];
 }
 
 let syncing = false;
 const listeners = new Set<() => void>();
-
-export function onSyncStateChange(fn: () => void): () => void {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
-}
 
 function emit(): void {
   for (const fn of listeners) fn();
@@ -153,24 +142,6 @@ function wire(item: OutboxItem): Record<string, unknown> {
     client_id: item.clientId,
     created_at: item.createdAt,
   };
-}
-
-/** Read-through helper for offline GETs: returns cached body if offline. */
-export async function readThrough<T>(url: string, fetcher: () => Promise<T>): Promise<T> {
-  if (navigator.onLine) {
-    try {
-      const data = await fetcher();
-      await cachePut(url, data);
-      return data;
-    } catch (e) {
-      const cached = await cacheGet(url);
-      if (cached !== undefined) return cached as T;
-      throw e;
-    }
-  }
-  const cached = await cacheGet(url);
-  if (cached !== undefined) return cached as T;
-  throw new Error('offline and no cache for ' + url);
 }
 
 /** Wire the window 'online' listener once. Call from main.tsx. */

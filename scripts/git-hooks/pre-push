@@ -8,11 +8,14 @@
 # Goal: ~1 min on a typical push. One push per task, so cost is fine.
 #
 # Checks (run only on pushes that carry code):
-#   make lint-new      — golangci-lint run --new-from-merge-base=origin/dev
-#                        (same flag the PR CI uses; pre-existing debt is
-#                        silent by design — see Phase 30.16)
+#   make lint-new      — golangci-lint v2 run --new-from-rev=<origin/dev SHA>
+#                        (v2 dropped --new-from-merge-base; pre-existing debt
+#                        is silent by design — see Phase 30.16)
 #   make web-typecheck  — tsc --noEmit on web/src (catches TS errors that
 #                         would break web-build; Task 44)
+#   make web-knip      — knip unused exports/files/deps audit on web/
+#                        (blocking since Task 180; allow-listed shadcn/ui
+#                        templates live in web/knip.json)
 #   make test          — go test ./... -race (Go test cache ENABLED — no
 #                        -count=1, so an unchanged tree re-runs in seconds)
 #                        + vitest. The full uncached `make test-full` is the
@@ -76,7 +79,7 @@ if ! git rev-parse --verify --quiet origin/dev >/dev/null; then
   }
 fi
 
-echo "pre-push: running \`make lint-new\` (golangci-lint --new-from-merge-base=origin/dev)…"
+echo "pre-push: running \`make lint-new\` (golangci-lint v2 --new-from-rev=<origin/dev SHA>)…"
 if ! make lint-new; then
   echo "pre-push: lint-new failed — push blocked." >&2
   echo "  inspect new issues locally; \`make lint\` shows everything (incl. pre-existing)." >&2
@@ -87,6 +90,14 @@ echo "pre-push: running \`make web-typecheck\` (tsc --noEmit)…"
 if ! make web-typecheck; then
   echo "pre-push: web-typecheck failed — push blocked." >&2
   echo "  fix TS errors in web/src. If tsc is not found: \`cd web && npm install\`." >&2
+  exit 1
+fi
+
+echo "pre-push: running \`make web-knip\` (knip unused-exports audit)…"
+if ! make web-knip; then
+  echo "pre-push: web-knip failed — push blocked." >&2
+  echo "  remove the dead export or extend the allow-list in web/knip.json" >&2
+  echo "  (only for regenerable shadcn/ui templates; see Task 180)." >&2
   exit 1
 fi
 

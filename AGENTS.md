@@ -78,7 +78,9 @@ Hook contract:
 | Hook        | Runs on        | Checks                                                            | Cost       |
 |-------------|----------------|-------------------------------------------------------------------|------------|
 | `pre-commit`| `git commit`   | `gofmt -l` on staged `.go` + `prettier --check` on staged web     | <2 s       |
-| `pre-push`  | `git push`     | `make lint-new` + `make web-typecheck` + `make test`              | ~1 min cold, seconds warm |
+| `pre-push`  | `git push`     | `make lint-new` + `make web-typecheck` + `make web-knip` + `make test` | ~1 min cold, seconds warm |
+  `make lint` / `make lint-new` require **golangci-lint ≥ v2** (`.golangci.yml` carries `version: "2"` — the v1 binary fails the config schema). Install:
+  `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`
 
 Deletion-only pushes (e.g. `git push origin --delete <branch>`) skip
 the gates entirely — no code crosses the wire, so there is nothing to
@@ -90,6 +92,8 @@ It catches TS errors that would break `web-build` (e.g. the v0.5.0
 release blocker where `shadcn.test.tsx` referenced an undefined
 identifier). The CI backstop on push to `dev` also runs this step
 (`make web-typecheck` + `make test-full`).
+
+`make web-knip` is the knip unused-exports/files audit for the SPA — blocking since Task 180. Dead exports must be removed; the only sanctioned allow-list (web/knip.json `ignoreIssues`) covers the regenerable shadcn/ui primitives that `shadcn` CLI rewrites on re-add.
 
 `make test` runs `go test ./... -race` + vitest **with the Go test cache
 enabled** (seconds on an unchanged tree; the cache keys on file contents
@@ -107,9 +111,10 @@ This is the compensator class for unit tests that inject fake timers
 (Task 149): the injected test pins the logic, the real-tick smoke pins
 the wake-up. Run it nightly / pre-release, not per-PR.
 
-`make lint-new` is `golangci-lint run --new-from-merge-base=origin/dev ./...`
-— exactly the gate the old PR CI used, minus the pre-existing lint debt
-(see Phase 30.16). ~8.5 s warm.
+`make lint-new` is `golangci-lint run --new-from-rev=$(git rev-parse origin/dev) ./...`
+(golangci-lint v2 dropped `--new-from-merge-base`; the base ref is resolved to a
+SHA first — same semantics as the old PR CI gate), minus the pre-existing lint
+debt (see Phase 30.16). ~8.5 s warm.
 
 Process rules (binary, like the rest of this file):
 
@@ -153,7 +158,7 @@ Process rules (binary, like the rest of this file):
 ## Conventions for AI agents
 
 ### When you start a task
-1. Work comes from the dogfood instance (`orenda agent next` / MCP `orenda_list_tasks`) — see `docs/DOGFOOD.md`. `docs/PLAN.md` is a frozen archive of phases ≤ 32, not a queue.
+1. Work comes from the dogfood instance (`orenda agent next` / MCP `orenda_list_tasks` — plain `next` CLAIMS; for a read-only queue check use `orenda agent next --peek`) — see `docs/DOGFOOD.md`. `docs/PLAN.md` is a frozen archive of phases ≤ 32, not a queue.
 2. Check Definition of Done (in the task description / linked wiki постановка).
 3. Create worktree + branch `task-123-short-slug` (123 = номер задачи; см. «Worktree per task» — обязательно, без исключений).
 4. Implement tasks in order.

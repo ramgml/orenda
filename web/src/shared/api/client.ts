@@ -3,7 +3,7 @@ import axios, { AxiosError, type AxiosInstance } from 'axios';
 /**
  * Capabilities advertised by the server (mirrors Go's api.Capabilities).
  */
-export interface Capabilities {
+interface Capabilities {
   auth: boolean;
   rest_tasks: boolean;
   websocket: boolean;
@@ -75,7 +75,7 @@ export interface UserProfile {
   scopes?: string[];
 }
 
-export type LoginResponse = UserProfile;
+type LoginResponse = UserProfile;
 
 /**
  * Phase 18: Course mirrors the server's Course entity. Top-level
@@ -208,7 +208,7 @@ export interface BoardColumn {
 /** Alias kept for PATCH /columns/:id which returns the same shape. */
 export type Column = BoardColumn;
 
-export interface Board {
+interface Board {
   id: string;
   project_id: string;
   name: string;
@@ -336,7 +336,7 @@ export interface BlockerRow {
  * and checklist carry done/total so the card can render a progress
  * fraction.
  */
-export interface TaskCounters {
+interface TaskCounters {
   comments: number;
   attachments: number;
   children_total: number;
@@ -372,7 +372,7 @@ export interface OverviewResponse {
 // StudyProposalFull — returned by the accept/dismiss endpoints
 // because the user tray may want to confirm the title / agent after
 // the action. Phase 31.9.
-export interface StudyProposalFull {
+interface StudyProposalFull {
   id: string;
   course_id?: string;
   title: string;
@@ -1606,7 +1606,7 @@ class ApiClient {
   }
 }
 
-export interface BotSubscription {
+interface BotSubscription {
   id: string;
   user_id: string;
   bot_type: string;
@@ -1646,7 +1646,7 @@ export interface BackupSettings {
  * server validates snapshot_cron (5-field cron expression) and
  * rejects negative snapshot_rotation_days.
  */
-export interface BackupSettingsInput {
+interface BackupSettingsInput {
   enabled?: boolean;
   remote_url?: string;
   remote_auth?: string;
@@ -1715,7 +1715,7 @@ export interface WikiBlock {
  * - format "markdown": content_md contains raw markdown (legacy page)
  * - format "blocks": blocks array contains the BlockNote-shaped tree
  */
-export interface WikiBlockView {
+interface WikiBlockView {
   format: string;
   content_md?: string;
   blocks?: WikiBlock[];
@@ -1748,7 +1748,7 @@ export interface CalendarEvent {
   updated_at: string;
 }
 
-export interface TimeEntry {
+interface TimeEntry {
   id: string;
   task_id: string;
   agent_id: string;

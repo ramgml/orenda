@@ -321,66 +321,11 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 	}
 	prevStatus := tr.Status
 
-	// WIP-limit check (count tasks in target column, excluding self).
-	if limit, ok := s.lookupWIPLimit(ctx, opts.TargetColumnID); ok && limit > 0 {
-		existing, lerr := s.Tasks.ListByProject(ctx, task.Filter{ColumnID: opts.TargetColumnID})
-		if lerr != nil {
-			return nil, fmt.Errorf("task service: list column: %w", lerr)
-		}
-		count := 0
-		for _, t := range existing {
-			if t.ID != taskID {
-				count++
-			}
-		}
-		if count >= limit {
-			return nil, ErrColumnFull
-		}
+	if err := s.checkWIPLimit(ctx, taskID, opts.TargetColumnID); err != nil {
+		return nil, err
 	}
-
-	// Task 115 (manual move wins): dragging the card anywhere is the
-	// owner's explicit decision — leaving `blocked` this way clears
-	// the auto-block memory. The unfinished blockers still gate Claim
-	// and ?ready=true; the override only drops the status bookkeeping.
-	if tr.Status == task.StatusBlocked && tr.BlockedPrevStatus != "" {
-		tr.BlockedPrevStatus = ""
-	}
-	tr.ColumnID = opts.TargetColumnID
-	tr.Position = derivePosition(opts, tr.Position)
-	// Phase 16: dragging an Inbox card onto a project's board files
-	// it under that project. We resolve the project id from the
-	// target column's board via the columns repository (which knows
-	// the project_id → column_id mapping). When tr.ProjectID is
-	// already set (a normal intra-project move), this is a no-op.
-	if tr.ProjectID == "" {
-		if pid, ok := s.lookupProjectOfColumn(ctx, opts.TargetColumnID); ok {
-			tr.ProjectID = pid
-		}
-	}
-
-	// Phase 27.8: collapse the two axes (status, column) into one —
-	// the column's status is the source of truth when the user picked
-	// a destination column by dragging. The reverse direction
-	// (status → column) is handled by syncColumnToStatus / SyncStatusAndColumn
-	// on every write that touches status. Move is the only path that
-	// moves by column alone, so it has to lift the column's status
-	// onto the task here. Defensive: nil Columns repo or missing
-	// status key leaves the task's status untouched (the old behaviour).
-	// Task 117: the same single lookup also resolves the target
-	// column's NAME for the task.moved activity payload — the feed
-	// shows "→ In Review" instead of a raw column UUID. Lookup
-	// failure leaves columnName empty and the payload is written in
-	// the legacy (column_id-only) shape, so old feed readers and the
-	// activityDetails fallback keep working unchanged.
-	var columnName string
-	if s.Columns != nil {
-		if col, err := s.Columns.GetColumn(ctx, opts.TargetColumnID); err == nil {
-			if col.Status != "" {
-				tr.Status = task.Status(col.Status)
-			}
-			columnName = col.Name
-		}
-	}
+	s.resolveMoveTarget(ctx, tr, opts)
+	columnName := s.applyColumnStatus(ctx, tr, opts.TargetColumnID)
 
 	// Phase 33.1 + 33.3: defensive clearing of awaiting=human on a
 	// move to a non-review column. The propose handler no longer
@@ -401,20 +346,91 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 	// Task 87: a kanban drag that crosses the in_progress boundary
 	// opens/closes the actor's auto-timer entry.
 	s.syncTimer(ctx, tr, prevStatus)
+	s.recordMoveEffects(ctx, tr, opts, columnName)
+	return tr, nil
+}
 
+// checkWIPLimit enforces the target column's WIP limit, counting the
+// tasks already in the column excluding the moved task itself.
+func (s *Service) checkWIPLimit(ctx context.Context, taskID, columnID string) error {
+	// WIP-limit check (count tasks in target column, excluding self).
+	limit, ok := s.lookupWIPLimit(ctx, columnID)
+	if !ok || limit <= 0 {
+		return nil
+	}
+	existing, err := s.Tasks.ListByProject(ctx, task.Filter{ColumnID: columnID})
+	if err != nil {
+		return fmt.Errorf("task service: list column: %w", err)
+	}
+	count := 0
+	for _, t := range existing {
+		if t.ID != taskID {
+			count++
+		}
+	}
+	if count >= limit {
+		return ErrColumnFull
+	}
+	return nil
+}
+
+// resolveMoveTarget applies the manual-move overrides to the task:
+// Task 115 (manual move wins) — dragging the card anywhere is the
+// owner's explicit decision — leaving `blocked` this way clears the
+// auto-block memory. The unfinished blockers still gate Claim and
+// ?ready=true; the override only drops the status bookkeeping. Then
+// the column and position land on the task, and Phase 16 files an
+// Inbox card (no ProjectID) under the target column's project — a
+// normal intra-project move leaves ProjectID untouched.
+func (s *Service) resolveMoveTarget(ctx context.Context, tr *task.Task, opts MoveOptions) {
+	if tr.Status == task.StatusBlocked && tr.BlockedPrevStatus != "" {
+		tr.BlockedPrevStatus = ""
+	}
+	tr.ColumnID = opts.TargetColumnID
+	tr.Position = derivePosition(opts, tr.Position)
+	if tr.ProjectID == "" {
+		if pid, ok := s.lookupProjectOfColumn(ctx, opts.TargetColumnID); ok {
+			tr.ProjectID = pid
+		}
+	}
+}
+
+// applyColumnStatus lifts the target column's status onto the task
+// (Phase 27.8: the column's status is the source of truth when the
+// user picked a destination column by dragging) and returns the
+// column's NAME for the task.moved activity payload. Defensive: nil
+// Columns repo or missing status key leaves the task's status
+// untouched (the old behaviour); lookup failure leaves columnName
+// empty so the payload keeps the legacy (column_id-only) shape.
+func (s *Service) applyColumnStatus(ctx context.Context, tr *task.Task, columnID string) string {
+	var columnName string
+	if s.Columns != nil {
+		if col, err := s.Columns.GetColumn(ctx, columnID); err == nil {
+			if col.Status != "" {
+				tr.Status = task.Status(col.Status)
+			}
+			columnName = col.Name
+		}
+	}
+	return columnName
+}
+
+// recordMoveEffects publishes the task.moved activity row and the WS
+// event after a successful Move. Task 117: column_name is written
+// only when the lookup succeeded — legacy rows (and any failure)
+// keep the old payload shape, which the frontend falls back to UUID
+// on.
+func (s *Service) recordMoveEffects(ctx context.Context, tr *task.Task, opts MoveOptions, columnName string) {
 	if s.Recorder != nil {
 		payload := map[string]any{
 			"column_id": opts.TargetColumnID,
 			"position":  tr.Position,
 		}
-		// Task 117: column_name is written only when the lookup
-		// succeeded — legacy rows (and any failure) keep the old
-		// payload shape, which the frontend falls back to UUID on.
 		if columnName != "" {
 			payload["column_name"] = columnName
 		}
 		raw, _ := json.Marshal(payload) // map[string]any of basic values cannot fail
-		_ = s.Recorder.Record(ctx, taskID, activity.ActorUser, opts.ActorID, activity.ActionMoved,
+		_ = s.Recorder.Record(ctx, tr.ID, activity.ActorUser, opts.ActorID, activity.ActionMoved,
 			string(raw))
 	}
 	if s.Hub != nil {
@@ -427,7 +443,6 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 			},
 		})
 	}
-	return tr, nil
 }
 
 // lookupWIPLimit returns the WIP limit set on a column, or (0, false)
@@ -666,13 +681,54 @@ func (s *Service) SetTaskDependencies(ctx context.Context, taskID string, depend
 	if taskID == "" {
 		return ErrInvalidInput
 	}
+	cleaned, err := s.validateDependencySet(ctx, taskID, dependsOnIDs)
+	if err != nil {
+		return err
+	}
+
+	// Task 115: snapshot the CURRENT blockers BEFORE the replace —
+	// the edge diff (added → auto-block, removed → auto-unblock)
+	// needs the pre-write set; after the swap it would be empty and
+	// the state machine would never fire.
+	before, berr := s.Tasks.Blockers(ctx, taskID)
+	if berr != nil {
+		return fmt.Errorf("task service: SetTaskDependencies: pre-diff blockers: %w", berr)
+	}
+
+	if err := s.Tasks.SetTaskDependencies(ctx, taskID, cleaned); err != nil {
+		// Translate domain sentinels so the handler only deals with
+		// service-level errors.
+		if errors.Is(err, task.ErrSelfDependency) {
+			return ErrSelfDependency
+		}
+		return err
+	}
+	if err := s.applyDependencyEdgeDiff(ctx, taskID, before, cleaned); err != nil {
+		return err
+	}
+	// Fire WS event so other tabs refresh their badge/blockers view.
+	if s.Hub != nil {
+		s.Hub.Publish(ctx, ws.Event{Topic: "tasks", Body: map[string]any{
+			"type":       "task.deps_changed",
+			"task_id":    taskID,
+			"depends_on": cleaned,
+		}})
+	}
+	return nil
+}
+
+// validateDependencySet rejects direct self-loops, de-dupes the
+// requested set, confirms the target task exists, and runs the DFS
+// cycle check — everything that must pass before the persisted set
+// is replaced.
+func (s *Service) validateDependencySet(ctx context.Context, taskID string, dependsOnIDs []string) ([]string, error) {
 	// Reject direct self-loops early.
 	for _, dep := range dependsOnIDs {
 		if dep == "" {
 			continue
 		}
 		if dep == taskID {
-			return ErrSelfDependency
+			return nil, ErrSelfDependency
 		}
 	}
 	// De-dupe (the caller may pass the same id twice; we don't
@@ -694,41 +750,27 @@ func (s *Service) SetTaskDependencies(ctx context.Context, taskID string, depend
 	// below returns false anyway; we want a clean ErrNotFound up front.
 	if _, err := s.Tasks.GetByID(ctx, taskID); err != nil {
 		if errors.Is(err, task.ErrNotFound) {
-			return ErrNotFound
+			return nil, ErrNotFound
 		}
-		return err
+		return nil, err
 	}
 
 	// Cycle check: build an adjacency map of "current graph + new edges"
 	// (capped to nodes we actually care about — the deps of deps), then
 	// DFS from each new edge looking for taskID.
 	if err := s.checkDependencyCycles(ctx, taskID, cleaned); err != nil {
-		return err
+		return nil, err
 	}
+	return cleaned, nil
+}
 
-	// Task 115: snapshot the CURRENT blockers BEFORE the replace —
-	// the edge diff (added → auto-block, removed → auto-unblock)
-	// needs the pre-write set; after the swap it would be empty and
-	// the state machine would never fire.
-	before, berr := s.Tasks.Blockers(ctx, taskID)
-	if berr != nil {
-		return fmt.Errorf("task service: SetTaskDependencies: pre-diff blockers: %w", berr)
-	}
-
-	if err := s.Tasks.SetTaskDependencies(ctx, taskID, cleaned); err != nil {
-		// Translate domain sentinels so the handler only deals with
-		// service-level errors.
-		if errors.Is(err, task.ErrSelfDependency) {
-			return ErrSelfDependency
-		}
-		return err
-	}
-	// Run BOTH state machines so every path that replaces the set
-	// (PUT /dependencies, agent propose blocked_by, agent PATCH
-	// blocked_by) gets the identical auto-block / auto-unblock +
-	// activity behaviour as the single-edge endpoints. Added edges →
-	// auto-block flip (per edge, one task.blocked row); removed edges
-	// → auto-unblock check.
+// applyDependencyEdgeDiff runs BOTH state machines so every path
+// that replaces the set (PUT /dependencies, agent propose blocked_by,
+// agent PATCH blocked_by) gets the identical auto-block /
+// auto-unblock + activity behaviour as the single-edge endpoints.
+// Added edges → auto-block flip (per edge, one task.blocked row);
+// removed edges → auto-unblock check.
+func (s *Service) applyDependencyEdgeDiff(ctx context.Context, taskID string, before []task.BlockerRow, cleaned []string) error {
 	beforeSet := make(map[string]struct{}, len(before))
 	for _, b := range before {
 		beforeSet[b.BlockerID] = struct{}{}
@@ -757,14 +799,6 @@ func (s *Service) SetTaskDependencies(ctx context.Context, taskID string, depend
 		if _, err := s.blockerEdgeRemoved(ctx, taskID, dep); err != nil {
 			return fmt.Errorf("task service: SetTaskDependencies: auto-unblock: %w", err)
 		}
-	}
-	// Fire WS event so other tabs refresh their badge/blockers view.
-	if s.Hub != nil {
-		s.Hub.Publish(ctx, ws.Event{Topic: "tasks", Body: map[string]any{
-			"type":       "task.deps_changed",
-			"task_id":    taskID,
-			"depends_on": cleaned,
-		}})
 	}
 	return nil
 }

@@ -135,49 +135,16 @@ func Parse(expr string) (Schedule, error) {
 func parseCronField(s string, minVal, maxVal int) (cronField, error) {
 	var f cronField
 	for _, part := range strings.Split(s, ",") {
-		step := 1
-		if idx := strings.Index(part, "/"); idx >= 0 {
-			stepStr := part[idx+1:]
-			if stepStr == "" {
-				return cronField{}, fmt.Errorf("empty step in %q", part)
-			}
-			n, err := strconv.Atoi(stepStr)
-			if err != nil {
-				return cronField{}, fmt.Errorf("invalid step %q: %w", stepStr, err)
-			}
-			if n <= 0 {
-				return cronField{}, fmt.Errorf("step must be positive, got %d", n)
-			}
-			step = n
-			part = part[:idx]
+		step, part, err := parseCronStep(part)
+		if err != nil {
+			return cronField{}, err
 		}
 		if part == "" {
 			return cronField{}, fmt.Errorf("empty range in %q", s)
 		}
-		var start, end int
-		switch {
-		case part == "*":
-			start, end = minVal, maxVal
-		case strings.Contains(part, "-"):
-			idx := strings.Index(part, "-")
-			a, err := strconv.Atoi(part[:idx])
-			if err != nil {
-				return cronField{}, fmt.Errorf("invalid range start in %q: %w", part, err)
-			}
-			b, err := strconv.Atoi(part[idx+1:])
-			if err != nil {
-				return cronField{}, fmt.Errorf("invalid range end in %q: %w", part, err)
-			}
-			if a > b {
-				return cronField{}, fmt.Errorf("range start > end in %q", part)
-			}
-			start, end = a, b
-		default:
-			v, err := strconv.Atoi(part)
-			if err != nil {
-				return cronField{}, fmt.Errorf("invalid value %q: %w", part, err)
-			}
-			start, end = v, v
+		start, end, err := parseCronRange(part, minVal, maxVal)
+		if err != nil {
+			return cronField{}, err
 		}
 		if start < minVal || end > maxVal {
 			return cronField{}, fmt.Errorf("value out of range [%d, %d] in %q", minVal, maxVal, s)
@@ -187,6 +154,58 @@ func parseCronField(s string, minVal, maxVal int) (cronField, error) {
 		}
 	}
 	return f, nil
+}
+
+// parseCronStep splits a trailing "/step" suffix off one cron field
+// part, returning the step (default 1) and the part with the suffix
+// removed. An empty or non-positive step is rejected.
+func parseCronStep(part string) (step int, rest string, err error) {
+	idx := strings.Index(part, "/")
+	if idx < 0 {
+		return 1, part, nil
+	}
+	stepStr := part[idx+1:]
+	if stepStr == "" {
+		return 0, "", fmt.Errorf("empty step in %q", part)
+	}
+	n, err := strconv.Atoi(stepStr)
+	if err != nil {
+		return 0, "", fmt.Errorf("invalid step %q: %w", stepStr, err)
+	}
+	if n <= 0 {
+		return 0, "", fmt.Errorf("step must be positive, got %d", n)
+	}
+	return n, part[:idx], nil
+}
+
+// parseCronRange parses the range portion of one cron field part:
+// "*", "n-m", or a bare value. Returns the inclusive [start, end]
+// bounds; reversed ranges are rejected.
+func parseCronRange(part string, minVal, maxVal int) (start, end int, err error) {
+	switch {
+	case part == "*":
+		return minVal, maxVal, nil
+	case strings.Contains(part, "-"):
+		idx := strings.Index(part, "-")
+		a, err := strconv.Atoi(part[:idx])
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid range start in %q: %w", part, err)
+		}
+		b, err := strconv.Atoi(part[idx+1:])
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid range end in %q: %w", part, err)
+		}
+		if a > b {
+			return 0, 0, fmt.Errorf("range start > end in %q", part)
+		}
+		return a, b, nil
+	default:
+		v, err := strconv.Atoi(part)
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid value %q: %w", part, err)
+		}
+		return v, v, nil
+	}
 }
 
 // DefaultSchedule is the cron expression used when the operator

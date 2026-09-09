@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/domain/agent"
@@ -209,15 +210,50 @@ func RequireAgent(cfg AuthConfig) func(http.Handler) http.Handler {
 
 // verifyAPIToken is a small wrapper around the repo lookup that retries on
 // transient errors.
+//
+// T182 expiry semantics: a row is expired iff its deadline is set and has
+// passed — expires_at <= now counts as expired (nil = never expires). An
+// expired row is rejected exactly like a bcrypt non-match, so the middleware
+// answers the same generic 401 for unknown and expired credentials and the
+// wire cannot tell them apart (no "expired" leak in status or body).
+//
+// T190 constant-work invariant: the function ALWAYS performs a full pass
+// over every api_tokens row — a bcrypt comparison against each stored hash —
+// and forms the response only after the pass completes. Early exit is
+// FORBIDDEN: returning on the first match would make the response time
+// correlate with the matched row's position (and with the token count),
+// giving an unauthenticated caller a timing oracle (CWE-208). The full pass
+// makes every request cost the same N bcrypt comparisons regardless of
+// which row (if any) matches. There is deliberately no break/return inside
+// the loop.
 func verifyAPIToken(ctx context.Context, repo TokenLookup, plain string) (*auth.TokenRow, error) {
 	hashes, err := repo.ListAllHashes(ctx)
 	if err != nil {
 		return nil, err
 	}
+
+	// T190: full pass over ALL rows — no break/return on match. A first-
+	// match early exit would let response time reveal the matched row's
+	// position (timing oracle, CWE-208); running every comparison makes
+	// each request cost the same N bcrypt operations. A match on an
+	// expired row is remembered but must not short-circuit: a later row
+	// can still carry the live credential (the PK guarantees at most one
+	// true plaintext match).
+	var match *auth.TokenRow
 	for hash, t := range hashes {
-		if err := auth.VerifyAPIToken(hash, plain); err == nil {
-			return &t, nil
+		if auth.VerifyAPIToken(hash, plain) != nil {
+			continue
 		}
+		if t.ExpiresAt != nil && !t.ExpiresAt.After(time.Now()) {
+			continue // expired: not usable, but the pass must still complete
+		}
+		if match == nil {
+			row := t // explicit copy: take the address of a per-iteration local
+			match = &row
+		}
+	}
+	if match != nil {
+		return match, nil
 	}
 	return nil, errAPITokenNotFound
 }

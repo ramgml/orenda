@@ -1331,7 +1331,10 @@ paths:
                     type: string
                     description: New opaque token; shown exactly once.
         '404':
-          description: unknown agent
+          description: |
+            unknown agent; or dangling token_id — the agent exists but
+            its api_tokens row is gone. Both return the same
+            {"error":"not_found"} body.
           content:
             application/json:
               schema:
@@ -2320,9 +2323,10 @@ paths:
       tags: [agent]
       summary: Atomic claim (409 lock_taken / 422 task_blocked).
       description: |
-        {id} accepts the task UUID or the human number: "42" or "#42"
-        (a pure-digit path segment resolves through tasks.number).
-        Unknown numbers return 404 with body {"error":"task #N not found"}.
+        {id} accepts the task UUID or the T-ref: "T42".
+        Unknown refs return 404: a T-ref error names the ref,
+        e.g. {"error":"task T42 not found"}; a legacy-shaped ref
+        ("#42", bare "42") gets a hint naming the T-ref form.
       security: [{ bearerAuth-agent: [] }]
       responses:
         '200': { description: ok }
@@ -2392,7 +2396,7 @@ paths:
         agent_name, acquired_at) when applicable. Both fields are
         omitted when there are no open blockers / no active lock —
         same shape as the user-facing /api/v1/tasks/{id}/context.
-        {id} accepts the task UUID or the human number ("42" / "#42").
+        {id} accepts the task UUID or the T-ref ("T42").
       security: [{ bearerAuth-agent: [] }]
       responses:
         '200': { description: ok }

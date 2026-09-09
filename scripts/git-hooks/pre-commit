@@ -5,7 +5,7 @@
 # Runs on `git commit` in any worktree of this repo.
 #
 # Scope: cheap, deterministic formatting checks on STAGED content only.
-# Goal: <2s on a typical commit. Heavy gates (lint --new-from-merge-base,
+# Goal: <2s on a typical commit. Heavy gates (lint v2 --new-from-rev,
 # go test -race, vitest) live in pre-push.
 #
 # Checks:
