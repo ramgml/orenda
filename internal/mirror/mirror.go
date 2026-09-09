@@ -54,6 +54,13 @@ func (s *Service) WriteTask(
 	comments []*comment.Comment,
 	tags []task.Tag,
 ) (string, error) {
+	if s == nil {
+		// Task 193: a typed-nil *Service can hide inside the
+		// MirrorWriter/PageMirror interface fields (non-nil interface
+		// value), so callers' `if s.Mirror == nil` guards don't catch
+		// it. Be a silent no-op instead of panicking on the receiver.
+		return "", fmt.Errorf("mirror: service is nil")
+	}
 	if t == nil {
 		return "", fmt.Errorf("mirror: task is nil")
 	}
@@ -130,6 +137,9 @@ func (s *Service) WriteTask(
 
 // WritePage renders a wiki page.
 func (s *Service) WritePage(p *wiki.Page) (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("mirror: service is nil") // Task 193, see WriteTask
+	}
 	if p == nil {
 		return "", fmt.Errorf("mirror: page is nil")
 	}
@@ -144,7 +154,11 @@ func (s *Service) WritePage(p *wiki.Page) (string, error) {
 }
 
 // DeleteTask removes a task mirror file (no error if missing).
+// Task 193: nil-receiver safe — see WriteTask.
 func (s *Service) DeleteTask(id string) error {
+	if s == nil {
+		return nil
+	}
 	err := os.Remove(filepath.Join(s.Dir, "tasks", id+".md"))
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -153,7 +167,11 @@ func (s *Service) DeleteTask(id string) error {
 }
 
 // DeletePage removes a page mirror by slug.
+// Task 193: nil-receiver safe — see WriteTask.
 func (s *Service) DeletePage(slug string) error {
+	if s == nil {
+		return nil
+	}
 	err := os.Remove(filepath.Join(s.Dir, "pages", slug+".md"))
 	if err != nil && !os.IsNotExist(err) {
 		return err

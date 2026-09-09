@@ -716,10 +716,19 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	backupSvc, mirrorSvc, err := serveBackupIfEnabled(cmd.Context(), ctx, cfg, logger, db)
+	backupSvc, err := serveBackupIfEnabled(cmd.Context(), ctx, cfg, logger, db)
 	if err != nil {
 		return err
 	}
+	// Task 193: the mirror is a filesystem projection of the DB
+	// (data/mirror/), not part of the backup machinery. Construct it
+	// unconditionally and hand every consumer a REAL *mirror.Service —
+	// never a typed-nil. Assigning a typed-nil pointer into the
+	// MirrorWriter/PageMirror interface fields yields a non-nil
+	// interface value, so `if s.Mirror == nil` guards in the task/wiki
+	// services pass and writeFile dereferences a nil *mirror.Service
+	// (panic → 500 on task create/PATCH when backup.enabled=false).
+	mirrorSvc := mirror.New(cfg.Backup.MirrorDir)
 
 	// Build service layer (Phase 2: task_service.Move; Phase 3.6 adds
 	// Claim/Release/Submit/Review — wired with locks repo, Recorder/Comments
@@ -1036,22 +1045,25 @@ func serveOpenDB(ctx context.Context, cfg *config.Config, logger *zap.Logger, ab
 	return db, nil
 }
 
-// serveBackupIfEnabled constructs the backup service + mirror and
-// starts the backup scheduler when backups are enabled in the
-// config. baseCtx is the command context (settings merge), runCtx
-// is the signal-aware context (scheduler lifetime). Returns nil
-// services when backups are disabled.
-func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, logger *zap.Logger, db *sql.DB) (backupSvc *backup.Service, mirrorSvc *mirror.Service, err error) {
+// serveBackupIfEnabled constructs the backup service and starts the
+// backup scheduler when backups are enabled in the config. baseCtx is
+// the command context (settings merge), runCtx is the signal-aware
+// context (scheduler lifetime). Returns a nil service when backups
+// are disabled; the mirror service is NOT its concern (Task 193 —
+// the mirror must exist regardless of backup.enabled).
+func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, logger *zap.Logger, db *sql.DB) (backupSvc *backup.Service, err error) {
 	if !cfg.Backup.Enabled {
-		return nil, nil, nil
+		//nolint:nilnil // documented contract: backups disabled → nil *backup.Service (callers nil-check deps.Backup).
+		return nil, nil
 	}
-	// Backup service + scheduler (Phase 7) — constructed before the other
-	// services so task/wiki services can hold a reference to the mirror.
+	// Backup service + scheduler (Phase 7). The mirror service is
+	// deliberately NOT built here (Task 193) — runServe constructs it
+	// unconditionally so it exists with backup.enabled=false too.
 	if err := os.MkdirAll(cfg.Backup.MirrorDir, 0o755); err != nil {
-		return nil, nil, fmt.Errorf("backup mirror dir: %w", err)
+		return nil, fmt.Errorf("backup mirror dir: %w", err)
 	}
 	if err := os.MkdirAll(cfg.Backup.SnapshotDir, 0o755); err != nil {
-		return nil, nil, fmt.Errorf("backup snapshot dir: %w", err)
+		return nil, fmt.Errorf("backup snapshot dir: %w", err)
 	}
 	// Phase 32.7: validate the cron expression at startup. A
 	// bad expression in config.yaml used to silently fall
@@ -1063,10 +1075,9 @@ func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, l
 	// cheaper to fix than the surprise.
 	if cfg.Backup.SQLiteSnapshotCron != "" {
 		if _, err := backup.Parse(cfg.Backup.SQLiteSnapshotCron); err != nil {
-			return nil, nil, fmt.Errorf("backup.sqlite_snapshot_cron: %w", err)
+			return nil, fmt.Errorf("backup.sqlite_snapshot_cron: %w", err)
 		}
 	}
-	mirrorSvc = mirror.New(cfg.Backup.MirrorDir)
 	backupSvc = backup.New(backup.Config{
 		MirrorDir:            cfg.Backup.MirrorDir,
 		SnapshotDir:          cfg.Backup.SnapshotDir,
@@ -1101,7 +1112,7 @@ func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, l
 	// Phase Wave 4 PR 2: `backup.failed` events fan out
 	// from the scheduler's run* helpers.
 	pendingNotifier = scheduler
-	return backupSvc, mirrorSvc, nil
+	return backupSvc, nil
 }
 
 // serveBots builds the bot registry (console bot always available,
