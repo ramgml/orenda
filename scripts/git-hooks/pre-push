@@ -13,6 +13,9 @@
 #                        is silent by design — see Phase 30.16)
 #   make web-typecheck  — tsc --noEmit on web/src (catches TS errors that
 #                         would break web-build; Task 44)
+#   make web-knip      — knip unused exports/files/deps audit on web/
+#                        (blocking since Task 180; allow-listed shadcn/ui
+#                        templates live in web/knip.json)
 #   make test          — go test ./... -race (Go test cache ENABLED — no
 #                        -count=1, so an unchanged tree re-runs in seconds)
 #                        + vitest. The full uncached `make test-full` is the
@@ -87,6 +90,14 @@ echo "pre-push: running \`make web-typecheck\` (tsc --noEmit)…"
 if ! make web-typecheck; then
   echo "pre-push: web-typecheck failed — push blocked." >&2
   echo "  fix TS errors in web/src. If tsc is not found: \`cd web && npm install\`." >&2
+  exit 1
+fi
+
+echo "pre-push: running \`make web-knip\` (knip unused-exports audit)…"
+if ! make web-knip; then
+  echo "pre-push: web-knip failed — push blocked." >&2
+  echo "  remove the dead export or extend the allow-list in web/knip.json" >&2
+  echo "  (only for regenerable shadcn/ui templates; see Task 180)." >&2
   exit 1
 fi
 

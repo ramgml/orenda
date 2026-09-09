@@ -158,13 +158,13 @@ lint-new:
 	golangci-lint run --new-from-rev="$${rev}" ./...
 
 ## web-knip: unused exports / files / dependencies audit for the SPA
-## (web/knip.json, type-aware via tsconfig.json). ADVISORY until the
-## existing findings are triaged (37 unused exports + 14 unused types
-## as of 2026-09): the report prints, the exit code does not fail the
-## run. To hard-gate later: drop the `-` prefix and wire into pre-push
-## alongside web-typecheck.
+## (web/knip.json, type-aware via tsconfig.json). BLOCKING: exits
+## non-zero on any finding. Triaged clean in Task 180 (dead e2e/offline
+## helpers removed; canonical shadcn/ui templates allow-listed in
+## knip.json via ignoreIssues). Wired into scripts/git-hooks/pre-push
+## next to web-typecheck; keep it green before you push.
 web-knip:
-	-cd $(WEB_DIR) && $(NPM) run knip
+	cd $(WEB_DIR) && $(NPM) run knip
 
 
 ## hooks: Install tracked git hooks (scripts/git-hooks/) into core.hooksPath.
