@@ -18,6 +18,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/ramgml/orenda/internal/api/ws"
+
 	"github.com/ramgml/orenda/internal/domain/task"
 )
 
@@ -119,5 +121,20 @@ func createInboxTaskHandler(deps *Dependencies) http.HandlerFunc {
 			deps.TaskService.MirrorSave(r.Context(), tr)
 		}
 		writeJSON(w, http.StatusCreated, tr)
+
+		// T192: same WS broadcast as the project create endpoint —
+		// inbox capture is a user-side create and must wake `orenda
+		// agent next --await` long-polls and live kanban the same
+		// way. Published after the response write, best-effort,
+		// nil-safe.
+		if deps.WSHub != nil {
+			deps.WSHub.Publish(r.Context(), ws.Event{
+				Topic: "tasks",
+				Body: map[string]any{
+					"type": "task.created",
+					"task": tr,
+				},
+			})
+		}
 	}
 }
