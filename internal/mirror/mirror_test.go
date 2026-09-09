@@ -125,3 +125,43 @@ func TestMirror_WriteTask_TagsAndColor(t *testing.T) {
 	assert.Contains(t, text, `color: "#0ea5e9"`)
 	assert.Contains(t, text, `tags: ["frontend", "ux"]`)
 }
+
+// Task 193: with backup.enabled=false the wiring used to hand the
+// task/wiki services a TYPED-nil *mirror.Service — assigning a typed
+// nil into the MirrorWriter / PageMirror interface fields yields a
+// non-nil interface value, so the callers' `if s.Mirror == nil`
+// guards passed and the call paniced on the nil receiver inside
+// writeFile (→ 500 on task create/PATCH). The mirror package is the
+// last line of defence: every entry point must tolerate a nil
+// receiver. (The wiring now always constructs a real Service; this
+// test pins the panic-safety contract itself.)
+func TestMirror_TypedNilReceiverIsPanicFree(t *testing.T) {
+	var svc *mirror.Service = nil // the exact value the old wiring produced
+
+	tests := []struct {
+		name string
+		call func()
+	}{
+		{
+			name: "WriteTask",
+			call: func() { _, _ = svc.WriteTask(&task.Task{ID: "t", Title: "x"}, nil, nil, nil, nil) },
+		},
+		{
+			name: "WritePage",
+			call: func() { _, _ = svc.WritePage(&wiki.Page{ID: "p", Slug: "s"}) },
+		},
+		{
+			name: "DeleteTask",
+			call: func() { _ = svc.DeleteTask("t") },
+		},
+		{
+			name: "DeletePage",
+			call: func() { _ = svc.DeletePage("s") },
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.NotPanics(t, tc.call)
+		})
+	}
+}
