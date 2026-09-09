@@ -122,6 +122,22 @@ func createTaskHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		recordCreateTaskEffects(r, deps, tr)
 		writeJSON(w, http.StatusCreated, tr)
+
+		// T192: a user-side create must publish task.created on the
+		// `tasks` topic — that's what wakes `orenda agent next
+		// --await` long-polls and refetches open kanban boards. Same
+		// event shape as agent propose minus the "actor" field (user
+		// creates have none), published after the response write
+		// mirroring the PATCH handler above. Best-effort, nil-safe.
+		if deps.WSHub != nil {
+			deps.WSHub.Publish(r.Context(), ws.Event{
+				Topic: "tasks",
+				Body: map[string]any{
+					"type": "task.created",
+					"task": tr,
+				},
+			})
+		}
 	}
 }
 

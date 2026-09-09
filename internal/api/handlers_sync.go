@@ -24,6 +24,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/comment"
 	"github.com/ramgml/orenda/internal/domain/event"
@@ -169,6 +170,23 @@ func applySyncCreateTask(ctx context.Context, deps *Dependencies, op syncOp) syn
 	_ = syncOpsRecord(ctx, deps, op.ClientID, tr.ID)
 	res.OK = true
 	res.ID = tr.ID
+
+	// T192: an outbox flush is a user-side create too — publish the
+	// same task.created event the HTTP create endpoints emit so
+	// `agent next --await` wakes and open kanban boards refetch
+	// after offline capture. Idempotent replays never reach this
+	// point (applySyncOp short-circuits on a seen client_id), so
+	// exactly one event per real create. Published after the side
+	// effects, best-effort, nil-safe.
+	if deps.WSHub != nil {
+		deps.WSHub.Publish(ctx, ws.Event{
+			Topic: "tasks",
+			Body: map[string]any{
+				"type": "task.created",
+				"task": tr,
+			},
+		})
+	}
 	return res
 }
 
