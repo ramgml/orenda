@@ -112,109 +112,123 @@ func createTaskHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 		projectID = resolved.ID
-		tr := &task.Task{
-			ProjectID:     projectID,
-			ColumnID:      in.ColumnID,
-			ParentTaskID:  in.ParentTaskID,
-			Title:         in.Title,
-			Description:   in.Description,
-			Status:        in.Status,
-			Priority:      in.Priority,
-			AssigneeType:  in.AssigneeType,
-			AssigneeID:    in.AssigneeID,
-			ContextMD:     in.ContextMD,
-			AgentNotes:    in.AgentNotes,
-			CreatedByType: task.CreatorUser,
-		}
-		if in.DueAt != nil {
-			tr.DueAt = parseOptionalTime(*in.DueAt)
-		}
-		if in.StartedAt != nil {
-			tr.StartedAt = parseOptionalTime(*in.StartedAt)
-		}
-		if in.ClaimedAt != nil {
-			tr.ClaimedAt = parseOptionalTime(*in.ClaimedAt)
-		}
-		if in.CompletedAt != nil {
-			tr.CompletedAt = parseOptionalTime(*in.CompletedAt)
-		}
-		// Task 120: `time_estimate_s: 0` clears the estimate — an
-		// estimate of zero seconds is meaningless, so the sentinel
-		// follows the due_at empty-string convention.
-		if in.TimeEstimateS != nil {
-			if *in.TimeEstimateS == 0 {
-				tr.TimeEstimateS = nil
-			} else {
-				v := *in.TimeEstimateS
-				tr.TimeEstimateS = &v
-			}
-		}
-		if in.Position != nil {
-			tr.Position = *in.Position
-		}
-
-		// Phase 14 board UX: child tasks inherit their parent's column
-		// (or fall back to the first column of the project) so they
-		// appear on the kanban immediately. Without this, children
-		// would be created with column_id=NULL and float off-board
-		// until somebody dragged them manually. The frontend already
-		// knows the parent's column and passes it through, so this is
-		// just a safety net for API users who don't.
-		//
-		// Phase 16: when the parent itself is an Inbox task (no
-		// column), we don't fall back to the project's first column —
-		// there's no project, so FirstColumnID returns "" and the
-		// child stays off-board by design (the parent is a flat list,
-		// not a kanban).
-		if tr.ParentTaskID != "" && tr.ColumnID == "" {
-			if parent, err := deps.Tasks.GetByID(r.Context(), tr.ParentTaskID); err == nil && parent.ColumnID != "" {
-				tr.ColumnID = parent.ColumnID
-			} else if tr.ProjectID != "" {
-				if colID, err := deps.Tasks.FirstColumnID(r.Context(), tr.ProjectID); err == nil {
-					tr.ColumnID = colID
-				}
-			}
-		}
-
-		// T119: a task created into a column must carry that column's
-		// status. The web client sends only {title, column_id}, so
-		// Status arrived empty and the DB DEFAULT 'todo' (schema line
-		// 106) kicked in below the handler — a card dropped into the
-		// backlog column came back as todo. This mirrors the reverse
-		// syncs that already exist: Move lifts column.Status onto the
-		// task (service/task/move.go), PATCH does column→status when
-		// column_id is set and status is empty (updateTaskHandler).
-		// An EXPLICIT status always wins — this only fills the empty
-		// case. Tasks without a column (inbox) are untouched.
-		if tr.ColumnID != "" && tr.Status == "" && deps.Projects != nil {
-			if col, err := deps.Projects.GetColumn(r.Context(), tr.ColumnID); err == nil && col != nil && col.Status != "" {
-				tr.Status = task.Status(col.Status)
-			}
-		}
+		tr := buildTaskFromInput(in, projectID)
+		resolveCreateTaskColumn(r, deps, tr)
+		syncColumnStatusOnCreate(r, deps, tr)
 
 		if err := deps.Tasks.Create(r.Context(), tr); err != nil {
 			writeError(w, err)
 			return
 		}
-		if deps.TaskService != nil {
-			deps.TaskService.MirrorSave(r.Context(), tr)
-		}
-		// Phase 14: when the new task is a child of an existing parent,
-		// record the creation against the parent's activity log so the
-		// parent task's timeline shows the child being added.
-		if tr.ParentTaskID != "" && deps.TaskService != nil {
-			actorID := ""
-			if id, ok := IdentityFrom(r.Context()); ok && id != nil {
-				actorID = id.UserID
-			}
-			deps.TaskService.RecordActivity(
-				r.Context(), tr.ParentTaskID, actorID,
-				activity.ActionChildAdded,
-				fmt.Sprintf(`{"child_id":%q,"title":%q}`, tr.ID, tr.Title),
-			)
-		}
+		recordCreateTaskEffects(r, deps, tr)
 		writeJSON(w, http.StatusCreated, tr)
 	}
+}
+
+// buildTaskFromInput maps the decoded taskInput onto a new task row
+// (creator = user). Task 120: `time_estimate_s: 0` clears the
+// estimate — an estimate of zero seconds is meaningless, so the
+// sentinel follows the due_at empty-string convention.
+func buildTaskFromInput(in taskInput, projectID string) *task.Task {
+	tr := &task.Task{
+		ProjectID:     projectID,
+		ColumnID:      in.ColumnID,
+		ParentTaskID:  in.ParentTaskID,
+		Title:         in.Title,
+		Description:   in.Description,
+		Status:        in.Status,
+		Priority:      in.Priority,
+		AssigneeType:  in.AssigneeType,
+		AssigneeID:    in.AssigneeID,
+		ContextMD:     in.ContextMD,
+		AgentNotes:    in.AgentNotes,
+		CreatedByType: task.CreatorUser,
+	}
+	if in.DueAt != nil {
+		tr.DueAt = parseOptionalTime(*in.DueAt)
+	}
+	if in.StartedAt != nil {
+		tr.StartedAt = parseOptionalTime(*in.StartedAt)
+	}
+	if in.ClaimedAt != nil {
+		tr.ClaimedAt = parseOptionalTime(*in.ClaimedAt)
+	}
+	if in.CompletedAt != nil {
+		tr.CompletedAt = parseOptionalTime(*in.CompletedAt)
+	}
+	if in.TimeEstimateS != nil {
+		if *in.TimeEstimateS == 0 {
+			tr.TimeEstimateS = nil
+		} else {
+			v := *in.TimeEstimateS
+			tr.TimeEstimateS = &v
+		}
+	}
+	if in.Position != nil {
+		tr.Position = *in.Position
+	}
+	return tr
+}
+
+// resolveCreateTaskColumn implements the Phase 14 board-UX column
+// inheritance: child tasks inherit their parent's column (or fall
+// back to the first column of the project) so they appear on the
+// kanban immediately. Without this, children would be created with
+// column_id=NULL and float off-board until somebody dragged them
+// manually. The frontend already knows the parent's column and
+// passes it through, so this is just a safety net for API users who
+// don't.
+//
+// Phase 16: when the parent itself is an Inbox task (no column), we
+// don't fall back to the project's first column — there's no
+// project, so FirstColumnID returns "" and the child stays
+// off-board by design (the parent is a flat list, not a kanban).
+func resolveCreateTaskColumn(r *http.Request, deps *Dependencies, tr *task.Task) {
+	if tr.ParentTaskID == "" || tr.ColumnID != "" {
+		return
+	}
+	if parent, err := deps.Tasks.GetByID(r.Context(), tr.ParentTaskID); err == nil && parent.ColumnID != "" {
+		tr.ColumnID = parent.ColumnID
+	} else if tr.ProjectID != "" {
+		if colID, err := deps.Tasks.FirstColumnID(r.Context(), tr.ProjectID); err == nil {
+			tr.ColumnID = colID
+		}
+	}
+}
+
+// syncColumnStatusOnCreate is the T119 column→status sync: a task
+// created into a column must carry that column's status. An
+// EXPLICIT status always wins — this only fills the empty case.
+// Tasks without a column (inbox) are untouched.
+func syncColumnStatusOnCreate(r *http.Request, deps *Dependencies, tr *task.Task) {
+	if tr.ColumnID == "" || tr.Status != "" || deps.Projects == nil {
+		return
+	}
+	if col, err := deps.Projects.GetColumn(r.Context(), tr.ColumnID); err == nil && col != nil && col.Status != "" {
+		tr.Status = task.Status(col.Status)
+	}
+}
+
+// recordCreateTaskEffects mirrors the created task and, for a child
+// task, records the creation against the parent's activity log so
+// the parent task's timeline shows the child being added (Phase
+// 14).
+func recordCreateTaskEffects(r *http.Request, deps *Dependencies, tr *task.Task) {
+	if deps.TaskService != nil {
+		deps.TaskService.MirrorSave(r.Context(), tr)
+	}
+	if tr.ParentTaskID == "" || deps.TaskService == nil {
+		return
+	}
+	actorID := ""
+	if id, ok := IdentityFrom(r.Context()); ok && id != nil {
+		actorID = id.UserID
+	}
+	deps.TaskService.RecordActivity(
+		r.Context(), tr.ParentTaskID, actorID,
+		activity.ActionChildAdded,
+		fmt.Sprintf(`{"child_id":%q,"title":%q}`, tr.ID, tr.Title),
+	)
 }
 
 // getTaskHandler returns one task.
@@ -289,8 +303,6 @@ func patchTaskHandler(deps *Dependencies) http.HandlerFunc {
 
 // applyTaskPatchAndEffects is the shared mutation path for single and bulk
 // task edits. Keeping side effects here prevents bulk updates from silently
-// bypassing completion timestamps, awaiting normalization, mirrors, or audit
-// rows.
 func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput, actorID string) error {
 	prevColor := tr.Color
 	prevStatus := tr.Status
@@ -302,6 +314,34 @@ func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.
 		return err
 	}
 	statusChanged := in.Status != "" && tr.Status != prevStatus
+	normalizePatchEffects(tr, in, statusChanged, prevStatus)
+	// Task 115: the PATCH may close the task (status → done). Any
+	// dependent that just lost its last unfinished blocker leaves
+	// `blocked` — same behaviour as the Review approve path.
+	if statusChanged && tr.Status == task.StatusDone && deps.TaskService != nil {
+		defer deps.TaskService.OnCloseUnblockDependents(ctx, tr.ID)
+	}
+	// T46: centralize status↔column sync + persist + mirror + activity
+	// in SyncAndSave instead of direct Tasks.Update.
+	if deps.TaskService != nil {
+		if err := deps.TaskService.SyncAndSave(ctx, tr, actorID, activity.ActorUser, prevStatus); err != nil {
+			return err
+		}
+	} else {
+		// Fallback when TaskService is not wired (partial test fixtures).
+		if err := deps.Tasks.Update(ctx, tr); err != nil {
+			return err
+		}
+	}
+	recordPatchActivity(ctx, deps, tr, in, actorID, prevColor, prevPriority, prevAssigneeType, prevAssigneeID)
+	return nil
+}
+
+// normalizePatchEffects applies the derived post-patch field
+// adjustments: completion timestamp on a transition to done, the
+// awaiting state machine, and the Task 115 owner-override clearing
+// of the auto-block memory when the status leaves `blocked`.
+func normalizePatchEffects(tr *task.Task, in taskInput, statusChanged bool, prevStatus task.Status) {
 	if statusChanged && tr.Status == task.StatusDone && in.CompletedAt == nil {
 		now := time.Now().UTC()
 		tr.CompletedAt = &now
@@ -323,24 +363,12 @@ func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.
 	if statusChanged && prevStatus == task.StatusBlocked && tr.Status != task.StatusBlocked {
 		tr.BlockedPrevStatus = ""
 	}
-	// Task 115: the PATCH may close the task (status → done). Any
-	// dependent that just lost its last unfinished blocker leaves
-	// `blocked` — same behaviour as the Review approve path.
-	if statusChanged && tr.Status == task.StatusDone && deps.TaskService != nil {
-		defer deps.TaskService.OnCloseUnblockDependents(ctx, tr.ID)
-	}
-	// T46: centralize status↔column sync + persist + mirror + activity
-	// in SyncAndSave instead of direct Tasks.Update.
-	if deps.TaskService != nil {
-		if err := deps.TaskService.SyncAndSave(ctx, tr, actorID, activity.ActorUser, prevStatus); err != nil {
-			return err
-		}
-	} else {
-		// Fallback when TaskService is not wired (partial test fixtures).
-		if err := deps.Tasks.Update(ctx, tr); err != nil {
-			return err
-		}
-	}
+}
+
+// recordPatchActivity writes the color/priority/assignee change
+// activity rows and applies the tag diff after a successful patch
+// persist. Status change activity is recorded by SyncAndSave.
+func recordPatchActivity(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput, actorID, prevColor string, prevPriority task.Priority, prevAssigneeType task.AssigneeType, prevAssigneeID string) {
 	if in.Color != nil && prevColor != tr.Color && deps.TaskService != nil {
 		deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionColorChanged,
 			fmt.Sprintf(`{"from":%q,"to":%q}`, prevColor, tr.Color))
@@ -348,20 +376,19 @@ func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.
 	if in.Tags != nil {
 		applyTaskTagsChange(ctx, deps, tr.ID, *in.Tags)
 	}
-	if deps.TaskService != nil {
-		// Status change activity is now recorded by SyncAndSave.
-		if in.Priority != "" && tr.Priority != prevPriority {
-			deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionPriorityChanged,
-				fmt.Sprintf(`{"from":%q,"to":%q}`, prevPriority, tr.Priority))
-		}
-		if (in.AssigneeType != "" || in.AssigneeID != "") &&
-			(tr.AssigneeType != prevAssigneeType || tr.AssigneeID != prevAssigneeID) {
-			deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionAssigned,
-				fmt.Sprintf(`{"from":{"type":%q,"id":%q},"to":{"type":%q,"id":%q}}`,
-					prevAssigneeType, prevAssigneeID, tr.AssigneeType, tr.AssigneeID))
-		}
+	if deps.TaskService == nil {
+		return
 	}
-	return nil
+	if in.Priority != "" && tr.Priority != prevPriority {
+		deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionPriorityChanged,
+			fmt.Sprintf(`{"from":%q,"to":%q}`, prevPriority, tr.Priority))
+	}
+	if (in.AssigneeType != "" || in.AssigneeID != "") &&
+		(tr.AssigneeType != prevAssigneeType || tr.AssigneeID != prevAssigneeID) {
+		deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionAssigned,
+			fmt.Sprintf(`{"from":{"type":%q,"id":%q},"to":{"type":%q,"id":%q}}`,
+				prevAssigneeType, prevAssigneeID, tr.AssigneeType, tr.AssigneeID))
+	}
 }
 
 type bulkTaskPatchInput struct {
@@ -451,6 +478,31 @@ func bulkPatchTasksHandler(deps *Dependencies) http.HandlerFunc {
 // UX is consistent: dropping an inbox card onto a board always
 // lands it in the first column.
 func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput) error {
+	applyTaskPatchScalars(tr, in)
+	if err := applyTaskPatchProjectTransition(ctx, deps, tr, in); err != nil {
+		return err
+	}
+	if in.ColumnID != "" {
+		tr.ColumnID = in.ColumnID
+	}
+
+	// Phase 27.8 / T46: column→status sync when the user explicitly
+	// changed column_id (e.g. DnD). Status→column is handled by
+	// Service.SyncAndSave (called by applyTaskPatchAndEffects).
+	if in.ColumnID != "" && in.Status == "" && deps.Projects != nil {
+		if dest, err := deps.Projects.GetColumn(ctx, in.ColumnID); err == nil && dest != nil && dest.Status != "" {
+			tr.Status = task.Status(dest.Status)
+		}
+	}
+	applyTaskPatchPointerFields(tr, in)
+	return nil
+}
+
+// applyTaskPatchScalars updates the non-pointer task fields. They
+// are only written when non-empty so the caller can send a partial
+// document (PATCH semantics); the "unassigned" assignee type clears
+// the assignee pair.
+func applyTaskPatchScalars(tr *task.Task, in taskInput) {
 	if in.Title != "" {
 		tr.Title = in.Title
 	}
@@ -481,41 +533,42 @@ func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in t
 	if in.AssigneeID != "" {
 		tr.AssigneeID = in.AssigneeID
 	}
-	// Project transition (Phase 16). Decides whether to also touch
-	// column_id so the task lands on a real column instead of dangling.
-	if in.ProjectID != nil && *in.ProjectID != tr.ProjectID {
-		newProject := *in.ProjectID
-		// Resolve project ref (P<N> or UUID) to UUID when non-empty.
-		if newProject != "" {
-			resolved, err := resolveProjectRef(ctx, deps, newProject)
-			if err != nil {
-				return err
-			}
-			newProject = resolved.ID
-		}
-		tr.ProjectID = newProject
-		if in.ColumnID == "" {
-			// No explicit column in this PATCH — derive from the
-			// new project. Empty (inbox) clears column_id.
-			if newProject == "" {
-				tr.ColumnID = ""
-			} else if colID, err := deps.Tasks.FirstColumnID(ctx, newProject); err == nil {
-				tr.ColumnID = colID
-			}
-		}
-	}
-	if in.ColumnID != "" {
-		tr.ColumnID = in.ColumnID
-	}
+}
 
-	// Phase 27.8 / T46: column→status sync when the user explicitly
-	// changed column_id (e.g. DnD). Status→column is handled by
-	// Service.SyncAndSave (called by applyTaskPatchAndEffects).
-	if in.ColumnID != "" && in.Status == "" && deps.Projects != nil {
-		if dest, err := deps.Projects.GetColumn(ctx, in.ColumnID); err == nil && dest != nil && dest.Status != "" {
-			tr.Status = task.Status(dest.Status)
+// applyTaskPatchProjectTransition implements the Phase 16 project
+// transition: it decides whether to also touch column_id so the
+// task lands on a real column instead of dangling. Only fires on a
+// changed, explicitly-present project_id.
+func applyTaskPatchProjectTransition(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput) error {
+	if in.ProjectID == nil || *in.ProjectID == tr.ProjectID {
+		return nil
+	}
+	newProject := *in.ProjectID
+	// Resolve project ref (P<N> or UUID) to UUID when non-empty.
+	if newProject != "" {
+		resolved, err := resolveProjectRef(ctx, deps, newProject)
+		if err != nil {
+			return err
+		}
+		newProject = resolved.ID
+	}
+	tr.ProjectID = newProject
+	if in.ColumnID == "" {
+		// No explicit column in this PATCH — derive from the
+		// new project. Empty (inbox) clears column_id.
+		if newProject == "" {
+			tr.ColumnID = ""
+		} else if colID, err := deps.Tasks.FirstColumnID(ctx, newProject); err == nil {
+			tr.ColumnID = colID
 		}
 	}
+	return nil
+}
+
+// applyTaskPatchPointerFields updates the pointer-carrying fields,
+// which carry explicit null/clear intent: color, the optional
+// timestamps, the time estimate/spent sentinels, and position.
+func applyTaskPatchPointerFields(tr *task.Task, in taskInput) {
 	if in.Color != nil {
 		// PATCH: *string so an empty value explicitly clears the
 		// colour label. We don't validate the format here; the
@@ -553,7 +606,6 @@ func applyTaskPatch(ctx context.Context, deps *Dependencies, tr *task.Task, in t
 	if in.Position != nil {
 		tr.Position = *in.Position
 	}
-	return nil
 }
 func deleteTaskHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

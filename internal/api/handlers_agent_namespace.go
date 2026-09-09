@@ -74,52 +74,67 @@ func agentCreateTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		// Phase 28.5: emit task.commented from the agent side too.
-		// Same nil-safe + log-on-error pattern as the user-side
-		// handler. ActorType is `agent` so the timeline can colour
-		// human vs agent comments distinctly.
-		if deps.ActivityRecorder != nil {
-			payload, _ := json.Marshal(map[string]any{
-				"comment_id":  got.ID,
-				"author_type": "agent",
-				"length":      len(in.BodyMD),
-			})
-			if rerr := deps.ActivityRecorder.RecordTask(
-				r.Context(), taskID,
-				activity.ActorAgent, id.AgentID,
-				activity.ActionCommented, string(payload),
-			); rerr != nil && deps.Logger != nil {
-				deps.Logger.Warn("activity record failed",
-					zap.String("action", string(activity.ActionCommented)),
-					zap.String("task_id", taskID),
-					zap.Error(rerr),
-				)
-			}
-		}
-		// Phase 6.4: notify mentioned users (owner only — agent → user
-		// mentions are the only direction we route today; agent-to-agent
-		// isn't a real flow because single-owner deployments only have
-		// one user identity).
-		if deps.Notifier != nil {
-			if mentions, merr := deps.Comments.MentionsForComment(r.Context(), got.ID); merr == nil {
-				for _, m := range mentions {
-					if string(m.TargetType) != "user" {
-						continue
-					}
-					notifyEvent(r.Context(), deps, notifierservice.Event{
-						Type:       "mention.created",
-						UserID:     m.TargetID,
-						TargetType: "task",
-						TargetID:   taskID,
-						Title:      "You were mentioned",
-						Body:       in.BodyMD,
-						Link:       "/tasks/" + taskID,
-						DedupKey:   "mention.created:" + got.ID + ":" + m.TargetID,
-					})
-				}
-			}
-		}
+		recordAgentCommentActivity(r, deps, taskID, got.ID, id.AgentID, len(in.BodyMD))
+		notifyAgentCommentMentions(r, deps, taskID, got.ID, in.BodyMD)
 		writeJSON(w, http.StatusCreated, got)
+	}
+}
+
+// recordAgentCommentActivity emits the task.commented activity row
+// for the agent-side comment create (Phase 28.5). The agent edit
+// path (agentUpdateTaskCommentHandler) keeps writing its own row
+// inline. Same nil-safe + log-on-error pattern as the user-side
+// handler. ActorType is `agent` so the timeline can colour human vs
+// agent comments distinctly.
+func recordAgentCommentActivity(r *http.Request, deps *Dependencies, taskID, commentID, agentID string, bodyLen int) {
+	if deps.ActivityRecorder == nil {
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"comment_id":  commentID,
+		"author_type": "agent",
+		"length":      bodyLen,
+	})
+	if rerr := deps.ActivityRecorder.RecordTask(
+		r.Context(), taskID,
+		activity.ActorAgent, agentID,
+		activity.ActionCommented, string(payload),
+	); rerr != nil && deps.Logger != nil {
+		deps.Logger.Warn("activity record failed",
+			zap.String("action", string(activity.ActionCommented)),
+			zap.String("task_id", taskID),
+			zap.Error(rerr),
+		)
+	}
+}
+
+// notifyAgentCommentMentions notifies mentioned users (Phase 6.4 —
+// owner only: agent → user mentions are the only direction we route
+// today; agent-to-agent isn't a real flow because single-owner
+// deployments only have one user identity). Mention lookup failures
+// are swallowed, matching the original handler.
+func notifyAgentCommentMentions(r *http.Request, deps *Dependencies, taskID, commentID, bodyMD string) {
+	if deps.Notifier == nil {
+		return
+	}
+	mentions, merr := deps.Comments.MentionsForComment(r.Context(), commentID)
+	if merr != nil {
+		return
+	}
+	for _, m := range mentions {
+		if string(m.TargetType) != "user" {
+			continue
+		}
+		notifyEvent(r.Context(), deps, notifierservice.Event{
+			Type:       "mention.created",
+			UserID:     m.TargetID,
+			TargetType: "task",
+			TargetID:   taskID,
+			Title:      "You were mentioned",
+			Body:       bodyMD,
+			Link:       "/tasks/" + taskID,
+			DedupKey:   "mention.created:" + commentID + ":" + m.TargetID,
+		})
 	}
 }
 

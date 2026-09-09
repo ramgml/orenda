@@ -93,67 +93,7 @@ func getTodayHandler(deps *Dependencies) http.HandlerFunc {
 		startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 		endOfDay := startOfDay.Add(24 * time.Hour)
 
-		// Overdue: due_at < startOfDay AND status NOT done. We list
-		// across all projects (NoProject=false, ProjectID="") and
-		// filter by status in code — the kanban "list everything"
-		// path doesn't accept a date range.
-		//
-		// Phase 31.7: study-reminders (tasks with study_course_id
-		// set) are EXCLUDED here. The product rule is "missed day
-		// never turns red" — only genuine project tasks escalate
-		// into overdue. The reminder still shows up under due_today
-		// for the current day.
-		overdue, err := deps.Tasks.ListByProject(r.Context(), task.Filter{
-			Status: task.StatusTodo, // simplified: only open tasks; we
-			// could also include in_progress but the dashboard is
-			// about "still owed today" so we focus on todo + review.
-		})
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		overdueFiltered := overdue[:0]
-		for _, t := range overdue {
-			if t.StudyCourseID != "" {
-				continue
-			}
-			if t.DueAt != nil && t.DueAt.Before(startOfDay) {
-				overdueFiltered = append(overdueFiltered, t)
-			}
-		}
-		overdue = overdueFiltered
-
-		// Due today: due_at between startOfDay and endOfDay.
-		// Study-reminders with due_at <= today are included so the
-		// user sees them in the "today" list even if they were
-		// filed on a previous day (no escalation, no missed-entry).
-		dueToday, err := deps.Tasks.ListByProject(r.Context(), task.Filter{
-			Status: task.StatusTodo,
-		})
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		dueTodayFiltered := dueToday[:0]
-		for _, t := range dueToday {
-			if t.DueAt == nil {
-				continue
-			}
-			// Include if due in the [today, tomorrow) window, OR
-			// if it's a study-reminder filed on a previous day
-			// (we still want it on the tray today so the user
-			// can ack/dismiss it).
-			studyCarry := t.StudyCourseID != "" && !t.DueAt.After(startOfDay)
-			inWindow := !t.DueAt.Before(startOfDay) && t.DueAt.Before(endOfDay)
-			if studyCarry || inWindow {
-				dueTodayFiltered = append(dueTodayFiltered, t)
-			}
-		}
-		dueToday = dueTodayFiltered
-
-		// Scheduled today: tasks with both start_at and end_at set
-		// that overlap today (calendar items).
-		scheduled, err := deps.Tasks.ListInRange(r.Context(), startOfDay, endOfDay, "")
+		overdue, dueToday, scheduled, err := listTodayTasks(r.Context(), deps, startOfDay, endOfDay)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -164,58 +104,21 @@ func getTodayHandler(deps *Dependencies) http.HandlerFunc {
 		// ran ListByProjectWithStats over EVERY task in the DB (5
 		// aggregate queries on the full table) just to decorate the
 		// ~dozen visible ones.
-		if len(overdue)+len(dueToday)+len(scheduled) > 0 {
-			ids := make([]string, 0, len(overdue)+len(dueToday)+len(scheduled))
-			for _, t := range overdue {
-				ids = append(ids, t.ID)
-			}
-			for _, t := range dueToday {
-				ids = append(ids, t.ID)
-			}
-			for _, t := range scheduled {
-				ids = append(ids, t.ID)
-			}
-			enriched, err := deps.Tasks.ListByProjectWithStats(r.Context(), task.Filter{IDs: ids})
-			if err == nil {
-				enrichByID(enriched, overdue)
-				enrichByID(enriched, dueToday)
-				enrichByID(enriched, scheduled)
-			}
-		}
+		enrichTodayCounters(r.Context(), deps, overdue, dueToday, scheduled)
 
 		// Awaiting count: re-use the review-queue endpoint logic.
-		awaiting := 0
-		if deps.Tasks != nil {
-			items, err := deps.Tasks.ListAwaitingReview(r.Context())
-			if err == nil {
-				awaiting = len(items)
-			}
-		}
+		awaiting := todayAwaitingCount(r.Context(), deps)
 
 		// Pending study proposals — the tray the user accepts
 		// or dismisses one by one. nil-safe (deps.StudyService
 		// is set by the production wiring but tests may omit it).
-		proposals := []studyProposalView{}
-		if deps.StudyService != nil {
-			pending, err := deps.StudyService.ListPending(r.Context())
-			if err == nil {
-				proposals = projectProposalViews(pending)
-			}
-		}
+		proposals := todayProposals(r.Context(), deps)
 
 		// Active timer — look up the owner's open entry via the
 		// time-entry service. Phase 4's single-active-timer invariant
 		// is per-agent; for single-owner installs we probe by the
 		// owner id (Phase 9 will wire a proper owner→agent map).
-		var active *activeTimerView
-		if deps.TimeService != nil && userID != "" {
-			if te, err := deps.TimeService.ActiveTimer(r.Context(), userID); err == nil && te != nil {
-				active = &activeTimerView{
-					TaskID:    te.TaskID,
-					StartedAt: te.StartedAt,
-				}
-			}
-		}
+		active := todayActiveTimer(r.Context(), deps, userID)
 
 		// Upcoming week: due dates in (today, today+7d), bucketed by date.
 		week := upcomingWeek(r.Context(), deps, endOfDay)
@@ -302,4 +205,147 @@ func enrichByID(src, dst []*task.Task) {
 			t.BlockedByCount = src.BlockedByCount
 		}
 	}
+}
+
+// listTodayTasks lists and filters the three task collections the
+// dashboard shows: overdue (due before today, study reminders
+// excluded — "missed day never turns red", Phase 31.7), due today
+// (due in [today, tomorrow), plus study reminders filed on a
+// previous day so the user can still ack/dismiss them), and
+// scheduled today (calendar items overlapping today).
+func listTodayTasks(ctx context.Context, deps *Dependencies, startOfDay, endOfDay time.Time) (overdue, dueToday, scheduled []*task.Task, err error) {
+	// Overdue: due_at < startOfDay AND status NOT done. We list
+	// across all projects (NoProject=false, ProjectID="") and
+	// filter by status in code — the kanban "list everything"
+	// path doesn't accept a date range.
+	//
+	// Phase 31.7: study-reminders (tasks with study_course_id
+	// set) are EXCLUDED here. The product rule is "missed day
+	// never turns red" — only genuine project tasks escalate
+	// into overdue. The reminder still shows up under due_today
+	// for the current day.
+	overdue, err = deps.Tasks.ListByProject(ctx, task.Filter{
+		Status: task.StatusTodo, // simplified: only open tasks; we
+		// could also include in_progress but the dashboard is
+		// about "still owed today" so we focus on todo + review.
+	})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	overdueFiltered := overdue[:0]
+	for _, t := range overdue {
+		if t.StudyCourseID != "" {
+			continue
+		}
+		if t.DueAt != nil && t.DueAt.Before(startOfDay) {
+			overdueFiltered = append(overdueFiltered, t)
+		}
+	}
+	overdue = overdueFiltered
+
+	// Due today: due_at between startOfDay and endOfDay.
+	// Study-reminders with due_at <= today are included so the
+	// user sees them in the "today" list even if they were
+	// filed on a previous day (no escalation, no missed-entry).
+	dueToday, err = deps.Tasks.ListByProject(ctx, task.Filter{
+		Status: task.StatusTodo,
+	})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	dueTodayFiltered := dueToday[:0]
+	for _, t := range dueToday {
+		if t.DueAt == nil {
+			continue
+		}
+		// Include if due in the [today, tomorrow) window, OR
+		// if it's a study-reminder filed on a previous day
+		studyCarry := t.StudyCourseID != "" && !t.DueAt.After(startOfDay)
+		inWindow := !t.DueAt.Before(startOfDay) && t.DueAt.Before(endOfDay)
+		if studyCarry || inWindow {
+			dueTodayFiltered = append(dueTodayFiltered, t)
+		}
+	}
+	dueToday = dueTodayFiltered
+
+	// Scheduled today: tasks with both start_at and end_at set
+	// that overlap today (calendar items).
+	scheduled, err = deps.Tasks.ListInRange(ctx, startOfDay, endOfDay, "")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return overdue, dueToday, scheduled, nil
+}
+
+// enrichTodayCounters hydrates Counters/BlockedByCount for the
+// visible lists. Phase 28.22: the enrichment is restricted to the
+// visible ids — previously it ran ListByProjectWithStats over EVERY
+// task in the DB (5 aggregate queries on the full table) just to
+// decorate the ~dozen visible ones. A stats failure is tolerated:
+// the lists render undecorated.
+func enrichTodayCounters(ctx context.Context, deps *Dependencies, overdue, dueToday, scheduled []*task.Task) {
+	if len(overdue)+len(dueToday)+len(scheduled) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(overdue)+len(dueToday)+len(scheduled))
+	for _, t := range overdue {
+		ids = append(ids, t.ID)
+	}
+	for _, t := range dueToday {
+		ids = append(ids, t.ID)
+	}
+	for _, t := range scheduled {
+		ids = append(ids, t.ID)
+	}
+	enriched, err := deps.Tasks.ListByProjectWithStats(ctx, task.Filter{IDs: ids})
+	if err == nil {
+		enrichByID(enriched, overdue)
+		enrichByID(enriched, dueToday)
+		enrichByID(enriched, scheduled)
+	}
+}
+
+// todayAwaitingCount returns how many tasks await the owner's
+// review verdict. Re-uses the review-queue endpoint logic; a
+// failure counts as zero (the dashboard tolerates a broken queue).
+func todayAwaitingCount(ctx context.Context, deps *Dependencies) int {
+	awaiting := 0
+	if deps.Tasks != nil {
+		items, err := deps.Tasks.ListAwaitingReview(ctx)
+		if err == nil {
+			awaiting = len(items)
+		}
+	}
+	return awaiting
+}
+
+// todayProposals lists the pending study proposals — the tray the
+// user accepts or dismisses one by one. nil-safe (deps.StudyService
+// is set by the production wiring but tests may omit it); a listing
+// failure degrades to an empty tray.
+func todayProposals(ctx context.Context, deps *Dependencies) []studyProposalView {
+	proposals := []studyProposalView{}
+	if deps.StudyService != nil {
+		pending, err := deps.StudyService.ListPending(ctx)
+		if err == nil {
+			proposals = projectProposalViews(pending)
+		}
+	}
+	return proposals
+}
+
+// todayActiveTimer returns the owner's open time entry, if any.
+// Phase 4's single-active-timer invariant is per-agent; for
+// single-owner installs we probe by the owner id (Phase 9 will
+// wire a proper owner→agent map).
+func todayActiveTimer(ctx context.Context, deps *Dependencies, userID string) *activeTimerView {
+	if deps.TimeService != nil && userID != "" {
+		if te, err := deps.TimeService.ActiveTimer(ctx, userID); err == nil && te != nil {
+			return &activeTimerView{
+				TaskID:    te.TaskID,
+				StartedAt: te.StartedAt,
+			}
+		}
+	}
+	return nil
 }

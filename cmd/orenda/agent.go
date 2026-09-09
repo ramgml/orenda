@@ -978,66 +978,16 @@ func newAgentProposeCmd() *cobra.Command {
 		Short: "Propose a new task (lands in backlog, awaiting human triage)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if projectID == "" || title == "" {
-				return fmt.Errorf("agent propose: --project and --title are required")
+			desc, err := agentProposePrepare(cmd, projectID, title, description, descFile)
+			if err != nil {
+				return err
 			}
-			desc := description
-			if descFile != "" {
-				var (
-					raw []byte
-					err error
-				)
-				if descFile == "-" {
-					raw, err = io.ReadAll(cmd.InOrStdin())
-				} else {
-					raw, err = os.ReadFile(descFile)
-				}
-				if err != nil {
-					return fmt.Errorf("agent propose: read description: %w", err)
-				}
-				desc = string(raw)
-			}
-			if strings.TrimSpace(desc) == "" {
-				return fmt.Errorf("agent propose: --description or --description-file is required")
-			}
-			body := map[string]any{
-				"project_id":     projectID,
-				"title":          title,
-				"description_md": desc,
-			}
-			if priority != "" {
-				body["priority"] = priority
-			}
-			if parentID != "" {
-				body["parent_task_id"] = parentID
-			}
-			if blockedBy != "" {
-				var ids []string
-				for _, part := range strings.Split(blockedBy, ",") {
-					if v := strings.TrimSpace(part); v != "" {
-						ids = append(ids, v)
-					}
-				}
-				if len(ids) > 0 {
-					body["blocked_by"] = ids
-				}
-			}
+			body := agentProposeBody(projectID, title, desc, priority, blockedBy, parentID)
 			ctx, err := resolveAgentCtx(cmd)
 			if err != nil {
 				return err
 			}
-			raw, code, err := ctx.agentPost(cmd.Context(), "/api/v1/agent/tasks", body)
-			if err != nil {
-				return err
-			}
-			if code != http.StatusCreated {
-				return fmt.Errorf("agent propose: HTTP %d: %s", code, raw)
-			}
-			var v any
-			if err := json.Unmarshal(raw, &v); err != nil {
-				return err
-			}
-			return printJSON(cmd, v)
+			return agentProposeSubmit(cmd, ctx, body)
 		},
 	}
 	cmd.Flags().StringVar(&projectID, "project", "", "project id the task belongs to (required)")
@@ -1048,6 +998,82 @@ func newAgentProposeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&blockedBy, "blocked-by", "", "comma-separated blocker task ids")
 	cmd.Flags().StringVar(&parentID, "parent", "", "parent task id (creates a subtask)")
 	return cmd
+}
+
+// agentProposePrepare validates the `agent propose` flags and
+// resolves the effective markdown description: --description-file
+// overrides --description ('-' reads stdin); the result must not be
+// blank.
+func agentProposePrepare(cmd *cobra.Command, projectID, title, description, descFile string) (string, error) {
+	if projectID == "" || title == "" {
+		return "", fmt.Errorf("agent propose: --project and --title are required")
+	}
+	desc := description
+	if descFile != "" {
+		var (
+			raw []byte
+			err error
+		)
+		if descFile == "-" {
+			raw, err = io.ReadAll(cmd.InOrStdin())
+		} else {
+			raw, err = os.ReadFile(descFile)
+		}
+		if err != nil {
+			return "", fmt.Errorf("agent propose: read description: %w", err)
+		}
+		desc = string(raw)
+	}
+	if strings.TrimSpace(desc) == "" {
+		return "", fmt.Errorf("agent propose: --description or --description-file is required")
+	}
+	return desc, nil
+}
+
+// agentProposeBody builds the POST /api/v1/agent/tasks payload.
+// Optional flags (priority, parent, blocked-by) are included only
+// when set.
+func agentProposeBody(projectID, title, desc, priority, blockedBy, parentID string) map[string]any {
+	body := map[string]any{
+		"project_id":     projectID,
+		"title":          title,
+		"description_md": desc,
+	}
+	if priority != "" {
+		body["priority"] = priority
+	}
+	if parentID != "" {
+		body["parent_task_id"] = parentID
+	}
+	if blockedBy != "" {
+		var ids []string
+		for _, part := range strings.Split(blockedBy, ",") {
+			if v := strings.TrimSpace(part); v != "" {
+				ids = append(ids, v)
+			}
+		}
+		if len(ids) > 0 {
+			body["blocked_by"] = ids
+		}
+	}
+	return body
+}
+
+// agentProposeSubmit POSTs the proposal and prints the created task
+// as JSON. 201 Created is the only success status.
+func agentProposeSubmit(cmd *cobra.Command, ctx *agentCtx, body map[string]any) error {
+	raw, code, err := ctx.agentPost(cmd.Context(), "/api/v1/agent/tasks", body)
+	if err != nil {
+		return err
+	}
+	if code != http.StatusCreated {
+		return fmt.Errorf("agent propose: HTTP %d: %s", code, raw)
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return err
+	}
+	return printJSON(cmd, v)
 }
 
 func newAgentContextCmd() *cobra.Command {

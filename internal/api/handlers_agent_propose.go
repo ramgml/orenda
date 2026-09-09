@@ -46,6 +46,10 @@ type agentProposeTaskRequest struct {
 	Priority      string   `json:"priority"`
 	BlockedBy     []string `json:"blocked_by"`
 	ParentTaskID  string   `json:"parent_task_id"`
+
+	// prio is not decoded from JSON; validateAgentProposeTask fills
+	// it in from the validated Priority string.
+	prio task.Priority `json:"-"`
 }
 
 // agentCreateTaskHandler creates a task proposed by the bearer agent.
@@ -70,42 +74,8 @@ func agentCreateTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		in.ProjectID = strings.TrimSpace(in.ProjectID)
-		in.Title = strings.TrimSpace(in.Title)
-		if in.ProjectID == "" || in.Title == "" || strings.TrimSpace(in.DescriptionMD) == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
+		if !validateAgentProposeTask(w, r, deps, &in) {
 			return
-		}
-		// Resolve project ref (P<N> or UUID) to UUID.
-		resolved, err := resolveProjectRef(r.Context(), deps, in.ProjectID)
-		if err != nil {
-			writeProjectResolveError(w, err)
-			return
-		}
-		in.ProjectID = resolved.ID
-		prio := task.PriorityMedium
-		if in.Priority != "" {
-			switch task.Priority(in.Priority) {
-			case task.PriorityLow, task.PriorityMedium, task.PriorityHigh, task.PriorityUrgent:
-				prio = task.Priority(in.Priority)
-			default:
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
-				return
-			}
-		}
-		// Referenced tasks must exist — surface a clean 404 instead of
-		// an opaque FK violation from the insert below.
-		if in.ParentTaskID != "" {
-			if _, err := deps.Tasks.GetByID(r.Context(), in.ParentTaskID); err != nil {
-				writeError(w, err)
-				return
-			}
-		}
-		for _, blockerID := range in.BlockedBy {
-			if _, err := deps.Tasks.GetByID(r.Context(), blockerID); err != nil {
-				writeError(w, err)
-				return
-			}
 		}
 
 		// Phase 33.3: await=none by default — the owner's triage surface
@@ -119,7 +89,7 @@ func agentCreateTaskHandler(deps *Dependencies) http.HandlerFunc {
 			Title:         in.Title,
 			Description:   in.DescriptionMD,
 			Status:        task.StatusBacklog,
-			Priority:      prio,
+			Priority:      in.prio,
 			CreatedByType: task.CreatorAgent,
 			CreatedByID:   id.AgentID,
 		}
@@ -135,53 +105,115 @@ func agentCreateTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-
-		if len(in.BlockedBy) > 0 {
-			if deps.TaskService == nil {
-				http.Error(w, "task service not wired", http.StatusServiceUnavailable)
-				return
-			}
-			if err := deps.TaskService.SetTaskDependencies(r.Context(), tr.ID, in.BlockedBy); err != nil {
-				switch {
-				case errors.Is(err, taskservice.ErrSelfDependency),
-					errors.Is(err, taskservice.ErrDependencyCycle),
-					errors.Is(err, taskservice.ErrDependencyExists):
-					writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_dependency"})
-				default:
-					writeError(w, err)
-				}
-				return
-			}
+		if !applyAgentProposeDependencies(w, deps, r, tr, in.BlockedBy) {
+			return
 		}
-
-		if deps.TaskService != nil {
-			deps.TaskService.MirrorSave(r.Context(), tr)
-		}
-
-		// Audit "who proposed this" — the review queue shows the task,
-		// the activity feed shows the agent that filed it. Best-effort:
-		// an audit glitch must not fail the user-visible create (same
-		// convention as the comment/attachment recorders, Phase 28.5).
-		if deps.ActivityRecorder != nil {
-			payload := fmt.Sprintf(`{"project_id":%q,"title":%q}`, tr.ProjectID, tr.Title)
-			if err := deps.ActivityRecorder.RecordTask(r.Context(), tr.ID,
-				activity.ActorAgent, id.AgentID, activity.ActionCreated, payload); err != nil && deps.Logger != nil {
-				deps.Logger.Warn("agent task activity record failed",
-					zap.String("task_id", tr.ID), zap.Error(err))
-			}
-		}
-
-		if deps.WSHub != nil {
-			deps.WSHub.Publish(r.Context(), ws.Event{
-				Topic: "tasks",
-				Body: map[string]any{
-					"type":  "task.created",
-					"task":  tr,
-					"actor": id.AgentID,
-				},
-			})
-		}
-
+		recordAgentProposeEffects(r, deps, tr, id.AgentID)
 		writeJSON(w, http.StatusCreated, tr)
+	}
+}
+
+// validateAgentProposeTask trims and checks the mandatory fields,
+// resolves the project ref, validates the optional priority, and
+// verifies referenced tasks (parent + blockers) exist. Writes the
+// error response and returns false on any rejection; on success the
+// parsed priority is stored in in.prio.
+func validateAgentProposeTask(w http.ResponseWriter, r *http.Request, deps *Dependencies, in *agentProposeTaskRequest) bool {
+	in.ProjectID = strings.TrimSpace(in.ProjectID)
+	in.Title = strings.TrimSpace(in.Title)
+	if in.ProjectID == "" || in.Title == "" || strings.TrimSpace(in.DescriptionMD) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
+		return false
+	}
+	// Resolve project ref (P<N> or UUID) to UUID.
+	resolved, err := resolveProjectRef(r.Context(), deps, in.ProjectID)
+	if err != nil {
+		writeProjectResolveError(w, err)
+		return false
+	}
+	in.ProjectID = resolved.ID
+	in.prio = task.PriorityMedium
+	if in.Priority != "" {
+		switch task.Priority(in.Priority) {
+		case task.PriorityLow, task.PriorityMedium, task.PriorityHigh, task.PriorityUrgent:
+			in.prio = task.Priority(in.Priority)
+		default:
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
+			return false
+		}
+	}
+	// Referenced tasks must exist — surface a clean 404 instead of
+	// an opaque FK violation from the insert below.
+	if in.ParentTaskID != "" {
+		if _, err := deps.Tasks.GetByID(r.Context(), in.ParentTaskID); err != nil {
+			writeError(w, err)
+			return false
+		}
+	}
+	for _, blockerID := range in.BlockedBy {
+		if _, err := deps.Tasks.GetByID(r.Context(), blockerID); err != nil {
+			writeError(w, err)
+			return false
+		}
+	}
+	return true
+}
+
+// applyAgentProposeDependencies wires the requested blocker set via
+// SetTaskDependencies after the task row exists, mapping the domain
+// sentinel errors to a 422 invalid_dependency response. Returns
+// false (response already written) when wiring fails.
+func applyAgentProposeDependencies(w http.ResponseWriter, deps *Dependencies, r *http.Request, tr *task.Task, blockedBy []string) bool {
+	if len(blockedBy) == 0 {
+		return true
+	}
+	if deps.TaskService == nil {
+		http.Error(w, "task service not wired", http.StatusServiceUnavailable)
+		return false
+	}
+	if err := deps.TaskService.SetTaskDependencies(r.Context(), tr.ID, blockedBy); err != nil {
+		switch {
+		case errors.Is(err, taskservice.ErrSelfDependency),
+			errors.Is(err, taskservice.ErrDependencyCycle),
+			errors.Is(err, taskservice.ErrDependencyExists):
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "invalid_dependency"})
+		default:
+			writeError(w, err)
+		}
+		return false
+	}
+	return true
+}
+
+// recordAgentProposeEffects mirrors the new task into the mirror
+// store, records the "who proposed this" audit row, and publishes
+// the WS task.created event — all best-effort / nil-safe.
+func recordAgentProposeEffects(r *http.Request, deps *Dependencies, tr *task.Task, agentID string) {
+	if deps.TaskService != nil {
+		deps.TaskService.MirrorSave(r.Context(), tr)
+	}
+
+	// Audit "who proposed this" — the review queue shows the task,
+	// the activity feed shows the agent that filed it. Best-effort:
+	// an audit glitch must not fail the user-visible create (same
+	// convention as the comment/attachment recorders, Phase 28.5).
+	if deps.ActivityRecorder != nil {
+		payload := fmt.Sprintf(`{"project_id":%q,"title":%q}`, tr.ProjectID, tr.Title)
+		if err := deps.ActivityRecorder.RecordTask(r.Context(), tr.ID,
+			activity.ActorAgent, agentID, activity.ActionCreated, payload); err != nil && deps.Logger != nil {
+			deps.Logger.Warn("agent task activity record failed",
+				zap.String("task_id", tr.ID), zap.Error(err))
+		}
+	}
+
+	if deps.WSHub != nil {
+		deps.WSHub.Publish(r.Context(), ws.Event{
+			Topic: "tasks",
+			Body: map[string]any{
+				"type":  "task.created",
+				"task":  tr,
+				"actor": agentID,
+			},
+		})
 	}
 }

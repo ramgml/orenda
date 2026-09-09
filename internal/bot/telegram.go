@@ -316,52 +316,64 @@ func (t *Telegram) poll(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if upd.CallbackQuery != nil && t.OnCallback != nil {
-				q := upd.CallbackQuery
-				chatID := int64(0)
-				msgID := 0
-				if q.Message != nil {
-					chatID = q.Message.Chat.ID
-					msgID = q.Message.MessageID
-				}
-				_ = t.OnCallback(ctx, CallbackQuery{
-					ID:        q.ID,
-					ChatID:    chatID,
-					MessageID: msgID,
-					Data:      q.Data,
-				})
-				continue
-			}
-			// Plain text message — Phase 21 inbox capture. We only
-			// dispatch to OnMessage if the chat type is private (a
-			// group message would route to a multi-user codepath we
-			// haven't built yet — single-owner install ignores
-			// non-private chats by design).
-			if upd.Message != nil && t.OnMessage != nil {
-				m := upd.Message
-				if m.Chat.Type == "private" && strings.TrimSpace(m.Text) != "" {
-					// /start is the bind handshake. Reply with a
-					// fresh one-shot code so the user can paste it
-					// into Settings → Bots → Telegram and link this
-					// chat to their owner row.
-					if strings.HasPrefix(strings.TrimSpace(m.Text), "/start") {
-						t.handleStart(ctx, m)
-						continue
-					}
-					userID := int64(0)
-					if m.From != nil {
-						userID = m.From.ID
-					}
-					_ = t.OnMessage(ctx, InboxMessage{
-						ChatID:    m.Chat.ID,
-						MessageID: m.MessageID,
-						UserID:    userID,
-						Text:      m.Text,
-					})
-				}
-			}
+			t.handleUpdate(ctx, upd)
 		}
 	}
+}
+
+// handleUpdate dispatches one Telegram update: callback queries
+// first, then private text messages. Mirrors the original in-loop
+// branching order so callbacks always win over message dispatch.
+func (t *Telegram) handleUpdate(ctx context.Context, upd tgbotapi.Update) {
+	if upd.CallbackQuery != nil && t.OnCallback != nil {
+		t.handleCallbackQuery(ctx, upd.CallbackQuery)
+		return
+	}
+	// Plain text message — Phase 21 inbox capture. We only
+	// dispatch to OnMessage if the chat type is private (a
+	// group message would route to a multi-user codepath we
+	// haven't built yet — single-owner install ignores
+	// non-private chats by design).
+	if upd.Message != nil && t.OnMessage != nil {
+		m := upd.Message
+		if m.Chat.Type == "private" && strings.TrimSpace(m.Text) != "" {
+			// /start is the bind handshake. Reply with a
+			// fresh one-shot code so the user can paste it
+			// into Settings → Bots → Telegram and link this
+			// chat to their owner row.
+			if strings.HasPrefix(strings.TrimSpace(m.Text), "/start") {
+				t.handleStart(ctx, m)
+				return
+			}
+			userID := int64(0)
+			if m.From != nil {
+				userID = m.From.ID
+			}
+			_ = t.OnMessage(ctx, InboxMessage{
+				ChatID:    m.Chat.ID,
+				MessageID: m.MessageID,
+				UserID:    userID,
+				Text:      m.Text,
+			})
+		}
+	}
+}
+
+// handleCallbackQuery forwards one callback query to OnCallback,
+// zero-filling chat/message ids when the query carries no message.
+func (t *Telegram) handleCallbackQuery(ctx context.Context, q *tgbotapi.CallbackQuery) {
+	chatID := int64(0)
+	msgID := 0
+	if q.Message != nil {
+		chatID = q.Message.Chat.ID
+		msgID = q.Message.MessageID
+	}
+	_ = t.OnCallback(ctx, CallbackQuery{
+		ID:        q.ID,
+		ChatID:    chatID,
+		MessageID: msgID,
+		Data:      q.Data,
+	})
 }
 
 // AnswerCallback acknowledges a callback (removes the loading spinner).

@@ -405,12 +405,8 @@ func (v *VK) pollLoop(ctx context.Context) {
 	backoff := time.Second
 	const maxBackoff = 30 * time.Second
 	for {
-		select {
-		case <-ctx.Done():
+		if !v.pollSelectable(ctx) {
 			return
-		case <-v.stopCh:
-			return
-		default:
 		}
 
 		server, err := v.fetchLongPollServer(ctx)
@@ -426,37 +422,55 @@ func (v *VK) pollLoop(ctx context.Context) {
 		}
 		backoff = time.Second // reset on success
 
-		// Inner loop: hold the (server, key, ts) handle until failed.
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-v.stopCh:
-				return
-			default:
-			}
+		if !v.pollSession(ctx, server, &backoff, maxBackoff) {
+			return
+		}
+	}
+}
 
-			updates, newTS, retry, err := v.aCheck(ctx, server)
-			if err != nil {
-				if v.OnError != nil {
-					v.OnError(fmt.Errorf("a_check: %w", err))
-				}
-				if !v.waitOrExit(ctx, backoff) {
-					return
-				}
-				backoff = nextBackoff(backoff, maxBackoff)
-				break // re-fetch server
+// pollSelectable reports whether the loop should keep running: it
+// returns false once ctx is done or Stop was called.
+func (v *VK) pollSelectable(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-v.stopCh:
+		return false
+	default:
+		return true
+	}
+}
+
+// pollSession holds one (server, key, ts) handle until a_check
+// fails or the server rotates it. Returns false when the loop must
+// exit; true means the caller should re-fetch the server.
+func (v *VK) pollSession(ctx context.Context, server *longPollServer, backoff *time.Duration, maxBackoff time.Duration) bool {
+	// Inner loop: hold the (server, key, ts) handle until failed.
+	for {
+		if !v.pollSelectable(ctx) {
+			return false
+		}
+
+		updates, newTS, retry, err := v.aCheck(ctx, server)
+		if err != nil {
+			if v.OnError != nil {
+				v.OnError(fmt.Errorf("a_check: %w", err))
 			}
-			backoff = time.Second
-			if retry {
-				// failed=1 → server/key rotated; the new ts is in
-				// the response. Re-fetch the server (and key).
-				break
+			if !v.waitOrExit(ctx, *backoff) {
+				return false
 			}
-			server.TS = newTS
-			for _, u := range updates {
-				v.dispatch(ctx, u)
-			}
+			*backoff = nextBackoff(*backoff, maxBackoff)
+			return true // re-fetch server
+		}
+		*backoff = time.Second
+		if retry {
+			// failed=1 → server/key rotated; the new ts is in
+			// the response. Re-fetch the server (and key).
+			return true
+		}
+		server.TS = newTS
+		for _, u := range updates {
+			v.dispatch(ctx, u)
 		}
 	}
 }

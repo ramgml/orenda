@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -95,43 +96,7 @@ func listBackupSettingsHandler(deps *Dependencies) http.HandlerFunc {
 		// distinction between in-memory and DB-merge has shrunk
 		// to "is the operator's persisted intent reflected in the
 		// running process right now?" — they always say yes.
-		if deps.BackupSettings != nil {
-			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyEnabled); err == nil && ok {
-				var on bool
-				if jerr := json.Unmarshal(raw, &on); jerr == nil {
-					settings.Enabled = on
-				}
-			}
-			remoteInDB := ""
-			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyRemoteURL); err == nil && ok {
-				s, _ := jsonString(raw)
-				remoteInDB = s
-			}
-			if remoteInDB != "" {
-				settings.RemoteURL = remoteInDB
-				hasAuthInDB := false
-				if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyRemoteAuth); err == nil && ok && len(raw) > 0 {
-					hasAuthInDB = true
-				}
-				settings.HasAuth = hasAuthInDB
-			}
-			// Phase 32.7: same merge pattern for the schedule
-			// and rotation knobs. A DB row beats the in-memory
-			// default (YAML/env) — that's the contract the operator
-			// expects: "what I saved in the UI is what runs".
-			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeySnapshotCron); err == nil && ok {
-				s, _ := jsonString(raw)
-				if s != "" {
-					settings.SnapshotCron = s
-				}
-			}
-			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeySnapshotRotationDays); err == nil && ok {
-				var n int
-				if jerr := json.Unmarshal(raw, &n); jerr == nil {
-					settings.SnapshotRotationDays = n
-				}
-			}
-		}
+		mergeBackupSettingsOverrides(ctx, deps, &settings)
 		// Phase 28.9: after PUT the live service already mirrors the
 		// DB rows, so the SourceHint banner is no longer needed for
 		// the in-process mismatch case. We keep the field in the
@@ -184,76 +149,12 @@ func putBackupSettingsHandler(deps *Dependencies) http.HandlerFunc {
 		// Defaults: missing `enabled` → keep current. We first try
 		// the DB (operator could have just toggled it there) and fall
 		// back to the in-memory config.
-		currentEnabled := current.RemoteURL != ""
-		if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyEnabled); err == nil && ok {
-			var b bool
-			if json.Unmarshal(raw, &b) == nil {
-				currentEnabled = b
-			}
-		}
+		currentEnabled := backupSettingsEnabledInDB(ctx, deps, current.RemoteURL != "")
 		if in.Enabled == nil {
 			in.Enabled = &currentEnabled
 		}
-
-		// Pull remote_url / auth from DB if the body didn't carry
-		// them explicitly. Empty != "set to empty"; the only way
-		// out of "has remote" is the operator clearing the field
-		// and saving, which the UI handles by passing "" (we then
-		// write "" over the existing value).
-		if in.RemoteURL == "" {
-			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyRemoteURL); err == nil && ok {
-				s, _ := jsonString(raw)
-				in.RemoteURL = s
-			} else if deps.Backup != nil {
-				// Phase 28.9: fall back to the live cfg the
-				// operator wired at startup (no longer a
-				// separate Dependencies mirror field — the
-				// Service holds the authoritative copy now).
-				in.RemoteURL = deps.Backup.Config().RemoteURL
-			}
-		}
-		if in.RemoteAuth == "" {
-			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyRemoteAuth); err == nil && ok {
-				s, _ := jsonString(raw)
-				in.RemoteAuth = s
-			}
-		}
-
-		// Phase 32.7: default the new schedule / rotation knobs
-		// from the DB first (mirrors the URL/auth path above),
-		// falling back to the live cfg (which on cold start was
-		// already merged with DB by main.go). When deps.Backup
-		// is nil (the test fixture's partial-wiring case), the
-		// DB read alone backs the "preserve persisted value"
-		// guarantee — the fixture doesn't need to wire a real
-		// Service to verify "save one field at a time".
-		if in.SnapshotCron == "" {
-			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeySnapshotCron); err == nil && ok {
-				s, _ := jsonString(raw)
-				in.SnapshotCron = s
-			} else if deps.Backup != nil {
-				in.SnapshotCron = deps.Backup.Config().SnapshotCron
-			}
-			if in.SnapshotCron == "" {
-				in.SnapshotCron = backup.DefaultSchedule
-			}
-		}
-		if in.SnapshotRotationDays == nil {
-			if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeySnapshotRotationDays); err == nil && ok {
-				var n int
-				if jerr := json.Unmarshal(raw, &n); jerr == nil {
-					in.SnapshotRotationDays = &n
-				}
-			}
-			if in.SnapshotRotationDays == nil && deps.Backup != nil {
-				days := deps.Backup.Config().SnapshotRotationDays
-				in.SnapshotRotationDays = &days
-			}
-			if in.SnapshotRotationDays == nil {
-				zero := 0
-				in.SnapshotRotationDays = &zero
-			}
-		}
+		defaultBackupRemoteSettings(ctx, deps, &in)
+		defaultBackupScheduleSettings(ctx, deps, &in)
 
 		if err := validateBackupSettingsInput(in); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -493,6 +394,43 @@ func listBackupSnapshotsHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
+// defaultBackupScheduleSettings defaults the schedule / rotation
+// knobs from the DB first (mirrors the URL/auth path), falling back
+// to the live cfg (which on cold start was already merged with DB by
+// main.go). When deps.Backup is nil (the test fixture's
+// partial-wiring case), the DB read alone backs the "preserve
+// persisted value" guarantee — the fixture doesn't need to wire a
+// real Service to verify "save one field at a time".
+func defaultBackupScheduleSettings(ctx context.Context, deps *Dependencies, in *backupSettingsInput) {
+	if in.SnapshotCron == "" {
+		if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeySnapshotCron); err == nil && ok {
+			s, _ := jsonString(raw)
+			in.SnapshotCron = s
+		} else if deps.Backup != nil {
+			in.SnapshotCron = deps.Backup.Config().SnapshotCron
+		}
+		if in.SnapshotCron == "" {
+			in.SnapshotCron = backup.DefaultSchedule
+		}
+	}
+	if in.SnapshotRotationDays == nil {
+		if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeySnapshotRotationDays); err == nil && ok {
+			var n int
+			if json.Unmarshal(raw, &n) == nil {
+				in.SnapshotRotationDays = &n
+			}
+		}
+		if in.SnapshotRotationDays == nil && deps.Backup != nil {
+			days := deps.Backup.Config().SnapshotRotationDays
+			in.SnapshotRotationDays = &days
+		}
+		if in.SnapshotRotationDays == nil {
+			zero := 0
+			in.SnapshotRotationDays = &zero
+		}
+	}
+}
+
 // restoreBackupHandler lives in handlers_restore.go (Phase 22.3 —
 // maintenance-mode path). The original handler returned a CLI
 // hint; the new one accepts a `force=true` body when maintenance
@@ -512,5 +450,90 @@ func listBackupLogHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"log": logs})
+	}
+}
+
+// backupSettingsEnabledInDB layers the persisted `enabled` override
+// over the fallback derived from the live config's remote URL. A
+// missing or unparseable DB row keeps the fallback.
+func backupSettingsEnabledInDB(ctx context.Context, deps *Dependencies, fallback bool) bool {
+	enabled := fallback
+	if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyEnabled); err == nil && ok {
+		var b bool
+		if json.Unmarshal(raw, &b) == nil {
+			enabled = b
+		}
+	}
+	return enabled
+}
+
+// defaultBackupRemoteSettings pulls remote_url / auth from DB if the
+// body didn't carry them explicitly. Empty != "set to empty"; the
+// only way out of "has remote" is the operator clearing the field
+// and saving, which the UI handles by passing "" (we then write ""
+// over the existing value). Phase 28.9: the DB miss falls back to
+// the live cfg the operator wired at startup (no longer a separate
+// Dependencies mirror field — the Service holds the authoritative
+// copy now).
+func defaultBackupRemoteSettings(ctx context.Context, deps *Dependencies, in *backupSettingsInput) {
+	if in.RemoteURL == "" {
+		if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyRemoteURL); err == nil && ok {
+			s, _ := jsonString(raw)
+			in.RemoteURL = s
+		} else if deps.Backup != nil {
+			in.RemoteURL = deps.Backup.Config().RemoteURL
+		}
+	}
+	if in.RemoteAuth == "" {
+		if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyRemoteAuth); err == nil && ok {
+			s, _ := jsonString(raw)
+			in.RemoteAuth = s
+		}
+	}
+}
+
+// mergeBackupSettingsOverrides layers the DB rows authored by the UI
+// over the in-memory config (they're the more recent intent).
+// Pre-Phase-28.9 the DB rows were advisory only (a restart was
+// required). After 28.9 the PUT handler merges them straight back
+// into the live Service, so the distinction between in-memory and
+// DB-merge has shrunk to "is the operator's persisted intent
+// reflected in the running process right now?" — they always say
+// yes. Phase 32.7 adds the schedule / rotation knobs with the same
+// pattern: a DB row beats the in-memory default (YAML/env).
+func mergeBackupSettingsOverrides(ctx context.Context, deps *Dependencies, settings *backupSettingsResponse) {
+	if deps.BackupSettings == nil {
+		return
+	}
+	if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyEnabled); err == nil && ok {
+		var on bool
+		if jerr := json.Unmarshal(raw, &on); jerr == nil {
+			settings.Enabled = on
+		}
+	}
+	remoteInDB := ""
+	if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyRemoteURL); err == nil && ok {
+		s, _ := jsonString(raw)
+		remoteInDB = s
+	}
+	if remoteInDB != "" {
+		settings.RemoteURL = remoteInDB
+		hasAuthInDB := false
+		if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeyRemoteAuth); err == nil && ok && len(raw) > 0 {
+			hasAuthInDB = true
+		}
+		settings.HasAuth = hasAuthInDB
+	}
+	if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeySnapshotCron); err == nil && ok {
+		s, _ := jsonString(raw)
+		if s != "" {
+			settings.SnapshotCron = s
+		}
+	}
+	if raw, ok, err := deps.BackupSettings.GetByKey(ctx, bsKeySnapshotRotationDays); err == nil && ok {
+		var n int
+		if jerr := json.Unmarshal(raw, &n); jerr == nil {
+			settings.SnapshotRotationDays = n
+		}
 	}
 }

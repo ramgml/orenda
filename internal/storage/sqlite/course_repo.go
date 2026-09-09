@@ -751,42 +751,9 @@ func (r *courseRepo) SubmitCurriculum(
 		`DELETE FROM course_modules WHERE course_id = ?`, courseID); err != nil {
 		return fmt.Errorf("course.SubmitCurriculum: clear: %w", err)
 	}
-	moduleIDs := make(map[string]struct{}, len(modules))
-	for _, m := range modules {
-		if m.ID == "" {
-			m.ID = newUUID()
-		}
-		moduleIDs[m.ID] = struct{}{}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO course_modules (id, course_id, title, description, position)
-			 VALUES (?, ?, ?, ?, ?)`,
-			m.ID, courseID, m.Title, m.Description, m.Position,
-		); err != nil {
-			return fmt.Errorf("course.SubmitCurriculum: module: %w", err)
-		}
-		for _, l := range lessons {
-			if l.ModuleID != m.ID {
-				continue
-			}
-			if l.ID == "" {
-				l.ID = newUUID()
-			}
-			var lessonNum int
-			if err := tx.QueryRowContext(ctx,
-				`UPDATE lesson_number_seq SET next = next + 1 WHERE id = 1 RETURNING next - 1`,
-			).Scan(&lessonNum); err != nil {
-				return fmt.Errorf("course.SubmitCurriculum: draw lesson number: %w", err)
-			}
-			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO course_lessons (id, module_id, title, content_md, status, position, task_id, number)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-				l.ID, m.ID, l.Title, l.ContentMD, string(l.Status),
-				l.Position, nullString(l.TaskID), lessonNum,
-			); err != nil {
-				return fmt.Errorf("course.SubmitCurriculum: lesson: %w", err)
-			}
-			l.Number = lessonNum
-		}
+	moduleIDs, err := insertCurriculumModules(ctx, tx, courseID, modules, lessons)
+	if err != nil {
+		return err
 	}
 	// Insert quizzes in the same tx. Each quiz's LessonID is
 	// expected to match a lesson that was just inserted; we
@@ -809,6 +776,69 @@ func (r *courseRepo) SubmitCurriculum(
 		}
 	}
 	return tx.Commit()
+}
+
+// insertCurriculumModules inserts the submitted modules and, for
+// each module, its lessons (matched via Lesson.ModuleID), drawing a
+// fresh lesson number per lesson from the lesson_number_seq table.
+// Empty module/lesson ids are minted on the fly (the pointers are
+// updated in place). Returns the set of inserted module ids so quiz
+// filtering can verify each quiz's lesson landed in the curriculum.
+func insertCurriculumModules(
+	ctx context.Context,
+	tx *sql.Tx,
+	courseID string,
+	modules []*course.Module,
+	lessons []*course.Lesson,
+) (map[string]struct{}, error) {
+	moduleIDs := make(map[string]struct{}, len(modules))
+	for _, m := range modules {
+		if m.ID == "" {
+			m.ID = newUUID()
+		}
+		moduleIDs[m.ID] = struct{}{}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO course_modules (id, course_id, title, description, position)
+			 VALUES (?, ?, ?, ?, ?)`,
+			m.ID, courseID, m.Title, m.Description, m.Position,
+		); err != nil {
+			return nil, fmt.Errorf("course.SubmitCurriculum: module: %w", err)
+		}
+		for _, l := range lessons {
+			if l.ModuleID != m.ID {
+				continue
+			}
+			if err := insertCurriculumLesson(ctx, tx, m.ID, l); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return moduleIDs, nil
+}
+
+// insertCurriculumLesson draws the next lesson number and inserts
+// one lesson row under the given module. The lesson's Number field
+// is written back so the caller's slice reflects persisted state.
+func insertCurriculumLesson(ctx context.Context, tx *sql.Tx, moduleID string, l *course.Lesson) error {
+	if l.ID == "" {
+		l.ID = newUUID()
+	}
+	var lessonNum int
+	if err := tx.QueryRowContext(ctx,
+		`UPDATE lesson_number_seq SET next = next + 1 WHERE id = 1 RETURNING next - 1`,
+	).Scan(&lessonNum); err != nil {
+		return fmt.Errorf("course.SubmitCurriculum: draw lesson number: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO course_lessons (id, module_id, title, content_md, status, position, task_id, number)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		l.ID, moduleID, l.Title, l.ContentMD, string(l.Status),
+		l.Position, nullString(l.TaskID), lessonNum,
+	); err != nil {
+		return fmt.Errorf("course.SubmitCurriculum: lesson: %w", err)
+	}
+	l.Number = lessonNum
+	return nil
 }
 
 // lessonModuleID returns the module_id of the lesson with the given
@@ -837,48 +867,74 @@ func (r *courseRepo) ApplyStructure(ctx context.Context, courseID string, module
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Load the current module and lesson id sets of the course.
-	existingModules := map[string]struct{}{}
+	existingModules, existingLessons, err := loadStructureIDs(ctx, tx, courseID)
+	if err != nil {
+		return err
+	}
+	if err := validateStructureOrder(modules, existingModules, existingLessons); err != nil {
+		return err
+	}
+
+	// Rewrite positions 1..n in payload order; lessons may move
+	// across modules freely (module_id is rewritten alongside).
+	for i, mo := range modules {
+		if err := applyModulePosition(ctx, tx, i, mo); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// loadStructureIDs reads the current module and lesson id sets of
+// the course inside the apply transaction, so the exact-coverage
+// validation below sees the rows it will rewrite.
+func loadStructureIDs(ctx context.Context, tx *sql.Tx, courseID string) (existingModules, existingLessons map[string]struct{}, err error) {
+	existingModules = map[string]struct{}{}
 	mrows, err := tx.QueryContext(ctx,
 		`SELECT id FROM course_modules WHERE course_id = ?`, courseID)
 	if err != nil {
-		return fmt.Errorf("course.ApplyStructure: load modules: %w", err)
+		return nil, nil, fmt.Errorf("course.ApplyStructure: load modules: %w", err)
 	}
 	for mrows.Next() {
 		var id string
 		if err := mrows.Scan(&id); err != nil {
 			mrows.Close()
-			return err
+			return nil, nil, err
 		}
 		existingModules[id] = struct{}{}
 	}
 	mrows.Close()
 	if err := mrows.Err(); err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	existingLessons := map[string]struct{}{}
+	existingLessons = map[string]struct{}{}
 	lrows, err := tx.QueryContext(ctx,
 		`SELECT l.id FROM course_lessons l
 		 JOIN course_modules m ON m.id = l.module_id
 		 WHERE m.course_id = ?`, courseID)
 	if err != nil {
-		return fmt.Errorf("course.ApplyStructure: load lessons: %w", err)
+		return nil, nil, fmt.Errorf("course.ApplyStructure: load lessons: %w", err)
 	}
 	for lrows.Next() {
 		var id string
 		if err := lrows.Scan(&id); err != nil {
 			lrows.Close()
-			return err
+			return nil, nil, err
 		}
 		existingLessons[id] = struct{}{}
 	}
 	lrows.Close()
 	if err := lrows.Err(); err != nil {
-		return err
+		return nil, nil, err
 	}
+	return existingModules, existingLessons, nil
+}
 
-	// Validate exact coverage: no unknown, duplicate, or missing ids.
+// validateStructureOrder enforces exact coverage: the payload must
+// name every module and every lesson of the course exactly once —
+// no unknown, duplicate, or missing ids.
+func validateStructureOrder(modules []course.ModuleOrder, existingModules, existingLessons map[string]struct{}) error {
 	if len(modules) != len(existingModules) {
 		return course.ErrInvalidInput
 	}
@@ -907,30 +963,33 @@ func (r *courseRepo) ApplyStructure(ctx context.Context, courseID string, module
 	if lessonCount != len(existingLessons) {
 		return course.ErrInvalidInput
 	}
+	return nil
+}
 
-	// Rewrite positions 1..n in payload order; lessons may move
-	// across modules freely (module_id is rewritten alongside).
-	for i, mo := range modules {
+// applyModulePosition rewrites one module's position (1-based
+// payload order) and the positions of its lessons; a zero-rows
+// update means the payload drifted from the validated set and is
+// rejected.
+func applyModulePosition(ctx context.Context, tx *sql.Tx, i int, mo course.ModuleOrder) error {
+	res, err := tx.ExecContext(ctx,
+		`UPDATE course_modules SET position = ? WHERE id = ?`,
+		i+1, mo.ModuleID)
+	if err != nil {
+		return fmt.Errorf("course.ApplyStructure: module position: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return course.ErrInvalidInput
+	}
+	for j, lid := range mo.LessonIDs {
 		res, err := tx.ExecContext(ctx,
-			`UPDATE course_modules SET position = ? WHERE id = ?`,
-			i+1, mo.ModuleID)
+			`UPDATE course_lessons SET module_id = ?, position = ? WHERE id = ?`,
+			mo.ModuleID, j+1, lid)
 		if err != nil {
-			return fmt.Errorf("course.ApplyStructure: module position: %w", err)
+			return fmt.Errorf("course.ApplyStructure: lesson position: %w", err)
 		}
 		if n, _ := res.RowsAffected(); n == 0 {
 			return course.ErrInvalidInput
 		}
-		for j, lid := range mo.LessonIDs {
-			res, err := tx.ExecContext(ctx,
-				`UPDATE course_lessons SET module_id = ?, position = ? WHERE id = ?`,
-				mo.ModuleID, j+1, lid)
-			if err != nil {
-				return fmt.Errorf("course.ApplyStructure: lesson position: %w", err)
-			}
-			if n, _ := res.RowsAffected(); n == 0 {
-				return course.ErrInvalidInput
-			}
-		}
 	}
-	return tx.Commit()
+	return nil
 }
