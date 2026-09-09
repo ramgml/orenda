@@ -34,7 +34,7 @@ linters:
 
     # ---- complexity (new) ----
     - gocyclo        # cyclomatic complexity per function
-    - gocognit       # cognitive complexity per function (how hard to READ)
+    - gocognit       # cognitive complexity per function (explicit threshold T191; was implicit default)
     # ---- dead code ----
     # `unused` (above) is Go's dead-code workhorse; unreachable code is
     # covered by govet/revive/staticcheck. Exported-but-dead API in the
@@ -67,7 +67,10 @@ linters:
         - name: indent-error-flow
         - name: superfluous-else
         - name: unreachable-code
-    # Complexity thresholds — deliberately generous first pass; tighten later.
+    # Complexity thresholds — explicit since T191 (post-T179 debt cleanup).
+    # Tightening gocognit to 25 was evaluated at T191: 8 findings across
+    # legacy handlers/wiki/mcp/ws code at 25, so 30 is fixed here and the
+    # tightening is deferred (see decision log, 2026-09-09).
     funlen:
       lines: 120          # a function that scrolls is a design smell
       statements: 80
@@ -75,6 +78,8 @@ linters:
       min-complexity: 6
     gocyclo:
       min-complexity: 20
+    gocognit:
+      min-complexity: 30
   exclusions:
     # node_modules ships third-party Go files (e.g. flatted's wasm helper)
     # that `./...` would otherwise scan; they are npm deps, not our code.
