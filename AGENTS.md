@@ -78,7 +78,7 @@ Hook contract:
 | Hook        | Runs on        | Checks                                                            | Cost       |
 |-------------|----------------|-------------------------------------------------------------------|------------|
 | `pre-commit`| `git commit`   | `gofmt -l` on staged `.go` + `prettier --check` on staged web     | <2 s       |
-| `pre-push`  | `git push`     | `make lint-new` + `make web-typecheck` + `make test`              | ~1 min cold, seconds warm |
+| `pre-push`  | `git push`     | `make lint-new` + `make web-typecheck` + `make web-knip` + `make test` | ~1 min cold, seconds warm |
   `make lint` / `make lint-new` require **golangci-lint ≥ v2** (`.golangci.yml` carries `version: "2"` — the v1 binary fails the config schema). Install:
   `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`
 
@@ -92,6 +92,8 @@ It catches TS errors that would break `web-build` (e.g. the v0.5.0
 release blocker where `shadcn.test.tsx` referenced an undefined
 identifier). The CI backstop on push to `dev` also runs this step
 (`make web-typecheck` + `make test-full`).
+
+`make web-knip` is the knip unused-exports/files audit for the SPA — blocking since Task 180. Dead exports must be removed; the only sanctioned allow-list (web/knip.json `ignoreIssues`) covers the regenerable shadcn/ui primitives that `shadcn` CLI rewrites on re-add.
 
 `make test` runs `go test ./... -race` + vitest **with the Go test cache
 enabled** (seconds on an unchanged tree; the cache keys on file contents
