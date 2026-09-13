@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/task"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
@@ -528,4 +529,184 @@ func TestAgent_UpdateAgentNotes_ReleaseInterleaved_NoResurrect(t *testing.T) {
 	// would also match — both surface a non-200).
 	rr = f.patchAsAgent(t, proposed.ID, map[string]any{"agent_notes": "sneaky"})
 	assert.NotEqual(t, http.StatusOK, rr.Code, "must not write notes after release")
+}
+
+// ---- Task 241: holder edits title/description on the held task ----
+
+// claimHeld builds an owner-created task, drags it to todo and claims
+// it as the fixture agent — the minimal "agent holds someone else's
+// task" state that the Task 241 holder path operates on.
+func claimHeld(t *testing.T, f *proposeFixture, title string) task.Task {
+	t.Helper()
+	rr := f.doWithCookie(t, http.MethodPost, "/api/v1/projects/"+f.projectID+"/tasks", map[string]any{
+		"title": title, "column_id": f.todoColID,
+	})
+	require.Equal(t, http.StatusCreated, rr.Code, rr.Body.String())
+	var owned task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &owned))
+	require.Equal(t, task.CreatorUser, owned.CreatedByType)
+
+	rr = f.claimAsAgent(t, owned.ID)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	return owned
+}
+
+func TestAgent_HolderEditsForeignTaskTitleDescription(t *testing.T) {
+	t.Parallel()
+	// Task 241 core behavior: the claim holder patches title and
+	// description_md of an owner-created task; fields land, one
+	// task.updated audit row carries the diff.
+	f := newProposeFixture(t)
+	owned := claimHeld(t, f, "Owner's original title")
+
+	rr := f.patchAsAgent(t, owned.ID, map[string]any{
+		"title":          "Fixed by agent",
+		"description_md": "# refined\n\nholder edit",
+	})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	var updated task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &updated))
+	assert.Equal(t, "Fixed by agent", updated.Title)
+	assert.Equal(t, "# refined\n\nholder edit", updated.Description)
+
+	acts, err := sqlite.NewActivityRepository(f.db).ListByTask(context.Background(), owned.ID)
+	require.NoError(t, err)
+	var patchRow *activity.Activity
+	for _, a := range acts {
+		if a.Action == activity.ActionUpdated {
+			patchRow = a
+			break
+		}
+	}
+	require.NotNil(t, patchRow, "task.updated activity row expected")
+	assert.Equal(t, activity.ActorAgent, patchRow.ActorType)
+	assert.Contains(t, patchRow.Payload, `"field":"title"`)
+	assert.Contains(t, patchRow.Payload, `"field":"description"`)
+}
+
+func TestAgent_HolderMixedNotesTitleDescription_Atomic(t *testing.T) {
+	t.Parallel()
+	// Task 241: {agent_notes, title, description_md} lands in ONE
+	// gated UPDATE — all three fields present after the PATCH, one
+	// audit row covering all diffs.
+	f := newProposeFixture(t)
+	owned := claimHeld(t, f, "Mixed patch target")
+
+	rr := f.patchAsAgent(t, owned.ID, map[string]any{
+		"agent_notes":    "scratchpad update",
+		"title":          "New title",
+		"description_md": "New body",
+	})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	var updated task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &updated))
+	assert.Equal(t, "New title", updated.Title)
+	assert.Equal(t, "New body", updated.Description)
+	assert.Equal(t, "scratchpad update", updated.AgentNotes)
+
+	patchRows := 0
+	for _, row := range listActivityForTask(t, f, owned.ID) {
+		if row.Action == "task.updated" {
+			patchRows++
+		}
+	}
+	assert.Equal(t, 1, patchRows, "mixed patch must yield exactly one audit row")
+}
+
+func TestAgent_NonHolderTitlePatchOnForeignTask_403(t *testing.T) {
+	t.Parallel()
+	// A second agent (not the holder) PATCHes title on the held
+	// task: 403 not_your_proposal — neither gate applies (the
+	// Phase 33.2 drive-by contract is preserved for agents that
+	// neither proposed nor claimed).
+	f := newProposeFixture(t)
+	owned := claimHeld(t, f, "Held by A")
+
+	agentB := registerSecondAgent(t, f, "agent-b")
+	rr := f.patchAsAgentToken(t, owned.ID, agentB.PlainToken, map[string]any{"title": "sneaky"})
+	require.Equal(t, http.StatusForbidden, rr.Code, rr.Body.String())
+	assert.Contains(t, rr.Body.String(), "not_your_proposal")
+}
+
+func TestAgent_HolderTitlePatchAfterRelease_403(t *testing.T) {
+	t.Parallel()
+	// The gate follows the CURRENT holder: after Release the
+	// ex-holder loses the title edit right (and the WHERE-gate in
+	// UpdateHeldFields would reject the TOCTOU window with 409).
+	f := newProposeFixture(t)
+	owned := claimHeld(t, f, "Was held")
+
+	rr := f.releaseAsAgent(t, owned.ID)
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	rr = f.patchAsAgent(t, owned.ID, map[string]any{"title": "post-release"})
+	assert.NotEqual(t, http.StatusOK, rr.Code, "released holder must not edit")
+}
+
+func TestAgent_ProposalPathNotes_StillRejected(t *testing.T) {
+	t.Parallel()
+	// Task 241 keeps agent_notes holder-only: the proposal author
+	// (not yet claimed) PATCHing {title, agent_notes} on their own
+	// backlog proposal reaches the holder path but is not the
+	// holder → 403 not_lock_holder. Notes never ride the proposal
+	// gate; the 400 agent_notes_requires_holder_only shape is
+	// reserved for notes mixed with owner-scoped fields
+	// (priority/due_at/parent/blocked_by).
+	f := newProposeFixture(t)
+	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var proposed task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
+
+	rr = f.patchAsAgent(t, proposed.ID, map[string]any{"title": "x", "agent_notes": "n"})
+	require.Equal(t, http.StatusForbidden, rr.Code, rr.Body.String())
+	assert.Contains(t, rr.Body.String(), "not_lock_holder")
+
+	// Notes mixed with an owner-scoped field stays a caller bug.
+	rr = f.patchAsAgent(t, proposed.ID, map[string]any{"priority": "high", "agent_notes": "n"})
+	require.Equal(t, http.StatusBadRequest, rr.Code, rr.Body.String())
+	assert.Contains(t, rr.Body.String(), "agent_notes_requires_holder_only")
+}
+
+// TestGate_UpdateHeldFields pins the WHERE gate directly: the gated
+// UPDATE must refuse when the assignee pair does not match (never
+// claimed / released / another agent) and apply when it does.
+func TestGate_UpdateHeldFields(t *testing.T) {
+	t.Parallel()
+	db, _ := copyTemplateDB(t)
+	tasks := sqlite.NewTaskRepository(db)
+	tr := &task.Task{
+		Title: "h", Status: task.StatusTodo, Priority: task.PriorityMedium,
+		CreatedByType: task.CreatorUser, CreatedByID: "owner-1",
+		AssigneeType: task.AssigneeAgent, AssigneeID: "agent-A",
+	}
+	require.NoError(t, tasks.Create(context.Background(), tr))
+	title := "by holder"
+	desc := "body"
+	notes := "n"
+	require.NoError(t, tasks.UpdateHeldFields(context.Background(), task.HeldPatchParams{
+		TaskID: tr.ID, AgentID: "agent-A", Title: &title, Description: &desc, Notes: &notes,
+	}))
+	got, err := tasks.GetByID(context.Background(), tr.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "by holder", got.Title)
+	assert.Equal(t, "body", got.Description)
+	assert.Equal(t, "n", got.AgentNotes)
+
+	// Wrong agent → RowsAffected()==0 → ErrNotFound; nothing lands.
+	title2 := "sneaky"
+	err = tasks.UpdateHeldFields(context.Background(), task.HeldPatchParams{
+		TaskID: tr.ID, AgentID: "agent-B", Title: &title2,
+	})
+	assert.ErrorIs(t, err, task.ErrNotFound)
+	got, err = tasks.GetByID(context.Background(), tr.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "by holder", got.Title, "gate must refuse foreign agent writes")
+
+	// Released (assignee cleared) → refused.
+	require.NoError(t, tasks.ClearAssigneeToTodo(context.Background(), tr.ID, &task.Task{ID: tr.ID, Status: task.StatusTodo}))
+	err = tasks.UpdateHeldFields(context.Background(), task.HeldPatchParams{
+		TaskID: tr.ID, AgentID: "agent-A", Title: &title2,
+	})
+	assert.ErrorIs(t, err, task.ErrNotFound, "gate must refuse after assignee cleared")
 }

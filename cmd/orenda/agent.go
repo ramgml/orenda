@@ -1447,7 +1447,7 @@ func newAgentUpdateCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "update <task-id|#N>",
-		Short: "Edit own un-triaged proposal (title/description/priority/due_at/parent_task_id) or update agent_notes as the lock holder",
+		Short: "Edit own un-triaged proposal (title/description/priority/due_at/parent_task_id), or as the claim holder edit title/description + agent_notes of the held task",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, err := resolveAgentCtx(cmd)
@@ -1491,8 +1491,8 @@ func newAgentUpdateCmd() *cobra.Command {
 			return printJSON(cmd, v)
 		},
 	}
-	cmd.Flags().StringVar(&title, "title", "", "new title")
-	cmd.Flags().StringVar(&description, "description", "", "new description (markdown)")
+	cmd.Flags().StringVar(&title, "title", "", "new title (own backlog proposal, or held task as the claim holder)")
+	cmd.Flags().StringVar(&description, "description", "", "new description (markdown; own backlog proposal, or held task as the claim holder)")
 	cmd.Flags().StringVar(&priority, "priority", "", "new priority (low|medium|high|urgent)")
 	cmd.Flags().StringVar(&dueAt, "due-at", "", "new due date (RFC3339)")
 	cmd.Flags().StringVar(&parentID, "parent-task-id", "", "re-parent under a different parent")

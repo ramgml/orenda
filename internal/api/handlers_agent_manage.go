@@ -95,18 +95,21 @@ func agentPatchTaskHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		// Holder-only short-circuit: a PATCH carrying only
-		// agent_notes routes to UpdateAgentNotes (which checks the
-		// task_locks gate). A holder-only write on a triaged task
-		// is the one legitimate escape from the proposal-gate.
-		// Task 115 review (F2): BlockedBy must be part of the check —
-		// otherwise PATCH {agent_notes, blocked_by:[...]} silently
-		// dropped the blockers with a 200.
+		// Holder-notes short-circuit: a PATCH carrying agent_notes
+		// (alone or alongside title/description — Task 241) routes
+		// through the holder gate: notes-only → UpdateAgentNotes;
+		// notes + title/description → EditHeld, which lands the
+		// whole patch in ONE gated UPDATE. A notes-only write on a
+		// triaged task is the one legitimate escape from the
+		// proposal-gate. Task 115 review (F2): BlockedBy must be
+		// part of the check — otherwise PATCH {agent_notes,
+		// blocked_by:[...]} silently dropped the blockers with a 200.
+		// priority/due_at/parent stay proposal-gated (owner-scoped
+		// fields, never holder-writable).
 		holderOnly := in.AgentNotes != "" &&
-			in.Title == "" && in.DescriptionMD == "" &&
 			in.Priority == "" && in.DueAt == nil && in.ParentTaskID == "" &&
 			in.BlockedBy == nil
-		if holderOnly {
+		if holderOnly && in.Title == "" && in.DescriptionMD == "" {
 			tr, err := deps.TaskService.UpdateAgentNotes(r.Context(), taskID, id.AgentID, in.AgentNotes)
 			if err != nil {
 				translateManageError(w, err, "patch_task")
@@ -115,6 +118,30 @@ func agentPatchTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusOK, tr)
 			return
 		}
+		if holderOnly {
+			// Task 241: {agent_notes, title, description_md} — the
+			// holder path lands the whole patch in one gated UPDATE.
+			patch, perr := buildEditProposalPatch(in)
+			if perr != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": perr.Error()})
+				return
+			}
+			patch.Notes = &in.AgentNotes
+			diff, err := deps.TaskService.EditHeld(r.Context(), taskID, id.AgentID, patch)
+			if err != nil {
+				translateManageError(w, err, "patch_task")
+				return
+			}
+			writeJSON(w, http.StatusOK, diff.After)
+			return
+		}
+
+		// title/description-only: the SERVICE picks the gate — own
+		// un-triaged proposal → proposal gate; held task → holder
+		// gate (EditHeld via the EditProposal fall-through). A
+		// title-only PATCH by a non-holder non-proposer still
+		// surfaces 403 not_your_proposal (preserves the Phase 33.2
+		// TestAgent_PatchForeignProposal_403 contract).
 
 		patch, perr := buildEditProposalPatch(in)
 		if perr != nil {
@@ -199,14 +226,15 @@ func buildEditProposalPatch(in agentTaskPatchInput) (taskservice.EditProposalPat
 		out.BlockedBy = in.BlockedBy
 	}
 	if in.AgentNotes != "" {
-		// A mixed PATCH that includes agent_notes alongside other
-		// fields is rejected. The contract is "notes-only is the
-		// holder path; otherwise the proposal-gate must apply".
-		// We catch this here so the caller sees a clear 400
-		// instead of a service-level ErrNotOwnProposal (which
-		// would look like a permission bug to a legitimate
-		// holder).
-		return out, fmt.Errorf("agent_notes_requires_holder_only")
+		// agent_notes is holder-only: it may ride a PATCH only alone
+		// (UpdateAgentNotes) or with title/description_md (Task 241:
+		// EditHeld lands the whole patch in one gated UPDATE). Mixed
+		// with any owner-scoped field (priority/due_at/parent/
+		// blocked_by) it stays a caller bug → 400; the caller sees
+		// a clear 400 instead of a service-level permission error.
+		if in.Priority != "" || in.DueAt != nil || in.ParentTaskID != "" || in.BlockedBy != nil {
+			return out, fmt.Errorf("agent_notes_requires_holder_only")
+		}
 	}
 	return out, nil
 }

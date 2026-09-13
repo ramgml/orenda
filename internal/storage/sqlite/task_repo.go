@@ -598,6 +598,50 @@ func (r *taskRepo) UpdateAgentNotesField(ctx context.Context, taskID, agentID, n
 	return nil
 }
 
+// UpdateHeldFields writes ONLY title/description/agent_notes and
+// asserts the holder gate (assignee_type='agent' AND assignee_id=?)
+// in the WHERE — the same TOCTOU discipline as
+// UpdateAgentNotesField (Phase 33.2.1), extended by Task 241 to the
+// holder's title/description edit. One statement = the mixed PATCH
+// {agent_notes, title, description_md} lands atomically, and a
+// concurrent Release that clears the assignee makes
+// RowsAffected()==0 with NO field applied.
+func (r *taskRepo) UpdateHeldFields(ctx context.Context, p task.HeldPatchParams) error {
+	sets := []string{}
+	args := []any{}
+	if p.Title != nil {
+		sets = append(sets, "title = ?")
+		args = append(args, *p.Title)
+	}
+	if p.Description != nil {
+		sets = append(sets, "description = ?")
+		args = append(args, *p.Description)
+	}
+	if p.Notes != nil {
+		sets = append(sets, "agent_notes = ?")
+		args = append(args, nullString(*p.Notes))
+	}
+	if len(sets) == 0 {
+		return task.ErrInvalidInput
+	}
+	sets = append(sets, "updated_at = datetime('now')")
+	q := "UPDATE tasks SET " + strings.Join(sets, ", ") +
+		" WHERE id = ? AND assignee_type = 'agent' AND assignee_id = ?"
+	args = append(args, p.TaskID, p.AgentID)
+	res, err := r.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return fmt.Errorf("task.UpdateHeldFields: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return task.ErrNotFound
+	}
+	return nil
+}
+
 // ClearAssigneeToTodo is the partial UPDATE for the Release flow
 // (Task 92). It writes ONLY the release-mutation columns — assignee
 // pair, status, awaiting, column_id (the Phase 27.8 card drop to

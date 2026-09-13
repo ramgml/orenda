@@ -2411,7 +2411,7 @@ paths:
   /api/v1/agent/tasks/{id}:
     patch:
       tags: [agent]
-      summary: Edit own un-triaged proposal, or update agent_notes as the lock holder.
+      summary: Edit own un-triaged proposal (full set); as lock holder edit title/description + agent_notes.
       security: [{ bearerAuth-agent: [] }]
       requestBody:
         required: true
@@ -2420,8 +2420,16 @@ paths:
             schema:
               type: object
               properties:
-                title: { type: string }
-                description_md: { type: string }
+                title:
+                  type: string
+                  description: |
+                    Proposal-gated on your own backlog proposal; otherwise
+                    holder-gated (Task 241: the claim holder may edit the
+                    held task's title/description; 403 not_lock_holder or
+                    not_your_proposal when neither applies).
+                description_md:
+                  type: string
+                  description: Same gating as title.
                 priority: { type: string, enum: [low, medium, high, urgent] }
                 due_at: { type: string, format: date-time, nullable: true }
                 parent_task_id: { type: string }
@@ -2436,7 +2444,13 @@ paths:
                     untouched. Only the agent's own un-triaged proposal is
                     editable (403 not_your_proposal otherwise). Adding a
                     blocker auto-flips the task to status=blocked.
-                agent_notes: { type: string }
+                agent_notes:
+                  type: string
+                  description: |
+                    Holder-only. Alone → notes update; with title/
+                    description_md (Task 241) → one atomic gated write.
+                    Mixing notes with priority/due_at/parent/blocked_by
+                    is a 400 agent_notes_requires_holder_only.
       responses:
         '200': { description: ok }
         '400': { description: invalid_json / no_patch_fields }
