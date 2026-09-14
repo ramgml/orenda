@@ -77,6 +77,9 @@ func (f *fakeRepo) UpdateProposalFields(context.Context, task.ProposalPatchParam
 func (f *fakeRepo) UpdateAgentNotesField(context.Context, string, string, string) error {
 	return nil
 }
+func (f *fakeRepo) UpdateHeldFields(context.Context, task.HeldPatchParams) error {
+	return nil
+}
 func (f *fakeRepo) ClearAssigneeToTodo(context.Context, string, *task.Task) error {
 	return nil
 }

@@ -79,6 +79,13 @@ type EditProposalPatch struct {
 	// same SetTaskDependencies core as every other write path, so the
 	// auto-block state machine + activity rows apply here too.
 	BlockedBy *[]string
+	// Task 241: holder-only notes ride the same patch struct so a
+	// mixed {agent_notes, title, description} PATCH lands in ONE
+	// gated UPDATE (UpdateHeldFields) with a single audit row. The
+	// pointer mirrors the wire semantics: nil = absent (untouched).
+	// The api handler sets this after buildEditProposalPatch; the
+	// proposal gate rejects any proposal-path patch that carries it.
+	Notes *string
 }
 
 // Change describes one field-level edit on a proposal. Returned in
@@ -196,7 +203,25 @@ func (s *Service) EditProposal(ctx context.Context, taskID, agentID string, patc
 	// catches the rare TOCTOU race between this read and the
 	// subsequent write.
 	if !IsOwnProposal(tr, agentID) {
-		return nil, ErrNotOwnProposal
+		// Task 241: a title/description PATCH on a task the caller
+		// does NOT own as a proposal may still be legitimate — the
+		// lock holder may edit those fields on the task they hold.
+		// Fall through to the holder gate; ErrNotOwnProposal is
+		// only surfaced when the holder gate refuses too (keeps the
+		// Phase 33.2 not_your_proposal contract for drive-by PATCHes
+		// from agents that neither proposed nor claimed the task).
+		if !s.HolderAgentNotesOnly(ctx, tr, agentID) {
+			return nil, ErrNotOwnProposal
+		}
+		return s.EditHeld(ctx, taskID, agentID, patch)
+	}
+	// Task 241: agent_notes is a per-claim scratchpad — holder-only
+	// even on the proposer's own backlog task (the proposer is not
+	// the holder before any claim). The handler's buildEditProposalPatch
+	// already 400s a proposal-path patch that carries notes; this
+	// service-side re-check is defence in depth.
+	if patch.Notes != nil {
+		return nil, ErrNotLockHolder
 	}
 
 	before := *tr
@@ -413,6 +438,84 @@ func (s *Service) UpdateAgentNotes(ctx context.Context, taskID, agentID, notes s
 	return tr, nil
 }
 
+// EditHeld lets the current lock holder edit title/description (and
+// agent_notes) on the task they hold (Task 241).
+//
+// The gate mirrors UpdateAgentNotes: HolderAgentNotesOnly asserts
+// BOTH holder-of-lock AND assignee==agent (a stale lock from a
+// diverged claim row is refused). Task 241 extends the holder's
+// writable surface from {agent_notes} to {agent_notes, title,
+// description}; every other field (priority, due_at, parent,
+// blocked_by, status/column) stays owner-only.
+//
+// The WRITE goes through Tasks.UpdateHeldFields, which re-asserts
+// the assignee gate in the WHERE clause: a concurrent Release that
+// clears the assignee between our gate read and the write makes
+// RowsAffected()==0 → ErrConcurrentTriage with NO field applied
+// (single-statement atomicity for the mixed {notes, title,
+// description} PATCH).
+//
+// Sentinels: ErrNotLockHolder (gate), ErrNoPatchFields (empty
+// patch), ErrConcurrentTriage (TOCTOU). Audit + mirror + WS follow
+// the EditProposal shape: one task.updated activity row carrying the
+// field diff, one task.updated WS event with actor=agent.
+func (s *Service) EditHeld(ctx context.Context, taskID, agentID string, patch EditProposalPatch) (*EditProposalDiff, error) {
+	if patch.isEmpty() {
+		return nil, ErrNoPatchFields
+	}
+	tr, err := s.Tasks.GetByID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if !s.HolderAgentNotesOnly(ctx, tr, agentID) {
+		return nil, ErrNotLockHolder
+	}
+	before := *tr
+	changes := applyEditProposalPatch(tr, patch)
+	if patch.Notes != nil && *patch.Notes != tr.AgentNotes {
+		changes = append(changes, Change{Field: "agent_notes", From: tr.AgentNotes, To: *patch.Notes})
+		tr.AgentNotes = *patch.Notes
+	}
+	if len(changes) == 0 {
+		// No-op patch — return the current state without writing.
+		return &EditProposalDiff{Before: &before, After: tr, Changes: changes}, nil
+	}
+	params := task.HeldPatchParams{
+		TaskID:      tr.ID,
+		AgentID:     agentID,
+		Title:       patch.Title,
+		Description: patch.Description,
+		Notes:       patch.Notes,
+	}
+	if err := s.Tasks.UpdateHeldFields(ctx, params); err != nil {
+		if errors.Is(err, task.ErrNotFound) {
+			return nil, ErrConcurrentTriage
+		}
+		return nil, fmt.Errorf("task.EditHeld: update: %w", err)
+	}
+	// Re-read for the canonical after-state (WS payload / mirror).
+	updated, err := s.Tasks.GetByID(ctx, tr.ID)
+	if err != nil {
+		return nil, fmt.Errorf("task.EditHeld: re-read: %w", err)
+	}
+	tr = updated
+	if s.Mirror != nil {
+		s.MirrorSave(ctx, tr)
+	}
+	s.recordUpdated(ctx, tr.ID, agentID, changes)
+	if s.Hub != nil {
+		s.Hub.Publish(ctx, ws.Event{
+			Topic: "tasks",
+			Body: map[string]any{
+				"type":  "task.updated",
+				"task":  tr,
+				"actor": agentID,
+			},
+		})
+	}
+	return &EditProposalDiff{Before: &before, After: tr, Changes: changes}, nil
+}
+
 // ----------------------------------------------------------------------------
 // patch application
 // ----------------------------------------------------------------------------
@@ -470,7 +573,8 @@ func applyEditProposalPatch(tr *task.Task, patch EditProposalPatch) []Change {
 // PATCH is more likely a bug than an intentional no-op).
 func (p EditProposalPatch) isEmpty() bool {
 	return p.Title == nil && p.Description == nil && p.Priority == nil &&
-		p.DueAt == nil && p.ParentTaskID == nil && p.BlockedBy == nil
+		p.DueAt == nil && p.ParentTaskID == nil && p.BlockedBy == nil &&
+		p.Notes == nil
 }
 
 // recordUpdated writes a task.updated activity row summarising the

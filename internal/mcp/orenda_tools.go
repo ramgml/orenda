@@ -127,14 +127,14 @@ func registerCoreTaskTools(s *Server, httpc *http.Client, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_task_update",
-		Description: "Edit own un-triaged task proposal (status=backlog + awaiting=human) or update agent_notes as the lock holder. Two paths: {agent_notes: ...} only goes through the holder gate; any other field goes through the proposal gate. Returns 403 not_your_proposal / not_lock_holder on permission failure.",
+		Description: "Edit own un-triaged task proposal (status=backlog, full field set), OR as the current lock holder edit title/description_md of the task you claimed and update agent_notes (Task 241: {agent_notes, title, description_md} land in one atomic write). priority/due_at/parent/blocked_by stay proposal-gated. Returns 403 not_your_proposal / not_lock_holder on permission failure.",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
 				"task_id":        map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
-				"title":          map[string]any{"type": "string"},
-				"description_md": map[string]any{"type": "string"},
+				"title":          map[string]any{"type": "string", "description": "New title. Proposal-gated on your own backlog proposal; otherwise holder-gated (you must hold the claim)."},
+				"description_md": map[string]any{"type": "string", "description": "New markdown description. Proposal-gated on your own backlog proposal; otherwise holder-gated (you must hold the claim)."},
 				"priority":       map[string]any{"type": "string", "description": "low|medium|high|urgent"},
 				"due_at":         map[string]any{"type": "string", "description": "RFC3339 or null to clear"},
 				"parent_task_id": map[string]any{"type": "string"},

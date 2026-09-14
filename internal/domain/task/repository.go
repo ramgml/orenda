@@ -121,6 +121,17 @@ type Repository interface {
 	// assignee makes RowsAffected()==0.
 	UpdateAgentNotesField(ctx context.Context, taskID, agentID, notes string) error
 
+	// UpdateHeldFields is the gate-protected partial UPDATE for the
+	// agent-side EditHeld flow (Task 241): the current lock holder
+	// edits title/description on the task they hold. Writes ONLY the
+	// patch fields and asserts the holder gate
+	// (assignee_type='agent' AND assignee_id=?) in the WHERE clause
+	// — same TOCTOU discipline as UpdateAgentNotesField: a
+	// concurrent Release that clears the assignee makes
+	// RowsAffected()==0 and the caller surfaces
+	// ErrConcurrentTriage with no fields applied.
+	UpdateHeldFields(ctx context.Context, params HeldPatchParams) error
+
 	// ClearAssigneeToTodo is the partial UPDATE for the Release flow
 	// (Task 92): writes ONLY the assignee pair, status and awaiting.
 	// time_spent_s is deliberately out of the SET list — Release
@@ -265,6 +276,20 @@ type ProposalPatchParams struct {
 // created_by_id=me) gate the manager asserts in the WHERE clause.
 type ProposalGate struct {
 	CreatedByID string
+}
+
+// HeldPatchParams is the patch shape accepted by UpdateHeldFields
+// (Task 241): the fields the current lock holder may change.
+// Pointer fields use nil to mean "leave alone"; notes is the
+// holder's agent_notes scratchpad written in the same gated UPDATE
+// so a mixed {agent_notes, title, description_md} PATCH lands
+// atomically with a single audit row.
+type HeldPatchParams struct {
+	TaskID      string
+	AgentID     string
+	Title       *string
+	Description *string
+	Notes       *string
 }
 
 // ReviewQueueItem is a task awaiting review, denormalised with its
