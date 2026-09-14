@@ -58,16 +58,31 @@ curl -H "Authorization: Bearer $TOKEN" \
 ### 2.2 `orenda agent` CLI
 
 ```bash
-# Configure once via env (preferred) or ~/.config/orenda/agent.yaml.
+# Resolution is per field: flag > env (ORENDA_URL, ORENDA_AGENT_TOKEN)
+# > ./.orenda/agent.yaml (project-local) > ~/.config/orenda/agent.yaml (global).
 export ORENDA_URL=http://localhost:2137
 export ORENDA_AGENT_TOKEN=orenda-agent-...
 
-# Or via the config file:
+# Or via the global config file:
 cat > ~/.config/orenda/agent.yaml <<EOF
 url: http://localhost:2137
 token: orenda-agent-...
 EOF
 ```
+
+**Project-local config (T178):** a checkout can carry its own
+`.orenda/agent.yaml` (`url` + `token`) so a worktree/checkout points
+at its own instance without touching env or the global file. The
+file holds a plaintext token — it must stay untracked and gitignored
+(`.orenda/`), mode 0600. The CLI guards it on every run and warns
+when the file is tracked by git (token already in history —
+`git rm --cached` + rotate the token), not gitignored (`git add .`
+would commit it), mode wider than 0600, or url/token come from
+different sources (mixed local+global). Diagnose any resolution
+question with `orenda agent config`: prints the resolved values and
+the source of each (token masked; `--json --show-secret` for
+scripts). A broken local yaml is a hard error naming the path, never
+a silent fallback.
 
 Then drive the workflow with subcommands:
 
@@ -93,8 +108,8 @@ orenda agent pages backlinks <slug>        # who links here
 orenda agent pages delete <slug>           # delete (children cascade)
 orenda agent search "query" --type page --limit 5          # FTS5 across pages/tasks/comments
 ```
-
-Flags → env → config file. Use `-json` for scripts.
+Flags > env > project-local config file > global config file, resolved
+per field (see above). Use `-json` for scripts.
 
 `comment` posts to `/api/v1/agent/tasks/{id}/comments`; `await` posts to
 `/api/v1/agent/events/await`. Both routes require the bearer token
@@ -413,7 +428,9 @@ be self-sufficient — see rule 3). Optional: `priority`,
 | `HTTP 422 task_blocked` + `unfinished_blockers` | Phase 15 dep tree has unfinished blockers. | Wait, or request a different task. |
 | `HTTP 429 Too Many Requests` | Rate limited. | Back off; the `Retry-After` header tells you how long. |
 | `HTTP 401` | Token expired or revoked. | Re-register the agent. |
-| `orenda agent: --url is required` | Not configured. | Set `ORENDA_URL` + `ORENDA_AGENT_TOKEN` or write `~/.config/orenda/agent.yaml`. |
+| `orenda agent: --url is required` | Not configured. | Set `ORENDA_URL` + `ORENDA_AGENT_TOKEN`, or write `~/.config/orenda/agent.yaml` (or a project-local `.orenda/agent.yaml`). |
+| `<path>: invalid agent config yaml` | A config file exists but does not parse. | Fix or remove the file named in the error; the CLI never silently falls back to the next source. |
+| `warning: ... is tracked by git / not gitignored / readable by other users` | The project-local `.orenda/agent.yaml` is exposed. | `git rm --cached` + rotate the token; add `.orenda/` to `.gitignore`; `chmod 600`. Diagnose with `orenda agent config`. |
 
 ---
 

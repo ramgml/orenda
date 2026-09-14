@@ -926,7 +926,7 @@ function AddColumnTile({
       <button
         // T167: matches the column track so the tile sits in the same
         // flex row as the board instead of wrapping under it.
-        className="w-[280px] shrink-0 rounded-lg border border-dashed border-border bg-transparent hover:bg-slate-50 dark:hover:bg-slate-900 text-xs text-slate-500 hover:text-orenda-600 min-h-[200px] flex items-center justify-center"
+        className="w-[280px] shrink-0 self-start rounded-lg border border-dashed border-border bg-transparent hover:bg-slate-50 dark:hover:bg-slate-900 text-xs text-slate-500 hover:text-orenda-600 min-h-[200px] flex items-center justify-center"
         onClick={() => setOpen(true)}
         data-testid="add-column-tile"
       >
@@ -940,7 +940,7 @@ function AddColumnTile({
       onSubmit={submit}
       data-testid="add-column-form"
       // T167: expanded form keeps the same fixed track as the tile.
-      className="w-[280px] shrink-0 rounded-lg border border-border bg-muted p-3 flex flex-col gap-2 min-h-[200px]"
+      className="w-[280px] shrink-0 self-start rounded-lg border border-border bg-muted p-3 flex flex-col gap-2 min-h-[200px]"
     >
       <Input
         autoFocus

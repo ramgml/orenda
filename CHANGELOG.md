@@ -17,6 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [0.20.0] — 2026-09-13
+
+Minor release. Focus: agent-facing write surface — the claim holder can now correct the title/description of the task they hold (previously notes-only), and the project-local agent config accepts the `.yml` spelling. Plus a kanban layout fix.
+
+### Added
+- **Task 241 (PR #212):** the lock holder edits `title`/`description_md` of the held task — `PATCH /api/v1/agent/tasks/{id}`, `orenda agent update` and MCP `orenda_task_update` accept `{title, description}` (and `{agent_notes, title, description_md}` in one atomic gated write with a single `task.updated` audit row) when the caller holds the claim; `UpdateHeldFields` re-asserts the assignee gate in the `WHERE` clause, so a concurrent Release makes the whole patch land as `409` with no field applied. A non-holder still gets `403 not_your_proposal`; a released holder loses the edit right; `agent_notes` stays holder-only even on the proposal author's own backlog task, and mixing notes with `priority`/`due_at`/`parent_task_id`/`blocked_by` is `400 agent_notes_requires_holder_only`.
+- **Task 242 (PR #213):** `.orenda/agent.yml` resolves as the project-local agent config — the discovery walks `agent.yaml` then `agent.yml`, the first existing file owns both fields (canonical `.yaml` wins when both are present, no merging); a broken `.yml` keeps the loud-error contract naming the actual path, and the Task 181 git guard runs against the path that resolved. Previously a checkout carrying `agent.yml` silently fell through to env/global and the connection looked misconfigured.
+
+### Fixed
+- **Task 213 (PR #211):** the kanban "Add column" tile no longer stretches to the tallest column's height — it now keeps its compact size regardless of neighboring columns.
+
 ## [0.19.0] — 2026-09-09
 
 Minor release. Focus: CSRF defense for cookie-authenticated mutations, API-token lifecycle hardening (expiry enforcement, constant-time verification, expiry refresh on rotation), per-field agent config discovery with `orenda agent config`, a peek-safe `agent next` with long-poll claiming, `task.created` websocket events for human-created tasks, and a fix for the 500 panic on task writes when backups are disabled — plus a large internal lint-debt/complexity sweep.
