@@ -104,22 +104,35 @@ func resolveAgentSettings(cmd *cobra.Command, domain string) (*agentSettings, er
 		return s, nil
 	}
 	// Fall back to the config files whenever either value is still
-	// missing — flags and env win per-field over the files.
-	localPath := localAgentConfigPath()
-	local, st, err := readAgentConfigFile(localPath)
-	if err != nil {
-		return nil, fmt.Errorf("project config: %w", err)
-	}
-	if st == agentConfigOK {
+	// missing — flags and env win per-field over the files. The
+	// first EXISTING local spelling (agent.yaml, then agent.yml)
+	// owns both fields: a broken file is a hard error naming the
+	// path; a missing one falls to the next candidate, then the
+	// global config.
+	localPath := localAgentConfigCandidates()[0]
+	localFound := false
+	for _, candidate := range localAgentConfigCandidates() {
+		local, st, err := readAgentConfigFile(candidate)
+		if err != nil {
+			return nil, fmt.Errorf("project config: %w", err)
+		}
+		if st != agentConfigOK {
+			continue
+		}
+		localPath = candidate
+		localFound = true
 		if s.URL.Value == "" {
 			s.URL = agentField{Value: local.URL, Source: sourceLocal}
 		}
 		if s.Token.Value == "" {
 			s.Token = agentField{Value: local.Token, Source: sourceLocal}
 		}
+		break
 	}
 	if s.URL.Value != "" && s.Token.Value != "" {
-		s.warnResolved(cmd, localPath)
+		if localFound {
+			s.warnResolved(cmd, localPath)
+		}
 		return s, nil
 	}
 	globalPath, err := agentConfigPath()
@@ -144,7 +157,9 @@ func resolveAgentSettings(cmd *cobra.Command, domain string) (*agentSettings, er
 	if s.Token.Value == "" {
 		return nil, fmt.Errorf("%s: --token (or ORENDA_AGENT_TOKEN, or token: in %s, or token: in %s) is required", domain, localPath, globalPath)
 	}
-	s.warnResolved(cmd, localPath)
+	if localFound {
+		s.warnResolved(cmd, localPath)
+	}
 	return s, nil
 }
 
@@ -252,8 +267,7 @@ type agentConfig struct {
 	Token string `yaml:"token"`
 }
 
-// agentConfigPath is the host-global config path —
-// <os.UserConfigDir>/orenda/agent.yaml.
+// agentConfig is the YAML file shape — `url` and `token` only.
 func agentConfigPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
@@ -262,12 +276,17 @@ func agentConfigPath() (string, error) {
 	return filepath.Join(dir, "orenda", "agent.yaml"), nil
 }
 
-// localAgentConfigPath is the project-local config discovered in
-// the CURRENT working directory (Task 178). Relative on purpose: an
-// agent working inside a repo checkout picks up that repo's
-// connection settings without touching the host-global file.
-func localAgentConfigPath() string {
-	return filepath.Join(".orenda", "agent.yaml")
+// localAgentConfigCandidates lists the accepted spellings of the
+// project-local config, canonical first. Both .yaml and .yml are
+// YAML by convention; agents routinely write one for the other, so
+// the resolve chain tries both and the FIRST EXISTING file wins
+// (no merge, no "both present" ambiguity). `agent config` and the
+// Task 181 git guard always report the path that actually resolved.
+func localAgentConfigCandidates() []string {
+	return []string{
+		filepath.Join(".orenda", "agent.yaml"),
+		filepath.Join(".orenda", "agent.yml"),
+	}
 }
 
 // agentConfigStatus distinguishes "no file" (normal, skip) from

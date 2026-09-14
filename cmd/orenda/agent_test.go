@@ -206,7 +206,7 @@ func TestResolveAgentSettings_Chain(t *testing.T) {
 				require.NoError(t, err)
 				require.NoError(t, os.WriteFile(rel, raw, 0o600))
 			}
-			writeCfg(localAgentConfigPath(), tt.local)
+			writeCfg(localAgentConfigCandidates()[0], tt.local)
 			writeCfg(filepath.Join(xdg, "orenda", "agent.yaml"), tt.global)
 
 			root := newAgentCmd()
@@ -809,4 +809,75 @@ func TestPRNumberFromDescription(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestResolveAgentSettings_LocalYmlSpelling: ./.orenda/agent.yml is
+// accepted as the local config — agents routinely write one YAML
+// extension for the other, and a silently-ignored file looks like a
+// broken CLI. The .yml spelling resolves like .yaml; the git guard
+// and all diagnostics name the path that actually resolved.
+func TestResolveAgentSettings_LocalYmlSpelling(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("ORENDA_URL", "")
+	t.Setenv("ORENDA_AGENT_TOKEN", "")
+	require.NoError(t, os.MkdirAll(".orenda", 0o755))
+	raw, err := yaml.Marshal(agentConfig{URL: "http://yml-local", Token: "tok-yml"})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(".orenda", "agent.yml"), raw, 0o600))
+
+	root := newAgentCmd()
+	require.NoError(t, root.ParseFlags(nil))
+	s, err := resolveAgentSettings(root, "orenda agent")
+	require.NoError(t, err)
+	assert.Equal(t, "http://yml-local", s.URL.Value)
+	assert.Equal(t, "tok-yml", s.Token.Value)
+	assert.Equal(t, sourceLocal, s.URL.Source)
+	assert.Equal(t, sourceLocal, s.Token.Source)
+}
+
+// TestResolveAgentSettings_YamlWinsOverYml: both spellings present
+// is an ambiguous checkout — the canonical agent.yaml wins and no
+// values are merged across the two files.
+func TestResolveAgentSettings_YamlWinsOverYml(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("ORENDA_URL", "")
+	t.Setenv("ORENDA_AGENT_TOKEN", "")
+	require.NoError(t, os.MkdirAll(".orenda", 0o755))
+	yamlRaw, err := yaml.Marshal(agentConfig{URL: "http://yaml", Token: "tok-yaml"})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(".orenda", "agent.yaml"), yamlRaw, 0o600))
+	ymlRaw, err := yaml.Marshal(agentConfig{URL: "http://yml", Token: "tok-yml"})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(".orenda", "agent.yml"), ymlRaw, 0o600))
+
+	root := newAgentCmd()
+	require.NoError(t, root.ParseFlags(nil))
+	s, err := resolveAgentSettings(root, "orenda agent")
+	require.NoError(t, err)
+	assert.Equal(t, "http://yaml", s.URL.Value)
+	assert.Equal(t, "tok-yaml", s.Token.Value)
+}
+
+// TestResolveAgentSettings_BrokenLocalYml: the .yml spelling gets
+// the same hard-error contract as agent.yaml — an unparsable file
+// never silently falls through to the global config.
+func TestResolveAgentSettings_BrokenLocalYml(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("ORENDA_URL", "")
+	t.Setenv("ORENDA_AGENT_TOKEN", "")
+	require.NoError(t, os.MkdirAll(".orenda", 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(".orenda", "agent.yml"), []byte("{unparsable: ["), 0o600))
+
+	root := newAgentCmd()
+	require.NoError(t, root.ParseFlags(nil))
+	_, err := resolveAgentSettings(root, "orenda agent")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), filepath.Join(".orenda", "agent.yml"))
+	assert.Contains(t, err.Error(), "invalid agent config yaml")
 }
