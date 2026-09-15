@@ -38,7 +38,7 @@ import { LessonNumberChip } from './LessonNumberChip';
  *               the lesson complete button stays enabled.
  */
 
-export const lessonQueryKey = (id: string) => ['lesson', id] as const;
+const lessonQueryKey = (id: string) => ['lesson', id] as const;
 
 export function LessonPage(): JSX.Element {
   const { id } = useParams<{ id: string }>();

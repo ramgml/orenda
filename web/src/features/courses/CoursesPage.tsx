@@ -26,7 +26,7 @@ import { Textarea } from '@/shared/ui/textarea';
  * convention); cross-client freshness is the global staleTime.
  */
 
-export const coursesQueryKey = ['courses'] as const;
+const coursesQueryKey = ['courses'] as const;
 
 export function CoursesPage(): JSX.Element {
   const navigate = useNavigate();

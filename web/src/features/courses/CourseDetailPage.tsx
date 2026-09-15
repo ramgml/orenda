@@ -37,7 +37,7 @@ import { CourseNumberChip } from './CourseNumberChip';
  * what invalidates the cache. Owner-side mutations invalidate the
  * same key in onSettled.
  */
-export const courseQueryKey = (id: string) => ['courses', id] as const;
+const courseQueryKey = (id: string) => ['courses', id] as const;
 
 export function CourseDetailPage(): JSX.Element {
   const { id } = useParams<{ id: string }>();
