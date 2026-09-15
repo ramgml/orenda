@@ -176,14 +176,6 @@ func int64ToString(v int64) string {
 // subscription targets the given chat_id.
 //
 // The notifier.SubscriptionRepository already exposes
-// ListByBotType for this — we adapt it to a small projection here
-// so the wire-up code doesn't depend on the full notifier.Subscription
-// shape (we only need four fields).
-
-// findTelegramSubscriber returns the user_id whose Telegram
-// subscription targets the given chat_id.
-//
-// The notifier.SubscriptionRepository already exposes
 // ListByBotType for this. We operate on the notifier.Subscription
 // shape directly because the bot side already imports it; the
 // shape has TargetAddress + Enabled fields that are exactly what
