@@ -17,6 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [0.21.0] — 2026-09-15
+
+Minor release. Focus: internal quality — the frontend's server-state handling is unified on TanStack Query and the SPA API layer is split into domain modules, plus two Go-side cleanups. No user-facing features; no schema changes.
+
+### Changed
+- **Task 268 (PR #217):** the remaining hand-rolled fetch pages (`CoursesPage`, `CourseDetailPage`, `LessonPage`, `CalendarPage`) migrated to TanStack Query — `useQuery`/`useMutation` with domain query keys, WS-driven invalidation where the backend publishes a topic (task/event topics), and post-mutation invalidation for courses (no `courses` WS topic exists). Calendar DnD keeps the grid mounted via `keepPreviousData`; `CalendarErrorBoundary` unchanged. Page tests now run under `QueryClientProvider`.
+- **Task 267 (PR #218):** `web/src/shared/api/client.ts` (1826 lines) split into `core.ts` (ApiClient/axios instance), 8 domain modules (`tasks`, `taskDetails`, `projects`, `agents`, `courses`, `wiki`, `system`, + backups under system) and a 75-line `client.ts` entry point with exact re-exports — 133/133 method bodies transferred verbatim (script-verified), no API contract change, no new dependencies.
+
+### Fixed
+- **Task 266 (PR #216):** the `pendingNotifier` package-level global in `cmd/orenda/main.go` replaced by an explicit return value — `serveBackupIfEnabled` now returns `(*backup.Service, *backup.Scheduler, error)` and the notifier wiring happens on the local handle; also dropped a duplicated `findTelegramSubscriber` doc-comment.
+
 ## [0.20.0] — 2026-09-13
 
 Minor release. Focus: agent-facing write surface — the claim holder can now correct the title/description of the task they hold (previously notes-only), and the project-local agent config accepts the `.yml` spelling. Plus a kanban layout fix.
