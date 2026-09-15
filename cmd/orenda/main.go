@@ -289,13 +289,6 @@ func (a taskOwnerResolverAdapter) OwnerForTask(ctx context.Context, taskID strin
 	return p.OwnerID, tr.Title, nil
 }
 
-// pendingNotifier holds a deferred wiring step (the backup
-// scheduler wants a Notifier but the notifier service hasn't been
-// constructed yet at the point we build the scheduler). It gets
-// filled in once notifierSvc is ready, then used to call
-// WithNotifier on the scheduler.
-var pendingNotifier *backup.Scheduler
-
 // courseTaskCreatorAdapter implements coursesvc.TaskCreator by
 // writing directly to the task repository. The course service only
 // needs to create rows; the rest of the task pipeline (WS events,
@@ -716,7 +709,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	backupSvc, err := serveBackupIfEnabled(cmd.Context(), ctx, cfg, logger, db)
+	backupSvc, backupScheduler, err := serveBackupIfEnabled(cmd.Context(), ctx, cfg, logger, db)
 	if err != nil {
 		return err
 	}
@@ -844,8 +837,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// next tick picks up the notifier. We need a lock or just
 	// hope the scheduler hasn't fired yet — for the 5m push
 	// interval that's a 5-minute race that's acceptable.
-	if pendingNotifier != nil {
-		pendingNotifier.WithNotifier(backupFailedAdapter{svc: notifierSvc})
+	if backupScheduler != nil {
+		backupScheduler.WithNotifier(backupFailedAdapter{svc: notifierSvc})
 	}
 
 	// Phase Wave 4 PR 2: wire the comment service's notifier
@@ -1048,22 +1041,22 @@ func serveOpenDB(ctx context.Context, cfg *config.Config, logger *zap.Logger, ab
 // serveBackupIfEnabled constructs the backup service and starts the
 // backup scheduler when backups are enabled in the config. baseCtx is
 // the command context (settings merge), runCtx is the signal-aware
-// context (scheduler lifetime). Returns a nil service when backups
-// are disabled; the mirror service is NOT its concern (Task 193 —
-// the mirror must exist regardless of backup.enabled).
-func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, logger *zap.Logger, db *sql.DB) (backupSvc *backup.Service, err error) {
+// context (scheduler lifetime). Returns nil service and nil scheduler
+// when backups are disabled; the mirror service is NOT its concern
+// (Task 193 — the mirror must exist regardless of backup.enabled).
+func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, logger *zap.Logger, db *sql.DB) (*backup.Service, *backup.Scheduler, error) {
 	if !cfg.Backup.Enabled {
-		//nolint:nilnil // documented contract: backups disabled → nil *backup.Service (callers nil-check deps.Backup).
-		return nil, nil
+		//nolint:nilnil // documented contract: backups disabled → nil *backup.Service, nil scheduler (callers nil-check deps.Backup).
+		return nil, nil, nil
 	}
 	// Backup service + scheduler (Phase 7). The mirror service is
 	// deliberately NOT built here (Task 193) — runServe constructs it
 	// unconditionally so it exists with backup.enabled=false too.
 	if err := os.MkdirAll(cfg.Backup.MirrorDir, 0o755); err != nil {
-		return nil, fmt.Errorf("backup mirror dir: %w", err)
+		return nil, nil, fmt.Errorf("backup mirror dir: %w", err)
 	}
 	if err := os.MkdirAll(cfg.Backup.SnapshotDir, 0o755); err != nil {
-		return nil, fmt.Errorf("backup snapshot dir: %w", err)
+		return nil, nil, fmt.Errorf("backup snapshot dir: %w", err)
 	}
 	// Phase 32.7: validate the cron expression at startup. A
 	// bad expression in config.yaml used to silently fall
@@ -1075,10 +1068,10 @@ func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, l
 	// cheaper to fix than the surprise.
 	if cfg.Backup.SQLiteSnapshotCron != "" {
 		if _, err := backup.Parse(cfg.Backup.SQLiteSnapshotCron); err != nil {
-			return nil, fmt.Errorf("backup.sqlite_snapshot_cron: %w", err)
+			return nil, nil, fmt.Errorf("backup.sqlite_snapshot_cron: %w", err)
 		}
 	}
-	backupSvc = backup.New(backup.Config{
+	backupSvc := backup.New(backup.Config{
 		MirrorDir:            cfg.Backup.MirrorDir,
 		SnapshotDir:          cfg.Backup.SnapshotDir,
 		DBPath:               cfg.ResolveDBPath("."),
@@ -1107,12 +1100,7 @@ func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, l
 		zap.String("mirror_dir", cfg.Backup.MirrorDir),
 		zap.String("snapshot_dir", cfg.Backup.SnapshotDir),
 	)
-	// Save the scheduler handle so we can wire the
-	// notifier after notifierSvc is constructed below.
-	// Phase Wave 4 PR 2: `backup.failed` events fan out
-	// from the scheduler's run* helpers.
-	pendingNotifier = scheduler
-	return backupSvc, nil
+	return backupSvc, scheduler, nil
 }
 
 // serveBots builds the bot registry (console bot always available,
