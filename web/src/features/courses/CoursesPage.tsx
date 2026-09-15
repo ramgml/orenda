@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { api, type Course } from '@/shared/api/client';
+import { api } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
 import { Checkbox } from '@/shared/ui/checkbox';
 import { Input } from '@/shared/ui/input';
@@ -18,55 +19,60 @@ import { Textarea } from '@/shared/ui/textarea';
  * server skips the agent generator task so a sleeping tutor can't
  * overwrite the manual curriculum. The wizard still creates a draft;
  * the owner builds the program via the editor on /courses/:id.
+ *
+ * Task 268: server state rides TanStack Query. The backend publishes
+ * no `courses` WS topic, so freshness after this client's own create
+ * comes from invalidating the query in onSettled (useProjects
+ * convention); cross-client freshness is the global staleTime.
  */
+
+const coursesQueryKey = ['courses'] as const;
+
 export function CoursesPage(): JSX.Element {
   const navigate = useNavigate();
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [title, setTitle] = useState('');
   const [intent, setIntent] = useState('');
   const [skipGenerator, setSkipGenerator] = useState(false);
-  const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const r = await api.listCourses();
-      setCourses(r.courses ?? []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const coursesQ = useQuery({
+    queryKey: coursesQueryKey,
+    queryFn: async () => (await api.listCourses()).courses ?? [],
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const createQ = useMutation({
+    mutationFn: (input: { title: string; intent_md: string; skip_generator: boolean }) =>
+      api.createCourse(input),
+    // Refresh the list from the server once the create settles —
+    // successful or not — so the wizard never shows a stale list.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: coursesQueryKey }),
+  });
 
   async function onCreate(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
-    if (!title.trim() || busy) return;
-    setBusy(true);
-    setError(null);
+    const trimmed = title.trim();
+    if (!trimmed || createQ.isPending) return;
     try {
-      const created = await api.createCourse({
-        title: title.trim(),
+      const created = await createQ.mutateAsync({
+        title: trimmed,
         intent_md: intent,
         skip_generator: skipGenerator,
       });
+      // Only clear the form once the server accepted it; on failure
+      // the draft stays so the student can retry.
       setTitle('');
       setIntent('');
       setSkipGenerator(false);
       // Jump straight into the editor for "I'll build it myself"
       // courses — the empty tree on the detail page is unhelpful.
       navigate(`/courses/${created.id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
+    } catch {
+      // surfaced via createQ.error below
     }
   }
+
+  const error = createQ.error instanceof Error ? createQ.error.message : coursesQ.error?.message;
+  const courses = coursesQ.data ?? [];
 
   return (
     <section className="p-6 max-w-3xl mx-auto space-y-6">
@@ -110,7 +116,7 @@ export function CoursesPage(): JSX.Element {
         <div className="flex justify-end">
           <Button
             type="submit"
-            disabled={busy || !title.trim()}
+            disabled={createQ.isPending || !title.trim()}
             data-testid="course-create"
             size="sm"
           >
@@ -121,7 +127,7 @@ export function CoursesPage(): JSX.Element {
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      {loading ? (
+      {coursesQ.isLoading ? (
         <p className="text-sm text-slate-400 italic">Loading…</p>
       ) : courses.length === 0 ? (
         <p className="text-sm text-slate-400 italic">No courses yet. Create one above to start.</p>
