@@ -1,5 +1,7 @@
-import { Component, type ErrorInfo, type ReactNode, useEffect, useMemo, useState } from 'react';
+import { Component, type ErrorInfo, type ReactNode, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+
 import {
   Calendar,
   dateFnsLocalizer,
@@ -28,9 +30,9 @@ import { Dialog, DialogContent } from '@/shared/ui/dialog';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 import { Input } from '@/shared/ui/input';
 import { Calendar as DayPickerCalendar } from '@/shared/ui/calendar';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
 import { Textarea } from '@/shared/ui/textarea';
 import { useWebSocketTopic } from '@/shared/ws';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
 
 const localizer = dateFnsLocalizer({
   format,
@@ -153,25 +155,11 @@ const PRESET_COLORS = [
 export function CalendarPage(): JSX.Element {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  // Phase 30.8: tasks with a due_at are projected into the calendar
-  // as all-day events. We only carry the fields the calendar needs;
-  // the rest of the Task is available via the existing /tasks/{id}
-  // endpoint when the operator opens the row.
-  const [tasksByDue, setTasksByDue] = useState<
-    Array<{
-      id: string;
-      title: string;
-      due_at?: string | undefined;
-      status: string;
-    }>
-  >([]);
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const queryClient = useQueryClient();
   const [view, setView] = useState<View>('week');
   // ?date=YYYY-MM-DD deep link ("Show in calendar" from a task view)
   // seeds the initial cursor; no/invalid param keeps today.
   const [cursor, setCursor] = useState<Date>(() => initialCursorFrom(searchParams));
-  const [error, setError] = useState<string | null>(null);
 
   // Modal: 'create' | 'edit' | null. `draft` carries pre-filled
   // values from the calendar surface (a clicked slot or event).
@@ -185,37 +173,53 @@ export function CalendarPage(): JSX.Element {
     const end = view === 'month' ? endOfMonth(addMonths(cursor, 1)) : addMonths(cursor, 1);
     return { from: start, to: end };
   }, [cursor, view]);
+  // Millisecond keys so the query changes identity only when the
+  // window actually moves, not on every cursor/view render.
+  const rangeKey = `${range.from.getTime()}-${range.to.getTime()}`;
 
-  async function load(): Promise<void> {
-    try {
-      const [list, ps, due] = await Promise.all([
-        api.listEvents({
-          from: range.from.toISOString(),
-          to: range.to.toISOString(),
-        }),
-        api.listProjects(),
-        api.tasksWithDue({
-          from: range.from.toISOString(),
-          to: range.to.toISOString(),
-        }),
-      ]);
-      setEvents(list);
-      setProjects(ps.map((p) => ({ id: p.id, name: p.name })));
-      setTasksByDue(due.tasks);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range.from.getTime(), range.to.getTime()]);
-
-  useWebSocketTopic('events', () => {
-    load();
+  const eventsQ = useQuery({
+    queryKey: ['events', rangeKey],
+    queryFn: () =>
+      api.listEvents({
+        from: range.from.toISOString(),
+        to: range.to.toISOString(),
+      }),
+    placeholderData: keepPreviousData,
   });
+  const tasksByDueQ = useQuery({
+    queryKey: ['calendar-tasks', rangeKey],
+    queryFn: () => api.tasksWithDue({ from: range.from.toISOString(), to: range.to.toISOString() }),
+    placeholderData: keepPreviousData,
+  });
+  // The modal only needs {id, name}; the cheap projects endpoint
+  // already has a stable home list (`projectsQueryKey`), so give the
+  // projection its own key instead of coupling it to the Project[]
+  // consumers. `staleTime` default keeps refetches rare.
+  const projectsQ = useQuery({
+    queryKey: ['project-options'],
+    queryFn: async () => (await api.listProjects()).map((p) => ({ id: p.id, name: p.name })),
+    staleTime: Infinity,
+  });
+
+  // Live updates: the backend broadcasts calendar event mutations on
+  // the `events` topic. Invalidate the range-scoped queries (the
+  // projection list has no dependency on WS payload shape).
+  useWebSocketTopic('events', () => {
+    void queryClient.invalidateQueries({ queryKey: ['events'] });
+    void queryClient.invalidateQueries({ queryKey: ['calendar-tasks'] });
+  });
+
+  const error =
+    eventsQ.error instanceof Error
+      ? eventsQ.error.message
+      : tasksByDueQ.error instanceof Error
+        ? tasksByDueQ.error.message
+        : projectsQ.error instanceof Error
+          ? projectsQ.error.message
+          : null;
+  const events = eventsQ.data ?? [];
+  const tasksByDue = tasksByDueQ.data?.tasks ?? [];
+  const projects = projectsQ.data ?? [];
 
   const rbEvents: RBCEvent[] = useMemo(
     () => [
@@ -316,39 +320,31 @@ export function CalendarPage(): JSX.Element {
   // onEventDrop fires when the user drags an event to a different
   // time/day. Deadlines are date-anchored (due_at PATCH), calendar
   // events time-anchored (start_at/end_at PATCH); see dropDeadline.
-  async function onEventDrop(args: {
-    event: RBCEvent;
-    start: Date | string;
-    end: Date | string;
-  }): Promise<void> {
-    // Deadlines are date-anchored: a drop PATCHes the task's due_at
-    // (local midnight of the drop day), never the projected
-    // `task-<id>` event row. Calendar events keep the start/end
-    // PATCH. Both paths reload so the change shows immediately.
-    const deadline = taskDeadlineOf(args.event);
-    if (deadline) {
-      const day = args.start instanceof Date ? args.start : new Date(args.start);
-      try {
+  const dropQ = useMutation({
+    mutationFn: async (args: { event: RBCEvent; start: Date | string; end: Date | string }) => {
+      const deadline = taskDeadlineOf(args.event);
+      if (deadline) {
+        // Deadlines are date-anchored: a drop PATCHes the task's
+        // due_at (local midnight of the drop day), never the
+        // projected `task-<id>` event row.
+        const day = args.start instanceof Date ? args.start : new Date(args.start);
         await dropDeadline(deadline.id, day);
-        await load();
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        return;
       }
-      return;
-    }
-    const e = args.event.resource as CalendarEvent;
-    if (!e.id) return;
-    const startStr = typeof args.start === 'string' ? args.start : args.start.toISOString();
-    const endStr = typeof args.end === 'string' ? args.end : args.end.toISOString();
-    try {
+      const e = args.event.resource as CalendarEvent;
+      if (!e.id) return;
+      const startStr = typeof args.start === 'string' ? args.start : args.start.toISOString();
+      const endStr = typeof args.end === 'string' ? args.end : args.end.toISOString();
       await api.patchEvent(e.id, { start_at: startStr, end_at: endStr });
-      await load();
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
+    },
+    // Refetch both windows after the PATCH settles so the change
+    // shows immediately — grid updates in place, no full reload.
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['events'] });
+      void queryClient.invalidateQueries({ queryKey: ['calendar-tasks'] });
+    },
+  });
+  const dropError = dropQ.error instanceof Error ? dropQ.error.message : null;
 
   // Drag-to-reschedule is live: the calendar is wrapped in
   // withDragAndDrop (react-big-calendar addon) and onEventDrop PATCHes
@@ -387,7 +383,7 @@ export function CalendarPage(): JSX.Element {
           }
         />
 
-        {error && <ErrorBanner message={error} />}
+        {(error || dropError) && <ErrorBanner message={error ?? dropError ?? ''} />}
 
         <div className="rounded border border-border bg-background p-2 h-[75vh] calendar-shell">
           <CalendarErrorBoundary>
@@ -405,7 +401,7 @@ export function CalendarPage(): JSX.Element {
               eventPropGetter={eventStyleGetter}
               onSelectSlot={onSelectSlot}
               onSelectEvent={onSelectEvent}
-              onEventDrop={onEventDrop}
+              onEventDrop={(args) => dropQ.mutate(args)}
               components={{ event: DefaultEventComponent }}
               popup
               style={{ height: '100%' }}
@@ -431,7 +427,7 @@ export function CalendarPage(): JSX.Element {
               project_id: d.project_id || undefined,
             });
             closeModal();
-            await load();
+            void queryClient.invalidateQueries({ queryKey: ['events'] });
           }}
         />
       )}
@@ -449,7 +445,7 @@ export function CalendarPage(): JSX.Element {
               ? async () => {
                   await api.deleteEvent(mode.event.id);
                   closeModal();
-                  await load();
+                  void queryClient.invalidateQueries({ queryKey: ['events'] });
                 }
               : undefined
           }
@@ -464,7 +460,7 @@ export function CalendarPage(): JSX.Element {
               project_id: d.project_id || undefined,
             });
             closeModal();
-            await load();
+            void queryClient.invalidateQueries({ queryKey: ['events'] });
           }}
         />
       )}

@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { TaskLink } from '@/features/tasks/TaskModal';
 
 import { api } from '@/shared/api/client';
+import { useWebSocketTopic } from '@/shared/ws';
 import { Button } from '@/shared/ui/button';
 import { Textarea } from '@/shared/ui/textarea';
 import { LessonNumberChip } from './LessonNumberChip';
@@ -35,18 +37,14 @@ import { LessonNumberChip } from './LessonNumberChip';
  *               `review_task_id`; the UI shows "Pending review" and
  *               the lesson complete button stays enabled.
  */
+
+const lessonQueryKey = (id: string) => ['lesson', id] as const;
+
 export function LessonPage(): JSX.Element {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [data, setData] = useState<LessonLoad | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [completing, setCompleting] = useState(false);
-  // Per-quiz answer state — keyed by quiz id so the student can
-  // fill out multiple questions without losing their input.
+  const queryClient = useQueryClient();
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  // Per-quiz result state — backend verdict after submit.
   const [results, setResults] = useState<
     Record<string, { correct: boolean; feedback_md?: string; review_task_id?: string }>
   >({});
@@ -56,81 +54,75 @@ export function LessonPage(): JSX.Element {
   // from it.
   const [editingContent, setEditingContent] = useState(false);
   const [draftContent, setDraftContent] = useState('');
-  const [savingContent, setSavingContent] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!id) return;
-    try {
-      const r = await loadLesson(id);
-      setData(r);
-      setDraftContent(r.lesson.content_md ?? '');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
+  const lessonQ = useQuery({
+    queryKey: lessonQueryKey(id ?? ''),
+    queryFn: () => loadLesson(id as string),
+    enabled: !!id,
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // Task events carry every course lifecycle change (curriculum
+  // generation, lesson materialisation, status flips) — the same
+  // signal CourseDetailPage listens to. Debounced like KanbanBoard
+  // (T164): a suffix batch publishes a burst of events and an
+  // immediate refetch per event hammers the list-then-tree walk.
+  const wsReloadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useWebSocketTopic('tasks', () => {
+    clearTimeout(wsReloadTimer.current);
+    wsReloadTimer.current = setTimeout(() => {
+      wsReloadTimer.current = undefined;
+      void queryClient.invalidateQueries({ queryKey: ['lesson'] });
+    }, 400);
+  });
 
-  async function onAnswer(quizId: string): Promise<void> {
-    if (!id || submitting) return;
-    const answer = answers[quizId] ?? '';
-    setSubmitting(true);
-    try {
-      const r = await api.answerQuiz(id, quizId, answer);
-      setResults((prev) => ({ ...prev, [quizId]: r }));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSubmitting(false);
-    }
-  }
+  const answerQ = useMutation({
+    mutationFn: (input: { quizId: string; answer: string }) =>
+      api.answerQuiz(id as string, input.quizId, input.answer),
+    onSuccess: (r, input) => {
+      setResults((prev) => ({ ...prev, [input.quizId]: r }));
+    },
+  });
 
-  async function onComplete(): Promise<void> {
-    if (!id || completing) return;
-    setCompleting(true);
-    try {
-      await api.completeLesson(id);
+  const completeQ = useMutation({
+    mutationFn: () => api.completeLesson(id as string),
+    onSuccess: () => {
       // Navigate back to the course so the user sees the next
       // unlock. The page itself would 200 yet the lesson status
       // would say "done" — the user needs the course tree to
       // see the next lesson appear.
-      if (data?.course) {
-        navigate(`/courses/${data.course.id}`);
+      if (lessonQ.data?.course) {
+        navigate(`/courses/${lessonQ.data.course.id}`);
       } else {
-        void load();
+        void queryClient.invalidateQueries({ queryKey: lessonQueryKey(id ?? '') });
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setCompleting(false);
-    }
-  }
+    },
+  });
 
-  async function onSaveContent(): Promise<void> {
-    if (!id || savingContent) return;
-    setSavingContent(true);
-    try {
-      await api.updateLessonContent(id, { content_md: draftContent });
+  const saveContentQ = useMutation({
+    mutationFn: () => api.updateLessonContent(id as string, { content_md: draftContent }),
+    onSuccess: () => {
       setEditingContent(false);
-      void load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSavingContent(false);
-    }
-  }
+      void queryClient.invalidateQueries({ queryKey: lessonQueryKey(id ?? '') });
+    },
+  });
 
-  if (loading) {
+  if (lessonQ.isLoading) {
     return <p className="p-6 text-sm text-slate-400 italic">Loading…</p>;
   }
-  if (error) {
-    return <p className="p-6 text-sm text-red-600">{error}</p>;
+  if (lessonQ.error) {
+    return (
+      <div className="p-6 space-y-2">
+        <p className="text-sm text-red-600">
+          {lessonQ.error instanceof Error ? lessonQ.error.message : String(lessonQ.error)}
+        </p>
+        <Button type="button" variant="outline" size="sm" onClick={() => void lessonQ.refetch()}>
+          Retry
+        </Button>
+      </div>
+    );
   }
-  if (!data) return <></>;
+  if (!lessonQ.data) return <></>;
+  const data = lessonQ.data;
 
   const { lesson, course, quizzes } = data;
   const isLocked = lesson.status === 'locked';
@@ -195,12 +187,12 @@ export function LessonPage(): JSX.Element {
             <div className="flex gap-2">
               <Button
                 type="button"
-                onClick={() => void onSaveContent()}
-                disabled={savingContent || !draftContent.trim()}
+                onClick={() => saveContentQ.mutate()}
+                disabled={saveContentQ.isPending || !draftContent.trim()}
                 data-testid="lesson-save-content"
                 size="sm"
               >
-                {savingContent ? 'Saving…' : 'Save content'}
+                {saveContentQ.isPending ? 'Saving…' : 'Save content'}
               </Button>
               <Button
                 type="button"
@@ -208,7 +200,7 @@ export function LessonPage(): JSX.Element {
                   setEditingContent(false);
                   setDraftContent(lesson.content_md ?? '');
                 }}
-                disabled={savingContent}
+                disabled={saveContentQ.isPending}
                 variant="outline"
                 size="sm"
               >
@@ -231,7 +223,10 @@ export function LessonPage(): JSX.Element {
             {canEditContent && (
               <Button
                 type="button"
-                onClick={() => setEditingContent(true)}
+                onClick={() => {
+                  setDraftContent(lesson.content_md ?? '');
+                  setEditingContent(true);
+                }}
                 data-testid="lesson-edit-content"
                 variant="ghost"
                 size="sm"
@@ -289,8 +284,10 @@ export function LessonPage(): JSX.Element {
                       <Button
                         type="button"
                         data-testid="quiz-submit"
-                        onClick={() => void onAnswer(q.id)}
-                        disabled={submitting || !(answers[q.id] ?? '').trim()}
+                        onClick={() =>
+                          answerQ.mutate({ quizId: q.id, answer: answers[q.id] ?? '' })
+                        }
+                        disabled={answerQ.isPending || !(answers[q.id] ?? '').trim()}
                         size="sm"
                         className="bg-slate-700 hover:bg-slate-800"
                       >
@@ -326,8 +323,8 @@ export function LessonPage(): JSX.Element {
         <Button
           type="button"
           data-testid="lesson-complete"
-          onClick={() => void onComplete()}
-          disabled={!canComplete || completing}
+          onClick={() => completeQ.mutate()}
+          disabled={!canComplete || completeQ.isPending}
           title={
             isLocked
               ? 'Lesson is locked'

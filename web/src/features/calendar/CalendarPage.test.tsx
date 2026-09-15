@@ -18,6 +18,7 @@
  */
 import { CalendarPage, dropDeadline } from '@/features/calendar/CalendarPage';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -71,15 +72,25 @@ function stubEmptyList() {
   });
 }
 
+/** Task 268: the page runs real TanStack Query hooks — every render
+ * must sit inside a QueryClientProvider (retry off to keep failures
+ * loud, gcTime 0 so windows don't leak between tests). */
+function renderCalendarWithQuery(ui: React.ReactElement, initialEntries: string[] = ['/calendar']) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
 describe('CalendarPage (chrome only)', () => {
   it('renders the toolbar with the default view (week)', async () => {
     stubEmptyList();
 
-    render(
-      <MemoryRouter initialEntries={['/calendar']}>
-        <CalendarPage />
-      </MemoryRouter>,
-    );
+    renderCalendarWithQuery(<CalendarPage />);
 
     // The toolbar's Today button exists; the sidebar mini-calendar
     // also has its own Today button — both should render.
@@ -100,11 +111,7 @@ describe('CalendarPage (chrome only)', () => {
   it('switches the active view when a view button is clicked', async () => {
     stubEmptyList();
 
-    render(
-      <MemoryRouter initialEntries={['/calendar']}>
-        <CalendarPage />
-      </MemoryRouter>,
-    );
+    renderCalendarWithQuery(<CalendarPage />);
 
     await screen.findByRole('button', { name: 'month' });
     // Click 'month' — titleFor('month') returns "August 2026" or
@@ -123,11 +130,7 @@ describe('CalendarPage (chrome only)', () => {
   it('opens the create modal when the toolbar [+ Create] is clicked', async () => {
     stubEmptyList();
 
-    render(
-      <MemoryRouter initialEntries={['/calendar']}>
-        <CalendarPage />
-      </MemoryRouter>,
-    );
+    renderCalendarWithQuery(<CalendarPage />);
 
     // The toolbar button is labelled "+ Create" (the sidebar one
     // says "+ Create event"); using a regex ensures we don't match
@@ -141,11 +144,7 @@ describe('CalendarPage (chrome only)', () => {
   it('shows an error banner when the events endpoint rejects', async () => {
     stubHttp.get.mockRejectedValue(new Error('boom'));
 
-    render(
-      <MemoryRouter initialEntries={['/calendar']}>
-        <CalendarPage />
-      </MemoryRouter>,
-    );
+    renderCalendarWithQuery(<CalendarPage />);
 
     expect(await screen.findByText('boom')).toBeTruthy();
   });
@@ -153,11 +152,7 @@ describe('CalendarPage (chrome only)', () => {
   it('refetches on a WS "events" event', async () => {
     stubEmptyList();
 
-    render(
-      <MemoryRouter initialEntries={['/calendar']}>
-        <CalendarPage />
-      </MemoryRouter>,
-    );
+    renderCalendarWithQuery(<CalendarPage />);
     // The Today button is a cheap anchor that exists once the page
     // settles; don't gate the WS test on it being unique.
     await screen.findAllByRole('button', { name: 'Today' });
@@ -187,13 +182,12 @@ describe('CalendarPage task deadlines (T90)', () => {
   }
 
   function renderCalendar(search = '/calendar'): void {
-    render(
-      <MemoryRouter initialEntries={[search]}>
-        <Routes>
-          <Route path="/calendar" element={<CalendarPage />} />
-          <Route path="/tasks/:id" element={<div>task-page-reached</div>} />
-        </Routes>
-      </MemoryRouter>,
+    renderCalendarWithQuery(
+      <Routes>
+        <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/tasks/:id" element={<div>task-page-reached</div>} />
+      </Routes>,
+      [search],
     );
   }
 

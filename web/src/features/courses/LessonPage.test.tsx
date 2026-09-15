@@ -2,9 +2,10 @@
 /**
  * LessonPage component tests (Phase 27.4.B).
  *
- * The component boots from a list-then-tree fetch — `api.listCourses`
- * then `api.getCourse(courseId)` for each owned course until the
- * lesson is found. The tests pin three contracts:
+ * The component boots from a TanStack Query that resolves through
+ * the `loadLesson` walk (Task 268) — `api.listCourses` then
+ * `api.getCourse(courseId)` for each owned course until the lesson
+ * is found. The tests pin three contracts:
  *
  *   1. Locked lessons render the placeholder; quizzes are hidden
  *      and the "complete" button stays disabled.
@@ -15,9 +16,12 @@
  *      shows up inline.
  *
  * Network plumbing is mocked at the `api` boundary — we don't want
- * to spin up a runtime for what is a pure rendering test.
+ * to spin up a runtime for what is a pure rendering test. The page
+ * runs a real query, so every render sits inside a
+ * QueryClientProvider (Task 268; retry off to keep failures loud).
  */
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -91,17 +95,20 @@ function setupApi(opts: { treeResp: ReturnType<typeof tree> }) {
     count: 1,
   });
   vi.spyOn(api, 'getCourse').mockResolvedValue(opts.treeResp);
-  vi.spyOn(api, 'answerQuiz').mockResolvedValue({ correct: true });
-  vi.spyOn(api, 'completeLesson').mockResolvedValue({});
 }
 
 function renderPage() {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
   return render(
-    <MemoryRouter initialEntries={['/lessons/lesson-1']}>
-      <Routes>
-        <Route path="/lessons/:id" element={<LessonPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={['/lessons/lesson-1']}>
+        <Routes>
+          <Route path="/lessons/:id" element={<LessonPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

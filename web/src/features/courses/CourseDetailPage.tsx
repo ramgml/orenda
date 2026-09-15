@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useParams } from 'react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '@/shared/api/client';
 import { useWebSocketTopic } from '@/shared/ws';
+
 import { Button } from '@/shared/ui/button';
 import {
   CourseCurriculumEditor,
@@ -24,77 +26,65 @@ import { CourseNumberChip } from './CourseNumberChip';
  * Phase 27.6: in draft/review the owner can switch into the inline
  * editor and rebuild the program themselves. In active, structural
  * edits are disabled — the owner edits a single lesson's content
- * from the lesson page (LessonPage → updateLessonContent).
- *
  * Phase 30.13: the editor is also available in active, but saving
  * goes through the granular endpoints (create/rename/delete +
  * IDs-only reorder) instead of the destructive swap, so lesson
  * status/progress and task links survive the edit.
+ *
+ * Task 268: the tree is a TanStack Query (`['courses', id]`).
+ * The backend publishes no `courses` WS topic; curriculum changes
+ * from the generator agent arrive over the `tasks` topic, so that's
+ * what invalidates the cache. Owner-side mutations invalidate the
+ * same key in onSettled.
  */
+const courseQueryKey = (id: string) => ['courses', id] as const;
+
 export function CourseDetailPage(): JSX.Element {
   const { id } = useParams<{ id: string }>();
-  const [data, setData] = useState<CourseDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!id) return;
-    try {
-      const r = await api.getCourse(id);
-      setData(r);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // Re-fetch on task events (the agent may submit a curriculum while
-  // we're staring at the page).
-  useWebSocketTopic('tasks', () => {
-    void load();
+  const courseQ = useQuery({
+    queryKey: courseQueryKey(id ?? ''),
+    queryFn: () => api.getCourse(id as string),
+    enabled: !!id,
   });
 
-  async function onApprove(): Promise<void> {
-    if (!id || busy) return;
-    setBusy(true);
-    try {
-      await api.approveCourse(id);
-      void load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+  // Re-fetch on task events (the agent may submit a curriculum while
+  // we're staring at the page). Invalidate the whole `courses` shape
+  // so CoursesPage and LessonPage pick up lifecycle changes too.
+  useWebSocketTopic('tasks', () => {
+    void queryClient.invalidateQueries({ queryKey: ['courses'] });
+  });
 
-  async function onRequestChanges(): Promise<void> {
-    if (!id || busy) return;
-    setBusy(true);
-    try {
-      await api.requestCourseChanges(id);
-      void load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const approveQ = useMutation({
+    mutationFn: () => api.approveCourse(id as string),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['courses'] }),
+  });
+  const requestChangesQ = useMutation({
+    mutationFn: () => api.requestCourseChanges(id as string),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['courses'] }),
+  });
 
-  if (loading) {
+  if (courseQ.isLoading) {
     return <p className="p-6 text-sm text-slate-400 italic">Loading…</p>;
   }
-  if (error) {
-    return <p className="p-6 text-sm text-red-600">{error}</p>;
+  if (courseQ.error) {
+    return (
+      <div className="p-6 space-y-2">
+        <p className="text-sm text-red-600">
+          {courseQ.error instanceof Error ? courseQ.error.message : String(courseQ.error)}
+        </p>
+        <Button type="button" variant="outline" size="sm" onClick={() => void courseQ.refetch()}>
+          Retry
+        </Button>
+      </div>
+    );
   }
-  if (!data) return <></>;
+  if (!courseQ.data) return <></>;
+  const data = courseQ.data;
 
+  const busy = approveQ.isPending || requestChangesQ.isPending;
   const { course, modules, lessons, quizzes, progress } = data;
 
   // Bucket lessons and quizzes by module so the editor can hydrate
@@ -187,7 +177,7 @@ export function CourseDetailPage(): JSX.Element {
         <div className="flex gap-2">
           <Button
             type="button"
-            onClick={() => void onApprove()}
+            onClick={() => approveQ.mutate()}
             disabled={busy}
             data-testid="course-approve"
             size="sm"
@@ -197,7 +187,7 @@ export function CourseDetailPage(): JSX.Element {
           </Button>
           <Button
             type="button"
-            onClick={() => void onRequestChanges()}
+            onClick={() => requestChangesQ.mutate()}
             disabled={busy}
             variant="outline"
             size="sm"
@@ -255,7 +245,7 @@ export function CourseDetailPage(): JSX.Element {
           onCancel={() => setEditing(false)}
           onSaved={() => {
             setEditing(false);
-            void load();
+            void queryClient.invalidateQueries({ queryKey: ['courses'] });
           }}
         />
       ) : modules.length === 0 ? (
@@ -310,5 +300,3 @@ export function CourseDetailPage(): JSX.Element {
     </section>
   );
 }
-
-type CourseDetail = Awaited<ReturnType<typeof api.getCourse>>;
