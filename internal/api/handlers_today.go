@@ -47,8 +47,28 @@ type todayResponse struct {
 	// array, never null) so the front-end renders without a
 	// "loading" guard.
 	Courses []todayCourseView `json:"courses"`
+	// DueReviews (task 18): the signed-in user's spaced-repetition
+	// queue (completed_at IS NULL, due_at <= now). Missed reviews stay
+	// here with overdue=true — a lapsed repeat never turns red and
+	// never migrates into the Overdue task list.
+	DueReviews []todayReviewView `json:"due_reviews"`
 	// ActiveTimer is nil when no time entry is open.
 	ActiveTimer *activeTimerView `json:"active_timer,omitempty"`
+}
+
+// todayReviewView is one due spaced-repetition row on the Today
+// dashboard. Overdue flags a review whose due_at predates today's UTC
+// midnight — informational only (slate/indigo section on the client,
+// never red).
+type todayReviewView struct {
+	ID          string `json:"id"`
+	LessonID    string `json:"lesson_id"`
+	LessonTitle string `json:"lesson_title"`
+	CourseID    string `json:"course_id"`
+	CourseTitle string `json:"course_title"`
+	Step        int    `json:"step"`
+	DueAt       string `json:"due_at"`
+	Overdue     bool   `json:"overdue"`
 }
 
 // studyProposalView is the projected shape of a pending study
@@ -208,6 +228,11 @@ func getTodayHandler(deps *Dependencies) http.HandlerFunc {
 		// Active courses of the owner with the drift marker (Task 30).
 		// nil-safe: an unwired Courses repo yields an empty array.
 		courses := todayCourses(r.Context(), deps, userID)
+		// Task 18: spaced-repetition queue. nil-safe — early fixtures
+		// don't wire the review service and simply render an empty
+		// section. overdue = due_at < startOfDay (informational; the
+		// row stays in due_reviews, never in the red Overdue list).
+		dueReviews := todayDueReviews(r.Context(), deps, userID, now, startOfDay)
 
 		writeJSON(w, http.StatusOK, todayResponse{
 			Overdue:        overdue,
@@ -217,6 +242,7 @@ func getTodayHandler(deps *Dependencies) http.HandlerFunc {
 			AwaitingCount:  awaiting,
 			Proposals:      proposals,
 			Courses:        courses,
+			DueReviews:     dueReviews,
 			ActiveTimer:    active,
 		})
 	}
@@ -435,4 +461,32 @@ func todayActiveTimer(ctx context.Context, deps *Dependencies, userID string) *a
 		}
 	}
 	return nil
+}
+
+// todayDueReviews projects the review service's due queue onto the
+// Today wire shape (task 18). nil-safe on deps.ReviewService.
+func todayDueReviews(ctx context.Context, deps *Dependencies, userID string, now, startOfDay time.Time) []todayReviewView {
+	if deps.ReviewService == nil || userID == "" {
+		return []todayReviewView{}
+	}
+	items, err := deps.ReviewService.ListDue(ctx, userID, now)
+	if err != nil {
+		// The dashboard must render even if the review queue hiccups;
+		// an empty section is the conservative degradation.
+		return []todayReviewView{}
+	}
+	out := make([]todayReviewView, 0, len(items))
+	for _, it := range items {
+		out = append(out, todayReviewView{
+			ID:          it.ID,
+			LessonID:    it.LessonID,
+			LessonTitle: it.LessonTitle,
+			CourseID:    it.CourseID,
+			CourseTitle: it.CourseTitle,
+			Step:        it.Step,
+			DueAt:       it.DueAt.UTC().Format(time.RFC3339),
+			Overdue:     it.DueAt.Before(startOfDay),
+		})
+	}
+	return out
 }
