@@ -34,8 +34,8 @@ type VelocityStats struct {
 
 // ActualVelocityPerWeek is the metric the planner consumes:
 // LessonsDoneInWindow divided by the window expressed in weeks.
-// Zero when the window is empty or the user hasn't completed
-// anything.
+// A non-positive window falls back to the standard 14-day window
+// (see PerWeek); zero when the user hasn't completed anything.
 func (v VelocityStats) ActualVelocityPerWeek() float64 {
 	return PerWeek(v.LessonsDoneInWindow, v.Window)
 }
