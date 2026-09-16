@@ -53,9 +53,9 @@ func TestVelocityStats_ActualVelocityPerWeek(t *testing.T) {
 		expect float64
 	}{
 		{
-			name:   "zero window — defensive zero",
+			name:   "zero window → 14-day fallback (5 lessons → 2.5/wk)",
 			stats:  VelocityStats{LessonsDoneInWindow: 5, Window: 0},
-			expect: 0,
+			expect: 2.5,
 		},
 		{
 			name:   "1 lesson in 14 days → 0.5/wk",
