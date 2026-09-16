@@ -159,14 +159,14 @@ func TestReviewsDueHandler(t *testing.T) {
 
 	var out struct {
 		Reviews []struct {
-			ID          string `json:"id"`
-			LessonID    string `json:"lesson_id"`
-			LessonTitle string `json:"lesson_title"`
-			CourseID    string `json:"course_id"`
-			CourseTitle string `json:"course_title"`
-			Step        int    `json:"step"`
-			DueAt       string `json:"due_at"`
-			LastResult  string `json:"last_result"`
+			ID          string  `json:"id"`
+			LessonID    string  `json:"lesson_id"`
+			LessonTitle string  `json:"lesson_title"`
+			CourseID    string  `json:"course_id"`
+			CourseTitle string  `json:"course_title"`
+			Step        int     `json:"step"`
+			DueAt       string  `json:"due_at"`
+			LastResult  *string `json:"last_result"`
 		} `json:"reviews"`
 	}
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
@@ -179,7 +179,7 @@ func TestReviewsDueHandler(t *testing.T) {
 	assert.Equal(t, "Go Deep", row.CourseTitle)
 	assert.Equal(t, 0, row.Step)
 	assert.NotEmpty(t, row.DueAt)
-	assert.Equal(t, "", row.LastResult)
+	assert.Nil(t, row.LastResult, "never-attempted review must serialize last_result as null")
 
 	// Future-due review is NOT in the queue.
 	f2 := setupReviewAPI(t, false)

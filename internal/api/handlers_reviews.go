@@ -31,14 +31,14 @@ import (
 // reviewView is one row of the due list. Titles are joined server-side
 // so the client renders without follow-up fetches.
 type reviewView struct {
-	ID          string `json:"id"`
-	LessonID    string `json:"lesson_id"`
-	LessonTitle string `json:"lesson_title"`
-	CourseID    string `json:"course_id"`
-	CourseTitle string `json:"course_title"`
-	Step        int    `json:"step"`
-	DueAt       string `json:"due_at"`
-	LastResult  string `json:"last_result"`
+	ID          string  `json:"id"`
+	LessonID    string  `json:"lesson_id"`
+	LessonTitle string  `json:"lesson_title"`
+	CourseID    string  `json:"course_id"`
+	CourseTitle string  `json:"course_title"`
+	Step        int     `json:"step"`
+	DueAt       string  `json:"due_at"`
+	LastResult  *string `json:"last_result"`
 }
 
 // listDueReviewsHandler serves GET /api/v1/reviews/due.
@@ -68,7 +68,7 @@ func listDueReviewsHandler(deps *Dependencies) http.HandlerFunc {
 				CourseTitle: it.CourseTitle,
 				Step:        it.Step,
 				DueAt:       it.DueAt.UTC().Format(time.RFC3339),
-				LastResult:  string(it.LastResult),
+				LastResult:  reviewResultPtr(it.LastResult),
 			})
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"reviews": views})
@@ -129,6 +129,16 @@ func postReviewResultHandler(deps *Dependencies) http.HandlerFunc {
 			"completed_at": formatReviewTimePtr(rev.CompletedAt),
 		})
 	}
+}
+
+// reviewResultPtr maps the empty domain zero value (never attempted)
+// to JSON null; pass/fail stay as-is.
+func reviewResultPtr(r course.LessonReviewResult) *string {
+	if r == "" {
+		return nil
+	}
+	s := string(r)
+	return &s
 }
 
 func formatReviewTimePtr(t *time.Time) *string {

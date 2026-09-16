@@ -63,6 +63,8 @@ tags:
     description: Phase 16: tasks without a project.
   - name: review-queue
     description: Phase 19: tasks awaiting human verdict.
+  - name: reviews
+    description: 'Task 18: spaced-repetition lesson reviews (the ladder seeded by CompleteLesson).'
   - name: today
     description: Phase 20: daily-driver dashboard.
   - name: courses
@@ -377,6 +379,42 @@ components:
         overdue:
           type: boolean
           description: 'due_at predates today''s UTC midnight. Informational only.'
+
+    # Task 18: one row of the due review queue (GET /reviews/due).
+    ReviewView:
+      type: object
+      properties:
+        id: { type: string }
+        lesson_id: { type: string }
+        lesson_title: { type: string }
+        course_id: { type: string }
+        course_title: { type: string }
+        step:
+          type: integer
+          description: 'Ladder position; ReviewStepsDays = [1, 3, 7, 16, 35].'
+        due_at: { type: string, format: date-time }
+        last_result:
+          description: 'null for a never-attempted review.'
+          type: string
+          enum: [pass, fail]
+          nullable: true
+
+    # Task 18: response of POST /reviews/{id}/result.
+    ReviewResultResponse:
+      type: object
+      properties:
+        id: { type: string }
+        lesson_id: { type: string }
+        step: { type: integer }
+        due_at: { type: string, format: date-time }
+        last_result:
+          description: 'Outcome of THIS attempt: always pass or fail.'
+          type: string
+          enum: [pass, fail]
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
 
     # Task 107: payload returned by /overview — the system Dashboard.
     OverviewResponse:
@@ -1539,38 +1577,6 @@ paths:
         '404': { description: unknown id or a foreign user's review }
         '409': { description: review already completed (ladder closed) }
         '503': { description: review service not wired }
-
-    ReviewView:
-      type: object
-      properties:
-        id: { type: string }
-        lesson_id: { type: string }
-        lesson_title: { type: string }
-        course_id: { type: string }
-        course_title: { type: string }
-        step:
-          type: integer
-          description: 'Ladder position; ReviewStepsDays = [1, 3, 7, 16, 35].'
-        due_at: { type: string, format: date-time }
-        last_result:
-          type: string
-          enum: [pass, fail]
-          nullable: true
-
-    ReviewResultResponse:
-      type: object
-      properties:
-        id: { type: string }
-        lesson_id: { type: string }
-        step: { type: integer }
-        due_at: { type: string, format: date-time }
-        last_result:
-          type: string
-          enum: [pass, fail]
-        completed_at:
-          type: string
-          format: date-time
-          nullable: true
 
   # Task 107: system Dashboard — entity counts + activity series.
   /api/v1/overview:
