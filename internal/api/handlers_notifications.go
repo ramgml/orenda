@@ -69,6 +69,28 @@ func markNotificationReadHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
+// markAllNotificationsReadHandler marks every unread notification of
+// the current user as read.
+func markAllNotificationsReadHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := IdentityFrom(r.Context())
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "no_identity"})
+			return
+		}
+		inbox := notifierInbox(deps)
+		if inbox == nil {
+			http.Error(w, "notifier not wired", http.StatusServiceUnavailable)
+			return
+		}
+		if err := inbox.MarkAllRead(r.Context(), id.UserID); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 // notifierInbox extracts the InboxRepository from the notifier service.
 //
 // The Notifier field on Dependencies is the concrete notifier.Service so

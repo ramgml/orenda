@@ -1897,6 +1897,13 @@ paths:
       security: [{ bearerAuth-cookie: [] }]
       responses: { '200': { description: ok } }
 
+  /api/v1/notifications/read-all:
+    post:
+      tags: [notifications]
+      summary: Mark all notifications as read for the current user.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '204': { description: read } }
+
   /api/v1/notifications/subscriptions:
     get:
       tags: [notifications]

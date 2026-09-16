@@ -616,6 +616,7 @@ func NewRouter(deps *Dependencies) http.Handler {
 			// Phase 6: notifications inbox.
 			r.Get("/notifications", listNotificationsHandler(deps))
 			r.Post("/notifications/{id}/read", markNotificationReadHandler(deps))
+			r.Post("/notifications/read-all", markAllNotificationsReadHandler(deps))
 
 			// Phase 10: bot subscriptions.
 			r.Get("/notifications/subscriptions", listSubscriptionsHandler(deps))

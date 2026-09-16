@@ -61,6 +61,17 @@ func (m *memInbox) MarkRead(_ context.Context, id string) error {
 	return nil
 }
 
+func (m *memInbox) MarkAllRead(_ context.Context, userID string) error {
+	for _, r := range m.rows {
+		if r.UserID == userID && r.ReadAt == nil {
+			now := time.Now()
+			r.ReadAt = &now
+			m.unread[r.UserID]--
+		}
+	}
+	return nil
+}
+
 func (m *memInbox) UnreadCount(_ context.Context, userID string) (int, error) {
 	return m.unread[userID], nil
 }

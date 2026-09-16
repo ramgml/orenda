@@ -90,6 +90,15 @@ func (r *notificationRepo) MarkRead(ctx context.Context, id string) error {
 	return nil
 }
 
+func (r *notificationRepo) MarkAllRead(ctx context.Context, userID string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE notifications SET read_at = datetime('now') WHERE user_id = ? AND read_at IS NULL`, userID)
+	if err != nil {
+		return fmt.Errorf("notif.MarkAllRead: %w", err)
+	}
+	return nil
+}
+
 func (r *notificationRepo) UnreadCount(ctx context.Context, userID string) (int, error) {
 	var n int
 	err := r.db.QueryRowContext(ctx,
