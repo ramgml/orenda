@@ -339,6 +339,15 @@ components:
           type: array
           description: 'Phase 31.7: pending study proposals for the Dashboard tray. Empty array when none.'
           items: { $ref: '#/components/schemas/StudyProposalView' }
+        courses:
+          type: array
+          description: 'Task 30: the owner''s ACTIVE courses with the server-side pace marker. Empty array when none (never null). drift is classified over the same 14-day window as the agent-side course pace.'
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              title: { type: string }
+              drift: { type: string, enum: [ahead, on_track, behind] }
 
     # Task 107: payload returned by /overview — the system Dashboard.
     OverviewResponse:

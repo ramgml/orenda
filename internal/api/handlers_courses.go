@@ -545,8 +545,8 @@ func enrichActiveCourse(ctx context.Context, deps *Dependencies, base map[string
 	if windowDur <= 0 {
 		windowDur = 14 * 24 * time.Hour
 	}
-	actualPerWeek := float64(velocity.LessonsDoneInWindow) * float64(7*24*time.Hour) / float64(windowDur)
-	targetPerWeek := float64(targetCount) * float64(7*24*time.Hour) / float64(windowDur)
+	actualPerWeek := course.PerWeek(velocity.LessonsDoneInWindow, windowDur)
+	targetPerWeek := course.PerWeek(targetCount, windowDur)
 	prog.Pace = &activeCoursePace{
 		Since:                 velocity.Since.UTC().Format(time.RFC3339),
 		WindowDays:            int(windowDur / (24 * time.Hour)),

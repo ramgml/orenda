@@ -34,13 +34,25 @@ type VelocityStats struct {
 
 // ActualVelocityPerWeek is the metric the planner consumes:
 // LessonsDoneInWindow divided by the window expressed in weeks.
-// Zero when the window is empty or the user hasn't completed
-// anything.
+// A non-positive window falls back to the standard 14-day window
+// (see PerWeek); zero when the user hasn't completed anything.
 func (v VelocityStats) ActualVelocityPerWeek() float64 {
-	if v.Window <= 0 {
-		return 0
+	return PerWeek(v.LessonsDoneInWindow, v.Window)
+}
+
+// PerWeek converts an in-window count (done lessons, accepted
+// proposals) into the same count expressed per week — the unit
+// every drift comparison speaks. Task 30 shares it between the
+// agent-side course list and the /today course section so both
+// surfaces classify pace identically.
+//
+// A non-positive window falls back to the standard 14-day pace
+// window (defensive; VelocityStatsByCourse always sets it).
+func PerWeek(count int, window time.Duration) float64 {
+	if window <= 0 {
+		window = 14 * 24 * time.Hour
 	}
-	return float64(v.LessonsDoneInWindow) * float64(time.Hour*24*7) / float64(v.Window)
+	return float64(count) * float64(time.Hour*24*7) / float64(window)
 }
 
 // Drift is the classification the planner uses to scale proposals

@@ -43,9 +43,9 @@ func TestClassifyDrift(t *testing.T) {
 	}
 }
 
-// TestVelocityStats_ActualVelocityPerWeek checks the rate math: zero
-// window → zero rate (defensive), and a 1-lesson-in-14d window should
-// return 0.5 lessons/week.
+// TestVelocityStats_ActualVelocityPerWeek checks the rate math: a
+// non-positive window falls back to the 14-day default (see PerWeek),
+// and a 1-lesson-in-14d window should return 0.5 lessons/week.
 func TestVelocityStats_ActualVelocityPerWeek(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -53,9 +53,9 @@ func TestVelocityStats_ActualVelocityPerWeek(t *testing.T) {
 		expect float64
 	}{
 		{
-			name:   "zero window — defensive zero",
+			name:   "zero window → 14-day fallback (5 lessons → 2.5/wk)",
 			stats:  VelocityStats{LessonsDoneInWindow: 5, Window: 0},
-			expect: 0,
+			expect: 2.5,
 		},
 		{
 			name:   "1 lesson in 14 days → 0.5/wk",
