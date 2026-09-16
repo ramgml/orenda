@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -302,14 +303,15 @@ var _ = task.StatusTodo
 
 // seedTodayCourse inserts a course row directly — the Create
 // service generates a planner task we don't need here. The number
-// column is UNIQUE (migration 038) so each call draws the next one.
-var todayCourseSeq int
+// column is UNIQUE (migration 038) so each call draws the next one
+// (atomic: seedTodayCourse runs under t.Parallel in several tests).
+var todayCourseSeq atomic.Int64
 
 func seedTodayCourse(t *testing.T, db *sql.DB, id, title, ownerID, status string) {
 	t.Helper()
-	todayCourseSeq++
+	n := todayCourseSeq.Add(1)
 	_, err := db.Exec(`INSERT INTO courses (id, title, owner_id, status, number) VALUES (?, ?, ?, ?, ?)`,
-		id, title, ownerID, status, todayCourseSeq)
+		id, title, ownerID, status, n)
 	require.NoError(t, err)
 }
 
