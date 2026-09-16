@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 
 import { TaskLink } from '@/features/tasks/TaskModal';
 
-import { api, type StudyProposalView, type Task } from '@/shared/api/client';
+import { api, type StudyProposalView, type Task, type TodayCourseView } from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 import { Loading } from '@/shared/ui/Loading';
@@ -75,7 +75,8 @@ export function TodayPage(): JSX.Element {
     data.awaiting_count === 0 &&
     !data.active_timer &&
     (data.upcoming_week ?? []).length === 0 &&
-    (data.proposals ?? []).length === 0
+    (data.proposals ?? []).length === 0 &&
+    (data.courses ?? []).length === 0
   ) {
     return (
       <section className="p-6 max-w-3xl mx-auto">
@@ -115,6 +116,8 @@ export function TodayPage(): JSX.Element {
           {data.awaiting_count === 1 ? '' : 's'} awaiting your review → /review
         </Link>
       )}
+
+      <TodayCourses courses={data.courses ?? []} />
 
       <TodaySection title="Overdue" color="red" tasks={data.overdue} emptyText="Nothing overdue." />
       <TodaySection
@@ -271,7 +274,51 @@ type TodayResponse = {
   awaiting_count: number;
   active_timer?: { task_id: string; started_at: string };
   proposals: StudyProposalView[];
+  courses?: TodayCourseView[];
 };
+
+/**
+ * TodayCourses — Task 30. The owner's active courses as compact
+ * cards, each linking to the course page. When the server computed
+ * drift='behind' (done lessons lagging accepted study proposals
+ * over the 14-day window) the card carries a soft "behind pace"
+ * marker: muted amber text only — per the 31.7 heritage a missed
+ * pace never turns red and never fills the card. on_track/ahead
+ * render no marker at all.
+ */
+function TodayCourses({ courses }: { courses: TodayCourseView[] }): JSX.Element {
+  if (courses.length === 0) return <></>;
+
+  return (
+    <div data-testid="today-courses-section">
+      <div className="flex items-center gap-2 mb-2">
+        <span aria-hidden className="inline-block h-2 w-2 rounded-full bg-indigo-500" />
+        <h2 className="text-sm font-semibold text-foreground">Courses ({courses.length})</h2>
+      </div>
+      <ul className="space-y-1">
+        {courses.map((c) => (
+          <li
+            key={c.id}
+            data-testid="today-course-card"
+            className="rounded border border-border p-2 text-sm bg-background"
+          >
+            <Link to={`/courses/${c.id}`} className="text-foreground hover:underline font-medium">
+              📖 {c.title}
+            </Link>
+            {c.drift === 'behind' && (
+              <span
+                data-testid="course-drift-behind"
+                className="ml-2 text-[10px] text-amber-700 dark:text-amber-300"
+              >
+                behind pace
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 function TodaySection({
   title,

@@ -36,6 +36,17 @@ export interface StudyProposalView {
   created_at: string;
 }
 
+// TodayCourseView — Task 30: the lightweight per-course projection
+// the Today page renders. Drift is computed server-side over the
+// same 14-day window as the agent-side course pace, so the
+// dashboard never flags a course the planner wouldn't. Only active
+// courses of the session user appear.
+export interface TodayCourseView {
+  id: string;
+  title: string;
+  drift: 'ahead' | 'on_track' | 'behind';
+}
+
 // StudyProposalFull — returned by the accept/dismiss endpoints
 // because the user tray may want to confirm the title / agent after
 // the action. Phase 31.9.
@@ -181,6 +192,9 @@ export const agentsEndpoints = {
     // Phase 31.9: pending study proposals for the Dashboard tray.
     // Empty array when none; never null.
     proposals: StudyProposalView[];
+    // Task 30: active courses of the session user with the
+    // server-computed drift marker. Empty array when none.
+    courses: TodayCourseView[];
   }> {
     return this.http
       .get<{
@@ -191,6 +205,7 @@ export const agentsEndpoints = {
         awaiting_count: number;
         active_timer?: { task_id: string; started_at: string };
         proposals: StudyProposalView[];
+        courses: TodayCourseView[];
       }>(`/api/v1/today`)
       .then((r) => r.data);
   },

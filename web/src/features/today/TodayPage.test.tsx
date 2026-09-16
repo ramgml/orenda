@@ -120,6 +120,7 @@ const emptyToday = {
   upcoming_week: [],
   awaiting_count: 0,
   proposals: [],
+  courses: [],
 };
 
 describe('TodayPage', () => {
@@ -547,5 +548,70 @@ describe('TodayPage', () => {
     expect(last.pathname).toBe('/tasks/abc12345-deadbeef');
     expect(last.search).toBe('');
     expect(last.state).toEqual({ backgroundLocation: expect.objectContaining({ pathname: '/' }) });
+  });
+
+  // --- Task 30: courses section with the soft drift marker ---
+  //
+  // The drift classification is computed server-side; the page only
+  // decides whether the "behind pace" marker shows. behind → marker,
+  // on_track/ahead → card without a marker, empty → no section.
+
+  it('renders the soft "behind pace" marker on a drifting course card', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        ...emptyToday,
+        courses: [{ id: 'c-1', title: 'Rust', drift: 'behind' }],
+      },
+    });
+
+    mount();
+
+    const card = await screen.findByTestId('today-course-card');
+    expect(card).toBeTruthy();
+    expect(card.textContent).toContain('Rust');
+    expect(screen.getByTestId('course-drift-behind')).toBeTruthy();
+
+    // Soft marker contract: links to the course, no red.
+    const marker = screen.getByTestId('course-drift-behind');
+    expect(marker.className).toContain('text-amber-700');
+    expect(marker.className).not.toContain('text-red');
+  });
+
+  it('renders a course card without a marker when drift is on_track', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        ...emptyToday,
+        courses: [{ id: 'c-2', title: 'Go deep dive', drift: 'on_track' }],
+      },
+    });
+
+    mount();
+
+    const card = await screen.findByTestId('today-course-card');
+    expect(card.textContent).toContain('Go deep dive');
+    expect(screen.queryByTestId('course-drift-behind')).toBeNull();
+  });
+
+  it('renders a course card without a marker when drift is ahead', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        ...emptyToday,
+        courses: [{ id: 'c-3', title: 'Algorithms', drift: 'ahead' }],
+      },
+    });
+
+    mount();
+
+    const card = await screen.findByTestId('today-course-card');
+    expect(card.textContent).toContain('Algorithms');
+    expect(screen.queryByTestId('course-drift-behind')).toBeNull();
+  });
+
+  it('does not render the courses section when courses is empty', async () => {
+    stubHttp.get.mockResolvedValueOnce({ data: emptyToday });
+    mount();
+    await screen.findByText(/Day is clear\./);
+    expect(screen.queryByTestId('today-courses-section')).toBeNull();
+    expect(screen.queryByTestId('today-course-card')).toBeNull();
   });
 });
