@@ -126,7 +126,7 @@ func (r *lessonReviewRepo) ListDueReviews(ctx context.Context, userID string, un
 	if err != nil {
 		return nil, fmt.Errorf("lesson_reviews.ListDueReviews: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []*course.PendingLessonReview
 	for rows.Next() {
 		var p course.PendingLessonReview

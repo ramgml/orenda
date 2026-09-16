@@ -64,14 +64,15 @@ func TestMigrate_046LessonReviews(t *testing.T) {
 	assert.Contains(t, indexes, "idx_lesson_reviews_user_due")
 
 	// Contract 2: CHECK rejects an invalid result; defaults hold.
-	_, err = db.ExecContext(ctx,
+	_, badErr := db.ExecContext(ctx,
 		`INSERT INTO lesson_reviews (id, lesson_id, user_id, due_at, last_result)
 		 VALUES (?, ?, ?, ?, 'maybe')`, "rv-bad", "l-046", u.ID, "2026-01-01T00:00:00Z")
-	require.Error(t, err, "last_result CHECK must reject invalid values")
+	require.Error(t, badErr, "last_result CHECK must reject invalid values")
 
-	_, err = db.ExecContext(ctx,
+	_, okErr := db.ExecContext(ctx,
 		`INSERT INTO lesson_reviews (id, lesson_id, user_id, due_at) VALUES (?, ?, ?, ?)`,
 		"rv-046", "l-046", u.ID, "2026-01-01T00:00:00Z")
+	require.NoError(t, okErr, "valid insert must succeed")
 	var step int
 	var lastResult sql.NullString
 	require.NoError(t, db.QueryRowContext(ctx,
@@ -97,7 +98,7 @@ func TestMigrate_046LessonReviews(t *testing.T) {
 	assert.Equal(t, 0, n, "down drops lesson_reviews")
 }
 
-func setupReviewFixture(t *testing.T) (context.Context, *sql.DB, course.LessonReviewSchedulerRepository, string, string) {
+func setupReviewFixture(t *testing.T) (context.Context, course.LessonReviewSchedulerRepository, string, string) {
 	t.Helper()
 	ctx := context.Background()
 	db, err := Open(ctx, filepath.Join(t.TempDir(), "orenda.db"), OpenConfig{
@@ -121,11 +122,11 @@ func setupReviewFixture(t *testing.T) (context.Context, *sql.DB, course.LessonRe
 		`INSERT INTO course_lessons (id, module_id, title, status, position) VALUES (?, ?, ?, 'done', 1)`,
 		"l-rev", "m-rev", "Goroutines")
 	require.NoError(t, err)
-	return ctx, db, NewLessonReviewRepository(db), u.ID, "l-rev"
+	return ctx, NewLessonReviewRepository(db), u.ID, "l-rev"
 }
 
 func TestReviewRepo_DueQueueRoundTrip(t *testing.T) {
-	ctx, _, repo, userID, lessonID := setupReviewFixture(t)
+	ctx, repo, userID, lessonID := setupReviewFixture(t)
 
 	due := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 	rev := &course.LessonReview{LessonID: lessonID, UserID: userID, Step: 0, DueAt: due}
@@ -189,7 +190,7 @@ func TestReviewRepo_DueQueueRoundTrip(t *testing.T) {
 }
 
 func TestReviewRepo_CountDueReviewsInCourse(t *testing.T) {
-	ctx, db, repo, userID, lessonID := setupReviewFixture(t)
+	ctx, repo, userID, lessonID := setupReviewFixture(t)
 
 	now := time.Now().UTC()
 	due := &course.LessonReview{LessonID: lessonID, UserID: userID, Step: 0, DueAt: now.Add(-time.Hour)}
@@ -216,5 +217,4 @@ func TestReviewRepo_CountDueReviewsInCourse(t *testing.T) {
 	n, err = repo.CountDueReviewsInCourse(ctx, "c-rev", now.Add(2*time.Hour))
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
-	_ = db
 }

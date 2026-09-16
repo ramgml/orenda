@@ -199,7 +199,7 @@ func TestReviewService_LadderTable(t *testing.T) {
 		// The student answers exactly at the due instant.
 		now := completedAt.Add(24 * time.Hour)
 		for i, a := range attempts {
-			updated, err := svc.RecordResult(context.Background(), revID, a.result, now)
+			updated, err := svc.RecordResult(context.Background(), revID, "u1", a.result, now)
 			require.NoError(t, err, "attempt %d", i)
 			assert.Equal(t, a.wantStep, updated.Step, "attempt %d", i)
 			if a.wantClosed {
@@ -215,7 +215,7 @@ func TestReviewService_LadderTable(t *testing.T) {
 		}
 
 		// Closed ladder refuses further results.
-		_, err = svc.RecordResult(context.Background(), revID, course.ReviewPass, now)
+		_, err = svc.RecordResult(context.Background(), revID, "u1", course.ReviewPass, now)
 		require.ErrorIs(t, err, review.ErrConflict)
 	})
 
@@ -229,14 +229,14 @@ func TestReviewService_LadderTable(t *testing.T) {
 		}
 		now := at(2)
 		// Pass → step 1 (due +3d = Sep 5 10:00).
-		up, err := svc.RecordResult(context.Background(), "rv-1", course.ReviewPass, now)
+		up, err := svc.RecordResult(context.Background(), "rv-1", "u1", course.ReviewPass, now)
 		require.NoError(t, err)
 		assert.Equal(t, 1, up.Step)
 		assert.Equal(t, at(5), up.DueAt)
 
 		// Fail at Sep 5 → step 0, due Sep 6 10:00 (+1d).
 		now = at(5)
-		up, err = svc.RecordResult(context.Background(), "rv-1", course.ReviewFail, now)
+		up, err = svc.RecordResult(context.Background(), "rv-1", "u1", course.ReviewFail, now)
 		require.NoError(t, err)
 		assert.Equal(t, 0, up.Step)
 		assert.Equal(t, at(6), up.DueAt)
@@ -245,7 +245,7 @@ func TestReviewService_LadderTable(t *testing.T) {
 
 		// Pass again climbs from step 0 to step 1, not step 2.
 		now = at(6)
-		up, err = svc.RecordResult(context.Background(), "rv-1", course.ReviewPass, now)
+		up, err = svc.RecordResult(context.Background(), "rv-1", "u1", course.ReviewPass, now)
 		require.NoError(t, err)
 		assert.Equal(t, 1, up.Step)
 		assert.Equal(t, at(9), up.DueAt)
@@ -261,13 +261,17 @@ func TestReviewService_RecordResultValidation(t *testing.T) {
 
 	// Empty/invalid result → ErrInvalidInput.
 	for _, bad := range []course.LessonReviewResult{"", "maybe", "PASS"} {
-		_, err := svc.RecordResult(context.Background(), "rv-1", bad, now)
+		_, err := svc.RecordResult(context.Background(), "rv-1", "u1", bad, now)
 		require.ErrorIs(t, err, review.ErrInvalidInput, "result %q", bad)
 	}
 
 	// Unknown id → ErrNotFound (handler maps to 404; foreign ids take
 	// the same path — existence is not leaked).
-	_, err := svc.RecordResult(context.Background(), "nope", course.ReviewPass, now)
+	_, err := svc.RecordResult(context.Background(), "nope", "u1", course.ReviewPass, now)
+	require.ErrorIs(t, func() error {
+		_, ferr := svc.RecordResult(context.Background(), "rv-1", "someone-else", course.ReviewPass, now)
+		return ferr
+	}(), review.ErrNotFound, "foreign owner must be 404-indistinguishable")
 	require.ErrorIs(t, err, review.ErrNotFound)
 }
 

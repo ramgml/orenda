@@ -56,6 +56,7 @@ import (
 	eventservice "github.com/ramgml/orenda/internal/service/event"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 	projectservice "github.com/ramgml/orenda/internal/service/project"
+	reviewservice "github.com/ramgml/orenda/internal/service/review"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
 	studyservice "github.com/ramgml/orenda/internal/service/study"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
@@ -811,6 +812,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	courseActivityRecorder.IdentitySource = identitySourceFromAPI
 	courseSvc = courseSvc.WithActivity(courseActivityRecorder)
 
+	// Task 18: spaced repetition. The review service owns the ladder
+	// and the queue; the course service gets it through the nil-safe
+	// ReviewScheduler seam so CompleteLesson seeds a step-0 review
+	// (due completed_at + 1d) on every flip to done.
+	reviewRepo := sqlite.NewLessonReviewRepository(db)
+	reviewSvc := reviewservice.New(reviewRepo)
+	courseSvc = courseSvc.WithReviews(reviewSvc)
+
 	botRegistry, err := serveBots(cmd.Context(), cfg, logger)
 	if err != nil {
 		return err
@@ -895,6 +904,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		SearchService:      searchSvc,
 		Courses:            courseRepo,
 		CourseService:      courseSvc,
+		ReviewService:      reviewSvc,
 		CourseActivityRepo: courseActivityRepo,
 		// wiki:agent-project-description — write side for project_activity
 		// rows. The agent-namespace PATCH /agent/projects/{id} emits a

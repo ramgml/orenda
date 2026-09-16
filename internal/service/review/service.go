@@ -40,6 +40,7 @@ type Service struct {
 	Repo course.LessonReviewSchedulerRepository
 }
 
+// New builds a review Service on top of the given repository.
 func New(repo course.LessonReviewSchedulerRepository) *Service {
 	return &Service{Repo: repo}
 }
@@ -93,15 +94,16 @@ func (s *Service) CountDueInCourse(ctx context.Context, courseID string, until t
 //     the last step closes the ladder (completed_at = now).
 //   - fail: reset to step 0, due = now + ReviewStepsDays[0].
 //
-// Ownership is enforced by the caller passing the review id; a foreign
-// id surfaces as ErrNotFound (the handler maps it to 404). A closed
-// ladder returns ErrConflict (409).
-func (s *Service) RecordResult(ctx context.Context, reviewID string, result course.LessonReviewResult, now time.Time) (*course.LessonReview, error) {
+// userID must match the review's owner; anything else (unknown id OR a
+// foreign user's review) surfaces as ErrNotFound so the handler maps
+// both to 404 — existence is not leaked. A closed ladder returns
+// ErrConflict (409).
+func (s *Service) RecordResult(ctx context.Context, reviewID, userID string, result course.LessonReviewResult, now time.Time) (*course.LessonReview, error) {
 	if result != course.ReviewPass && result != course.ReviewFail {
 		return nil, ErrInvalidInput
 	}
 	rev, err := s.Repo.GetReview(ctx, reviewID)
-	if err != nil {
+	if err != nil || rev.UserID != userID {
 		return nil, ErrNotFound
 	}
 	if rev.CompletedAt != nil {

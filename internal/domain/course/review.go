@@ -8,6 +8,8 @@ import (
 // LessonReviewResult is the outcome of one spaced-repetition attempt.
 type LessonReviewResult string
 
+// Lesson review outcomes: ReviewPass advances the ladder one step;
+// ReviewFail resets it to step 0.
 const (
 	ReviewPass LessonReviewResult = "pass"
 	ReviewFail LessonReviewResult = "fail"
@@ -47,10 +49,11 @@ type PendingLessonReview struct {
 	LastResult  LessonReviewResult
 }
 
-// PendingReviewsDueAfter reports reviews for userID whose due_at is in
-// (-inf, until] and completed_at IS NULL. The today handler passes
-// start-of-day to compute the overdue flag client-side, so the query
-// stays a single range scan.
+// LessonReviewSchedulerRepository is the storage surface the
+// review service needs. PendingReviewsDueAfter reports reviews for
+// userID whose due_at is in (-inf, until] and completed_at IS NULL;
+// the today handler passes start-of-day to compute the overdue flag,
+// so the query stays a single range scan.
 type LessonReviewSchedulerRepository interface {
 	// CreateReview inserts a new step-0 review (the CompleteLesson trigger).
 	CreateReview(ctx context.Context, r *LessonReview) error
