@@ -35,6 +35,7 @@ var AllTopics = []string{
 	"projects",
 	"timers",
 	"wiki",
+	"tutor",
 }
 
 // Event is the wire shape sent over WebSocket. Subscribers receive the raw

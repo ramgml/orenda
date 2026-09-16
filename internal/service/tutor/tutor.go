@@ -79,17 +79,28 @@ type PendingQuestion struct {
 	Quizzes     []*course.Quiz `json:"quizzes"`
 }
 
+// CourseSource is the narrow course-domain seam the service needs:
+// the lesson → module → course walk plus the course quiz dump.
+// *sqlite.CourseRepository satisfies it (it implements the full
+// course.Repository); tests stub just these four methods.
+type CourseSource interface {
+	GetLesson(ctx context.Context, id string) (*course.Lesson, error)
+	GetModule(ctx context.Context, id string) (*course.Module, error)
+	GetCourse(ctx context.Context, id string) (*course.Course, error)
+	ListQuizzesInCourse(ctx context.Context, courseID string) ([]*course.Quiz, error)
+}
+
 // Service implements the tutor use cases on top of the message
-// repository and the course domain (lesson → module → course walk +
-// quiz listing). Both deps come from the sqlite layer in production;
-// stubs keep service tests off the database.
+// repository and the course domain walk. Both deps come from the
+// sqlite layer in production; stubs keep service tests off the
+// database.
 type Service struct {
 	Repo   Repository
-	Course course.Repository
+	Course CourseSource
 }
 
 // New wires a Service.
-func New(repo Repository, courses course.Repository) *Service {
+func New(repo Repository, courses CourseSource) *Service {
 	return &Service{Repo: repo, Course: courses}
 }
 

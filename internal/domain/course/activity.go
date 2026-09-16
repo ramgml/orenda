@@ -33,6 +33,11 @@ const (
 	ActivityModuleEdited      ActivityKind = "module_edited"
 	ActivityStatusChanged     ActivityKind = "status_changed"
 	ActivityArchived          ActivityKind = "archived"
+	// T16: dialog tutor. The question row is attributed to the
+	// student (ActorUser), the reply to the agent (ActorAgent) —
+	// the recorder resolves the actor from request context.
+	ActivityTutorQuestion ActivityKind = "tutor_question"
+	ActivityTutorReply    ActivityKind = "tutor_reply"
 )
 
 // IsValid returns true for the closed set above.
@@ -43,7 +48,8 @@ func (k ActivityKind) IsValid() bool {
 		ActivityLessonAdded, ActivityLessonRemoved, ActivityLessonEdited,
 		ActivityQuizAdded, ActivityQuizRemoved, ActivityQuizEdited,
 		ActivityModuleAdded, ActivityModuleRemoved, ActivityModuleEdited,
-		ActivityStatusChanged, ActivityArchived:
+		ActivityStatusChanged, ActivityArchived,
+		ActivityTutorQuestion, ActivityTutorReply:
 		return true
 	}
 	return false
