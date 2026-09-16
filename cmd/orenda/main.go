@@ -60,6 +60,7 @@ import (
 	studyservice "github.com/ramgml/orenda/internal/service/study"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
+	tutorsvc "github.com/ramgml/orenda/internal/service/tutor"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 
@@ -911,8 +912,16 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		StudyService: studySvc,
 		// Phase 32.11: dashboard chat thread persistence.
 		ChatMessages: sqlite.NewChatMessageRepository(db),
-		Notifier:     notifierSvc,
-		Backup:       backupSvc,
+		// T16: dialog tutor — lesson-scoped student/agent threads
+		// over tutor_messages; activity rows via the course
+		// recorder wired above.
+		Tutor: tutorsvc.New(
+			sqlite.NewTutorMessageRepository(db),
+			courseRepo,
+		),
+		CourseActivityRecorder: courseActivityRecorder,
+		Notifier:               notifierSvc,
+		Backup:                 backupSvc,
 		// Phase 28.1 polish.1: UI-editable override repo. PUT
 		// /api/v1/backups/settings writes here; GET merges it over
 		// the in-memory cfg (see handlers_backup.go). Settings take

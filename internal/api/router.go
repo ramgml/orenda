@@ -55,6 +55,7 @@ import (
 	studysvc "github.com/ramgml/orenda/internal/service/study"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
+	tutorsvc "github.com/ramgml/orenda/internal/service/tutor"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 )
@@ -193,6 +194,13 @@ type Dependencies struct {
 	// nil-safe — handlers return 503 when the repo isn't wired
 	// (e.g. the early Phase 0 fixtures).
 	ChatMessages chat.MessageRepository
+	// T16: dialog tutor. Lesson-scoped student/agent threads over
+	// tutor_messages. nil-safe — tutor handlers return 503 when
+	// the service isn't wired (e.g. the early fixtures).
+	Tutor *tutorsvc.Service
+	// T16: tutor turns write course_activity rows (tutor_question /
+	// tutor_reply). Same seam the course service uses; nil-safe.
+	CourseActivityRecorder *coursesvc.CourseActivityRecorder
 	// RateLimitClose is set by NewRouter to a function that stops
 	// background goroutines (rate-limiter cleanup loops). Callers
 	// SHOULD wire it via t.Cleanup in tests to prevent goroutine
@@ -591,6 +599,11 @@ func NewRouter(deps *Dependencies) http.Handler {
 			r.Put("/lessons/{id}/content", updateLessonContentHandlerUser(deps))
 			// Phase 27.4: quiz answer (user-side).
 			r.Post("/lessons/{id}/quizzes/{qid}/answer", answerQuizHandler(deps))
+			// T16: dialog tutor (user side). Thread history +
+			// asking a question; the agent answers through the
+			// agent-namespace routes below.
+			r.Get("/lessons/{id}/tutor", tutorHistoryHandler(deps))
+			r.Post("/lessons/{id}/tutor", tutorAskHandler(deps))
 
 			r.Get("/reports/time", reportTimeHandler(deps))
 
@@ -740,6 +753,11 @@ func NewRouter(deps *Dependencies) http.Handler {
 				// RequireAgent so a bearer token resolves through to
 				// the WS hub and the agent id is the filter key.
 				r.Post("/agent/events/await", agentAwaitHandler(deps))
+				// T16: dialog tutor (agent side). The pending
+				// queue embeds the lesson context (content_md +
+				// quizzes); the reply resolves the thread.
+				r.Get("/agent/tutor/pending", tutorPendingHandler(deps))
+				r.Post("/agent/tutor/{lesson_id}/reply", tutorReplyHandler(deps))
 				// Phase 18: courses for the tutor agent.
 				// Phase 29.4/29.5: the agent can also create a course
 				// (owner = first non-system user, generator task

@@ -252,7 +252,38 @@ export const coursesEndpoints = {
       .put<CourseTree>(`/api/v1/courses/${courseId}/structure`, { modules })
       .then((r) => r.data);
   },
+
+  // ---- T16: dialog tutor (lesson-scoped student/agent threads) ----
+  //
+  // A thread is (lesson_id, user_id); pending is derived server-side
+  // (last message role=user). The panel polls nothing: it loads the
+  // history once and merges live turns from the WS topic "tutor".
+
+  tutorHistory(lessonId: string): Promise<{ messages: TutorMessage[] }> {
+    return this.http
+      .get<{ messages: TutorMessage[] }>(`/api/v1/lessons/${lessonId}/tutor`)
+      .then((r) => r.data);
+  },
+
+  tutorAsk(lessonId: string, questionMd: string): Promise<TutorMessage> {
+    return this.http
+      .post<TutorMessage>(`/api/v1/lessons/${lessonId}/tutor`, { question_md: questionMd })
+      .then((r) => r.data);
+  },
 } satisfies ThisType<ApiClient>;
 
 /** Method surface contributed by this domain to the ApiClient type. */
 export type CoursesApi = typeof coursesEndpoints;
+
+/**
+ * T16: one turn in a lesson tutoring thread. Mirrors the server's
+ * tutor.Message (internal/service/tutor).
+ */
+export interface TutorMessage {
+  id: string;
+  lesson_id: string;
+  user_id: string;
+  role: 'user' | 'agent';
+  body_md: string;
+  created_at: string;
+}

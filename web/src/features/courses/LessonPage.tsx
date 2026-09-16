@@ -11,6 +11,7 @@ import { useWebSocketTopic } from '@/shared/ws';
 import { Button } from '@/shared/ui/button';
 import { Textarea } from '@/shared/ui/textarea';
 import { LessonNumberChip } from './LessonNumberChip';
+import { TutorChatPanel } from './TutorChatPanel';
 
 /**
  * /lessons/:id — single lesson view (Phase 27.4).
@@ -237,6 +238,8 @@ export function LessonPage(): JSX.Element {
             )}
           </>
         ))}
+
+      {!isLocked && <TutorChatPanel lessonId={lesson.id} />}
 
       {lesson.task_id && (
         <div className="text-xs text-slate-500">
