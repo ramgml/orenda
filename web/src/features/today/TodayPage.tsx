@@ -3,7 +3,13 @@ import { Link } from 'react-router';
 
 import { TaskLink } from '@/features/tasks/TaskModal';
 
-import { api, type StudyProposalView, type Task, type TodayCourseView } from '@/shared/api/client';
+import {
+  api,
+  type StudyProposalView,
+  type Task,
+  type TodayCourseView,
+  type TodayReviewView,
+} from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 import { Loading } from '@/shared/ui/Loading';
@@ -76,7 +82,8 @@ export function TodayPage(): JSX.Element {
     !data.active_timer &&
     (data.upcoming_week ?? []).length === 0 &&
     (data.proposals ?? []).length === 0 &&
-    (data.courses ?? []).length === 0
+    (data.courses ?? []).length === 0 &&
+    (data.due_reviews ?? []).length === 0
   ) {
     return (
       <section className="p-6 max-w-3xl mx-auto">
@@ -118,6 +125,7 @@ export function TodayPage(): JSX.Element {
       )}
 
       <TodayCourses courses={data.courses ?? []} />
+      <ReviewsDueSection reviews={data.due_reviews ?? []} onChange={() => void load()} />
 
       <TodaySection title="Overdue" color="red" tasks={data.overdue} emptyText="Nothing overdue." />
       <TodaySection
@@ -137,6 +145,64 @@ export function TodayPage(): JSX.Element {
       <UpcomingWeek days={data.upcoming_week ?? []} />
 
       <ProposalTray proposals={data.proposals} onChange={() => void load()} />
+    </section>
+  );
+}
+
+/**
+ * ReviewsDueSection — task 18. The spaced-repetition queue: lessons
+ * due for review (due_at <= now, ladder not closed). Neutral
+ * slate/indigo styling on purpose — a MISSED review stays in this
+ * list with overdue=true and is never rendered red, never moved into
+ * the Overdue task section. "Reviewed" records a pass (the full
+ * repeat flow answers the lesson quizzes; the button is the 80%
+ * path) and refetches Today.
+ */
+function ReviewsDueSection({
+  reviews,
+  onChange,
+}: {
+  reviews: TodayReviewView[];
+  onChange: () => void;
+}): JSX.Element {
+  if (reviews.length === 0) return <></>;
+  return (
+    <section data-testid="reviews-due" className="rounded border border-slate-300 bg-slate-50 p-3">
+      <h2 className="text-sm font-semibold text-slate-700 mb-2">
+        🔁 Reviews due ({reviews.length})
+      </h2>
+      <ul className="space-y-2">
+        {reviews.map((r) => (
+          <li
+            key={r.id}
+            className="flex items-center justify-between rounded border border-slate-200 bg-white px-3 py-2 text-sm"
+          >
+            <div>
+              <span className="font-medium text-slate-800">{r.lesson_title}</span>
+              <span className="text-slate-500"> · {r.course_title}</span>
+              <span
+                className={
+                  r.overdue
+                    ? 'ml-2 rounded bg-slate-200 text-slate-700 px-1.5 py-0.5 text-xs'
+                    : 'ml-2 rounded bg-indigo-100 text-indigo-700 px-1.5 py-0.5 text-xs'
+                }
+              >
+                {r.overdue ? 'missed' : `step ${r.step + 1}/5`}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="rounded bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+              onClick={async () => {
+                await api.postReviewResult(r.id, 'pass');
+                onChange();
+              }}
+            >
+              Reviewed
+            </button>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -275,6 +341,9 @@ type TodayResponse = {
   active_timer?: { task_id: string; started_at: string };
   proposals: StudyProposalView[];
   courses?: TodayCourseView[];
+  // Task 18: due spaced-repetition reviews (missed stay here with
+  // overdue=true; never red, never in the Overdue task section).
+  due_reviews: TodayReviewView[];
 };
 
 /**

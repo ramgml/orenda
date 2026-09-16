@@ -63,6 +63,8 @@ tags:
     description: Phase 16: tasks without a project.
   - name: review-queue
     description: Phase 19: tasks awaiting human verdict.
+  - name: reviews
+    description: 'Task 18: spaced-repetition lesson reviews (the ladder seeded by CompleteLesson).'
   - name: today
     description: Phase 20: daily-driver dashboard.
   - name: courses
@@ -235,6 +237,9 @@ components:
       properties:
         lessons_total: { type: integer }
         lessons_done: { type: integer }
+        # Task 18: open spaced-repetition reviews of this course that
+        # are due as of now.
+        pending_reviews: { type: integer }
         open_lessons:
           type: array
           items: { $ref: '#/components/schemas/OpenLesson' }
@@ -350,6 +355,66 @@ components:
               id: { type: string }
               title: { type: string }
               drift: { type: string, enum: [ahead, on_track, behind] }
+        # Task 18: spaced-repetition queue. Missed reviews stay here
+        # with overdue=true (informational only — never rendered red,
+        # never moved into the overdue task list).
+        due_reviews:
+          type: array
+          description: 'Task 18: signed-in user''s due lesson reviews (completed_at IS NULL, due_at <= now). Empty array when none.'
+          items: { $ref: '#/components/schemas/TodayReviewView' }
+
+    # Task 18: one due spaced-repetition row on the Today dashboard.
+    TodayReviewView:
+      type: object
+      properties:
+        id: { type: string }
+        lesson_id: { type: string }
+        lesson_title: { type: string }
+        course_id: { type: string }
+        course_title: { type: string }
+        step:
+          type: integer
+          description: 'Ladder position; ReviewStepsDays = [1, 3, 7, 16, 35].'
+        due_at: { type: string, format: date-time }
+        overdue:
+          type: boolean
+          description: 'due_at predates today''s UTC midnight. Informational only.'
+
+    # Task 18: one row of the due review queue (GET /reviews/due).
+    ReviewView:
+      type: object
+      properties:
+        id: { type: string }
+        lesson_id: { type: string }
+        lesson_title: { type: string }
+        course_id: { type: string }
+        course_title: { type: string }
+        step:
+          type: integer
+          description: 'Ladder position; ReviewStepsDays = [1, 3, 7, 16, 35].'
+        due_at: { type: string, format: date-time }
+        last_result:
+          description: 'null for a never-attempted review.'
+          type: string
+          enum: [pass, fail]
+          nullable: true
+
+    # Task 18: response of POST /reviews/{id}/result.
+    ReviewResultResponse:
+      type: object
+      properties:
+        id: { type: string }
+        lesson_id: { type: string }
+        step: { type: integer }
+        due_at: { type: string, format: date-time }
+        last_result:
+          description: 'Outcome of THIS attempt: always pass or fail.'
+          type: string
+          enum: [pass, fail]
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
 
     # Task 107: payload returned by /overview — the system Dashboard.
     OverviewResponse:
@@ -1447,6 +1512,71 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TodayResponse' }
+
+  # ---- reviews (task 18: spaced repetition) ----
+  /api/v1/reviews/due:
+    get:
+      tags: [reviews]
+      summary: Signed-in user's due lesson reviews (completed_at IS NULL, due_at <= now).
+      description: >-
+        Task 18. Rows carry lesson/course titles so the client renders
+        without follow-up fetches. A result recorded on a review never
+        mutates lesson progress.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reviews:
+                    type: array
+                    items: { $ref: '#/components/schemas/ReviewView' }
+        '401': { description: not signed in }
+        '503': { description: review service not wired }
+
+  /api/v1/reviews/{id}/result:
+    post:
+      tags: [reviews]
+      summary: Record the aggregated repeat-session result for one review.
+      description: >-
+        Task 18. The repeat means "answer the lesson's quizzes again"
+        (exact auto-checked, open via the existing review-task flow);
+        this endpoint takes only the aggregated outcome. pass advances
+        the ladder (due = now + steps[step+1]); a pass on the last step
+        (ReviewStepsDays = [1,3,7,16,35]) closes it (completed_at set);
+        fail resets to step 0 (due = now + 1d). Lesson progress is
+        untouched.
+      security: [{ bearerAuth-cookie: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [result]
+              properties:
+                result:
+                  type: string
+                  enum: [pass, fail]
+      responses:
+        '200':
+          description: recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewResultResponse' }
+        '400': { description: invalid or missing result }
+        '401': { description: not signed in }
+        '404': { description: unknown id or a foreign user's review }
+        '409': { description: review already completed (ladder closed) }
+        '503': { description: review service not wired }
 
   # Task 107: system Dashboard — entity counts + activity series.
   /api/v1/overview:

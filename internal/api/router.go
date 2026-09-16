@@ -51,6 +51,7 @@ import (
 	coursesvc "github.com/ramgml/orenda/internal/service/course"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
+	reviewsvc "github.com/ramgml/orenda/internal/service/review"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
 	studysvc "github.com/ramgml/orenda/internal/service/study"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
@@ -177,6 +178,10 @@ type Dependencies struct {
 	// not wired (drift classifier then defaults to on_track per the
 	// wiki "don't panic without data" rule).
 	StudyProposals study.Repository
+	// ReviewService (task 18): the spaced-repetition ladder behind
+	// /reviews/due and /today's due_reviews. nil-safe — handlers
+	// return 503 when not wired (early fixtures).
+	ReviewService *reviewsvc.Service
 	// Phase 32.5: course activity repo (read side for /courses/{id}/activity).
 	// nil-safe — handler returns 503 when not wired.
 	CourseActivityRepo CourseActivityRepo
@@ -604,6 +609,13 @@ func NewRouter(deps *Dependencies) http.Handler {
 			// agent-namespace routes below.
 			r.Get("/lessons/{id}/tutor", tutorHistoryHandler(deps))
 			r.Post("/lessons/{id}/tutor", tutorAskHandler(deps))
+
+			// Task 18: spaced-repetition reviews. GET returns the
+			// signed-in user's due queue; POST records the aggregated
+			// repeat-session result (pass advances the ladder, fail
+			// resets it). A result never mutates lesson progress.
+			r.Get("/reviews/due", listDueReviewsHandler(deps))
+			r.Post("/reviews/{id}/result", postReviewResultHandler(deps))
 
 			r.Get("/reports/time", reportTimeHandler(deps))
 

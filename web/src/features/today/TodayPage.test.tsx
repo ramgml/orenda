@@ -615,3 +615,73 @@ describe('TodayPage', () => {
     expect(screen.queryByTestId('today-course-card')).toBeNull();
   });
 });
+
+// ---- Task 18: Reviews due section ----
+
+const reviewRow = (overdue: boolean) => ({
+  id: 'rv-1',
+  lesson_id: 'l-1',
+  lesson_title: 'Channels',
+  course_id: 'c-1',
+  course_title: 'Go Deep',
+  step: overdue ? 2 : 0,
+  due_at: overdue ? '2026-08-10T10:00:00Z' : '2026-08-12T10:00:00Z',
+  overdue,
+});
+
+describe('TodayPage — reviews due (task 18)', () => {
+  it('renders the reviews-due section when reviews are due', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: { ...emptyToday, due_reviews: [reviewRow(false)] },
+    });
+
+    mount();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('reviews-due')).toBeTruthy();
+    });
+    expect(screen.getByText('Channels')).toBeTruthy();
+    expect(screen.getByText(/Go Deep/)).toBeTruthy();
+    // Neutral colors only — no red section appears for due reviews.
+    const section = screen.getByTestId('reviews-due');
+    expect(section.className).not.toMatch(/red/);
+    expect(section.querySelector('button')?.textContent).toMatch(/Reviewed/);
+  });
+
+  it('keeps a missed (overdue) review in the reviews-due list — never in the red overdue section', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: { ...emptyToday, due_reviews: [reviewRow(true)] },
+    });
+
+    mount();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('reviews-due')).toBeTruthy();
+    });
+    // Still listed with the "missed" badge…
+    expect(screen.getByText('Channels')).toBeTruthy();
+    expect(screen.getByText('missed')).toBeTruthy();
+    // …and no "Overdue" task section header is rendered for it
+    // (the Overdue section renders only when data.overdue is
+    // non-empty; here it is empty).
+    // The Overdue section itself renders with an empty task list —
+    // the invariant is that the review row never appears inside it.
+    // The reviews row and the overdue empty-text live in sibling
+    // sections: the review row's container must not be the same
+    // element that holds the Overdue task list.
+    const li = screen.getByText('Channels').closest('li');
+    expect(li?.textContent).toContain('missed');
+    expect(li?.parentElement?.closest('section')?.getAttribute('data-testid')).toBe('reviews-due');
+  });
+
+  it('renders no reviews-due section when the queue is empty', async () => {
+    stubHttp.get.mockResolvedValueOnce({ data: { ...emptyToday } });
+
+    mount();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Day is clear/)).toBeTruthy();
+    });
+    expect(screen.queryByTestId('reviews-due')).toBeNull();
+  });
+});
