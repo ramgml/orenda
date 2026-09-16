@@ -27,6 +27,7 @@ declare module './core' {
 // source explicitly (no `export *`) — knip tracks them, and the
 // follow-up migration task retires them one by one.
 export type { Agent, OverviewResponse, StudyProposalView, TodayCourseView } from './agents';
+export type { ReviewResultResponse, ReviewView, TodayReviewView } from './agents';
 export type {
   Course,
   CourseLesson,

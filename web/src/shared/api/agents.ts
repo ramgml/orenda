@@ -26,6 +26,42 @@ export interface Agent {
 // StudyProposalView — Phase 31.9: the lightweight projection the
 // Dashboard tray renders. The full Proposal entity (with body_md,
 // accepted_task_id, resolved_at) stays in the agent namespace.
+// Task 18: one due spaced-repetition row on the Today dashboard.
+// overdue is informational (due_at before today's UTC midnight); the
+// row stays in due_reviews and is never rendered red.
+export interface TodayReviewView {
+  id: string;
+  lesson_id: string;
+  lesson_title: string;
+  course_id: string;
+  course_title: string;
+  step: number;
+  due_at: string;
+  overdue: boolean;
+}
+
+// Task 18: GET /api/v1/reviews/due row (the standalone due queue).
+export interface ReviewView {
+  id: string;
+  lesson_id: string;
+  lesson_title: string;
+  course_id: string;
+  course_title: string;
+  step: number;
+  due_at: string;
+  last_result: 'pass' | 'fail' | null;
+}
+
+// Task 18: POST /api/v1/reviews/{id}/result response.
+export interface ReviewResultResponse {
+  id: string;
+  lesson_id: string;
+  step: number;
+  due_at: string;
+  last_result: 'pass' | 'fail';
+  completed_at: string | null;
+}
+
 export interface StudyProposalView {
   id: string;
   course_id?: string;
@@ -195,6 +231,10 @@ export const agentsEndpoints = {
     // Task 30: active courses of the session user with the
     // server-computed drift marker. Empty array when none.
     courses: TodayCourseView[];
+    // Task 18: due spaced-repetition reviews. Missed reviews stay in
+    // the list with overdue=true — informational only (never red,
+    // never merged into the overdue task list). Empty when none.
+    due_reviews: TodayReviewView[];
   }> {
     return this.http
       .get<{
@@ -206,7 +246,24 @@ export const agentsEndpoints = {
         active_timer?: { task_id: string; started_at: string };
         proposals: StudyProposalView[];
         courses: TodayCourseView[];
+        due_reviews: TodayReviewView[];
       }>(`/api/v1/today`)
+      .then((r) => r.data);
+  },
+
+  // ---- Reviews (Task 18: spaced repetition) ----
+
+  // The signed-in user's due review queue (due_at <= now,
+  // completed_at IS NULL), with lesson/course titles joined.
+  listDueReviews(): Promise<{ reviews: ReviewView[] }> {
+    return this.http.get<{ reviews: ReviewView[] }>(`/api/v1/reviews/due`).then((r) => r.data);
+  },
+
+  // Record the aggregated repeat-session result. pass advances the
+  // ladder; fail resets it. Never mutates lesson progress.
+  postReviewResult(id: string, result: 'pass' | 'fail'): Promise<ReviewResultResponse> {
+    return this.http
+      .post<ReviewResultResponse>(`/api/v1/reviews/${id}/result`, { result })
       .then((r) => r.data);
   },
 
