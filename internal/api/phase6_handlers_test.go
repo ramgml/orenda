@@ -305,3 +305,62 @@ func TestP6_MarkNotificationRead(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
 	assert.Equal(t, 0, out.Unread)
 }
+
+func TestP6_MarkAllNotificationsRead(t *testing.T) {
+	t.Parallel()
+	router, db := p6Fixture(t)
+	cookie := p6Login(t, router)
+
+	// The fixture user's ID, needed to seed notifications directly.
+	var meID string
+	require.NoError(t, db.QueryRow(
+		`SELECT id FROM users WHERE email = ?`, p6Email).Scan(&meID))
+
+	// Another user whose notifications must stay untouched.
+	users := sqlite.NewUserRepository(db)
+	other := &user.User{
+		Email:        "p6-other@orenda.test",
+		PasswordHash: mustHashFast(t),
+		DisplayName:  "P6 Other",
+	}
+	require.NoError(t, users.Create(context.Background(), other))
+
+	inbox := sqlite.NewNotificationRepository(db)
+	now := time.Now()
+	readAt := &now
+	seed := func(id, userID string, readAt *time.Time) {
+		t.Helper()
+		require.NoError(t, inbox.Upsert(context.Background(), &notifierservice.Notification{
+			ID:       id,
+			UserID:   userID,
+			Type:     "task.review_needed",
+			Payload:  `{"title":"Seed","body":"seed body"}`,
+			DedupKey: id,
+		}))
+		if readAt != nil {
+			_, err := db.Exec(
+				`UPDATE notifications SET read_at = ? WHERE id = ?`,
+				readAt.UTC().Format("2006-01-02 15:04:05"), id)
+			require.NoError(t, err)
+		}
+	}
+	seed("seed-unread-1", meID, nil)
+	seed("seed-unread-2", meID, nil)
+	seed("seed-read", meID, readAt)
+	seed("seed-other-unread", other.ID, nil)
+
+	rr := p6AuthJSON(router, "/api/v1/notifications/read-all", cookie, nil)
+	require.Equal(t, http.StatusNoContent, rr.Code, "body=%s", rr.Body.String())
+
+	rr = p6AuthGet(router, cookie, "/api/v1/notifications")
+	require.Equal(t, http.StatusOK, rr.Code)
+	var out struct {
+		Unread int `json:"unread"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+	assert.Equal(t, 0, out.Unread, "all my notifications should be read after read-all")
+
+	otherCount, err := inbox.UnreadCount(context.Background(), other.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, otherCount, "the other user's unread count must be untouched")
+}
