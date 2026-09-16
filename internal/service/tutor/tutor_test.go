@@ -171,6 +171,7 @@ func TestService_Ask_HappyPath(t *testing.T) {
 	assert.Equal(t, tutor.RoleUser, m.Role)
 	assert.Equal(t, "What is a lifetime?", m.BodyMD, "body is trimmed")
 	assert.NotEmpty(t, m.ID)
+	assert.Greater(t, m.CreatedAt.Year(), 2020, "created_at must be stamped by the service, not left zero")
 }
 
 func TestService_Ask_Rejects(t *testing.T) {
@@ -219,6 +220,11 @@ func TestService_History(t *testing.T) {
 	require.Len(t, msgs, 2)
 	assert.Equal(t, tutor.RoleUser, msgs[0].Role)
 	assert.Equal(t, tutor.RoleAgent, msgs[1].Role)
+	// Both sides must carry a real timestamp - the repo writes
+	// created_at verbatim, so a zero stamp would persist as
+	// year-0001 and sort the thread wrong.
+	assert.Greater(t, msgs[0].CreatedAt.Year(), 2020, "question created_at must be recent")
+	assert.Greater(t, msgs[1].CreatedAt.Year(), 2020, "reply created_at must be recent")
 }
 
 func TestService_ListPending_EmbedsLessonContext(t *testing.T) {
@@ -280,6 +286,43 @@ func TestService_Reply_Lifecycle(t *testing.T) {
 	assert.Equal(t, "follow-up", pending[0].BodyMD)
 
 	_ = repo
+}
+
+// A lesson with TWO pending student threads cannot be answered: the
+// reply body carries only lesson_id, so any pick would silently
+// route the answer to the wrong student. The service must refuse
+// with ErrConflict (409) instead of guessing.
+func TestService_Reply_MultiplePending_Conflict(t *testing.T) {
+	svc, courses := newFixture()
+	lessonID := seedLesson(courses, false)
+
+	_, err := svc.Ask(context.Background(), lessonID, "u-1", "question from u-1")
+	require.NoError(t, err)
+	_, err = svc.Ask(context.Background(), lessonID, "u-2", "question from u-2")
+	require.NoError(t, err)
+
+	pending, err := svc.ListPending(context.Background())
+	require.NoError(t, err)
+	require.Len(t, pending, 2)
+
+	// Two pending threads on one lesson: the reply body carries
+	// only lesson_id, so any pick would silently route the answer
+	// to the wrong student - the service must refuse instead.
+	_, err = svc.Reply(context.Background(), lessonID, "an answer")
+	assert.ErrorIs(t, err, tutor.ErrConflict)
+}
+
+// One pending thread still resolves unambiguously after the
+// conflict rule landed.
+func TestService_Reply_SinglePending_Resolves(t *testing.T) {
+	svc, courses := newFixture()
+	lessonID := seedLesson(courses, false)
+
+	_, err := svc.Ask(context.Background(), lessonID, "u-1", "solo question")
+	require.NoError(t, err)
+	m, err := svc.Reply(context.Background(), lessonID, "the answer")
+	require.NoError(t, err)
+	assert.Equal(t, "u-1", m.UserID, "single pending thread resolves to its owner")
 }
 
 // Compile-time pins: the service interfaces are satisfied by the

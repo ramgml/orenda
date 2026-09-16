@@ -200,6 +200,8 @@ components:
             - module_edited
             - status_changed
             - archived
+            - tutor_question
+            - tutor_reply
         payload: { type: string }
         created_at: { type: string, format: date-time }
 
@@ -476,7 +478,19 @@ components:
             content_md: { type: string }
             quizzes:
               type: array
-              items: { $ref: '#/components/schemas/Quiz' }
+              description: |
+                Minimal inline quiz shape (mirrors course.Quiz JSON);
+                inlined because no shared Quiz schema exists yet.
+              items:
+                type: object
+                required: [id, lesson_id, position, question_md, kind]
+                properties:
+                  id: { type: string, format: uuid }
+                  lesson_id: { type: string }
+                  position: { type: integer }
+                  question_md: { type: string }
+                  expected_md: { type: string }
+                  kind: { type: string, enum: [open, exact] }
 
 paths:
 

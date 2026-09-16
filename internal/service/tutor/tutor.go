@@ -127,10 +127,11 @@ func (s *Service) Ask(ctx context.Context, lessonID, userID, bodyMD string) (*Me
 		return nil, ErrConflict
 	}
 	m := &Message{
-		LessonID: lessonID,
-		UserID:   userID,
-		Role:     RoleUser,
-		BodyMD:   bodyMD,
+		LessonID:  lessonID,
+		UserID:    userID,
+		Role:      RoleUser,
+		BodyMD:    bodyMD,
+		CreatedAt: time.Now().UTC(),
 	}
 	if err := s.Repo.Create(ctx, m); err != nil {
 		return nil, fmt.Errorf("tutor.Ask: %w", err)
@@ -204,8 +205,12 @@ func (s *Service) ListPending(ctx context.Context) ([]*PendingQuestion, error) {
 	return out, nil
 }
 
-// Reply records the agent's answer on the thread. Requires a pending
-// question (ErrConflict otherwise); unknown lesson → ErrNotFound.
+// Reply records the agent's answer on the thread. Requires the
+// lesson to have EXACTLY ONE pending question: zero pending →
+// ErrConflict, and more than one pending (several students asked on
+// the same lesson) → ErrConflict as well, because the reply body
+// carries only lesson_id and picking a thread would silently route
+// the answer to the wrong student. Unknown lesson → ErrNotFound.
 // On success the thread is resolved and the loop is closed: the
 // student sees the answer live via the WS topic "tutor".
 func (s *Service) Reply(ctx context.Context, lessonID, bodyMD string) (*Message, error) {
@@ -231,21 +236,33 @@ func (s *Service) Reply(ctx context.Context, lessonID, bodyMD string) (*Message,
 	if err != nil {
 		return nil, fmt.Errorf("tutor.Reply: %w", err)
 	}
+	// Contract: the reply body carries only lesson_id, so the user
+	// must be derivable unambiguously. Zero pending threads →
+	// nothing to answer (ErrConflict). MORE than one pending thread
+	// → ErrConflict too: picking the first would silently route the
+	// answer to the wrong student. Resolve the ambiguity by
+	// answering one question first; the endpoint recovers as soon
+	// as a single pending thread remains.
+	pending := 0
 	userID := ""
 	for _, k := range keys {
-		if k.LessonID == lessonID {
+		if k.LessonID != lessonID {
+			continue
+		}
+		pending++
+		if userID == "" {
 			userID = k.UserID
-			break
 		}
 	}
-	if userID == "" {
+	if pending == 0 || pending > 1 {
 		return nil, ErrConflict
 	}
 	m := &Message{
-		LessonID: lessonID,
-		UserID:   userID,
-		Role:     RoleAgent,
-		BodyMD:   bodyMD,
+		LessonID:  lessonID,
+		UserID:    userID,
+		Role:      RoleAgent,
+		BodyMD:    bodyMD,
+		CreatedAt: time.Now().UTC(),
 	}
 	if err := s.Repo.Create(ctx, m); err != nil {
 		return nil, fmt.Errorf("tutor.Reply: %w", err)
