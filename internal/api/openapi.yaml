@@ -450,6 +450,34 @@ components:
           type: array
           items: { $ref: '#/components/schemas/Block' }
 
+    TutorMessage:
+      type: object
+      description: One turn in a lesson tutoring thread (T16). Thread = (lesson_id, user_id).
+      required: [id, lesson_id, user_id, role, body_md, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        lesson_id: { type: string }
+        user_id: { type: string }
+        role: { type: string, enum: [user, agent] }
+        body_md: { type: string }
+        created_at: { type: string, format: date-time }
+
+    TutorPendingQuestion:
+      type: object
+      description: A pending user question plus the lesson material to answer from (one agent round-trip).
+      allOf:
+        - $ref: '#/components/schemas/TutorMessage'
+        - type: object
+          required: [course_id, course_title, lesson_title, content_md]
+          properties:
+            course_id: { type: string }
+            course_title: { type: string }
+            lesson_title: { type: string }
+            content_md: { type: string }
+            quizzes:
+              type: array
+              items: { $ref: '#/components/schemas/Quiz' }
+
 paths:
 
   # ---- meta ----
@@ -3212,6 +3240,79 @@ paths:
       summary: List chat messages for a thread (history replay, capped at 50; ?limit=N).
       security: [{ cookieAuth: [] }]
       responses: { '200': { description: ok } }
+
+  # ---------------------------------------------------------------------------
+  # T16: dialog tutor. Lesson-scoped student/agent threads over
+  # tutor_messages. Pending is derived: a thread is pending iff its
+  # last message has role='user'. WS topic "tutor" fans out every
+  # new message (body carries user_id, lesson_id, role, message).
+  # ---------------------------------------------------------------------------
+  /api/v1/lessons/{id}/tutor:
+    get:
+      tags: [courses]
+      summary: Tutor thread history for the current user on this lesson (oldest first; empty thread = empty list).
+      security: [{ bearerAuth-cookie: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string }, description: Lesson id (UUID or L-number ref) }
+      responses:
+        '200':
+          description: ok — { messages: TutorMessage[] }
+        '401': { description: unauthorized }
+        '404': { description: not_found (unknown lesson) }
+    post:
+      tags: [courses]
+      summary: Ask the tutor a question; the thread becomes pending (last message role=user). One open question per thread.
+      security: [{ bearerAuth-cookie: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string }, description: Lesson id (UUID or L-number ref) }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question_md]
+              properties:
+                question_md: { type: string }
+      responses:
+        '201': { description: 'created — TutorMessage (role=user); emits WS "tutor"' }
+        '400': { description: invalid_input (empty/whitespace question_md) }
+        '401': { description: unauthorized }
+        '404': { description: not_found (unknown lesson) }
+        '409': { description: conflict (a question is already pending) }
+
+  /api/v1/agent/tutor/pending:
+    get:
+      tags: [agents]
+      summary: Pending tutor questions with the lesson context embedded (content_md + quizzes) — one call is enough to answer.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200':
+          description: ok — { pending: TutorPendingQuestion[] }
+        '401': { description: unauthorized (user cookie or missing bearer) }
+
+  /api/v1/agent/tutor/{lesson_id}/reply:
+    post:
+      tags: [agents]
+      summary: Answer the lesson's pending tutor question; resolves the thread (last message becomes role=agent).
+      security: [{ bearerAuth-agent: [] }]
+      parameters:
+        - { name: lesson_id, in: path, required: true, schema: { type: string }, description: Lesson id (UUID or L-number ref) }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body_md]
+              properties:
+                body_md: { type: string }
+      responses:
+        '201': { description: 'created — TutorMessage (role=agent); emits WS "tutor"' }
+        '400': { description: invalid_input (empty/whitespace body_md) }
+        '401': { description: unauthorized (user cookie or missing bearer) }
+        '404': { description: not_found (unknown lesson) }
+        '409': { description: conflict (no pending question on the thread) }
 
   # ---- SPA fallback ----
   /{catchAll}:
