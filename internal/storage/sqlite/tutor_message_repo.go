@@ -48,7 +48,7 @@ func (r *tutorMessageRepo) ListThread(ctx context.Context, lessonID, userID stri
 	if err != nil {
 		return nil, fmt.Errorf("tutor.ListThread: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := make([]*tutor.Message, 0)
 	for rows.Next() {
 		m, err := scanTutorMessage(rows)
@@ -69,7 +69,9 @@ func (r *tutorMessageRepo) Last(ctx context.Context, lessonID, userID string) (*
 		LIMIT 1`, lessonID, userID)
 	m, err := scanTutorMessage(row)
 	if err == sql.ErrNoRows {
-		return nil, nil
+		// No thread yet — (nil, nil) is the documented "empty
+		// thread" result; the service decides what that means.
+		return nil, nil //nolint:nilnil // empty thread is a valid state, not an error
 	}
 	if err != nil {
 		return nil, fmt.Errorf("tutor.Last: %w", err)
@@ -97,7 +99,7 @@ func (r *tutorMessageRepo) PendingThreads(ctx context.Context) ([]tutor.PendingT
 	if err != nil {
 		return nil, fmt.Errorf("tutor.PendingThreads: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := make([]tutor.PendingThreadKey, 0)
 	for rows.Next() {
 		var k tutor.PendingThreadKey

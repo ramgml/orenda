@@ -128,14 +128,14 @@ func (s *courseStub) ListQuizzesInCourse(_ context.Context, courseID string) ([]
 }
 
 // newFixture wires the service the way main.go does.
-func newFixture() (*tutor.Service, *memRepo, *courseStub) {
+func newFixture() (*tutor.Service, *courseStub) {
 	repo := &memRepo{}
 	courses := &courseStub{
 		lessons: map[string]*course.Lesson{},
 		modules: map[string]*course.Module{},
 		courses: map[string]*course.Course{},
 	}
-	return tutor.New(repo, courses), repo, courses
+	return tutor.New(repo, courses), courses
 }
 
 // seedLesson creates a minimal consistent course → module → lesson
@@ -163,7 +163,7 @@ func itoa(n int) string {
 }
 
 func TestService_Ask_HappyPath(t *testing.T) {
-	svc, _, courses := newFixture()
+	svc, courses := newFixture()
 	lessonID := seedLesson(courses, false)
 
 	m, err := svc.Ask(context.Background(), lessonID, "u-1", "  What is a lifetime?  ")
@@ -175,7 +175,7 @@ func TestService_Ask_HappyPath(t *testing.T) {
 }
 
 func TestService_Ask_Rejects(t *testing.T) {
-	svc, _, courses := newFixture()
+	svc, courses := newFixture()
 	lessonID := seedLesson(courses, false)
 
 	// Unknown lesson → 404 sentinel.
@@ -198,7 +198,7 @@ func TestService_Ask_Rejects(t *testing.T) {
 }
 
 func TestService_History(t *testing.T) {
-	svc, _, courses := newFixture()
+	svc, courses := newFixture()
 	lessonID := seedLesson(courses, false)
 
 	// Unknown lesson → 404.
@@ -228,7 +228,7 @@ func TestService_History(t *testing.T) {
 }
 
 func TestService_ListPending_EmbedsLessonContext(t *testing.T) {
-	svc, _, courses := newFixture()
+	svc, courses := newFixture()
 	lessonID := seedLesson(courses, true)
 
 	_, err := svc.Ask(context.Background(), lessonID, "u-1", "Explain moves")
@@ -249,7 +249,7 @@ func TestService_ListPending_EmbedsLessonContext(t *testing.T) {
 }
 
 func TestService_Reply_Lifecycle(t *testing.T) {
-	svc, repo, courses := newFixture()
+	svc, courses := newFixture()
 	lessonID := seedLesson(courses, false)
 
 	// Reply without a pending question → 409.
@@ -285,7 +285,6 @@ func TestService_Reply_Lifecycle(t *testing.T) {
 	require.Len(t, pending, 1)
 	assert.Equal(t, "follow-up", pending[0].BodyMD)
 
-	_ = repo
 }
 
 // A lesson with TWO pending student threads cannot be answered: the

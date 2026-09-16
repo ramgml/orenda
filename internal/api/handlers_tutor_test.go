@@ -137,7 +137,7 @@ func newTutorFixture(t *testing.T) *tutorFixture {
 
 // seedOpenLesson creates course → module → open lesson through the
 // domain repo (the tutor endpoints accept any existing lesson).
-func (fx *tutorFixture) seedOpenLesson(t *testing.T, title string) (*course.Course, *course.Lesson) {
+func (fx *tutorFixture) seedOpenLesson(t *testing.T, title string) *course.Lesson {
 	t.Helper()
 	ctx := context.Background()
 	c := &course.Course{Title: "Course " + title, Status: course.StatusActive, OwnerID: fx.ownerID}
@@ -146,7 +146,7 @@ func (fx *tutorFixture) seedOpenLesson(t *testing.T, title string) (*course.Cour
 	require.NoError(t, fx.courses.CreateModule(ctx, m))
 	l := &course.Lesson{ModuleID: m.ID, Title: title, Status: course.LessonOpen, Position: 0, ContentMD: "# " + title}
 	require.NoError(t, fx.courses.CreateLesson(ctx, l))
-	return c, l
+	return l
 }
 
 func (fx *tutorFixture) userReq(method, path string, body any) *httptest.ResponseRecorder {
@@ -178,7 +178,7 @@ func (fx *tutorFixture) agentReq(method, path string, body any) *httptest.Respon
 func TestTutor_AskHistoryReply_Lifecycle(t *testing.T) {
 	t.Parallel()
 	fx := newTutorFixture(t)
-	_, lesson := fx.seedOpenLesson(t, "Lifecycle")
+	lesson := fx.seedOpenLesson(t, "Lifecycle")
 
 	// Empty thread: 200 + empty list (the lesson exists).
 	rr := fx.userReq(http.MethodGet, fmt.Sprintf("/api/v1/lessons/%s/tutor", lesson.ID), nil)
@@ -279,7 +279,7 @@ func TestTutor_AskHistoryReply_Lifecycle(t *testing.T) {
 func TestTutor_AgentRoutesRejectUserCookie(t *testing.T) {
 	t.Parallel()
 	fx := newTutorFixture(t)
-	_, lesson := fx.seedOpenLesson(t, "CookieGate")
+	lesson := fx.seedOpenLesson(t, "CookieGate")
 
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodGet, "/api/v1/agent/tutor/pending"},
@@ -309,7 +309,7 @@ func TestTutor_AgentRoutesRejectUserCookie(t *testing.T) {
 func TestTutor_WSEmit(t *testing.T) {
 	t.Parallel()
 	fx := newTutorFixture(t)
-	_, lesson := fx.seedOpenLesson(t, "WSEmit")
+	lesson := fx.seedOpenLesson(t, "WSEmit")
 
 	ch, unsub := fx.hub.Subscribe(fx.ownerID, "tutor")
 	defer unsub()
@@ -353,7 +353,7 @@ func TestTutor_WSEmit(t *testing.T) {
 func TestTutor_Isolation(t *testing.T) {
 	t.Parallel()
 	fx := newTutorFixture(t)
-	_, lesson := fx.seedOpenLesson(t, "Isolation")
+	lesson := fx.seedOpenLesson(t, "Isolation")
 
 	rr := fx.userReq(http.MethodPost, fmt.Sprintf("/api/v1/lessons/%s/tutor", lesson.ID), map[string]string{
 		"question_md": "owner question",

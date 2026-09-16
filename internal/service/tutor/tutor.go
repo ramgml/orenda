@@ -33,6 +33,8 @@ var (
 // Role discriminates the two sides of the dialog.
 type Role string
 
+// RoleUser / RoleAgent: the two sides of the dialog. RoleUser rows
+// are student questions; RoleAgent rows are the tutor's replies.
 const (
 	RoleUser  Role = "user"
 	RoleAgent Role = "agent"
@@ -156,9 +158,9 @@ func (s *Service) History(ctx context.Context, lessonID, userID string) ([]*Mess
 	return msgs, nil
 }
 
-// ListPending walks every lesson thread whose last message is a
-// user question and embeds the lesson context (course, title,
-// content_md, quizzes) so the agent can answer in one call.
+// PendingLister is the optional repo extension that exposes the
+// pending queue: every thread whose last message is a user
+// question.
 //
 // Single-owner install: the pending set is small; a cross-thread
 // scan via Repo.Last per thread is fine. Threads are discovered by

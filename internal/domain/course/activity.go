@@ -33,9 +33,10 @@ const (
 	ActivityModuleEdited      ActivityKind = "module_edited"
 	ActivityStatusChanged     ActivityKind = "status_changed"
 	ActivityArchived          ActivityKind = "archived"
-	// T16: dialog tutor. The question row is attributed to the
-	// student (ActorUser), the reply to the agent (ActorAgent) —
-	// the recorder resolves the actor from request context.
+	// ActivityTutorQuestion / ActivityTutorReply (T16 dialog
+	// tutor): the question row is attributed to the student
+	// (ActorUser), the reply to the agent (ActorAgent) — the
+	// recorder resolves the actor from request context.
 	ActivityTutorQuestion ActivityKind = "tutor_question"
 	ActivityTutorReply    ActivityKind = "tutor_reply"
 )
