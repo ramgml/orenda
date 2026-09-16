@@ -3,7 +3,13 @@ import { Link } from 'react-router';
 
 import { TaskLink } from '@/features/tasks/TaskModal';
 
-import { api, type StudyProposalView, type Task, type TodayCourseView, type TodayReviewView } from '@/shared/api/client';
+import {
+  api,
+  type StudyProposalView,
+  type Task,
+  type TodayCourseView,
+  type TodayReviewView,
+} from '@/shared/api/client';
 import { Button } from '@/shared/ui/button';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 import { Loading } from '@/shared/ui/Loading';
@@ -76,7 +82,7 @@ export function TodayPage(): JSX.Element {
     !data.active_timer &&
     (data.upcoming_week ?? []).length === 0 &&
     (data.proposals ?? []).length === 0 &&
-    (data.courses ?? []).length === 0
+    (data.courses ?? []).length === 0 &&
     (data.due_reviews ?? []).length === 0
   ) {
     return (
