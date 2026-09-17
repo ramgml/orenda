@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 
 import { TaskLink } from '@/features/tasks/TaskModal';
 
+import { DashboardChatPanel } from '@/features/today/DashboardChatPanel';
 import {
   api,
   type StudyProposalView,
@@ -144,6 +145,7 @@ export function TodayPage(): JSX.Element {
 
       <UpcomingWeek days={data.upcoming_week ?? []} />
 
+      <DashboardChatPanel thread="default" onProposalCreated={() => void load()} />
       <ProposalTray proposals={data.proposals} onChange={() => void load()} />
     </section>
   );

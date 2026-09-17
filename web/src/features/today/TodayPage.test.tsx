@@ -21,6 +21,7 @@ import { AxiosError } from 'axios';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { TodayPage } from '@/features/today/TodayPage';
 import { wsClient } from '@/shared/ws';
@@ -53,11 +54,23 @@ afterEach(() => {
 });
 
 function mount(initialEntries?: string[]) {
+  // Task 268: the page tree runs real queries (the TodayPage data
+  // fetch and, since T9, the DashboardChatPanel history query), so
+  // every render sits inside a QueryClientProvider (retry off to
+  // keep failures loud). Fresh client per render — shared caches
+  // leak state across tests.
   return render(
-    <MemoryRouter initialEntries={initialEntries ?? ['/']}>
-      <TodayPage />
-    </MemoryRouter>,
+    <QueryClientProvider client={qc()}>
+      <MemoryRouter initialEntries={initialEntries ?? ['/']}>
+        <TodayPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
+}
+
+/** Fresh client per render — shared caches leak state across tests. */
+function qc(): QueryClient {
+  return new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
 }
 
 /**
@@ -502,10 +515,12 @@ describe('TodayPage', () => {
 
     const navigations: Array<{ pathname: string; state: unknown }> = [];
     render(
-      <MemoryRouter initialEntries={['/']}>
-        <RouteProbe onNavigate={(loc) => navigations.push(loc)} />
-        <TodayPage />
-      </MemoryRouter>,
+      <QueryClientProvider client={qc()}>
+        <MemoryRouter initialEntries={['/']}>
+          <RouteProbe onNavigate={(loc) => navigations.push(loc)} />
+          <TodayPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
 
     fireEvent.click(await screen.findByText('Open me as modal'));
@@ -536,10 +551,12 @@ describe('TodayPage', () => {
       return null;
     }
     render(
-      <MemoryRouter initialEntries={['/']}>
-        <RecordingProbe />
-        <TodayPage />
-      </MemoryRouter>,
+      <QueryClientProvider client={qc()}>
+        <MemoryRouter initialEntries={['/']}>
+          <RecordingProbe />
+          <TodayPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
 
     fireEvent.click(await screen.findByText('stop'));

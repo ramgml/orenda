@@ -26,7 +26,14 @@ declare module './core' {
 // resolving during the transition period. Each re-export names its
 // source explicitly (no `export *`) — knip tracks them, and the
 // follow-up migration task retires them one by one.
-export type { Agent, OverviewResponse, StudyProposalView, TodayCourseView } from './agents';
+export type {
+  Agent,
+  ChatEventBody,
+  ChatMessage,
+  OverviewResponse,
+  StudyProposalView,
+  TodayCourseView,
+} from './agents';
 export type { TodayReviewView } from './agents';
 export type {
   Course,
