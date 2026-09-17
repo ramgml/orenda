@@ -81,7 +81,7 @@ func (r *chatMessageRepo) Last(ctx context.Context, userID, threadID string) (*c
 		LIMIT 1`, userID, threadID)
 	m, err := scanChatMessage(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // empty thread is a valid state, not an error
 	}
 	if err != nil {
 		return nil, fmt.Errorf("chat.Last: %w", err)

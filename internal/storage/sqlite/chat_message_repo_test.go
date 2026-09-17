@@ -14,7 +14,7 @@ import (
 // thread repo: upsert is idempotent, ownership is per user.
 func TestChatThreads_PerUserOwnership(t *testing.T) {
 	db := openTestDB(t)
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 	threads := NewChatThreadRepository(db)
 	ctx := context.Background()
 
@@ -39,7 +39,7 @@ func TestChatThreads_PerUserOwnership(t *testing.T) {
 // are scoped to one user, and PendingThreads derives the queue.
 func TestChatMessages_UserScoped(t *testing.T) {
 	db := openTestDB(t)
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 	repo := NewChatMessageRepository(db).(*chatMessageRepo)
 	ctx := context.Background()
 
