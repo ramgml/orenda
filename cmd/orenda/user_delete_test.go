@@ -99,13 +99,53 @@ func seedCourseWithStatus(t *testing.T, dbPath, userID string, status course.Sta
 	return c.ID
 }
 
+// seedProject creates a project owned by userID directly in the DB —
+// projects.owner_id has no ON DELETE action (001), so its presence must
+// block user deletion.
+func seedProject(t *testing.T, dbPath, userID string) {
+	t.Helper()
+	db, err := sqlite.Open(context.Background(), dbPath, sqlite.OpenConfig{
+		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	_, err = db.ExecContext(context.Background(),
+		`INSERT INTO projects (id, name, owner_id) VALUES (?, 'Blocked project', ?)`, "proj-"+userID[:8], userID)
+	require.NoError(t, err)
+}
+
+// seedProjectAgentGrant inserts an agent row plus a project_agents
+// grant added by userID — added_by has no ON DELETE action (043), so it
+// must block user deletion too.
+func seedProjectAgentGrant(t *testing.T, dbPath, addedBy string) {
+	t.Helper()
+	db, err := sqlite.Open(context.Background(), dbPath, sqlite.OpenConfig{
+		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	})
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	_, err = db.ExecContext(context.Background(),
+		`INSERT INTO api_tokens (id, user_id, name, hash, scopes, expires_at)
+		 VALUES ('tok-grant', ?, 'grant-token', 'h', '[]', NULL)`, addedBy)
+	require.NoError(t, err)
+	_, err = db.ExecContext(context.Background(),
+		`INSERT INTO agents (id, name, type, token_id) VALUES ('agent-grant', 'Grant Agent', 'custom', 'tok-grant')`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(context.Background(),
+		`INSERT INTO projects (id, name, owner_id) VALUES ('proj-grant', 'Grant project', ?)`, addedBy)
+	require.NoError(t, err)
+	_, err = db.ExecContext(context.Background(),
+		`INSERT INTO project_agents (project_id, agent_id, added_by) VALUES ('proj-grant', 'agent-grant', ?)`, addedBy)
+	require.NoError(t, err)
+}
+
 func TestRunUserDelete_Table(t *testing.T) {
-	t.Parallel()
 
 	tests := []struct {
-		name    string
-		args    []string
-		prep    func(t *testing.T, dir, cfgPath, dbPath, aliceID, bobID string)
+		name string
+		args []string
+		prep func(t *testing.T, dir, cfgPath, dbPath, aliceID, bobID string)
+
 		wantErr string // non-empty: command must fail with this substring
 		wantOut string // non-empty: stdout must contain this substring
 	}{
@@ -180,8 +220,33 @@ func TestRunUserDelete_Table(t *testing.T) {
 			},
 			wantOut: "user deleted: id=",
 		},
+		{
+			name: "project owner refused, nothing deleted",
+			args: []string{"--email=bob@example.com", "--yes"},
+			prep: func(t *testing.T, dir, cfgPath, dbPath, aliceID, bobID string) {
+				seedProject(t, dbPath, bobID)
+				seedCourseWithStatus(t, dbPath, bobID, course.StatusActive)
+			},
+			wantErr: "delete or reassign the projects first",
+		},
+		{
+			name: "project owner refused even with --force",
+			args: []string{"--email=bob@example.com", "--yes", "--force"},
+			prep: func(t *testing.T, dir, cfgPath, dbPath, aliceID, bobID string) {
+				seedProject(t, dbPath, bobID)
+				seedCourseWithStatus(t, dbPath, bobID, course.StatusActive)
+			},
+			wantErr: "delete or reassign the projects first",
+		},
+		{
+			name: "project grant adder refused",
+			args: []string{"--email=bob@example.com", "--yes"},
+			prep: func(t *testing.T, dir, cfgPath, dbPath, aliceID, bobID string) {
+				seedProjectAgentGrant(t, dbPath, bobID)
+			},
+			wantErr: "project-agent grants",
+		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -231,6 +296,15 @@ func TestRunUserDelete_Table(t *testing.T) {
 			case "active course refuses without --force":
 				assert.False(t, bobGone, "refused delete must not remove bob")
 				assert.Len(t, coursesLeft, 1, "refused delete must not touch courses")
+			case "project owner refused, nothing deleted", "project owner refused even with --force":
+				assert.False(t, bobGone, "project refusal must not remove bob")
+				assert.Len(t, coursesLeft, 1, "project refusal must not touch courses (atomicity)")
+				var projects int
+				require.NoError(t, db.QueryRowContext(context.Background(),
+					`SELECT COUNT(*) FROM projects WHERE owner_id = ?`, bobID).Scan(&projects))
+				assert.Equal(t, 1, projects, "project must survive the refusal")
+			case "project grant adder refused":
+				assert.False(t, bobGone, "grant refusal must not remove bob")
 			case "last non-system owner refused":
 				assert.True(t, bobGone, "bob was deleted by prep")
 			}

@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -400,6 +401,10 @@ func runUserDelete(cmd *cobra.Command, in userDeleteInput) error {
 		return fmt.Errorf("user delete: list courses: %w", err)
 	}
 	active := countActiveCourses(owned)
+	blockers, err := countProjectBlockers(cmd.Context(), db, target.ID)
+	if err != nil {
+		return err
+	}
 
 	out := cmd.OutOrStdout()
 	if !in.AssumeYes {
@@ -409,6 +414,13 @@ func runUserDelete(cmd *cobra.Command, in userDeleteInput) error {
 		// pipe, and the command's outcome is carried by the error below.
 		fmt.Fprintf(out, "would delete user: id=%s email=%s role=%s courses=%d", //nolint:errcheck // best-effort preview output
 			target.ID, target.Email, target.Role, len(owned))
+		// Spell out the fate of non-active courses too: they are NOT
+		// kept — with --yes they go with the user via the
+		// courses.owner_id ON DELETE CASCADE (019), same as the active
+		// ones once --force is passed. Silence here would hide that.
+		if len(owned) > 0 {
+			fmt.Fprintf(out, " (all %d will be deleted with the user)", len(owned)) //nolint:errcheck // best-effort preview output
+		}
 		if active > 0 {
 			fmt.Fprintf(out, " (active=%d; re-run with --force)", active) //nolint:errcheck // best-effort preview output
 		}
@@ -416,18 +428,19 @@ func runUserDelete(cmd *cobra.Command, in userDeleteInput) error {
 		return errors.New("user delete: aborted (pass --yes to delete)")
 	}
 
+	// Hard guard 3 (preflight, before ANY destruction): projects.owner_id
+	// (001) and project_agents.added_by (043) reference users(id) with NO
+	// ON DELETE action, so a target with projects would make users.Delete
+	// fail with an FK error — and under --force the courses would already
+	// be gone by then. Refuse up front, leave everything untouched.
+	if blockers > 0 {
+		return fmt.Errorf("user delete: user owns %d project(s) or is the adder on project-agent grants; delete or reassign the projects first", blockers)
+	}
 	if active > 0 && !in.Force {
 		return fmt.Errorf("user delete: user owns %d active course(s); pass --force to delete them along with the user", active)
 	}
-	if err := deleteOwnedCourses(cmd.Context(), coursesRepo, owned, in.Force); err != nil {
+	if err := deleteOwnedCoursesAndUser(cmd.Context(), db, owned, target.ID, in.Force); err != nil {
 		return err
-	}
-
-	// courses.owner_id carries ON DELETE CASCADE (migration 019), so even
-	// a bare users.Delete would cascade any remaining rows; by this point
-	// --force has already removed them explicitly.
-	if err := users.Delete(cmd.Context(), target.ID); err != nil {
-		return fmt.Errorf("user delete: %w", err)
 	}
 
 	fmt.Fprintf(out, "user deleted: id=%s email=%s\n", target.ID, target.Email) //nolint:errcheck // best-effort confirmation output
@@ -445,33 +458,53 @@ func countActiveCourses(cs []*course.Course) int {
 	return n
 }
 
-// deleteOwnedCourses enforces the active-course guard and, with force,
-// removes every course the user owns. See the cascade note inside.
-func deleteOwnedCourses(ctx context.Context, repo course.Repository, owned []*course.Course, force bool) error {
+// countProjectBlockers counts rows that would break users.Delete with a
+// raw FK error: projects owned by the target (owner_id has NO ON DELETE
+// action, migration 001) and project_agents grants the target created
+// (added_by, migration 043). Counted before any destructive step so a
+// refusal never leaves partial damage.
+func countProjectBlockers(ctx context.Context, db *sql.DB, userID string) (int, error) {
+	var projects, grants int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM projects WHERE owner_id = ?`, userID).Scan(&projects); err != nil {
+		return 0, fmt.Errorf("user delete: preflight projects: %w", err)
+	}
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM project_agents WHERE added_by = ?`, userID).Scan(&grants); err != nil {
+		return 0, fmt.Errorf("user delete: preflight project grants: %w", err)
+	}
+	return projects + grants, nil
+}
+
+// deleteOwnedCoursesAndUser performs the destructive phase atomically:
+// per-course deletion (the DELETE /api/v1/courses/{id} handler uses
+// courseRepo.DeleteCourse — a plain `DELETE FROM courses WHERE id = ?`;
+// reproduced against the tx so the whole phase shares one commit — the
+// cascade machinery is identical, see migrations 019/022/023) plus the
+// user deletion run in ONE transaction. If any step fails (e.g. an
+// unforeseen FK), the rollback restores the courses — the "courses
+// deleted but user alive" window cannot happen.
+func deleteOwnedCoursesAndUser(ctx context.Context, db *sql.DB, owned []*course.Course, userID string, force bool) error {
 	active := countActiveCourses(owned)
 	if active > 0 && !force {
 		return fmt.Errorf("user delete: user owns %d active course(s); pass --force to delete them along with the user", active)
 	}
-	if !force || len(owned) == 0 {
-		return nil
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("user delete: begin tx: %w", err)
 	}
-	// Delete every course (not only active ones) through the same
-	// repo method the DELETE /api/v1/courses/{id} handler uses —
-	// courseRepo.DeleteCourse, a plain `DELETE FROM courses WHERE
-	// id = ?`. The whole course tree (course_modules →
-	// course_lessons → course_quizzes, 019; study plans 022;
-	// course_activity 023) hangs off courses(id) via ON DELETE
-	// CASCADE FKs, so the HTTP path and this path rely on the exact
-	// same cascade machinery — there is no second, deeper deletion
-	// to duplicate. An explicit loop (instead of relying on
-	// users.Delete cascading courses.owner_id) keeps the course
-	// removal observable and error-attributed per course.
-	for _, c := range owned {
-		if err := repo.DeleteCourse(ctx, c.ID); err != nil {
-			return fmt.Errorf("user delete: course %s: %w", c.ID, err)
+	defer func() { _ = tx.Rollback() }()
+	if force {
+		for _, c := range owned {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM courses WHERE id = ?`, c.ID); err != nil {
+				return fmt.Errorf("user delete: course %s: %w", c.ID, err)
+			}
 		}
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID); err != nil {
+		return fmt.Errorf("user delete: %w", err)
+	}
+	return tx.Commit()
 }
 
 // resolveUserForDelete finds the target by email or id and maps
