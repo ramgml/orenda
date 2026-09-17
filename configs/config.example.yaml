@@ -65,7 +65,7 @@ backup:
   # a restart; the YAML value is the cold-start default when
   # the operator hasn't saved one in the UI yet. Operators in
   # non-UTC time zones convert by hand (UTC math, DST-neutral
-  # by construction — see docs/PLAN.md Phase 32.7).
+  # by construction — see docs/context/PLAN.md Phase 32.7).
   sqlite_snapshot_cron: "0 3 * * *"
   # Phase 32.8: renamed the log type from "wal_archive" to
   # "wal_checkpoint" — the underlying code is a SQLite WAL

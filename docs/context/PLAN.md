@@ -8,7 +8,7 @@ status: pre-alpha
 # Orenda — План разработки
 
 > **❄️ Заморожено 2026-08-18 (Phase 32.6).** Актуальный бэклог — dogfood-инстанс
-> http://127.0.0.1:2137, проект «Orenda dev» (конвенция `docs/DOGFOOD.md`).
+> http://127.0.0.1:2137, проект «Orenda dev» (конвенция `docs/context/DOGFOOD.md`).
 > **Сюда не пишем.** Файл — архив фаз ≤ 32: постановки, аудиты, история.
 
 Детальная разбивка по фазам с конкретными задачами, критериями готовности и оценкой сроков. Файл оптимизирован для AI-агентов: каждый шаг самодостаточен, можно выполнять параллельно.
@@ -526,7 +526,7 @@ make build
 
 ## Phase 9 — Полировка *(ongoing)*
 
-> **Аудит 2026-08-12 (обновлено 2026-08-14):** ✅ — бенчмарки, security headers, rate limit (429+Retry-After), zap+lumberjack, install.sh/systemd/uninstall, dark mode — есть. **✅ Phase 28.11** — `docs/ARCHITECTURE.md` (556 строк, 13 секций). **✅ Phase 28.6** — opt-in pprof endpoint (`DebugPProf` flag + `PProfAddr`), govulncheck target в Makefile. **README скриншоты** — отклонено (вместо PNG-embedding — text pointer на 4 ключевые страницы). **(Prometheus metrics вычеркнут из скоупа решением 2026-08-13.)**
+> **Аудит 2026-08-12 (обновлено 2026-08-14):** ✅ — бенчмарки, security headers, rate limit (429+Retry-After), zap+lumberjack, install.sh/systemd/uninstall, dark mode — есть. **✅ Phase 28.11** — `docs/context/ARCHITECTURE.md` (556 строк, 13 секций). **✅ Phase 28.6** — opt-in pprof endpoint (`DebugPProf` flag + `PProfAddr`), govulncheck target в Makefile. **README скриншоты** — отклонено (вместо PNG-embedding — text pointer на 4 ключевые страницы). **(Prometheus metrics вычеркнут из скоупа решением 2026-08-13.)**
 >
 > **Update 2026-08-13 (Phase 28.1 polish.1):** закрыт блокер dogfooding — `PUT /api/v1/backups/settings` теперь 200 (раньше 501). UI Settings → Backups: редактируемая форма с Save и restart-to-apply banner. Полная секция — ниже.
 
@@ -542,7 +542,7 @@ make build
 - `handlers_backup.go:36-47` отдавал 501: «Phase 9 — config.yaml is the source of truth».
 - `cmd/orenda/main.go:601-630` создавал `*backup.Service` с in-memory `Config` (URL/auth из cfg) — `backup.Config` иммутабельный после `New()`.
 - `web/src/features/settings/Backups.tsx` показывал read-only `<dl>`.
-- `docs/API.md:184` и `docs/openapi.yaml:1084` явно документировали 501.
+- `docs/context/API.md:184` и `../openapi.yaml:1084` явно документировали 501.
 
 **Ключевые решения:**
 
@@ -738,9 +738,9 @@ make build
   - E2E: Playwright (login, create task, move, comment)
 - [ ] **9.2** Документация:
   - Обновить `README.md` со скриншотами и сценариями
-  - `docs/API.md` — REST reference (генерируется из OpenAPI)
-  - `docs/DB.md` — схема БД с диаграммой
-  - `docs/ARCHITECTURE.md` — детали реализации
+  - `docs/context/API.md` — REST reference (генерируется из OpenAPI)
+  - `docs/context/DB.md` — схема БД с диаграммой
+  - `docs/context/ARCHITECTURE.md` — детали реализации
 - [ ] **9.3** Производительность:
   - Benchmark'и для горячих путей
   - Профилирование через pprof endpoint (только для debug)
@@ -990,8 +990,8 @@ make build
   - Repo: `ListChildren` возвращает прямых детей; `ChildProgress` корректно считает `done`; `Delete` родителя каскадирует на детей.
   - API: `GET /tasks/:id/children` → 200 с tasks+progress; `POST /tasks` с `parent_task_id` другого проекта → 400/422.
   - Frontend: `ChildTasksList` рендерит карточки с бейджем статуса.
-- [ ] **14.14** Обновить `docs/API.md` — убрать `/subtasks`, добавить `/children`.
-- [ ] **14.15** Обновить `docs/SESSION.md` (новые ключевые решения: subtasks→child tasks; checklists с activity+mirror).
+- [ ] **14.14** Обновить `docs/context/API.md` — убрать `/subtasks`, добавить `/children`.
+- [ ] **14.15** Обновить `docs/context/SESSION.md` (новые ключевые решения: subtasks→child tasks; checklists с activity+mirror).
 
 ### Definition of Done
 
@@ -1001,7 +1001,7 @@ make build
 - Агент через `GET /api/v1/tasks/:id/context` получает и `children`, и `checklists` (не только одно из двух).
 - Существующая БД с `subtasks` мигрируется без потерь: после `orenda migrate up` все subtasks становятся child-tasks, фронт их видит без ручного вмешательства.
 - `make test && make lint` зелёные.
-- `docs/API.md` отражает новое API.
+- `docs/context/API.md` отражает новое API.
 
 ### Что НЕ делаем в этой фазе
 
@@ -1044,7 +1044,7 @@ make build
 - [ ] **15.5** Frontend:
   - `TaskCard` — бейдж «blocked» (с числом блокеров) и бейдж занятости агентом (assignee уже есть в payload)
   - Страница задачи — редактор зависимостей («Blocked by»: поиск задачи, добавить/удалить)
-- [ ] **15.6** Документация: `docs/API.md` — новые поля и эндпоинты, семантика `ready`
+- [ ] **15.6** Документация: `docs/context/API.md` — новые поля и эндпоинты, семантика `ready`
 - [ ] **15.7** Тесты:
   - Цикл в зависимостях отклоняется (A→B→A)
   - Claim заблокированной задачи → 422 со списком блокеров; после done блокера → claim успешен
@@ -1062,7 +1062,7 @@ make build
 
 ## Phase 16 — Inbox: карточки без проекта, а не системный проект *(2–3 дня)*
 
-> **Аудит 2026-08-12:** ✅ — FK-off migration runner, миграция 015 (rebuild tasks, rowid, FTS rebuild, удаление `...cafe` и system-user), inbox endpoints, PATCH project_id, `/inbox` страница, статичный сайдбар-пункт с бейджем — есть. Оговорки: нет dedicated теста миграции 015; `docs/API.md` не описывает `/inbox/tasks`; InboxPage не переиспользует TaskCard. **✅ закрыт в `phase-mirror-minor` (Wave 4 PR 2) — InboxPage переиспользует TaskCard; остальные оговоренные бэклоги оставлены на Phase 9 polish.**
+> **Аудит 2026-08-12:** ✅ — FK-off migration runner, миграция 015 (rebuild tasks, rowid, FTS rebuild, удаление `...cafe` и system-user), inbox endpoints, PATCH project_id, `/inbox` страница, статичный сайдбар-пункт с бейджем — есть. Оговорки: нет dedicated теста миграции 015; `docs/context/API.md` не описывает `/inbox/tasks`; InboxPage не переиспользует TaskCard. **✅ закрыт в `phase-mirror-minor` (Wave 4 PR 2) — InboxPage переиспользует TaskCard; остальные оговоренные бэклоги оставлены на Phase 9 polish.**
 
 **Цель:** Inbox перестаёт быть системным проектом с магическим id. Inbox — это просто набор карточек (задач), у которых ещё нет проекта: `tasks.project_id IS NULL`. Системный проект `00000000-0000-0000-0000-00000000cafe` и его placeholder-пользователь удаляются миграцией.
 
@@ -1142,7 +1142,7 @@ make build
   - API: `POST/GET /api/v1/inbox/tasks`; `PATCH /tasks/:id {project_id:"p"}` → задача ушла из inbox, `column_id` = первая колонка проекта; `PATCH {project_id:""}` → вернулась в inbox, колонка очищена.
   - Event: create без `project_id` → `project_id=""`; PATCH события `project_id:""` очищает проект.
   - Frontend: `partitionProjects` без inbox; `client.test.ts` — `listInboxTasks/createInboxTask`; `TaskCard` с `project_id=""` не падает.
-- [ ] **16.18** Документация: `docs/API.md` (endpoints `/inbox/tasks`, `project_id` опционален в task/event payloads), `docs/DB.md` (015: nullable `project_id`, удаление Inbox), `docs/SESSION.md` (решение: Inbox ≠ проект).
+- [ ] **16.18** Документация: `docs/context/API.md` (endpoints `/inbox/tasks`, `project_id` опционален в task/event payloads), `docs/context/DB.md` (015: nullable `project_id`, удаление Inbox), `docs/context/SESSION.md` (решение: Inbox ≠ проект).
 
 ### Definition of Done
 
@@ -1223,7 +1223,7 @@ make build
   - Unit: `taskDueState()` — все четыре состояния + границы (ровно полночь, год); формат даты; прогресс-бейдж скрывается при `total=0`; `AssigneeChip` agent/user ветки.
   - API: агрегаты в `GET /projects/:id/tasks` (seed: 2 children 1 done, checklist 2/3, comment, attachment → корректные счётчики), отсутствие N+1 (1 запрос агрегатов на список).
   - Snapshot/рендер: карточка с полным набором бейджей и пустая (title only) — обе без сдвигов верстки (min-height строк).
-- [ ] **17.12** Документация: `docs/API.md` — новые поля агрегатов в ответе списка задач; `docs/SESSION.md` — решение по анатомии карточки.
+- [ ] **17.12** Документация: `docs/context/API.md` — новые поля агрегатов в ответе списка задач; `docs/context/SESSION.md` — решение по анатомии карточки.
 
 ### Definition of Done
 
@@ -1307,7 +1307,7 @@ make build
   - Service: `SubmitCurriculum` атомарен (падающая вставка не оставляет полупрограмму); `CompleteLesson` открывает следующий и закрывает курс; `exact`-quiz автопроверка (регистр/пробелы).
   - API: полный цикл «создать курс → тьютор строит программу → ревью → active → урок done» интеграционно; agent-endpoints отклоняют user-cookie и наоборот.
   - Frontend: прогресс-бар курса; locked-урок не кликабелен; ревью-экран показывает черновик программы.
-- [ ] **18.9** Документация: `docs/API.md` (courses endpoints, agent namespace), `docs/DB.md` (017), `docs/SESSION.md` (решение: LMS-модель + оркестрация задачами); пример system-prompt'а тьютора в `docs/` (формат curriculum JSON для `PUT .../curriculum`).
+- [ ] **18.9** Документация: `docs/context/API.md` (courses endpoints, agent namespace), `docs/context/DB.md` (017), `docs/context/SESSION.md` (решение: LMS-модель + оркестрация задачами); пример system-prompt'а тьютора в `docs/` (формат curriculum JSON для `PUT .../curriculum`).
 
 ### Definition of Done
 
@@ -1345,7 +1345,7 @@ make build
 - [ ] **19.3** Действия из списка: «принять» → `POST /tasks/{id}/review {decision:"accept"}`; «вернуть» → `{decision:"reject", comment}` (comment обязателен при reject — агенту нужна обратная связь; проверить, что review-endpoint принимает comment, при необходимости добавить).
 - [ ] **19.4** Frontend: страница `/review` (список обогащённых карточек Phase 17 + accept/reject inline); пункт в SidebarNav с бейджем count; автообновление по WS-событиям `task.*`.
 - [ ] **19.5** Тесты: submit агентом → задача в очереди; accept → `done`, из очереди пропадает; reject с comment → `todo` + `awaiting=agent` + комментарий виден в задаче; пустая очередь → 200 с `[]`.
-- [ ] **19.6** `docs/API.md` + `docs/SESSION.md`.
+- [ ] **19.6** `docs/context/API.md` + `docs/context/SESSION.md`.
 
 ### Definition of Done
 
@@ -1374,7 +1374,7 @@ make build
 - [ ] **20.2** Frontend: `TodayPage` на `/` (stats-дашборд уезжает ниже или в `/reports`); секции с обогащёнными карточками (Phase 17); quick-complete чекбоксом прямо в списке; empty state («день свободен»).
 - [ ] **20.3** Секция «ближайшие 7 дней» (due, сгруппировано по дате) — компактная, одна строка на день.
 - [ ] **20.4** Тесты: агрегация `/today` (границы полуночи в локальной TZ пользователя — явно выбрать TZ-источник: server config, документировать); quick-complete дёргает PATCH и убирает карточку.
-- [ ] **20.5** `docs/API.md`.
+- [ ] **20.5** `docs/context/API.md`.
 
 ### Definition of Done
 
@@ -1404,7 +1404,7 @@ make build
 - [ ] **21.2** Кнопка «+» в топбаре на всех экранах → та же модалка.
 - [ ] **21.3** Telegram: входящее личное сообщение от подписанного пользователя → задача в Inbox (title = текст сообщения, обрезка 200 chars); бот отвечает «✅ в Inbox»; команда боту не требуется.
 - [ ] **21.4** Тесты: capture → задача в inbox-листе; TG-сообщение от подписчика создаёт задачу, от неподписанного chat_id — игнор + лог.
-- [ ] **21.5** `docs/API.md` (если появятся новые endpoints), `docs/SESSION.md`.
+- [ ] **21.5** `docs/context/API.md` (если появятся новые endpoints), `docs/context/SESSION.md`.
 
 ### Definition of Done
 
@@ -1432,7 +1432,7 @@ make build
 - [x] **22.2** UI: в Settings → Backups список снапшотов (endpoint есть) + кнопка Restore с модалкой-подтверждением (явный текст про замену данных); после restore — перезагрузка SPA. **✅ закрыто в работе `phase-22-ui-restore` — модалка предлагает CLI-hint и "Restore in this window"; inline-кнопка ведёт через maintenance → force restore → reload.**
 - [x] **22.3** Защита от гонок: restore только при остановленном serve (CLI) или через maintenance-режим (UI: drain WS, блокировка API middleware на время restore). **✅ закрыто в Phase 22.3 — `internal/api/handlers_restore.go` + maintenance middleware.**
 - [ ] **22.4** Тесты: snapshot → изменить данные → restore → данные снапшота на месте; restore старой версии схемы → миграции догоняют; safety-copy создана и валидна.
-- [ ] **22.5** `docs/API.md`, `docs/SESSION.md`; install docs: шаг проверки restore при установке.
+- [ ] **22.5** `docs/context/API.md`, `docs/context/SESSION.md`; install docs: шаг проверки restore при установке.
 
 ### Definition of Done
 
@@ -1474,18 +1474,18 @@ make build
 
 ## Phase 24 — OpenAPI + наблюдаемость *(2–3 дня)*
 
-> **Аудит 2026-08-12:** ✅ — `docs/openapi.yaml` + embed endpoint `/api/v1/openapi.yaml` (публичный), route-coverage тест, `/api/v1/stats`, slow-request log >500ms — есть. Оговорки: `/stats` не заполняет `last_backup_unix` и очередь notifier; coverage-тест обходит не production-роутер целиком, а user-часть (agent/backup роуты вне проверки).
+> **Аудит 2026-08-12:** ✅ — `../openapi.yaml` + embed endpoint `/api/v1/openapi.yaml` (публичный), route-coverage тест, `/api/v1/stats`, slow-request log >500ms — есть. Оговорки: `/stats` не заполняет `last_backup_unix` и очередь notifier; coverage-тест обходит не production-роутер целиком, а user-часть (agent/backup роуты вне проверки).
 
 **Цель:** машиночитаемый контракт для внешних агентов (генерация клиентов) + минимальная наблюдаемость self-hosted инстанса.
 
 ### Tasks
 
-- [ ] **24.1** `docs/openapi.yaml` (OpenAPI 3.1), вручную поддерживаемый; CI-тест: извлекает маршруты из chi-роутера и сверяет со спекой (расхождение = красный тест). Boring-вариант без codegen-магии.
+- [ ] **24.1** `../openapi.yaml` (OpenAPI 3.1), вручную поддерживаемый; CI-тест: извлекает маршруты из chi-роутера и сверяет со спекой (расхождение = красный тест). Boring-вариант без codegen-магии.
 - [ ] **24.2** `GET /api/v1/openapi.yaml` (публичный, для агентов; без auth — спека не секрет).
 - [ ] **24.3** `GET /api/v1/stats` (JSON): uptime, requests total/by-status (in-memory счётчики middleware), ws-подключения, размер БД, последний бэкап/снапшот, очередь notifier. Без внешних зависимостей (нет prometheus client).
 - [ ] **24.4** Лог медленных запросов (>500ms) через существующий request-logger middleware.
 - [ ] **24.5** Тесты: route-coverage spec-тест; `/stats` smoke; slow-request лог пишется.
-- [ ] **24.6** `docs/API.md` — ссылка на спеку; `docs/SESSION.md`.
+- [ ] **24.6** `docs/context/API.md` — ссылка на спеку; `docs/context/SESSION.md`.
 
 ### Definition of Done
 
@@ -1499,9 +1499,9 @@ make build
 
 ## Phase 25 — Agent DX: MCP server + CLI + skill *(1–1.5 недели)*
 
-> **Аудит 2026-08-12:** ✅ — stdio JSON-RPC MCP (zero deps, 7 инструментов `orenda_*`), `orenda mcp-proxy`, CLI `orenda agent` (8 сабкоманд, флаги>env>yaml, exit 2 = no work), `docs/skills/orenda/SKILL.md` — есть. Оговорки: нет `orenda skill install` и `api-cheatsheet.md`; тесты CLI/MCP частичные (нет roundtrip claim→submit, exit code 2 не покрыт).
+> **Аудит 2026-08-12:** ✅ — stdio JSON-RPC MCP (zero deps, 7 инструментов `orenda_*`), `orenda mcp-proxy`, CLI `orenda agent` (8 сабкоманд, флаги>env>yaml, exit 2 = no work), `../skills/orenda/SKILL.md` — есть. Оговорки: нет `orenda skill install` и `api-cheatsheet.md`; тесты CLI/MCP частичные (нет roundtrip claim→submit, exit code 2 не покрыт).
 
-**Цель:** внешний агент подключается к Orenda за минуты и сразу правильно играет делегационный цикл. Три поверхности под три способа интеграции: **MCP** (native tool-discovery для MCP-клиентов), **CLI** (скрипты и простые агенты на чём угодно), **skill** (know-how: как работать, а не только чем). Сейчас агент вынужден читать `docs/API.md` и писать HTTP-клиента руками.
+**Цель:** внешний агент подключается к Orenda за минуты и сразу правильно играет делегационный цикл. Три поверхности под три способа интеграции: **MCP** (native tool-discovery для MCP-клиентов), **CLI** (скрипты и простые агенты на чём угодно), **skill** (know-how: как работать, а не только чем). Сейчас агент вынужден читать `docs/context/API.md` и писать HTTP-клиента руками.
 
 **Контекст (что уже есть):**
 
@@ -1529,7 +1529,7 @@ make build
   - `me`, `next` (= await + claim одной командой), `context <id>`, `claim|release|submit <id>`, `comment <id>`, `await --topic`.
   - `--json` на всём; exit codes: `0` ok, `2` = «нет работы» (для shell-циклов `while orenda agent next; do ...; done`).
   - Конфиг по приоритету: env (`ORENDA_URL`, `ORENDA_AGENT_TOKEN`) > флаги > `~/.config/orenda/agent.yaml`.
-- [ ] **25.4** Skill-пакет `docs/skills/orenda/SKILL.md` (+ `api-cheatsheet.md` рядом):
+- [ ] **25.4** Skill-пакет `../skills/orenda/SKILL.md` (+ `api-cheatsheet.md` рядом):
   - Делегационный цикл и этикет: всегда `release` при отказе, `comment` при блокере, не держать claim без работы, submit ≠ done (жди review).
   - Выбор поверхности: MCP vs CLI vs REST — когда что.
   - Команда установки: `orenda skill install [--dir <skills-dir>]` — копирует пакет в skills-dir агента.
@@ -1537,7 +1537,7 @@ make build
   - MCP: handshake/tools-list + полный `claim→submit` roundtrip через in-memory transport SDK; 401 без токена.
   - CLI: `next/claim/submit` против httptest-сервера; exit code 2 при пустом await.
   - Proxy: stdio-кадр доходит до HTTP-хендлера и обратно.
-- [ ] **25.6** Документация: `docs/API.md` (MCP endpoint + tools), `docs/SESSION.md`, `README.md` — секция «Для внешних агентов» (3 шага подключения).
+- [ ] **25.6** Документация: `docs/context/API.md` (MCP endpoint + tools), `docs/context/SESSION.md`, `README.md` — секция «Для внешних агентов» (3 шага подключения).
 
 ### Definition of Done
 
@@ -1600,7 +1600,7 @@ make build
 - [ ] **26.4** Wiring и документация:
   - `Makefile`: `test` += `cd web && npm run test`; новый таргет `test-e2e` (build + playwright). ✅ Phase 26.F
   - PLAN: волновое правило `make test && npx vitest` сворачивается в `make test`. ✅ Phase 26.F
-  - `docs/SESSION.md` — отметить снятие E2E-пропуска. ✅ Phase 26.F
+  - `docs/context/SESSION.md` — отметить снятие E2E-пропуска. ✅ Phase 26.F
 
 ### Definition of Done
 
@@ -1744,11 +1744,11 @@ make build
 **Задачи:**
 
 - [x] **27.6.1** Service: `SubmitCurriculum` принимает quiz'ы (per-lesson payload, та же tx); self-transition review→review. Unit-тесты: quiz round-trip, повторный swap в review без смены статуса, draft-семантика сохранена. — *Выполнено: 7 новых service-тестов; `StatusTransitionOK(review→review)=true`; `SubmitCurriculum(ctx, courseID, modules, lessons, quizzes)`; `CreateWithIntent(SkipGenerator())`.*
-- [x] **27.6.2** Endpoints: `PUT /api/v1/courses/{id}/curriculum`, `POST /api/v1/lessons/{id}/quizzes`, `PUT /api/v1/lessons/{id}/content` (все `RequireUser`); `POST /api/v1/agent/lessons/{id}/quizzes` (`RequireAgent`). `openapi.yaml` + route-coverage тест синхронно. — *Выполнено: 4 роута смонтированы, оба файла OpenAPI обновлены (source-of-truth `docs/openapi.yaml` + embedded copy), `TestOpenAPI_RouteCoverage` зелёный.*
+- [x] **27.6.2** Endpoints: `PUT /api/v1/courses/{id}/curriculum`, `POST /api/v1/lessons/{id}/quizzes`, `PUT /api/v1/lessons/{id}/content` (все `RequireUser`); `POST /api/v1/agent/lessons/{id}/quizzes` (`RequireAgent`). `openapi.yaml` + route-coverage тест синхронно. — *Выполнено: 4 роута смонтированы, оба файла OpenAPI обновлены (source-of-truth `../openapi.yaml` + embedded copy), `TestOpenAPI_RouteCoverage` зелёный.*
 - [x] **27.6.3** Generator-task seam: сервис завершает generator-задачу при user-side submit (адаптер в `cmd/orenda/main.go`, рядом с `courseTaskCreatorAdapter`); `skip_generator` в create-wizard. Тест: ручной submit → задача done, claim агентом отклонён. — *Выполнено: `MaybeCompleter` интерфейс + `CompleteTask(ctx, taskID, note)` в `cmd/orenda/main.go`; адаптер на `courseTaskCreatorAdapter`; service вызывает `completer.CompleteTask` при draft→review с живой generator-задачей; `SkipGenerator()` option в `CreateWithIntent`; `skip_generator` в request body; `courseCreateRequest` пропускает TaskCreator когда true.*
 - [x] **27.6.4** Frontend: редактор дерева на `CourseDetailPage` (draft/review) — add/rename/delete модулей и уроков, порядок = индекс массива, per-lesson quiz editor, сохранение одним PUT; Approve — существующая кнопка. `LessonPage`: «Edit content» (markdown textarea) для owner в active. Wizard: режим «соберу сам». Vitest на редактор. — *Выполнено: новый компонент `CourseCurriculumEditor.tsx` (modules+lessons+quizzes, full add/rename/remove, валидация); toggle "Edit curriculum" в `CourseDetailPage` (только для draft/review); LessonPage: Edit content textarea с API вызовом и перезагрузкой; `CoursesPage`: чекбокс "I'll build the curriculum myself" с автопереходом в editor.*
 - [x] **27.6.5** Тесты: service/API выше + E2E «курс полностью вручную: создал без generator-задачи → собрал программу с quiz → approve → урок открыт → exact-quiz проверен». — *Выполнено: 7 service-тестов + 4 SQLite-repo-теста + 7 handler-тестов + 6 vitest на editor + 3 vitest на LessonPage edit-content; новый E2E `course-manual.spec.ts` (11/11 E2E total).*
-- [x] **27.6.6** Доки: `docs/API.md`, `docs/openapi.yaml`, `docs/skills/orenda/SKILL.md` (agent quiz endpoint), SESSION. — *Выполнено: OpenAPI (оба файла), SESSION обновлён.*
+- [x] **27.6.6** Доки: `docs/context/API.md`, `../openapi.yaml`, `../skills/orenda/SKILL.md` (agent quiz endpoint), SESSION. — *Выполнено: OpenAPI (оба файла), SESSION обновлён.*
 
 **DoD (verified 2026-08-13, worktree `phase-27-6-courses-manual`):**
 
@@ -1817,7 +1817,7 @@ make build
 - **Инвариант на бэкенде:** `task.status ≡ status(task.column_id)`. Запись через любую сторону синхронизирует другую: PATCH `{column_id}` → следует status; PATCH `{status}` → следует колонка этого статуса в проекте задачи; claim/submit/review/approve/release двигают `column_id` — карточка визуально переезжает по мере работы агента.
 - **Owner override:** перенос в review/done разрешён всегда, включая задачи `awaiting=agent`; `awaiting` нормализуется, `done` → `completed_at` (общая логика с 27.7.1), всё пишется в activity.
 - **Inbox:** у задач без проекта колонки нет — живут со статусом; filing в проект кладёт задачу в колонку её текущего статуса (не в первую).
-- **Edge:** удаление колонки канонического статуса, в который пишет agent-flow (review/done), — запретить (422) либо пересоздавать при записи; выбрать при реализации и зафиксировать в `docs/API.md`.
+- **Edge:** удаление колонки канонического статуса, в который пишет agent-flow (review/done), — запретить (422) либо пересоздавать при записи; выбрать при реализации и зафиксировать в `docs/context/API.md`.
 
 **Задачи:**
 
@@ -1941,7 +1941,7 @@ make build
 **Контекст (evidence):**
 
 - **Agent comment/await → 401.** `orenda agent comment` шлёт `POST /api/v1/tasks/{id}/comments` с agent-токеном, `orenda agent await` — `POST /api/v1/events/await` (`cmd/orenda/agent.go:449,491`); оба роута под `RequireUser`, который принимает только cookie/Bearer JWT, не opaque API-токены → 401. SKILL.md документирует оба workflow как рабочие (сейчас помечены known-issue).
-- **OpenAPI route-coverage не exhaustive.** `TestOpenAPI_RouteCoverage` ходит по fixture-роутеру (`columnDeps`), который монтирует лишь user-side task/project роуты: agent/backup/wiki/calendar/maintenance не покрыты. Комментарий ссылается на `TestOpenAPI_RouteCoverage_FullRouter` под `-tags=integration` — такого теста не существует. Побочка: embedded-копия спеки протухла незамеченной (не хватало блоков 22.3/27.4) — синхронизирована с `docs/openapi.yaml` 2026-08-13.
+- **OpenAPI route-coverage не exhaustive.** `TestOpenAPI_RouteCoverage` ходит по fixture-роутеру (`columnDeps`), который монтирует лишь user-side task/project роуты: agent/backup/wiki/calendar/maintenance не покрыты. Комментарий ссылается на `TestOpenAPI_RouteCoverage_FullRouter` под `-tags=integration` — такого теста не существует. Побочка: embedded-копия спеки протухла незамеченной (не хватало блоков 22.3/27.4) — синхронизирована с `../openapi.yaml` 2026-08-13.
 
 **Задачи (выполнены):**
 
@@ -1950,7 +1950,7 @@ make build
   - `TestAgent_CommentRejectsUserCookie` — user-cookie на agent-namespace → 401.
   - `TestAgent_AwaitRequiresAgentToken` — без токена / bad token → 401, valid token → 204 timeout.
 
-- [x] **27.11.2** Coverage-тест против полного роутера: `fullRouterDeps` фикстура подключает все deps (users/projects/tasks/tokens/agents/comments/activities/event/time/wiki/search/notifier/courses + WS hub) → `TestOpenAPI_RouteCoverage_FullRouter` walks every (method, path) через chi.Walk и ассертит наличие в `docs/openapi.yaml` + embedded copy. Сразу поймал два пропущенных routes — добавлены в обе спеки.
+- [x] **27.11.2** Coverage-тест против полного роутера: `fullRouterDeps` фикстура подключает все deps (users/projects/tasks/tokens/agents/comments/activities/event/time/wiki/search/notifier/courses + WS hub) → `TestOpenAPI_RouteCoverage_FullRouter` walks every (method, path) через chi.Walk и ассертит наличие в `../openapi.yaml` + embedded copy. Сразу поймал два пропущенных routes — добавлены в обе спеки.
 
 **DoD — verified 2026-08-13:**
 
@@ -2362,7 +2362,7 @@ Wave 2 (после Wave 1):
 3. **Definition of Done** — критерий завершения фазы. Проверьте перед merge.
 4. **Тесты обязательны.** Минимум: unit для нового кода, integration для нового endpoint.
 5. **Не меняйте схему БД** в рамках фазы, для которой она не указана. Миграции аддитивные.
-6. **Согласуйте с PRD** (см. `docs/PRD.md`) при сомнениях.
+6. **Согласуйте с PRD** (см. `docs/context/PRD.md`) при сомнениях.
 7. **Запускайте линтеры** перед коммитом: `make lint`.
 8. **Пишите комментарии к коду** на английском, в стиле Go (`// Package foo does X`).
 9. **Сообщения коммитов** в формате `phase(X.Y): <description>`.
@@ -2476,13 +2476,13 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 
 ---
 
-## Phase 28.11 (полировка) — docs/ARCHITECTURE.md *(2026-08-13)*
+## Phase 28.11 (полировка) — docs/context/ARCHITECTURE.md *(2026-08-13)*
 
 **Цель:** добавить третий документ-компаньон.
 
 **Задачи (выполнено):**
 
-- [x] **28.11.1** `docs/ARCHITECTURE.md` — 556 строк. 13 секций: process model, directory map, layered architecture, three reference data flows, auth (cookie vs Bearer), WebSocket hub, persistence, frontend layout, build pipeline, configuration, security model, operational concerns, where to start reading.
+- [x] **28.11.1** `docs/context/ARCHITECTURE.md` — 556 строк. 13 секций: process model, directory map, layered architecture, three reference data flows, auth (cookie vs Bearer), WebSocket hub, persistence, frontend layout, build pipeline, configuration, security model, operational concerns, where to start reading.
 
 **DoD:** docs-only change. AGENTS.md ссылается на ARCHITECTURE.md.
 
@@ -2585,8 +2585,8 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 
 **Задачи (выполнены):**
 
-- [x] **28.18.1** `docs/PLAN.md` — добавлены секции Phase 28.7–28.17 после Phase 28.6; Phase 9 помечена closed.
-- [x] **28.18.2** `docs/SESSION.md` — header и «Последние прогоны» обновлены; backlog очищен.
+- [x] **28.18.1** `docs/context/PLAN.md` — добавлены секции Phase 28.7–28.17 после Phase 28.6; Phase 9 помечена closed.
+- [x] **28.18.2** `docs/context/SESSION.md` — header и «Последние прогоны» обновлены; backlog очищен.
 
 ---
 
@@ -2605,9 +2605,9 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 - [x] **28.19.1** Миграция `021_agent_type_labels.sql` (+ `.down.sql`). Схема не меняется (колонка остаётся `TEXT`); backfill данных: `type = json_array(type)` для непустых значений, `''` → `'[]'`. Down: `type = COALESCE(json_extract(type, '$[0]'), '')` — lossy при множественных метках, зафиксировать комментарием в файле. — *Закрыто: 4-assert test в `migration_021_test.go` (форма, идемпотентность, down round-trip + lossy multi-label, down idempotency); down защищён через `json_valid` против `malformed JSON` от modernc.org/sqlite.*
 - [x] **28.19.2** Domain (`internal/domain/agent/model.go`): `Agent.Type []string`; string-тип `Type` и константы `TypeQwen/TypeClaude/TypeCustom` удалить; `Validate` — нормализация (trim, lowercase, dedupe, sort), пустое множество валидно (дефолт `custom` исчезает). Doc-комментарий переписать под новую семантику (убрать «Phase 10 bot dispatch»). — *Закрыто: `NormalizeLabels` экспортирован, `TestAgent_NormalizeLabels` (7 sub-tests) + `TestAgent_Validate_NormalisesTypeInPlace`. Дефолт `custom` удалён.*
 - [x] **28.19.3** Storage (`internal/storage/sqlite/agent_repo.go`): scan/serialize JSON-массива; `List` — десериализация с нормализацией. Контракт: в БД всегда валидный JSON-массив строк. — *Закрыто: `marshalAgentType`/`unmarshalAgentType` хелперы; пустой slice → `"[]"`.*
-- [x] **28.19.4** API (`internal/api/handlers_agents.go`): `POST /api/v1/agents` принимает `type: []string` (старый string-формат отклоняется 400 — clean cutover, без шима); ответы list/get/register отдают `type: []string`. Фильтр: `GET /api/v1/agents?type=qwen&type=installer` — повторяемый параметр, OR-семантика (агент матчится, если хотя бы одна метка присутствует); масштаб десятки строк — in-memory фильтр после `List` допустим, `json_each` тоже допустим. Обновить `docs/openapi.yaml`. — *Закрыто: in-memory `filterAgentsByLabels` (OR); `docs/openapi.yaml` + embedded copy синхронны; `Agent`/`CreateAgentRequest` schema добавлены; `TestOpenAPI_RouteCoverage_FullRouter` зелёный.*
+- [x] **28.19.4** API (`internal/api/handlers_agents.go`): `POST /api/v1/agents` принимает `type: []string` (старый string-формат отклоняется 400 — clean cutover, без шима); ответы list/get/register отдают `type: []string`. Фильтр: `GET /api/v1/agents?type=qwen&type=installer` — повторяемый параметр, OR-семантика (агент матчится, если хотя бы одна метка присутствует); масштаб десятки строк — in-memory фильтр после `List` допустим, `json_each` тоже допустим. Обновить `../openapi.yaml`. — *Закрыто: in-memory `filterAgentsByLabels` (OR); `../openapi.yaml` + embedded copy синхронны; `Agent`/`CreateAgentRequest` schema добавлены; `TestOpenAPI_RouteCoverage_FullRouter` зелёный.*
 - [x] **28.19.5** Frontend: `client.ts` — `Agent.type: string[]`, `registerAgent({name, type[], description})`; `AgentsPage` — ввод набора меток free-form chips-input (qwen/claude/custom — лишь подсказки-плейсхолдер, не enum), колонка «Тип» — чипы, фильтр-чипы над таблицей → `?type=`. `AssigneeChip` (канбан): `title = type.join(', ')`. — *Закрыто: `AgentsPage.tsx` chips-input (`Enter`/`,` commit, `Backspace` pop, `×` remove) + chips в таблице + OR-фильтр; `TaskCard.tsx::AssigneeChip` принимает resolved `agent?` через `useAgents()` хук, title = `Agent: <name> (<labels>)`.*
-- [x] **28.19.6** Docs: `docs/DB.md` — строка `agents`: `type` = JSON-массив меток. SESSION.md — при закрытии фазы. — *Закрыто: `docs/DB.md` строка agents + таблица миграций (021); SESSION.md раздел про закрытие.*
+- [x] **28.19.6** Docs: `docs/context/DB.md` — строка `agents`: `type` = JSON-массив меток. SESSION.md — при закрытии фазы. — *Закрыто: `docs/context/DB.md` строка agents + таблица миграций (021); SESSION.md раздел про закрытие.*
 - [x] **28.19.7** Тесты: миграция (backfill `'qwen'` → `["qwen"]`, `''` → `[]`, up/down roundtrip на копии dev-базы); domain — нормализация (дедуп, регистр, пустые); API — register с массивом → 201, register со строкой → 400, list-фильтр OR; фронт — чипы рендерятся из `type: string[]`. — *Закрыто: 4 asserts миграции + 7 sub-tests domain + миграции 11 файлов тестов с `agent.TypeQwen` → `[]string{"qwen"}` + 10 AgentsPage vitest + 2 TaskCard AssigneeChip + `e2e/helpers.ts::createAgent` (string → array).*
 
 **DoD (проверяется исполнением):**
@@ -2615,7 +2615,7 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 - ✅ `make test` (vitest) зелёный — 241/241 (+11).
 - ✅ `npx tsc --noEmit` clean.
 - ✅ `make test-e2e` зелёный — 18/18 (после фикса `e2e/helpers.ts::createAgent`).
-- ✅ `TestOpenAPI_RouteCoverage_FullRouter` зелёный; `docs/openapi.yaml` ↔ embedded copy синхронны.
+- ✅ `TestOpenAPI_RouteCoverage_FullRouter` зелёный; `../openapi.yaml` ↔ embedded copy синхронны.
 - ✅ Smoke: register с `type: ["qwen","installer"]` → `GET /api/v1/agents?type=installer` возвращает агента; `?type=unknown` — пусто. (verified вручную через Vitest-тест «filter chips refetch with repeated ?type= query».)
 
 ---
@@ -2641,7 +2641,7 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 - [x] **28.20.3** `scripts/install.sh`: гард канала — отказ, если текущая ветка ≠ `main` или tree dirty (сообщение с веткой/коммитом; `--force` переопределяет). Перед установкой печатать channel-инфо (ветка, короткий хеш).
 - [x] **28.20.4** `cmd/orenda/main.go`: в стартовый лог `serve` (там уже `config` + `addr`) добавить resolved `db_path` — observability «какой это инстанс» в журнале systemd.
 - [x] **28.20.5** `scripts/update-dogfood.sh`: ритуал обновления usage-инстанса — `git pull --ff-only origin main && scripts/install.sh --systemd && systemctl --user restart orenda` (`set -euo pipefail`, запускается из `~/opt/orenda`; ff-only гарантирует чистый канал).
-- [x] **28.20.6** Docs: `docs/ARCHITECTURE.md` (или README) — раздел «Dev vs dogfood instance»: два checkout'а, матрица портов (usage 2137 / dev 2138 / e2e 21371), data dirs, запрет `install.sh` из dev-репо, update-ритуал, остаточный риск из шапки. `AGENTS.md` — строку «Port 2137 is singleton» обновить под конвенцию dev=2138.
+- [x] **28.20.6** Docs: `docs/context/ARCHITECTURE.md` (или README) — раздел «Dev vs dogfood instance»: два checkout'а, матрица портов (usage 2137 / dev 2138 / e2e 21371), data dirs, запрет `install.sh` из dev-репо, update-ритуал, остаточный риск из шапки. `AGENTS.md` — строку «Port 2137 is singleton» обновить под конвенцию dev=2138.
 - [x] **28.20.7** Тесты/верификация: bash-тест или ручной прогон гарда install.sh (из ветки ≠ main → отказ без `--force`); `make dev` smoke — backend отвечает на :2138, `curl :5173/api/v1/info` → 200 (proxy следует за env); `go build ./...` зелёный.
 
 **DoD (проверяется исполнением):**
@@ -2814,7 +2814,7 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 - [x] **30.11** **Phase 23: WIP-фидбек.** **Закрыта 2026-08-16 в `phase-30-11-wip-feedback`.** Frontend-only (бэкенд уже отвечает 422 `wip_limit` — Phase 23.1). Два слоя: (1) `KanbanBoard.tsx::onDragEnd` — при ошибке move с regex `/wip[_-]?limit/i` показывает специфический toast `Column "<name>" is at WIP limit (N of M). Pick another column or finish a task first.` с локальной подстановкой счётчика колонки (использует column.wip_limit + tasks.length после отката оптимистичного перемещения). (2) `ColumnView.tsx` — amber ring + border вокруг колонки когда `tasks.length >= wip_limit`. Существующие 18 тестов (включая Phase 27.10 colour wiring) зелёные без правок. **Verify:** vitest 278/278; `make build`; `make test-e2e` 19/19 (+1 KanbanBoard test из Phase 28.23); `golangci-lint run --new-from-merge-base=origin/dev` exit 0.
 - [x] **30.12** **Phase 17: бейджи времени на карточке.** **Закрыта 2026-08-16 в `phase-30-12-time-badges`.** Frontend-only — бэкенд уже отдаёт `time_estimate_s`/`time_spent_s` (Phase 17). Новый `TimeBadge.tsx` компонент: ⏱ spent/estimate в формате H:MM:SS, красный border при перерасходе; `●` пульсирующий маркер при активном таймере (started_at без completed_at, single-active-timer constraint Phase 4); hidden в compact-mode кроме active-timer (leaked timer должен быть виден всегда). 7 vitest в `TimeBadge.test.tsx` пинт все три состояния + clamping + edge-cases. **Verify:** vitest 285/285 (was 278; +7); `make build`; `make test-e2e` 19/19; `golangci-lint run --new-from-merge-base=origin/dev` exit 0.
 - [x] **30.13** **Phase 27.6 за скобкой: структурная правка active-курса.** **Закрыта 2026-08-17 в `phase-30-13-course-curriculum-crud`.** Granular CRUD curriculum со стабильными ID: новые endpoints (user + agent mirrors, одни handlers) — `POST /courses/{id}/modules`, `PUT /courses/{id}/structure`, `PATCH/DELETE /modules/{id}`, `POST /modules/{id}/lessons`, `PATCH/DELETE /lessons/{id}`, `PATCH/DELETE /quizzes/{qid}`. Гейтинг: draft/review/active редактируемы, done/archived → 422 `invalid_transition`; ни одна строка не пересоздаётся → прогресс (Lesson.Status) и task-ссылки выживают по построению. Reorder — единый `PUT /structure` с IDs-only payload и exact-coverage валидацией в tx (каждый модуль/урок ровно один раз; уроки могут переезжать между модулями; позиции переписываются 1..n). Миграций нет. Frontend: `CourseCurriculumEditor` в active-режиме сохраняет granular diff'ом (`diffCurriculum` + `applyGranularPlan`: updates → creates → deletes → structure; temp-id → server-id map для новых элементов); dnd-kit reorder модулей и уроков (cross-module, паттерн KanbanBoard); импорт программы из markdown — client-side парсер `curriculumMarkdown.ts` (`##` модуль, `###` урок, `- [exact] q | a` / `- [open] q`). Lesson content в granular-режиме идёт через существующий `updateLessonContent` (отклонение от постановки: список дифф-операций расширен `lessonContentUpdates`, иначе textarea урока молча теряла бы правки). **Verify:** `go test ./... -count=1` 30/30 packages ok (repo +3, service granular, 17 handler pinning-тестов); vitest 307/307 (+44 от базы: parser 9, granular 11, прочие); `npx tsc --noEmit` clean; `make build` OK; `make test-e2e` 20/20 (+1 `course-structure.spec.ts`: rename module + add lesson на active-курсе через UI → completed lesson stays `done`, open stays `open`, новый урок born `locked`); OpenAPI оба файла синхронны, `TestOpenAPI_RouteCoverage_FullRouter` зелёный; `golangci-lint run --new-from-merge-base=origin/dev` exit 0. Mutation check: инверсия order-detection в `diffCurriculum` флипает 4 granular-теста red. **За скобкой (зафиксировано):** markdown-import в active-режиме матчит строки по идентичности, не по title — import заменяет дерево целиком (delete-all + create-all через дифф), `window.confirm` предупреждает; dnd-reorder не покрыт E2E (pointer-sequences ненадёжны в headless, покрыт plan-level vitest + backend); MCP/CLI поверхности не добавлялись.
-- [x] **30.14** **Phase 27.7/27.8 за скобкой: UI статусов проекта + bulk-edit.** **Закрыта 2026-08-16 в `phase-30-14-bulk-edit`.** Column CRUD принимает и валидирует machine key (slug fallback + board-local deduplication); смена key fan-out'ит `task.status`, activity и `task.updated` WS. `Status.IsValid` принимает custom project keys. Добавлен `POST /api/v1/tasks/bulk-edit` с общими PATCH side-effects (done/completed_at, awaiting, activity, mirror), per-task results/errors и WS updates. Kanban получил selection checkboxes, bulk status/priority/assignee bar; Add/Edit column UI получил machine-key поле. OpenAPI specs синхронизированы. **Verify:** `go test ./... -count=1`, `npx tsc --noEmit`, vitest `285/285`, `make build`, `make test-e2e` `19/19`; `diff docs/openapi.yaml internal/api/openapi.yaml` пустой.
+- [x] **30.14** **Phase 27.7/27.8 за скобкой: UI статусов проекта + bulk-edit.** **Закрыта 2026-08-16 в `phase-30-14-bulk-edit`.** Column CRUD принимает и валидирует machine key (slug fallback + board-local deduplication); смена key fan-out'ит `task.status`, activity и `task.updated` WS. `Status.IsValid` принимает custom project keys. Добавлен `POST /api/v1/tasks/bulk-edit` с общими PATCH side-effects (done/completed_at, awaiting, activity, mirror), per-task results/errors и WS updates. Kanban получил selection checkboxes, bulk status/priority/assignee bar; Add/Edit column UI получил machine-key поле. OpenAPI specs синхронизированы. **Verify:** `go test ./... -count=1`, `npx tsc --noEmit`, vitest `285/285`, `make build`, `make test-e2e` `19/19`; `diff ../openapi.yaml internal/api/openapi.yaml` пустой.
 - [x] **30.15** **Ops-гигиена скриптов.** **Закрыта 2026-08-16 в `phase-30-15-ops-scripts`.** `scripts/uninstall.sh`: добавлен `--help` (печатает usage, exit 0); неизвестные флаги/аргументы теперь exit 2 с понятной ошибкой (раньше молча игнорировал — `--purge` вместо `--purge-data` ничего не делало). `scripts/update-dogfood.sh`: добавлен `--help` (usage); `--force` для emergency out-of-band refresh -- не обходит main+clean check, но подавляет ошибку и логирует предупреждение; `--remote <name>` для использования не-origin remote (default `origin`); неизвестные флаги exit 2. `scripts/test_scripts.sh` (NEW): smoke-тесты flag-parsing — 7 кейсов (uninstall --help / --purge-data / --bogus / extra; update-dogfood --help / --whatever / non-main branch / --force non-main). **Verify:** `bash scripts/test_scripts.sh` → 7 ok; vitest 285/285; `make build`; `make test-e2e` 19/19; `golangci-lint run --new-from-merge-base=origin/dev` exit 0.
 - [x] **30.16** **Lint-остаток 73 issues (после Phase 30.1 отключили `hugeParam`).** **Закрыта 2026-08-16 в `phase-30-16-lint-sweep`.** Один проход убрал ~8 issues: `var now = time.Now` (неиспользуемый test seam в `internal/bot/bot.go`), `runBackupRestore` (старая pre-Phase-22 версия, заменена `runBackupRestoreWithVerify`), `seedSubscription` (пустой stub в `telegram_inbox_test.go`), `depFixtures` placeholder, `reviewQueueFixture`, `agentPut`/`agentDelete` (неиспользуемые transport helpers), `actorID` parameter в `event.publish`, `cookie` parameter в `seedProjectAndTask`. Остаются ~85 issues — большая часть в unused test fixtures и stylistic gocritic; закроются партиями при касании файлов. CI gate (Phase 30.1) не блокирует (только новый код). **Verify:** `go test ./... -race -count=1` 30 packages ok; vitest 285/285; `make build`; `make test-e2e` 19/19.
 
@@ -2841,21 +2841,21 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 - Inbox-задачи без проекта существуют: `project_id` nullable (миграция 015), `POST /api/v1/tasks` → `createInboxTaskHandler` (router.go:440).
 - Agent-неймспейс: создавать задачи агент не может (только claim/release/submit/comments/context/await). Курсы: `GET /agent/courses` уже принимает `?status=` (handlers_courses.go:18, фильтр :360), но отдаёт ряды без прогресса; создание/активация/curriculum/materialize — Phase 29.
 - MCP: 13 тулов, flat naming `orenda_*` (`internal/mcp/orenda_tools.go`); курсовых/планировочных тулов нет. CLI-паритет — конвенция Phase 29.2.
-- Skill: `docs/skills/orenda/SKILL.md` (§4.4 «Build me a course on X» — образец end-to-end секции).
+- Skill: `../skills/orenda/SKILL.md` (§4.4 «Build me a course on X» — образец end-to-end секции).
 - Миграции: следующий номер **022** (018 отсутствует — известный сдвиг, шапка файла); парный `.down.sql` обязателен (Wave 4).
 
 **Задачи:**
 
 - [x] **31.1** *(закрыта 2026-08-17 в `phase-31-1-study-migration`, commit `397d63e`)* — миграция `022_study_planning.{sql,down.sql}`: `courses.pace_notes_md TEXT NOT NULL DEFAULT ''`; `tasks.study_course_id TEXT NULL REFERENCES courses(id) ON DELETE SET NULL` + partial index `WHERE study_course_id IS NOT NULL`; таблица `study_proposals(id TEXT PK, course_id TEXT NULL REFERENCES courses(id) ON DELETE CASCADE, title TEXT NOT NULL, body_md TEXT NOT NULL DEFAULT '', target_date TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','dismissed')), created_by_agent TEXT NOT NULL REFERENCES agents(id), accepted_task_id TEXT NULL REFERENCES tasks(id) ON DELETE SET NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), resolved_at TEXT NULL)` + index `(status, created_at)`. Down: drop table + `DROP COLUMN` ×2 (modernc SQLite ≥ 3.35). Тест миграции по конвенции `migration_021_test.go` (up-форма, idempotency там где применимо, down восстанавливает).
 - [x] **31.2** *(закрыта 2026-08-17 в `phase-31-2-study-domain`, commit `3232703`)* — Domain: `course.Course.PaceNotesMD` (+ Validate: trim + 64 KiB cap); `task.Task.StudyCourseID` (`json:",omitempty"`); новый пакет `internal/domain/study` — entity `Proposal` с `Status` (pending/accepted/dismissed), sentinels `ErrNotFound`/`ErrInvalidInput`/`ErrTransition`, `AcceptAllowed()`/`DismissAllowed()` (только pending), `Validate()` (trim, размеры, target_date строго `YYYY-MM-DD`, default pending, created_by_agent required). Unit-тесты: 6 sub-test `TestProposal_Validate_Errors` + 4 boundary (valid/invalid dates) + `AcceptDismissAllowed` lifecycle matrix + `TestCourse_Validate_PaceNotesMD` (5 кейсов) + `TestTask_Validate_WithStudyCourseID` (3 кейса).
-- [x] **31.3** *(закрыта 2026-08-17 в `phase-31-3-study-storage`, commit `6465073`)* — Storage: `study_proposal_repo` (Create, ListPending, Get, MarkAccepted, MarkDismissed — оба idempotent через conditional WHERE + existence-check); `study.Proposal` Repository interface; `task.StudyCourseID` round-trip в Create/GetByID/Update/ListAwaitingReview + FK SET NULL на удалении курса; `course.PaceNotesMD` round-trip в Create/Get/List/Update + новый `UpdatePaceNotesMD` (узкий PATCH, валидация через `Course.Validate`); `docs/DB.md` — секция "Study reminders" + строка 022 в таблице. Tests: `TestStudyProposalRepo_FullLifecycle` (6 sub-тестов: create, list, accept, idempotent, dismiss, ErrNotFound), `TestTaskRepo_StudyCourseIDRoundTrip` (5 sub-тестов), `TestCourseRepo_PaceNotesMDRoundTrip` (6 sub-тестов).
+- [x] **31.3** *(закрыта 2026-08-17 в `phase-31-3-study-storage`, commit `6465073`)* — Storage: `study_proposal_repo` (Create, ListPending, Get, MarkAccepted, MarkDismissed — оба idempotent через conditional WHERE + existence-check); `study.Proposal` Repository interface; `task.StudyCourseID` round-trip в Create/GetByID/Update/ListAwaitingReview + FK SET NULL на удалении курса; `course.PaceNotesMD` round-trip в Create/Get/List/Update + новый `UpdatePaceNotesMD` (узкий PATCH, валидация через `Course.Validate`); `docs/context/DB.md` — секция "Study reminders" + строка 022 в таблице. Tests: `TestStudyProposalRepo_FullLifecycle` (6 sub-тестов: create, list, accept, idempotent, dismiss, ErrNotFound), `TestTaskRepo_StudyCourseIDRoundTrip` (5 sub-тестов), `TestCourseRepo_PaceNotesMDRoundTrip` (6 sub-тестов).
 - [x] **31.4** *(закрыта 2026-08-17 в `phase-31-4-study-service`, commit `f4c2549`)* — Service `internal/service/study`: `Propose(ctx, agentID, in)`; `Accept(ctx, id)` — **идемпотентен**: повторный accept возвращает ранее созданную задачу (accepted_task_id), не дублирует; создание inbox-задачи идёт через `task.Repository.Create` (activity `task.created` пишется узким `ActivityRecorder`, WS `tasks` достаются бесплатно через хаб), `due_at = max(target_date, today)` (end-of-day UTC), title/body копируются, `study_course_id` из proposal; `Dismiss(ctx, id)`. WS-эмиты в топик `tasks`: `study.proposed` / `study.accepted` / `study.dismissed` с `{proposal_id, course_id?, task_id?, agent_id?}` + embedded proposal. Lifecycle guards: accept на dismissed → ErrTransition; accept на accepted → idempotent fast-path (no DB write, no emission); concurrent accepts сериализует conditional UPDATE на MarkAccepted. Tests: 10 — happy paths + lifecycle guards + idempotency + activity audit.
 - [x] **31.5** *(закрыта 2026-08-17 в `phase-31-5-agent-study-rest`, commit `052e2b1`)* — Agent REST: `POST /agent/study-proposals` (201 + proposal; 400 на невалидный body / 401 без identity / 503 не wired; `created_by` = Identity.ActorID); `GET /agent/courses?status=active` — enrich `progress` sub-object (`lessons_total/lessons_done`, `open_lessons[]` с module title, `pace_notes_md` + `pace`) для active-курсов; drafts/others — без progress. `PATCH /agent/courses/{id}` — узкая правка `pace_notes_md` через `UpdatePaceNotesMD` (trim + 64 KiB cap применяются автоматически). `Dependencies.StudyService` новое поле (nil-safe). OpenAPI (оба файла синхронны) — новые пути `/agent/study-proposals`, PATCH `/agent/courses/{id}`. Tests: 9 — happy paths + missing fields + identity + service-not-wired + trim + oversized + unknown + enrichment.
 - [x] **31.6** *(закрыта 2026-08-17 в `phase-31-6-user-study-rest`, commit `fe38283`)* — User REST: `GET /api/v1/study-proposals` (только pending, по created_at); `POST /api/v1/study-proposals/{id}/accept` → 201 с задачей; повторный accept → 200 с той же задачей; `POST .../dismiss` → 200; accept/dismiss на resolved → 409 `proposal_resolved`; чужой/несуществующий id → 404.
 - [x] **31.7** *(закрыта 2026-08-17 в `phase-31-7-today-study`, commit `08b071e`)* — Today: `todayResponse.proposals` (pending); `due_today` включает open study-reminders с `due_at <= today`; `overdue` их исключает (оба фильтра по `study_course_id IS NOT NULL`). Тесты трёх поведений: proposals в payload; напоминалка со вчерашним due_at — в due_today; в overdue её нет, обычная просроченная задача — по-прежнему в overdue.
 - [x] **31.8** *(закрыта 2026-08-17 в `phase-31-8-mcp-cli`, commit `59dcf76`)* — MCP + CLI: тулы `orenda_courses_list` (status, прогресс, pace_notes) и `orenda_study_propose` (course_id?, title, body_md?, target_date); CLI `orenda agent courses list --status active` и `orenda agent study-propose` (паритет Phase 29.2, `--json`); тесты verb/body/encoding по конвенции `orenda_tools_test.go`.
 - [x] **31.9** *(закрыта 2026-08-17 в `phase-31-9-frontend`, commit `e8ff16d`)* — Frontend: TodayPage — секция «Предложено» (карточка: title, body preview, ссылка на курс, target_date, кнопки Принять/Отклонить; invalidation по WS `tasks` — подписка уже есть); 📖-маркер со ссылкой на курс у study-задач в due_today; UI курса — поле `pace_notes` (отображение + правка). Vitest: tray accept/dismiss + invalidation, маркер, поле курса.
-- [x] **31.10** *(закрыта 2026-08-17 в `phase-31-10-specs`, commit `c57baf3`)* — Спеки + skill: `internal/api/openapi.yaml` + `docs/openapi.yaml` синхронно — новые пути (`/agent/study-proposals`, `/study-proposals*`, PATCH `/agent/courses/{id}`) и схемы (Proposal, enrich course payload, todayResponse.proposals); `TestOpenAPI_RouteCoverage_FullRouter` зелёный. SKILL.md: секция «Plan my day» — цикл харнесс-агента (`orenda_courses_list` → pace_notes + прогресс → `orenda_study_propose` × N → пользователь подтверждает в Dashboard), с curl-примерами по образцу §4.4. SESSION.md обновлён.
+- [x] **31.10** *(закрыта 2026-08-17 в `phase-31-10-specs`, commit `c57baf3`)* — Спеки + skill: `internal/api/openapi.yaml` + `../openapi.yaml` синхронно — новые пути (`/agent/study-proposals`, `/study-proposals*`, PATCH `/agent/courses/{id}`) и схемы (Proposal, enrich course payload, todayResponse.proposals); `TestOpenAPI_RouteCoverage_FullRouter` зелёный. SKILL.md: секция «Plan my day» — цикл харнесс-агента (`orenda_courses_list` → pace_notes + прогресс → `orenda_study_propose` × N → пользователь подтверждает в Dashboard), с curl-примерами по образцу §4.4. SESSION.md обновлён.
 - [x] **31.11** *(закрыта 2026-08-17 в `phase-31-11-smoke`, commit `df453a0`)* — Smoke DoD скриптом (образец — 29.7): реальный бинарь, tmp-БД, свободный порт. Тьютор-токен: create course с pace_notes → curriculum (модуль + 2 урока) → materialize обоих → activate. Planner-токен: `GET /agent/courses?status=active` (видит прогресс + pace_notes) → 2 proposals. User-cookie: `GET /today` показывает лоток из 2; accept первого → задача в `due_today` со `study_course_id`, повторный accept → та же задача (idempotency); dismiss второго → лоток пуст. Симуляция пропущенного дня (sqlite `UPDATE tasks SET due_at = вчера`): напоминалка в `due_today`, отсутствует в `overdue`. Вывод `SMOKE OK`.
 
 **DoD (проверяется исполнением):** харнесс-агент по одной команде пользователя предлагает план на день; пользователь подтверждает/отклоняет на Dashboard без ручного создания задач; пропущенная напоминалка никогда не краснеет; `make test && make lint` зелёные; openapi coverage зелёный.
@@ -2866,7 +2866,7 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 
 ## Phase 32 (ops/процесс) — Dogfood migration: управление проектом внутри Orenda *(постановка 2026-08-17)*
 
-> **Мотивация (продуктовое решение 2026-08-17).** Проект управляется из файлов (`docs/PLAN.md` реестр + git claim-протокол, `docs/SESSION.md` снапшоты) — это было скаффолдингом эры pre-dogfood. Продукт готов управлять сам собой: delegation loop (claim/release/submit/review, 409 с holder — Phase 15), agent surfaces (wiki/courses/search — Phase 29), MCP-мост проверен (`harness-mcp` отвечает 2026-08-17). Переносим исполняемый бэклог и постановки в инстанс `127.0.0.1:2137`; git остаётся для кода и код-ревью.
+> **Мотивация (продуктовое решение 2026-08-17).** Проект управляется из файлов (`docs/context/PLAN.md` реестр + git claim-протокол, `docs/context/SESSION.md` снапшоты) — это было скаффолдингом эры pre-dogfood. Продукт готов управлять сам собой: delegation loop (claim/release/submit/review, 409 с holder — Phase 15), agent surfaces (wiki/courses/search — Phase 29), MCP-мост проверен (`harness-mcp` отвечает 2026-08-17). Переносим исполняемый бэклог и постановки в инстанс `127.0.0.1:2137`; git остаётся для кода и код-ревью.
 
 **Конвенция переноса (зафиксирована 2026-08-17):**
 
@@ -2891,7 +2891,7 @@ Restart-зависимые knobs (mirror dir, snapshot dir, db path) остаю�
 - [x] **32.1** — **закрыта 2026-08-17 в `phase-32-1-release-v020`**. Squash-merge PR #4 в main (`17ce86c`), tag `v0.2.0` пушнут. CHANGELOG получил полный sweep фаз 28.21–31.11 (Added / Changed / Fixed / Security / Docs / Known gaps); `VERSION` 0.1.0 → 0.2.0. CI полностью зелёный: Lint (Go + Web) + Test (Go + vitest) + Build + E2E. В процессе закрыто четыре CI-инфра долга из Phase 30.1: (a) `golangci-lint@v6` install-режим меняется на `go install ...@v1.64.6` (release-binary для v1.64.x собран с go1.24 и отказывается грузить `go 1.26.4` config — собираем из исходников под локальный toolchain); (b) `--new-from-merge-base=origin/main` поймал 7 unparam хитов в study/notify test-fixtures (Phase 31) — fixed; (c) `prettier --check` поймал 11 файлов с непрогнанным форматированием (Phase 30.x debt) — `prettier --write`; (d) test/build/e2e jobs без явного `npm ci` падали с `vitest: not found` — добавлен `npm ci` в каждый. Все 4 правки инфраструктурные, не меняют код продукта. Локальные гейты: `make test` 30/30 + vitest 314/314; `make build` OK; `make test-e2e` 20/20.
 - [x] **32.2** — **закрыта 2026-08-17 в `phase-32-2-dogfood-update`**. `~/opt/orenda/scripts/update-dogfood.sh` отработал end-to-end: `git pull --ff-only` (clean main, guard прошёл) → `npm install` в `~/opt/orenda/web/` (Phase 30.6 dep `@tiptap/suggestion` отсутствовал) → `make build` → бинарь скопирован в `/home/aero/.local/bin/orenda` → systemd restart. Smoke после рестарта: `/api/v1/info` отдаёт `version: v0.2.0-1-g6a3dbf2`, `capabilities: {websocket:true, backup:true, bots:true, fts:true, pwa:true}`; миграция 022 применена (`pace_notes_md`, `study_proposals`); login возвращает 401 на неверный пароль; SPA отдаётся из embed (661B); OpenAPI spec отдаётся (78898B); FTS работает. **Найдена и закрыта pre-existing дыра:** `api.Capabilities{}` в `cmd/orenda/main.go` не инициализировалась ни одним полем → `/api/v1/info` всегда врёт «всё false». DoD 32.2 явно требовал `websocket/fts: true` — не проходил бы при любой проводке. Чинится отдельным коммитом (PR #5 → squash в dev, cherry-pick `6a3dbf2` в main), Capabilities выставляются из реально завирленных deps (`hub != nil`, `backupSvc != nil`, etc.); Auth/RESTTasks/PWA — безусловные (всегда wired). **Side effect:** `v0.2.0` tag был выставлен на неправильный коммит (`a99251f` — PR body на dev, не squash-merge на main). Удалил + пересоздал на `17ce86c` + re-push. **Side effect:** dev-бинарь должен быть пересобран после merge в main (он берётся с локального `make build`, а не из `~/opt/orenda`) — при следующей сборке сразу видно правильный stamp. **Side effect:** dogfood-каталог `~/opt/orenda` теперь отстаёт от origin/main на 1 коммит (capabilities-фикс); это намеренно, не мерджим «dogfood с dev» без причины.
 - [x] **32.3** **Backup + restore-дрилл.** **Закрыта 2026-08-17 (ops, без ветки).** Remote `ssh://ssh.sourcecraft.dev/ram56/orenda-backup.git` (private; создан в UI — API repo-create отдаёт 405 во всех версиях клиента, push-to-create не поддержан); `remote_url` в `~/.local/share/orenda/config.yaml` + рестарт. Первый push с контентом: remote `main` @ `a99826e` (mirror-файл задачи; до контента push был vacuous-success — нулевые коммиты). Snapshot `orenda-20260817-102029.db`; restore-дрилл в `/tmp` — integrity + FK ok, counts совпадают. RPO/coverage зафиксированы в ARCHITECTURE.md §12.2. **Найден gap:** push уносит только markdown-mirror; sqlite-снапшоты остаются локальными → пилотная задача в 32.5.
-- [x] **32.4** **Документ конвенции + входная точка агентов.** **Закрыта 2026-08-17 в `phase-32-4-dogfood-convention`.** `docs/DOGFOOD.md` (NEW): таблица переноса, workflow задачи (постановка в wiki → задача со ссылкой → claim → PR → review в Orenda → merge), правило «новая работа = задача в инстансе, не строка в PLAN.md» (заменяет реестр Phase 30), статус перехода (конвенция полностью активируется после 32.1+32.2 — dogfood-бинарь пока без Phase 29 wiki-surfaces). `AGENTS.md`: «Key files to read first» — SESSION.md убран, первым читается DOGFOOD.md; PLAN.md помечен архивом фаз ≤ 32. `opencode.json` `instructions`: SESSION.md/PLAN.md → docs/DOGFOOD.md (+ AGENTS.md, PRD.md остаются) — **файл gitignored (локальный конфиг оператора), правка внесена в main-checkout напрямую**. `.opencode/agent/backender.md` + `frontender.md`: read-first обновлены (DOGFOOD.md вместо SESSION.md), frontender — счётчики тестов больше не трекаются в SESSION.md. Глобальные инструкции харнессов (`~/.config/opencode/AGENTS.md`, `~/.claude/`) на SESSION.md не ссылаются — проверено grep'ом, правок не потребовали. **За скобкой:** `.opencode/watchdog.json` + `plan-unblocked.sh` продолжают диспатчить из PLAN.md claim-протокола — корректно до заморозки (32.6), переключение на инстанс — часть 32.6.
+- [x] **32.4** **Документ конвенции + входная точка агентов.** **Закрыта 2026-08-17 в `phase-32-4-dogfood-convention`.** `docs/context/DOGFOOD.md` (NEW): таблица переноса, workflow задачи (постановка в wiki → задача со ссылкой → claim → PR → review в Orenda → merge), правило «новая работа = задача в инстансе, не строка в PLAN.md» (заменяет реестр Phase 30), статус перехода (конвенция полностью активируется после 32.1+32.2 — dogfood-бинарь пока без Phase 29 wiki-surfaces). `AGENTS.md`: «Key files to read first» — SESSION.md убран, первым читается DOGFOOD.md; PLAN.md помечен архивом фаз ≤ 32. `opencode.json` `instructions`: SESSION.md/PLAN.md → docs/context/DOGFOOD.md (+ AGENTS.md, PRD.md остаются) — **файл gitignored (локальный конфиг оператора), правка внесена в main-checkout напрямую**. `.opencode/agent/backender.md` + `frontender.md`: read-first обновлены (DOGFOOD.md вместо SESSION.md), frontender — счётчики тестов больше не трекаются в SESSION.md. Глобальные инструкции харнессов (`~/.config/opencode/AGENTS.md`, `~/.claude/`) на SESSION.md не ссылаются — проверено grep'ом, правок не потребовали. **За скобкой:** `.opencode/watchdog.json` + `plan-unblocked.sh` продолжают диспатчить из PLAN.md claim-протокола — корректно до заморозки (32.6), переключение на инстанс — часть 32.6.
 - [x] **32.5** — **закрыта 2026-08-18.** Пилот подтверждён полным циклом в инстансе: задачи «Backup push should carry sqlite snapshots» и «Course activity feed» прошли claim→review→merge (PR #6/#7); постановки `ci-local-gates-hooks` и `agent-task-creation` реализованы через wiki + PR #8–#10 (33.1). Кандидаты (принести постановки в wiki при старте): **backup push несёт sqlite-снапшот** (gap, найден в 32.3: снапшоты остаются локальными, remote уносит только mirror), курсовой activity-контур (долг из 29.5, номера не получил), generic `POST /agent/tasks` — или свежий бэклог на момент пилота. Каждая: постановка в wiki → задача → claim агентом → PR → review (approve/reject в UI) → merge. Трение фиксируется комментариями в задаче пилота; найденные продуктовые gaps → новыми задачами в инстансе (не в PLAN.md).
 - [x] **32.6** **Заморозка файлового бэклога.** **Закрыта 2026-08-18** (ветка `phase-32-6-freeze-backlog`). Шапка PLAN.md и SESSION.md: пометка «заморожено 2026-08-18, актуальный бэклог — инстанс 2137, проект „Orenda dev“». Открытые «за скобкой» всех фаз перенесены задачами в инстанс (backup cron, WAL archive, study proposals v2, задача↔PR, чат в Dashboard, LMS post-MVP, lint-долг). Финальная сверка: ни один источник не ссылается на PLAN.md как на очередь — watchdog `plan-claimable` удалён, AGENTS.md/README/CONTEXT/ARCHITECTURE/PRD/PR-template/subagent-файлы указывают на инстанс.
 

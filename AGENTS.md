@@ -1,6 +1,6 @@
 # AGENTS.md — Orenda Project Guidelines for AI Agents
 
-> Краткий guide для AI-агентов, работающих с кодовой базой Orenda. Полные требования — в [[docs/PRD.md]], очередь работ и постановки — в dogfood-инстансе по конвенции [[docs/DOGFOOD.md]], архив фаз ≤ 32 — в [[docs/PLAN.md]].
+> Краткий guide для AI-агентов, работающих с кодовой базой Orenda. Полные требования — в [[docs/context/PRD.md]], очередь работ и постановки — в dogfood-инстансе по конвенции [[docs/context/DOGFOOD.md]], архив фаз ≤ 32 — в [[docs/context/PLAN.md]].
 
 ## What is Orenda?
 
@@ -158,7 +158,7 @@ Process rules (binary, like the rest of this file):
 ## Conventions for AI agents
 
 ### When you start a task
-1. Work comes from the dogfood instance (`orenda agent next` / MCP `orenda_list_tasks` — plain `next` CLAIMS; for a read-only queue check use `orenda agent next --peek`) — see `docs/DOGFOOD.md`. `docs/PLAN.md` is a frozen archive of phases ≤ 32, not a queue.
+1. Work comes from the dogfood instance (`orenda agent next` / MCP `orenda_list_tasks` — plain `next` CLAIMS; for a read-only queue check use `orenda agent next --peek`) — see `docs/context/DOGFOOD.md`. `docs/context/PLAN.md` is a frozen archive of phases ≤ 32, not a queue.
 2. Check Definition of Done (in the task description / linked wiki постановка).
 3. Create worktree + branch `task-123-short-slug` (123 = номер задачи; см. «Worktree per task» — обязательно, без исключений).
 4. Implement tasks in order.
@@ -177,8 +177,8 @@ A task is done or not done — "almost done" is not done. Phases here have been 
 5. **Self-review against the DoD before opening the PR.** Walk it top to bottom; attach one evidence line per item. An item without evidence means the PR is not ready.
 
 ### When you're stuck
-- Read [[docs/PRD.md]] for intent.
-- Read [[docs/ARCHITECTURE.md]] (when exists) for design.
+- Read [[docs/context/PRD.md]] for intent.
+- Read [[docs/context/ARCHITECTURE.md]] (when exists) for design.
 - Search the codebase with `grep` or `glob` before asking.
 - Look at neighbouring code for conventions.
 
@@ -198,10 +198,10 @@ A task is done or not done — "almost done" is not done. Phases here have been 
 
 ## Key files to read first
 
-- `docs/DOGFOOD.md` — **agent entry point** (where work comes from: the dogfood instance, not files; task workflow + review loop)
-- `docs/CONTEXT.md` — **domain context** (what kanban / courses / delegation ARE — shared mental models that prevent wrong reinvention; concepts, not rules — read second)
-- `docs/PRD.md` — what we're building and why
-- `docs/PLAN.md` — phases ≤ 32 archive (task definitions, audits, known gaps); the live queue is the dogfood instance per DOGFOOD.md
+- `docs/context/DOGFOOD.md` — **agent entry point** (where work comes from: the dogfood instance, not files; task workflow + review loop)
+- `docs/context/CONTEXT.md` — **domain context** (what kanban / courses / delegation ARE — shared mental models that prevent wrong reinvention; concepts, not rules — read second)
+- `docs/context/PRD.md` — what we're building and why
+- `docs/context/PLAN.md` — phases ≤ 32 archive (task definitions, audits, known gaps); the live queue is the dogfood instance per DOGFOOD.md
 - `internal/storage/sqlite/migrations/001_init.sql` — DB schema *(Phase 1)*
 - `internal/config/config.go` — config structure *(Phase 0)*
 - `cmd/orenda/main.go` — entry point and CLI *(Phase 0)*
@@ -209,7 +209,7 @@ A task is done or not done — "almost done" is not done. Phases here have been 
 ## Communication
 
 - Comments in code: **English**.
-- Commit messages: `task(123): short description` — the task's human number (every task carries a sequential `T<N>` alongside its UUID; see `docs/DOGFOOD.md` «Именование по номеру задачи»). Note: git-branch/commit/PR conventions use bare numeric forms (`task-123-slug`, `task(123):`, `[Task 123]`) — only the resolver (REST/CLI/MCP/UI) uses the T-prefixed form.
+- Commit messages: `task(123): short description` — the task's human number (every task carries a sequential `T<N>` alongside its UUID; see `docs/context/DOGFOOD.md` «Именование по номеру задачи»). Note: git-branch/commit/PR conventions use bare numeric forms (`task-123-slug`, `task(123):`, `[Task 123]`) — only the resolver (REST/CLI/MCP/UI) uses the T-prefixed form.
 - PR titles: `[Task 123] short description`.
 - Issue references: `closes #N` or `refs PRD#section`.
 - Archive scheme for phases ≤ 32 (historical branches/commits only, never rewritten): `phase(X.Y): ...` commits, `[Phase X.Y] ...` PR titles, `phase-X-Y-<name>` branches.
@@ -217,7 +217,7 @@ A task is done or not done — "almost done" is not done. Phases here have been 
 ## Git workflow
 
 Hybrid `main` + `dev` flow — not classic git-flow and not trunk-based. Full
-version with diagrams and branch table: [[docs/GITFLOW.md]].
+version with diagrams and branch table: [[docs/context/GITFLOW.md]].
 
 - `main` — production-ready. Every commit on it is a release; tagged `vX.Y.Z`. Direct pushes are forbidden — code reaches `main` only via `release-*` / `hotfix-*` branches.
 - `dev` — integration trunk, default base for feature work. Worktree/branch mechanics (base is `origin/dev`, local `dev` is a fast-forward-only mirror) — see «Worktree per task» below; not duplicated here.
@@ -225,12 +225,12 @@ version with diagrams and branch table: [[docs/GITFLOW.md]].
 - `release-vX.Y.Z` — branched off `dev` at feature freeze. Only bug fixes and release metadata (VERSION bump, CHANGELOG) go on it. Finish: merge `--no-ff` into `main` + tag `vX.Y.Z` + **mandatory back-merge into `dev`**; then delete the branch. Canonical example: `release-v0.15.0` → PR #143 → `v0.15.0`.
 - `hotfix-vX.Y.Z` — branched off `main`, from the broken release's tag (never off `dev`). Bump the patch version, fix. Finish: merge `--no-ff` into `main` + patch tag `vX.Y.(Z+1)` + **mandatory back-merge into `dev`**. Exception: if a `release-*` branch is currently open, back-merge the hotfix into **that branch first** (so the pending release does not revert the fix), then into `dev`; then delete the branch.
 - Merges into `dev`/`main` are performed by the owner after the PM's approving review — agents never merge. Legacy phase milestones are tagged `v0.1.0-phaseX` (phases ≤ 32, historical — do not tag new work this way).
-- Deprecated and forbidden: the `promotion-v0.14.1` / `promotion-v0.14.2` transport scheme — release content did reach `dev` (via `release-*` → `dev` PRs), but `main` was never synced back: merge commits and tags (`v0.14.1`, `v0.14.2`) are not ancestors of `dev` and the graphs diverged. Never resurrect this pattern; details in `docs/GITFLOW.md` «Устаревшие практики».
+- Deprecated and forbidden: the `promotion-v0.14.1` / `promotion-v0.14.2` transport scheme — release content did reach `dev` (via `release-*` → `dev` PRs), but `main` was never synced back: merge commits and tags (`v0.14.1`, `v0.14.2`) are not ancestors of `dev` and the graphs diverged. Never resurrect this pattern; details in `docs/context/GITFLOW.md` «Устаревшие практики».
 - Forbidden everywhere: feature branches off `main`; hotfixes off `dev`; agents merging their own PRs; deleting other people's long-lived branches.
 
 ### Git for AI agents
 
-Full version: [[docs/GITFLOW.md]]. The short form:
+Full version: [[docs/context/GITFLOW.md]]. The short form:
 
 - **Isolation:** worktree per task (next section) = parallel agents don't see each other; each has its own checkout, its own preview port from `21400–21499` (`:2137` usage, `:2138` dev, `:21371` E2E are taken), its own `data/orenda.db`.
 - **Small batches:** commit early/often; a branch lives hours, not weeks — a big long-lived diff collides with every other agent's work.

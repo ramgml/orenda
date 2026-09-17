@@ -71,7 +71,7 @@ Do not edit files inside data/ by hand; use the CLI commands above.
 > `scripts/install.sh` is the **only** sanctioned way to update the
 > usage binary. It refuses to install from anything except a clean
 > checkout on `main` (override with `--force`). See
-> [docs/ARCHITECTURE.md §12.4](docs/ARCHITECTURE.md#124-dev-vs-dogfood-instance-phase-2820).
+> [docs/context/ARCHITECTURE.md §12.4](docs/context/ARCHITECTURE.md#124-dev-vs-dogfood-instance-phase-2820).
 
 ### Windows
 
@@ -116,7 +116,7 @@ make dev
 
 > Phase 28.20 splits dev (`:2138`) and usage (`:2137`) so both can run on
 > the same machine. The usage/dogfood instance is built from a separate
-> checkout on `main`; see [docs/ARCHITECTURE.md §12.4](docs/ARCHITECTURE.md#124-dev-vs-dogfood-instance-phase-2820)
+> checkout on `main`; see [docs/context/ARCHITECTURE.md §12.4](docs/context/ARCHITECTURE.md#124-dev-vs-dogfood-instance-phase-2820)
 > for the channel model and `scripts/update-dogfood.sh` for the
 > one-command refresh.
 

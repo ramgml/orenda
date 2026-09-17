@@ -3,7 +3,7 @@
 // machine-readable contract without committing the file.
 //
 // The endpoint is public (no auth) — the spec is intentionally
-// non-secret and matches docs/API.md. We mount it on the top-level
+// non-secret and matches docs/context/API.md. We mount it on the top-level
 // router rather than the user/agent namespace because both kinds
 // of consumers want it.
 package api

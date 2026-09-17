@@ -22,7 +22,7 @@ type BackupSetting struct {
 // BackupSettingsRepository persists (key, JSON value) pairs in the
 // backup_settings table. The intent of this table is operator-facing
 // configuration that the UI can edit without touching config.yaml —
-// see docs/SESSION.md "«Фаза «Полировка»»" backlog.
+// see docs/context/SESSION.md "«Фаза «Полировка»»" backlog.
 //
 // Settings take effect after the next process restart: the running
 // `*backup.Service` reads URL/auth/schedule from its in-memory Config

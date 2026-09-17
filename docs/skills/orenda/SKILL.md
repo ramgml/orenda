@@ -17,7 +17,7 @@ delegation cycle is symmetric: human → agent (claim), agent → human
 
 This document describes the workflow, the HTTP surface, and the
 shared `orenda agent` CLI. It is the authoritative source for the
-agent etiquette; the API reference is `/docs/API.md` and the REST
+agent etiquette; the API reference is `/docs/context/API.md` and the REST
 endpoints speak for themselves.
 
 ---
