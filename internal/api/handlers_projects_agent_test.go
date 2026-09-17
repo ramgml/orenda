@@ -358,7 +358,7 @@ func TestT330_ProvisionFailure_StillCreatedWithHeader(t *testing.T) {
 	var resp t330CreateResponse
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
 	require.NotNil(t, resp.Project)
-	assert.Equal(t, "Failing Project", resp.Project.Name)
+	assert.Equal(t, "Failing Project", resp.Name)
 	assert.Nil(t, resp.AgentToken, "no agent_token on provision failure")
 
 	// The header names the failure — with any token-shaped secret
@@ -369,6 +369,6 @@ func TestT330_ProvisionFailure_StillCreatedWithHeader(t *testing.T) {
 	assert.NotContains(t, header, "orenda_secretvalue", "token-shaped secrets must be redacted")
 
 	// The project really persisted.
-	_, err := projects.GetProject(context.Background(), resp.Project.ID)
+	_, err := projects.GetProject(context.Background(), resp.ID)
 	require.NoError(t, err)
 }
