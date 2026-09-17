@@ -71,7 +71,7 @@ func seedSystemUser(t *testing.T, dbPath string) {
 		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
 	})
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	_, err = db.ExecContext(context.Background(),
 		`INSERT INTO users (id, email, password_hash, display_name, role)
 		 VALUES ('system-owner-id', 'agent-owner@orenda.local', 'unusable', 'Agent Owner', 'system')`)
@@ -86,7 +86,7 @@ func seedCourseWithStatus(t *testing.T, dbPath, userID string, status course.Sta
 		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
 	})
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	repo := sqlite.NewCourseRepository(db)
 	c := &course.Course{
 		Title:   "Test course " + string(status),
@@ -212,7 +212,7 @@ func TestRunUserDelete_Table(t *testing.T) {
 				WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
 			})
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 			users := sqlite.NewUserRepository(db)
 			coursesRepo := sqlite.NewCourseRepository(db)
 
@@ -294,7 +294,7 @@ func TestRunUserDelete_ForceWithoutActiveCourses(t *testing.T) {
 		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
 	})
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	users := sqlite.NewUserRepository(db)
 	_, err = users.GetByID(context.Background(), bobID)
 	assert.ErrorIs(t, err, user.ErrNotFound)

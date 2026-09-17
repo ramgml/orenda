@@ -399,46 +399,28 @@ func runUserDelete(cmd *cobra.Command, in userDeleteInput) error {
 	if err != nil {
 		return fmt.Errorf("user delete: list courses: %w", err)
 	}
-	active := 0
-	for _, c := range owned {
-		if c.Status == course.StatusActive {
-			active++
-		}
-	}
+	active := countActiveCourses(owned)
 
 	out := cmd.OutOrStdout()
 	if !in.AssumeYes {
 		// Preview guard, like rm without -f: show what WOULD happen,
 		// change nothing, exit non-zero. No interactive prompts.
-		fmt.Fprintf(out, "would delete user: id=%s email=%s role=%s courses=%d",
+		// Print errors are deliberately ignored: stdout may be a closed
+		// pipe, and the command's outcome is carried by the error below.
+		fmt.Fprintf(out, "would delete user: id=%s email=%s role=%s courses=%d", //nolint:errcheck // best-effort preview output
 			target.ID, target.Email, target.Role, len(owned))
 		if active > 0 {
-			fmt.Fprintf(out, " (active=%d; re-run with --force)", active)
+			fmt.Fprintf(out, " (active=%d; re-run with --force)", active) //nolint:errcheck // best-effort preview output
 		}
-		fmt.Fprintln(out)
+		fmt.Fprintln(out) //nolint:errcheck // best-effort preview output
 		return errors.New("user delete: aborted (pass --yes to delete)")
 	}
 
 	if active > 0 && !in.Force {
 		return fmt.Errorf("user delete: user owns %d active course(s); pass --force to delete them along with the user", active)
 	}
-	if in.Force && len(owned) > 0 {
-		// Delete every course (not only active ones) through the same
-		// repo method the DELETE /api/v1/courses/{id} handler uses —
-		// courseRepo.DeleteCourse, a plain `DELETE FROM courses WHERE
-		// id = ?`. The whole course tree (course_modules →
-		// course_lessons → course_quizzes, 019; study plans 022;
-		// course_activity 023) hangs off courses(id) via ON DELETE
-		// CASCADE FKs, so the HTTP path and this path rely on the exact
-		// same cascade machinery — there is no second, deeper deletion
-		// to duplicate. An explicit loop (instead of relying on
-		// users.Delete cascading courses.owner_id) keeps the course
-		// removal observable and error-attributed per course.
-		for _, c := range owned {
-			if err := coursesRepo.DeleteCourse(cmd.Context(), c.ID); err != nil {
-				return fmt.Errorf("user delete: course %s: %w", c.ID, err)
-			}
-		}
+	if err := deleteOwnedCourses(cmd.Context(), coursesRepo, owned, in.Force); err != nil {
+		return err
 	}
 
 	// courses.owner_id carries ON DELETE CASCADE (migration 019), so even
@@ -448,7 +430,47 @@ func runUserDelete(cmd *cobra.Command, in userDeleteInput) error {
 		return fmt.Errorf("user delete: %w", err)
 	}
 
-	fmt.Fprintf(out, "user deleted: id=%s email=%s\n", target.ID, target.Email)
+	fmt.Fprintf(out, "user deleted: id=%s email=%s\n", target.ID, target.Email) //nolint:errcheck // best-effort confirmation output
+	return nil
+}
+
+// countActiveCourses counts courses in the active lifecycle state.
+func countActiveCourses(cs []*course.Course) int {
+	n := 0
+	for _, c := range cs {
+		if c.Status == course.StatusActive {
+			n++
+		}
+	}
+	return n
+}
+
+// deleteOwnedCourses enforces the active-course guard and, with force,
+// removes every course the user owns. See the cascade note inside.
+func deleteOwnedCourses(ctx context.Context, repo course.Repository, owned []*course.Course, force bool) error {
+	active := countActiveCourses(owned)
+	if active > 0 && !force {
+		return fmt.Errorf("user delete: user owns %d active course(s); pass --force to delete them along with the user", active)
+	}
+	if !force || len(owned) == 0 {
+		return nil
+	}
+	// Delete every course (not only active ones) through the same
+	// repo method the DELETE /api/v1/courses/{id} handler uses —
+	// courseRepo.DeleteCourse, a plain `DELETE FROM courses WHERE
+	// id = ?`. The whole course tree (course_modules →
+	// course_lessons → course_quizzes, 019; study plans 022;
+	// course_activity 023) hangs off courses(id) via ON DELETE
+	// CASCADE FKs, so the HTTP path and this path rely on the exact
+	// same cascade machinery — there is no second, deeper deletion
+	// to duplicate. An explicit loop (instead of relying on
+	// users.Delete cascading courses.owner_id) keeps the course
+	// removal observable and error-attributed per course.
+	for _, c := range owned {
+		if err := repo.DeleteCourse(ctx, c.ID); err != nil {
+			return fmt.Errorf("user delete: course %s: %w", c.ID, err)
+		}
+	}
 	return nil
 }
 
