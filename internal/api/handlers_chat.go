@@ -16,13 +16,14 @@ import (
 
 // chatPostBody is the wire shape for POST /api/v1/dashboard/chat.
 //
-// Phase 32.11: messages start with "/" for commands. We support:
+// T9: messages starting with "/" are commands, anything else is a
+// plain question for the dashboard agent. Commands:
 //   - "/plan day"     → triggers study-proposal pipeline. Returns the
 //     proposal id in result_ref so the UI can link back.
 //   - "/help"         → static text.
-//   - plain text      → echoes back with an "agent" response that
-//     acknowledges; this is the MVP-only path; free-
-//     form dialogue is a future phase.
+//
+// Plain text (no "/") is persisted as the user's message and left
+// pending — the dashboard agent answers it via /agent/chat.
 type chatPostBody struct {
 	ThreadID string `json:"thread_id"`
 	Message  string `json:"message"`
@@ -38,21 +39,27 @@ type chatPostResponse struct {
 	Pending      bool          `json:"pending"`
 }
 
-// postDashboardChatHandler — Phase 32.11 minimal chat endpoint.
+// postDashboardChatHandler — Phase 32.11 chat endpoint, extended
+// by T9 with per-user threads and the pending-question flow.
 //
-// MVP scope (commands only):
+// Command messages:
 //   - /plan day  → server calls StudyService.Propose with a
 //     generic daily-plan payload. The /plan result lands in the
 //     existing study-proposals tray (Phase 31.6) so the user can
 //     accept/dismiss via the existing UI.
 //   - /help      → static text.
-//   - plain      → echoes a short "received" message.
 //
-// The endpoint persists both messages via ChatMessages so the
-// Dashboard can replay history on page load (ListByThread). Live
-// updates fan out over the WS topic "chat".
+// Plain text: persisted as the user's message and left pending
+// (agent_message=null, pending=true); the dashboard agent
+// answers via GET /agent/chat/pending + POST
+// /agent/chat/{id}/reply.
 //
-// UI side is out of scope for this PR (separate task).
+// The endpoint persists messages via ChatMessages so the
+// Dashboard can replay history on page load (ListByUserThread,
+// scoped to the signed-in user). Live updates fan out over the
+// WS topics "chat" and "dashboard-chat".
+//
+// UI: web/src/features/today/DashboardChatPanel.tsx (T9).
 func postDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.ChatMessages == nil {
@@ -176,13 +183,15 @@ func getDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 // dispatchChatCommand routes the user message to the right backend
 // side-effect and returns the agent reply + result_ref.
 //
-// Phase 32.11 MVP commands:
+// T9 command set (plain text never reaches here — the handler
+// returns early when Command is empty; the default arm only sees
+// unknown "/commands"):
 //   - "/plan day"  → StudyService.Propose with a generic daily-plan
 //     payload. The /plan result lands in the study-
 //     proposals tray (Phase 31.6). The result_ref is
 //     the proposal id.
 //   - "/help"      → static help.
-//   - "" (plain)   → echo.
+//   - unknown "/cmd" → acknowledgement reply.
 func dispatchChatCommand(ctx context.Context, deps *Dependencies, body chatPostBody) (*chat.Message, string, error) {
 	now := time.Now().UTC()
 	cmd := strings.ToLower(strings.TrimSpace(extractCommand(body.Message)))
