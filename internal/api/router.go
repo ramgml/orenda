@@ -48,6 +48,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
+	chatdialog "github.com/ramgml/orenda/internal/service/chatdialog"
 	coursesvc "github.com/ramgml/orenda/internal/service/course"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
@@ -199,6 +200,13 @@ type Dependencies struct {
 	// nil-safe — handlers return 503 when the repo isn't wired
 	// (e.g. the early Phase 0 fixtures).
 	ChatMessages chat.MessageRepository
+	// T9: per-user chat thread ownership (migration 047). nil-safe
+	// — the dashboard handlers fall back to the shared history
+	// when it isn't wired (early fixtures).
+	ChatThreads chat.ThreadRepository
+	// T9: dashboard agent dialog loop. nil-safe — agent chat
+	// handlers return 503 when the service isn't wired.
+	ChatDialog *chatdialog.Service
 	// T16: dialog tutor. Lesson-scoped student/agent threads over
 	// tutor_messages. nil-safe — tutor handlers return 503 when
 	// the service isn't wired (e.g. the early fixtures).
@@ -770,6 +778,13 @@ func NewRouter(deps *Dependencies) http.Handler {
 				// quizzes); the reply resolves the thread.
 				r.Get("/agent/tutor/pending", tutorPendingHandler(deps))
 				r.Post("/agent/tutor/{lesson_id}/reply", tutorReplyHandler(deps))
+				// T9: dashboard agent chat. The pending
+				// queue lists every (user, thread) whose
+				// last message is a user question; the
+				// reply pins the thread via the message
+				// id in the URL.
+				r.Get("/agent/chat/pending", chatAgentPendingHandler(deps))
+				r.Post("/agent/chat/{message_id}/reply", chatAgentReplyHandler(deps))
 				// Phase 18: courses for the tutor agent.
 				// Phase 29.4/29.5: the agent can also create a course
 				// (owner = first non-system user, generator task

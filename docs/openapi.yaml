@@ -3361,7 +3361,7 @@ paths:
   /api/v1/dashboard/chat:
     post:
       tags: [chat]
-      summary: Post a dashboard chat message ("/plan day" | "/help" | plain echo).
+      summary: Post a dashboard chat message; commands ("/plan day", "/help") dispatch immediately, plain text stays pending for the agent.
       security: [{ cookieAuth: [] }]
       requestBody:
         required: true
@@ -3374,7 +3374,7 @@ paths:
                 thread_id: { type: string, description: 'defaults to "default"' }
                 message: { type: string }
       responses:
-        '201': { description: 'created — { user_message, agent_message, result_ref? }' }
+        '201': { description: 'created — { user_message, agent_message, result_ref, pending }; agent_message is null and pending=true for plain text' }
         '400': { description: invalid_json / empty_message }
         '503': { description: chat_not_wired }
 
@@ -3384,6 +3384,47 @@ paths:
       summary: List chat messages for a thread (history replay, capped at 50; ?limit=N).
       security: [{ cookieAuth: [] }]
       responses: { '200': { description: ok } }
+
+  # ---------------------------------------------------------------------------
+  # T9: dashboard agent chat. The pending queue is derived: a
+  # (user, thread) is pending iff its last message has
+  # sender_type='user'. WS topic "dashboard-chat" fans out every
+  # new message (body carries user_id, thread_id, sender_type,
+  # message).
+  # ---------------------------------------------------------------------------
+  /api/v1/agent/chat/pending:
+    get:
+      tags: [agents]
+      summary: Pending dashboard chat questions — { pending: [{ message, user_id, user_display_name, thread_id }] }.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200':
+          description: ok — { pending: ChatAgentPending[] }
+        '401': { description: unauthorized (user cookie or missing bearer) }
+        '503': { description: chat_not_wired }
+
+  /api/v1/agent/chat/{message_id}/reply:
+    post:
+      tags: [agents]
+      summary: Answer one pending dashboard chat question; the answer lands on the question's (user, thread) (last message becomes sender_type=agent).
+      security: [{ bearerAuth-agent: [] }]
+      parameters:
+        - { name: message_id, in: path, required: true, schema: { type: string }, description: Pending user-message id from /agent/chat/pending }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body_md]
+              properties:
+                body_md: { type: string }
+      responses:
+        '201': { description: 'created — chat.Message (sender_type=agent); emits WS "dashboard-chat"' }
+        '400': { description: invalid_input (empty/whitespace body_md) }
+        '401': { description: unauthorized (user cookie or missing bearer) }
+        '404': { description: not_found (unknown message id) }
+        '409': { description: conflict (the question is no longer pending) }
 
   # ---------------------------------------------------------------------------
   # T16: dialog tutor. Lesson-scoped student/agent threads over

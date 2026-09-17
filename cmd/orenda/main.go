@@ -51,6 +51,7 @@ import (
 	activityservice "github.com/ramgml/orenda/internal/service/activity"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	attachmentsvc "github.com/ramgml/orenda/internal/service/attachment"
+	chatdialog "github.com/ramgml/orenda/internal/service/chatdialog"
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
 	courseservice "github.com/ramgml/orenda/internal/service/course"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
@@ -684,6 +685,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = db.Close() }()
 
+	// T9: the dashboard-chat pipeline needs the synthetic "chat"
+	// actor (study_proposals.created_by_agent FK). Runtime ensure,
+	// by the ensureOwner precedent — migrations must not create
+	// users (015 invariant).
+	if err := sqlite.EnsureChatActor(cmd.Context(), db); err != nil {
+		return err
+	}
+
 	// Calendar events can be created with or without a project — the
 	// event service no longer falls back to a system "Inbox" project,
 	// it simply files events with project_id IS NULL when no project
@@ -922,6 +931,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		StudyService: studySvc,
 		// Phase 32.11: dashboard chat thread persistence.
 		ChatMessages: sqlite.NewChatMessageRepository(db),
+		// T9: per-user chat thread ownership + the agent dialog
+		// loop over the same repo. usersRepo backs the display
+		// names in the agent's pending queue.
+		ChatThreads: sqlite.NewChatThreadRepository(db),
+		ChatDialog: chatdialog.New(
+			sqlite.NewChatMessageRepository(db),
+			users,
+		),
 		// T16: dialog tutor — lesson-scoped student/agent threads
 		// over tutor_messages; activity rows via the course
 		// recorder wired above.
