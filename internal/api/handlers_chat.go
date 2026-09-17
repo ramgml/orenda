@@ -189,10 +189,10 @@ func getDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 //   - "/plan day"  → StudyService.Propose with a generic daily-plan
 //     payload. The actor id is the literal "chat";
 //     study_proposals.created_by_agent has a FK to
-//     agents(id), so the deployment must seed an agents
-//     row with id='chat' (see wiki:dashboard-chat setup).
-//     The /plan result lands in the study-proposals
-//     tray (Phase 31.6); result_ref is the proposal id.
+//     agents(id), satisfied by migration 050 (seeds the
+//     agents row id='chat'). The /plan result lands in
+//     the study-proposals tray (Phase 31.6); result_ref
+//     is the proposal id.
 //   - "/help"      → static help.
 //   - unknown "/cmd" → acknowledgement reply.
 func dispatchChatCommand(ctx context.Context, deps *Dependencies, body chatPostBody) (*chat.Message, string, error) {

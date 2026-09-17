@@ -323,19 +323,16 @@ func TestChat_PlanDayCreatesProposal(t *testing.T) {
 		sqlite.NewTaskRepository(db),
 		nil, nil,
 	)
-	// study_proposals.created_by_agent has a FK to agents(id); the
-	// chat pipeline stamps actor "chat", so that agent row must
-	// exist (token FK chain like the today-test fixture).
+	// The chat pipeline stamps proposals with the actor literal
+	// "chat"; study_proposals.created_by_agent has a FK to
+	// agents(id), satisfied by migration 050. Exercise the real
+	// path: apply the migration body (idempotent) instead of
+	// hand-seeding rows.
 	ctx := context.Background()
-	_, err := db.ExecContext(ctx,
-		`INSERT INTO users (id, email, password_hash, display_name) VALUES ('user-1', 'chat@t9.local', 'x', 'Alice')`)
+	mig, err := sqlite.MigrationsFS.ReadFile("migrations/050_chat_actor_seed.sql")
 	require.NoError(t, err)
-	_, err = db.ExecContext(ctx,
-		`INSERT INTO api_tokens (id, user_id, name, hash, scopes) VALUES ('t-chat', 'user-1', 'seed', 'h', '[]')`)
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx,
-		`INSERT INTO agents (id, name, type, token_id, max_concurrent) VALUES ('chat', 'chat', '[]', 't-chat', 3)`)
-	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, string(mig))
+	require.NoError(t, err, "050 seed must apply cleanly")
 
 	deps := &Dependencies{
 		ChatMessages: sqlite.NewChatMessageRepository(db),
