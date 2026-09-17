@@ -9,24 +9,29 @@ vi.mock('axios', () => ({
   },
 }));
 
-vi.mock('@/shared/offline/db', () => {
-  const store: Record<string, unknown[]> = {};
-  return {
-    outboxAdd: vi.fn(async (item: unknown) => {
-      (store['outbox'] ??= []).push(item);
-    }),
-    outboxAll: vi.fn(async () => store['outbox'] ?? []),
-    outboxRemove: vi.fn(async (id: string) => {
-      const arr = (store['outbox'] ?? []) as Array<{ id: string }>;
-      const next = arr.filter((x) => x.id !== id);
-      store['outbox'] = next;
-    }),
-  };
-});
+// The mock db impls close over `dbHolder.store`, reading it at call
+// time. beforeEach swaps in a fresh store, so tests never share queue
+// state — otherwise outbox items leak between tests and order becomes
+// observable under `--sequence.shuffle`.
+const dbHolder = vi.hoisted(() => ({
+  store: { outbox: [] } as Record<string, unknown[]>,
+}));
+
+vi.mock('@/shared/offline/db', () => ({
+  outboxAdd: vi.fn(async (item: unknown) => {
+    (dbHolder.store['outbox'] ??= []).push(item);
+  }),
+  outboxAll: vi.fn(async () => dbHolder.store['outbox'] ?? []),
+  outboxRemove: vi.fn(async (id: string) => {
+    const arr = (dbHolder.store['outbox'] ?? []) as Array<{ id: string }>;
+    dbHolder.store['outbox'] = arr.filter((x) => x.id !== id);
+  }),
+}));
 
 // crypto.randomUUID is widely available in node 19+ but we patch
 // navigator.onLine too so the test doesn't bail on syncNow().
 beforeEach(() => {
+  dbHolder.store = {};
   Object.defineProperty(globalThis, 'navigator', {
     value: { onLine: true },
     configurable: true,
