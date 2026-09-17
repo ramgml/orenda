@@ -423,12 +423,17 @@ func runUserDelete(cmd *cobra.Command, in userDeleteInput) error {
 		return fmt.Errorf("user delete: user owns %d active course(s); pass --force to delete them along with the user", active)
 	}
 	if in.Force && len(owned) > 0 {
-		// Delete the courses through the same repo path DELETE
-		// /api/v1/courses/{id} uses (DeleteCourse). The module → lesson
-		// → quiz tree, study plans, activity and tutor messages all
-		// cascade via ON DELETE CASCADE FKs (migrations 019/022/023/045/
-		// 046), so one DELETE per course drops the whole tree — identical
-		// to the HTTP path; nothing to duplicate here.
+		// Delete every course (not only active ones) through the same
+		// repo method the DELETE /api/v1/courses/{id} handler uses —
+		// courseRepo.DeleteCourse, a plain `DELETE FROM courses WHERE
+		// id = ?`. The whole course tree (course_modules →
+		// course_lessons → course_quizzes, 019; study plans 022;
+		// course_activity 023) hangs off courses(id) via ON DELETE
+		// CASCADE FKs, so the HTTP path and this path rely on the exact
+		// same cascade machinery — there is no second, deeper deletion
+		// to duplicate. An explicit loop (instead of relying on
+		// users.Delete cascading courses.owner_id) keeps the course
+		// removal observable and error-attributed per course.
 		for _, c := range owned {
 			if err := coursesRepo.DeleteCourse(cmd.Context(), c.ID); err != nil {
 				return fmt.Errorf("user delete: course %s: %w", c.ID, err)
