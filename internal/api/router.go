@@ -107,9 +107,15 @@ type Dependencies struct {
 	TaskLockHolder TaskLockHolder
 	Agents         agent.Repository
 	AgentService   *agentservice.Service
-	Comments       CommentService
-	Attachments    AttachmentService
-	Activities     ActivityService
+	// ProjectAgentProvisioner (T330) provisions the dedicated
+	// per-project agent on POST /projects and returns the plaintext
+	// token exactly once. nil-safe: when unwired (early fixtures,
+	// CLI) the 201 response simply carries no agent_token field.
+	ProjectAgentProvisioner ProjectAgentProvisioner
+
+	Comments    CommentService
+	Attachments AttachmentService
+	Activities  ActivityService
 	// ActivityRecorder is the write side for task_activity rows.
 	// nil-safe (handlers must guard). Phase 28.5: wired so
 	// createTaskCommentHandler / addTaskAttachmentHandler can emit
@@ -219,6 +225,14 @@ type Dependencies struct {
 	// SHOULD wire it via t.Cleanup in tests to prevent goroutine
 	// leaks that accumulate across many fixture instantiations.
 	RateLimitClose func()
+}
+
+// ProjectAgentProvisioner is the T330 seam: register the dedicated
+// agent for a fresh project and write its project_agents grant row.
+// *projectagent.Service satisfies it. Kept as an interface so test
+// fixtures can stub provisioning without the storage layer.
+type ProjectAgentProvisioner interface {
+	EnsureProjectAgent(ctx context.Context, p *project.Project, ownerUserID string) (*agentservice.Registered, error)
 }
 
 // CourseActivityRepo is the small read surface needed by the

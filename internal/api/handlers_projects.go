@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -72,9 +73,56 @@ func createProjectHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, created)
+		writeProjectAgentToken(w, r, deps, created, id.UserID)
 	}
 }
+
+// writeProjectAgentToken provisions the T330 dedicated agent for the
+// freshly created project and writes the 201 body with `agent_token`.
+//
+// Failure mode (T330): provisioning is an addition, not a
+// precondition — an error never invalidates the project. The response
+// degrades to the plain 201 (no agent_token field) plus the
+// X-Agent-Provision-Error header carrying the error text (secrets
+// redacted). A nil ProjectAgentProvisioner (early fixtures, CLI)
+// skips silently.
+func writeProjectAgentToken(w http.ResponseWriter, r *http.Request, deps *Dependencies, p *project.Project, ownerUserID string) {
+	agentToken := map[string]any(nil)
+	if deps.ProjectAgentProvisioner != nil {
+		reg, err := deps.ProjectAgentProvisioner.EnsureProjectAgent(r.Context(), p, ownerUserID)
+		switch {
+		case err != nil:
+			w.Header().Set("X-Agent-Provision-Error", sanitizeProvisionError(err))
+		default:
+			agentToken = map[string]any{
+				"agent":       normalizeLabels(reg.Agent),
+				"plain_token": reg.PlainToken,
+			}
+		}
+	}
+	body := struct {
+		*project.Project
+		AgentToken map[string]any `json:"agent_token,omitempty"`
+	}{Project: p, AgentToken: agentToken}
+	writeJSON(w, http.StatusCreated, body)
+}
+
+// sanitizeProvisionError redacts token-shaped substrings from the
+// error text before it crosses the wire in X-Agent-Provision-Error.
+// Provisioning errors quote agent names and repository ops, never the
+// plaintext token — but a mistake in a wrapped error chain must not
+// turn the header into a credential leak.
+func sanitizeProvisionError(err error) string {
+	msg := err.Error()
+	for _, secret := range tokenShaped.FindAllString(msg, -1) {
+		msg = strings.ReplaceAll(msg, secret, "[redacted]")
+	}
+	return msg
+}
+
+// tokenShaped matches opaque API tokens (orenda_… or long hex/base62
+// runs) so they can be redacted from the header.
+var tokenShaped = regexp.MustCompile(`orenda_[A-Za-z0-9_-]+|[A-Fa-f0-9]{32,}|[A-Za-z0-9]{40,}`)
 
 // getProjectHandler returns one project.
 func getProjectHandler(deps *Dependencies) http.HandlerFunc {
