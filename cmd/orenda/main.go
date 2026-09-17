@@ -685,6 +685,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = db.Close() }()
 
+	// T9: the dashboard-chat pipeline needs the synthetic "chat"
+	// actor (study_proposals.created_by_agent FK). Runtime ensure,
+	// by the ensureOwner precedent — migrations must not create
+	// users (015 invariant).
+	if err := sqlite.EnsureChatActor(cmd.Context(), db); err != nil {
+		return err
+	}
+
 	// Calendar events can be created with or without a project — the
 	// event service no longer falls back to a system "Inbox" project,
 	// it simply files events with project_id IS NULL when no project

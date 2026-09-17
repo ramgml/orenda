@@ -325,14 +325,12 @@ func TestChat_PlanDayCreatesProposal(t *testing.T) {
 	)
 	// The chat pipeline stamps proposals with the actor literal
 	// "chat"; study_proposals.created_by_agent has a FK to
-	// agents(id), satisfied by migration 050. Exercise the real
-	// path: apply the migration body (idempotent) instead of
-	// hand-seeding rows.
+	// agents(id), satisfied at runtime by sqlite.EnsureChatActor
+	// (the ensureOwner precedent — migrations must not create
+	// users). Exercise the production path: call the same runtime
+	// ensure runServe calls.
 	ctx := context.Background()
-	mig, err := sqlite.MigrationsFS.ReadFile("migrations/050_chat_actor_seed.sql")
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, string(mig))
-	require.NoError(t, err, "050 seed must apply cleanly")
+	require.NoError(t, sqlite.EnsureChatActor(ctx, db))
 
 	deps := &Dependencies{
 		ChatMessages: sqlite.NewChatMessageRepository(db),
@@ -358,7 +356,7 @@ func TestChat_PlanDayCreatesProposal(t *testing.T) {
 	// The tray read-back: the proposal row the result_ref points
 	// at exists and is pending.
 	var status string
-	err = db.QueryRowContext(context.Background(),
+	err := db.QueryRowContext(context.Background(),
 		`SELECT status FROM study_proposals WHERE id = ?`, resp.ResultRef,
 	).Scan(&status)
 	require.NoError(t, err, "proposal row must exist for the tray")

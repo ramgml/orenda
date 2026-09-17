@@ -189,10 +189,12 @@ func getDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 //   - "/plan day"  → StudyService.Propose with a generic daily-plan
 //     payload. The actor id is the literal "chat";
 //     study_proposals.created_by_agent has a FK to
-//     agents(id), satisfied by migration 050 (seeds the
-//     agents row id='chat'). The /plan result lands in
-//     the study-proposals tray (Phase 31.6); result_ref
-//     is the proposal id.
+//     agents(id), satisfied at runtime by sqlite.EnsureChatActor
+//     (runServe calls it right after migrations; seeds the agents
+//     row id='chat' by the ensureOwner precedent — migrations
+//     must not create users). The /plan result lands in the
+//     study-proposals tray (Phase 31.6); result_ref is the
+//     proposal id.
 //   - "/help"      → static help.
 //   - unknown "/cmd" → acknowledgement reply.
 func dispatchChatCommand(ctx context.Context, deps *Dependencies, body chatPostBody) (*chat.Message, string, error) {
