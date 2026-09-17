@@ -604,12 +604,12 @@ When you're new to the codebase:
 
 For AI agents and contributed PRs:
 
-1. Read the task in the dogfood instance (see `docs/DOGFOOD.md`);
-   `docs/PLAN.md` is a frozen archive of phases ≤ 32 — useful as
+1. Read the task in the dogfood instance (see `docs/context/DOGFOOD.md`);
+   `docs/context/PLAN.md` is a frozen archive of phases ≤ 32 — useful as
    historical context for a phase you touch, not a work queue.
-2. Read this file (`docs/ARCHITECTURE.md`) for the surrounding
+2. Read this file (`docs/context/ARCHITECTURE.md`) for the surrounding
    constraints.
-3. Skim `docs/CONTEXT.md` for the product vocabulary (kanban,
+3. Skim `docs/context/CONTEXT.md` for the product vocabulary (kanban,
    delegation, inbox-as-non-project, course as LMS).
 4. Always work in a worktree. The `main` checkout is someone else's
    live workspace.

@@ -166,7 +166,7 @@ base=`main`). Обратный мерж `main` → `dev` в ту эпоху не
   `promotion-*` ни для новых релизов, ни для хотфиксов; в `main` — только
   через `release-*` / `hotfix-*`.
 
-Заметка о `docs/RELEASE.md`: операционные шаги релиза (CHANGELOG, `VERSION`,
+Заметка о `docs/context/RELEASE.md`: операционные шаги релиза (CHANGELOG, `VERSION`,
 `make lint-new BASE_REF=origin/main` + `make test-full`, тег, GitHub Release,
 `update-dogfood.sh`) описаны там и остаются в силе. Модель ветвления в
 `RELEASE.md` (шаг 2, «промоушн `dev` → `main` через PR») устарела и заменяется
@@ -177,7 +177,7 @@ release-ветками по этому документу; `RELEASE.md` — сн
 
 - `AGENTS.md` — локальные гейки (pre-commit/pre-push, «Agent does not wait on
   CI»), worktree per task, запреты.
-- `docs/DOGFOOD.md` — откуда берётся работа и цикл ревью (PM-review, мерж
+- `docs/context/DOGFOOD.md` — откуда берётся работа и цикл ревью (PM-review, мерж
   владельцем, QA-гейт).
-- `docs/RELEASE.md` — операционные шаги релиза и versioning (снапшот;
+- `docs/context/RELEASE.md` — операционные шаги релиза и versioning (снапшот;
   модель ветвления см. здесь).

@@ -72,7 +72,7 @@ scripts/install.sh --systemd   # собирает, ставит в ~/.local/bin,
 > `scripts/install.sh` — **единственный** санкционированный способ обновить
 > usage-бинарник. Он отказывается ставить из чего-либо, кроме чистого
 > checkout на `main` (переопределяется флагом `--force`). См.
-> [docs/ARCHITECTURE.md §12.4](docs/ARCHITECTURE.md#124-dev-vs-dogfood-instance-phase-2820).
+> [docs/context/ARCHITECTURE.md §12.4](docs/context/ARCHITECTURE.md#124-dev-vs-dogfood-instance-phase-2820).
 
 ### Windows
 
@@ -119,7 +119,7 @@ make dev
 > Phase 28.20 разделяет dev (`:2138`) и usage (`:2137`), чтобы оба могли
 > работать на одной машине. Usage/dogfood-инстанс собирается из отдельного
 > checkout на `main`; модель каналов — в
-> [docs/ARCHITECTURE.md §12.4](docs/ARCHITECTURE.md#124-dev-vs-dogfood-instance-phase-2820),
+> [docs/context/ARCHITECTURE.md §12.4](docs/context/ARCHITECTURE.md#124-dev-vs-dogfood-instance-phase-2820),
 > обновление одной командой — `scripts/update-dogfood.sh`.
 
 Проверка кодовой базы перед открытием PR:

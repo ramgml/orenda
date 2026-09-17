@@ -18,7 +18,7 @@ import (
 func TestSlowRequestThreshold_500ms(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, 500*time.Millisecond, slowRequestThreshold,
-		"slow-request threshold drifted; update docs/SESSION.md if intentional")
+		"slow-request threshold drifted; update docs/context/SESSION.md if intentional")
 }
 
 func TestResetLiveStats(t *testing.T) {

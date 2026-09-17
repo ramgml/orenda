@@ -22,7 +22,7 @@ All JSON. Errors are `{"error": "<code>"}` with a 4xx/5xx status.
 |---|---|---|
 | GET | `/healthz` | `{status, version}` |
 | GET | `/api/v1/info` | `{version, name, capabilities}` |
-| GET | `/api/v1/openapi.yaml` | OpenAPI 3.1 spec (Phase 24). Public, no auth — the spec isn't secret. Embedded at compile time. Canonical copy: `docs/openapi.yaml`; the binary serves the synced copy `internal/api/openapi.yaml`. Drift gate `TestOpenAPI_EmbeddedCopyMatchesDocs` fails when they diverge — resync with `make openapi-sync`. |
+| GET | `/api/v1/openapi.yaml` | OpenAPI 3.1 spec (Phase 24). Public, no auth — the spec isn't secret. Embedded at compile time. Canonical copy: `../openapi.yaml`; the binary serves the synced copy `internal/api/openapi.yaml`. Drift gate `TestOpenAPI_EmbeddedCopyMatchesDocs` fails when they diverge — resync with `make openapi-sync`. |
 | GET | `/api/v1/stats` | uptime + request counters (2xx/3xx/4xx/5xx) + slow-request count + ws subscribers + db file size (Phase 24). Public, no auth |
 | GET | `/api/v1/ws?token=<jwt>` | WebSocket upgrade |
 | POST | `/api/v1/events/await` | long-poll `{topic, timeout_s}` |
@@ -158,7 +158,7 @@ Inline accept / return goes through the standard review endpoint (`POST /api/v1/
 
 The `orenda agent` CLI (Phase 25) is a thin cobra wrapper over the
 agent namespace. Source: `cmd/orenda/agent.go`. See
-`docs/skills/orenda/SKILL.md` for the etiquette + workflow.
+`../skills/orenda/SKILL.md` for the etiquette + workflow.
 
 ## Calendar / Time
 

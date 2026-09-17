@@ -13,7 +13,7 @@
 //
 // Happy path: agent claims the task, creates the PM's
 // «Как протестировать» checklist, adds items, ticks one done —
-// the QA-gate scenario from docs/DOGFOOD.md.
+// the QA-gate scenario from docs/context/DOGFOOD.md.
 package api_test
 
 import (
