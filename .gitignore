@@ -59,12 +59,11 @@ Thumbs.db
 *.log
 logs/
 
-# --- opencode runtime ---
+# --- opencode (local agents/plugins, not for git) ---
+.opencode/
 opencode.json
 opencode.json.tui-migration.bak
 tui.json
-# watchdog plugin: runtime snapshots, not for git
-.opencode/watchdog/state/
 
 # --- omp (assistant-private) ---
 .omp/
