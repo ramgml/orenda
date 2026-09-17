@@ -94,6 +94,28 @@ func postDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 			}
 		}
 
+		// T327: plain text goes through the dialog service so the
+		// "at most one open question per thread" invariant is
+		// enforced at the HTTP boundary too (ErrConflict → 409 —
+		// two racing POSTs must not strand the first question).
+		// Ask persists the row itself, so plain text must be
+		// handled BEFORE the generic Create below. nil-safe: early
+		// fixtures without ChatDialog keep the direct path.
+		if extractCommand(body.Message) == "" && deps.ChatDialog != nil {
+			asked, err := deps.ChatDialog.Ask(r.Context(), userID, body.ThreadID, body.Message)
+			if err != nil {
+				writeChatDialogError(w, err)
+				return
+			}
+			asked.UserID = userID
+			publishChat(r.Context(), deps, asked)
+			writeJSON(w, http.StatusCreated, chatPostResponse{
+				UserMessage: asked,
+				Pending:     true,
+			})
+			return
+		}
+
 		user := &chat.Message{
 			UserID:     userID,
 			ThreadID:   body.ThreadID,
@@ -108,10 +130,10 @@ func postDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		publishChat(r.Context(), deps, user)
 
-		// T9: plain text has no command to dispatch — the message
-		// stays pending and the dashboard agent answers later via
-		// GET /agent/chat/pending + POST /agent/chat/{id}/reply.
-		// Commands (leading "/") dispatch immediately as before.
+		// T9/T327: plain text with ChatDialog == nil (early
+		// fixtures only — production always wires the service)
+		// still stays pending instead of falling into the
+		// unknown-command acknowledgement.
 		if user.Command == "" {
 			writeJSON(w, http.StatusCreated, chatPostResponse{
 				UserMessage: user,
@@ -119,7 +141,6 @@ func postDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 			})
 			return
 		}
-
 		agent, resultRef, err := dispatchChatCommand(r.Context(), deps, body)
 		if err != nil {
 			writeError(w, err)

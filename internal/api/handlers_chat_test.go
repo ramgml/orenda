@@ -191,6 +191,35 @@ func TestChat_PlainTextStaysPending(t *testing.T) {
 	assert.Equal(t, chat.SenderUser, msgs[0].SenderType)
 }
 
+// TestChat_SecondPendingQuestionConflicts pins the T327 guard: the
+// plain-text POST path goes through chatdialog.Ask, so a second
+// POST while a question is still open gets 409 instead of silently
+// stranding the first question (two racing POSTs used to persist
+// two rows; Pending showed only the last, and Reply to the first
+// id returned 409 from the agent side — the first question was
+// lost).
+func TestChat_SecondPendingQuestionConflicts(t *testing.T) {
+	t.Parallel()
+	deps, repo := chatAgentDeps()
+	handler := postDashboardChatHandler(deps)
+
+	post := func() *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]string{"message": "what about lunch"})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/dashboard/chat", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req = req.WithContext(chatUserIDCtx("user-1"))
+		w := httptest.NewRecorder()
+		handler(w, req)
+		return w
+	}
+
+	require.Equal(t, http.StatusCreated, post().Code, "first plain-text POST succeeds")
+	w := post()
+	require.Equal(t, http.StatusConflict, w.Code, "second POST while the question is open → 409")
+	assert.Contains(t, w.Body.String(), "conflict")
+	require.Len(t, repo.msgs, 1, "only the first question is persisted")
+}
+
 // TestChat_RejectsEmpty pins the input validation.
 func TestChat_RejectsEmpty(t *testing.T) {
 	t.Parallel()
