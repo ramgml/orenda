@@ -133,16 +133,18 @@ func slugify(name string) string {
 		default:
 			t, ok := translit[r]
 			if !ok {
-				t = "-" // unknown char: separator
+				// Unknown char (space, punctuation, emoji): separator.
+				if !prevDash {
+					b.WriteByte('-')
+					prevDash = true
+				}
+				continue
 			}
 			if t == "" {
 				continue // silent letter (ъ/ь): drop, no separator
 			}
-			if !prevDash && !strings.HasSuffix(t, "-") {
-				b.WriteByte('-')
-			}
-			b.WriteString(strings.Trim(t, "-"))
-			prevDash = strings.HasSuffix(t, "-")
+			b.WriteString(t)
+			prevDash = false
 		}
 	}
 	out := b.String()
