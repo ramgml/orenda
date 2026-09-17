@@ -15,6 +15,8 @@ import (
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/chat"
 	"github.com/ramgml/orenda/internal/service/chatdialog"
+	studysvc "github.com/ramgml/orenda/internal/service/study"
+	sqlite "github.com/ramgml/orenda/internal/storage/sqlite"
 )
 
 // fakeChatMessages is an in-memory MessageRepository for the chat
@@ -306,4 +308,62 @@ func TestChat_GETScopedToOwner(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Empty(t, resp.Messages)
+}
+
+// TestChat_PlanDayCreatesProposal pins the T9 DoD end-to-end: the
+// user types "/plan day" in the dashboard chat, the command runs
+// the study-proposal pipeline, and the referenced proposal row
+// exists with status='pending' — visible in the proposals tray
+// without any manual task creation.
+func TestChat_PlanDayCreatesProposal(t *testing.T) {
+	t.Parallel()
+	db := copyInternalTemplateDB(t)
+	studySvc := studysvc.New(
+		sqlite.NewStudyProposalRepository(db),
+		sqlite.NewTaskRepository(db),
+		nil, nil,
+	)
+	// study_proposals.created_by_agent has a FK to agents(id); the
+	// chat pipeline stamps actor "chat", so that agent row must
+	// exist (token FK chain like the today-test fixture).
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO users (id, email, password_hash, display_name) VALUES ('user-1', 'chat@t9.local', 'x', 'Alice')`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO api_tokens (id, user_id, name, hash, scopes) VALUES ('t-chat', 'user-1', 'seed', 'h', '[]')`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO agents (id, name, type, token_id, max_concurrent) VALUES ('chat', 'chat', '[]', 't-chat', 3)`)
+	require.NoError(t, err)
+
+	deps := &Dependencies{
+		ChatMessages: sqlite.NewChatMessageRepository(db),
+		StudyService: studySvc,
+		WSHub:        ws.NopHub{},
+	}
+
+	handler := postDashboardChatHandler(deps)
+	body, _ := json.Marshal(map[string]string{"message": "/plan day"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/dashboard/chat", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(chatUserIDCtx("user-1"))
+	w := httptest.NewRecorder()
+	handler(w, req)
+	require.Equal(t, http.StatusCreated, w.Code, "body=%s", w.Body.String())
+
+	var resp chatPostResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp.ResultRef, "plan day returns a proposal reference")
+	require.NotNil(t, resp.AgentMessage)
+	assert.Equal(t, resp.ResultRef, resp.AgentMessage.ResultRef)
+
+	// The tray read-back: the proposal row the result_ref points
+	// at exists and is pending.
+	var status string
+	err = db.QueryRowContext(context.Background(),
+		`SELECT status FROM study_proposals WHERE id = ?`, resp.ResultRef,
+	).Scan(&status)
+	require.NoError(t, err, "proposal row must exist for the tray")
+	assert.Equal(t, "pending", status)
 }

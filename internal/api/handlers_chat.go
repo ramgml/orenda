@@ -187,16 +187,26 @@ func getDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 // returns early when Command is empty; the default arm only sees
 // unknown "/commands"):
 //   - "/plan day"  → StudyService.Propose with a generic daily-plan
-//     payload. The /plan result lands in the study-
-//     proposals tray (Phase 31.6). The result_ref is
-//     the proposal id.
+//     payload. The actor id is the literal "chat";
+//     study_proposals.created_by_agent has a FK to
+//     agents(id), so the deployment must seed an agents
+//     row with id='chat' (see wiki:dashboard-chat setup).
+//     The /plan result lands in the study-proposals
+//     tray (Phase 31.6); result_ref is the proposal id.
 //   - "/help"      → static help.
 //   - unknown "/cmd" → acknowledgement reply.
 func dispatchChatCommand(ctx context.Context, deps *Dependencies, body chatPostBody) (*chat.Message, string, error) {
 	now := time.Now().UTC()
-	cmd := strings.ToLower(strings.TrimSpace(extractCommand(body.Message)))
-	switch cmd {
-	case "/plan day":
+	// Match on the full (lowercased) message, not the
+	// extractCommand token: the token is the first "/word" only,
+	// so "/plan day" yields "/plan" and the case "/plan day"
+	// label can never match on the token alone. Plain text never
+	// reaches here (the handler returns early on Command == ""),
+	// so a HasPrefix dispatch is safe.
+	msg := strings.ToLower(strings.TrimSpace(body.Message))
+	switch {
+	case strings.HasPrefix(msg, "/plan day"):
+		cmd := "/plan day"
 		title := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(body.Message), cmd))
 		if title == "" || title == strings.TrimSpace(body.Message) {
 			title = "Daily plan"
@@ -218,7 +228,7 @@ func dispatchChatCommand(ctx context.Context, deps *Dependencies, body chatPostB
 			ResultRef:  result.Proposal.ID,
 			CreatedAt:  now,
 		}, result.Proposal.ID, nil
-	case "/help":
+	case strings.HasPrefix(msg, "/help"):
 		return &chat.Message{
 			ThreadID:   body.ThreadID,
 			SenderType: chat.SenderAgent,
