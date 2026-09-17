@@ -14,7 +14,7 @@
  * The "typing" indicator is exactly the pending state: we asked
  * and the agent hasn't replied yet.
  */
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 
 import { api } from '@/shared/api/client';
@@ -44,6 +44,19 @@ export function TutorChatPanel({ lessonId }: { lessonId: string }): JSX.Element 
   // Keyed by id so a later refetch (query invalidation) dedupes.
   const [live, setLive] = useState<TutorMessage[]>([]);
 
+  // Live-scroll bookkeeping (T320): each WS turn schedules a
+  // requestAnimationFrame to keep the thread scrolled to the bottom.
+  // If the panel unmounts before the frame fires (jsdom tears the
+  // test DOM down while the frame is still pending), the callback
+  // must not touch the dead node — cancel the frame on unmount.
+  const scrollFrame = useRef<number>(0);
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(scrollFrame.current);
+    },
+    [],
+  );
+
   // Live updates: filter by lesson (events from other lessons must
   // not touch this panel). Dedup on message id — the ask POST
   // result and its WS echo can both arrive.
@@ -54,7 +67,8 @@ export function TutorChatPanel({ lessonId }: { lessonId: string }): JSX.Element 
       if (prev.some((m) => m.id === body.message!.id)) return prev;
       return [...prev, body.message!];
     });
-    requestAnimationFrame(() => {
+    cancelAnimationFrame(scrollFrame.current);
+    scrollFrame.current = requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
     });
   });

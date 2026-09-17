@@ -179,4 +179,52 @@ describe('TutorChatPanel', () => {
     expect(screen.queryByTestId('tutor-msg-agent')).toBeNull();
     expect(screen.getByTestId('tutor-typing')).toBeTruthy();
   });
+
+  it('cancels the pending scroll frame on unmount (T320)', async () => {
+    vi.spyOn(api, 'tutorHistory').mockResolvedValue({ messages: [] });
+
+    // Track (without disabling) the real jsdom rAF queue: jsdom runs
+    // requestAnimationFrame on a real timer, so a frame left pending
+    // across teardown fires AFTER the test and any throw inside it
+    // surfaces as an unhandled post-test error, failing the whole
+    // run (T320). Bind the originals first — globalThis and window
+    // may share the property.
+    const realRAF = window.requestAnimationFrame.bind(window);
+    const realCAF = window.cancelAnimationFrame.bind(window);
+    const scheduled: number[] = [];
+    const cancelled: number[] = [];
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(
+      (cb: FrameRequestCallback): number => {
+        const handle = realRAF((t) => cb(t));
+        scheduled.push(handle);
+        return handle;
+      },
+    );
+    vi.spyOn(globalThis, 'cancelAnimationFrame').mockImplementation((handle: number) => {
+      cancelled.push(handle);
+      realCAF(handle);
+    });
+
+    renderPanel();
+    await waitFor(() => {
+      expect(enabled(screen.getByTestId('tutor-input'))).toBe(true);
+    });
+
+    dispatchTutor({
+      user_id: 'u-1',
+      lesson_id: 'lesson-1',
+      role: 'agent',
+      message: msg({ role: 'agent', body_md: 'scroll me' }),
+    });
+
+    // The accepted event planned exactly one scroll frame.
+    expect(scheduled).toHaveLength(1);
+
+    cleanup();
+
+    // Regression: the frame pending at unmount must be cancelled —
+    // an uncancelled frame outlives the DOM node and its callback
+    // throws `scrollTo is not a function` under the jsdom timer loop.
+    expect(cancelled).toContain(scheduled[0]);
+  });
 });
