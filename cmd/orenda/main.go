@@ -51,6 +51,7 @@ import (
 	activityservice "github.com/ramgml/orenda/internal/service/activity"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	attachmentsvc "github.com/ramgml/orenda/internal/service/attachment"
+	chatdialog "github.com/ramgml/orenda/internal/service/chatdialog"
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
 	courseservice "github.com/ramgml/orenda/internal/service/course"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
@@ -922,6 +923,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		StudyService: studySvc,
 		// Phase 32.11: dashboard chat thread persistence.
 		ChatMessages: sqlite.NewChatMessageRepository(db),
+		// T9: per-user chat thread ownership + the agent dialog
+		// loop over the same repo. usersRepo backs the display
+		// names in the agent's pending queue.
+		ChatThreads: sqlite.NewChatThreadRepository(db),
+		ChatDialog: chatdialog.New(
+			sqlite.NewChatMessageRepository(db),
+			users,
+		),
 		// T16: dialog tutor — lesson-scoped student/agent threads
 		// over tutor_messages; activity rows via the course
 		// recorder wired above.

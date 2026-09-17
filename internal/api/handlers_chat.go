@@ -28,11 +28,14 @@ type chatPostBody struct {
 	Message  string `json:"message"`
 }
 
-// chatPostResponse is the wire shape we return.
+// chatPostResponse is the wire shape we return. agent_message is
+// null and pending=true when the message is plain text — the
+// dashboard agent answers it later via /agent/chat.
 type chatPostResponse struct {
 	UserMessage  *chat.Message `json:"user_message"`
 	AgentMessage *chat.Message `json:"agent_message"`
-	ResultRef    string        `json:"result_ref,omitempty"`
+	ResultRef    string        `json:"result_ref"`
+	Pending      bool          `json:"pending"`
 }
 
 // postDashboardChatHandler — Phase 32.11 minimal chat endpoint.
@@ -65,11 +68,27 @@ func postDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "empty_message"})
 			return
 		}
+		userID := userIDFromCtx(r)
+		if userID == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
 		if body.ThreadID == "" {
 			body.ThreadID = "default"
 		}
 
+		// T9: record thread ownership so only this user can replay
+		// it later. A failed upsert must not eat the message — but
+		// it IS a data bug, so surface it.
+		if deps.ChatThreads != nil {
+			if err := deps.ChatThreads.Upsert(r.Context(), userID, body.ThreadID); err != nil {
+				writeError(w, err)
+				return
+			}
+		}
+
 		user := &chat.Message{
+			UserID:     userID,
 			ThreadID:   body.ThreadID,
 			SenderType: chat.SenderUser,
 			BodyMD:     body.Message,
@@ -82,17 +101,29 @@ func postDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		publishChat(r.Context(), deps, user)
 
+		// T9: plain text has no command to dispatch — the message
+		// stays pending and the dashboard agent answers later via
+		// GET /agent/chat/pending + POST /agent/chat/{id}/reply.
+		// Commands (leading "/") dispatch immediately as before.
+		if user.Command == "" {
+			writeJSON(w, http.StatusCreated, chatPostResponse{
+				UserMessage: user,
+				Pending:     true,
+			})
+			return
+		}
+
 		agent, resultRef, err := dispatchChatCommand(r.Context(), deps, body)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
+		agent.UserID = userID
 		if err := deps.ChatMessages.Create(r.Context(), agent); err != nil {
 			writeError(w, err)
 			return
 		}
 		publishChat(r.Context(), deps, agent)
-
 		writeJSON(w, http.StatusCreated, chatPostResponse{
 			UserMessage:  user,
 			AgentMessage: agent,
@@ -109,11 +140,31 @@ func getDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "chat_not_wired"})
 			return
 		}
+		userID := userIDFromCtx(r)
+		if userID == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
 		thread := chi.URLParam(r, "thread")
 		if thread == "" {
 			thread = "default"
 		}
-		msgs, err := deps.ChatMessages.ListByThread(r.Context(), thread, 50)
+		// T9: only the thread owner replays it. A thread another
+		// user opened (or one that does not exist) is an empty
+		// history — 200 with an empty list, not 404, so the UI
+		// just renders an empty pane.
+		if deps.ChatThreads != nil {
+			owned, err := deps.ChatThreads.Owned(r.Context(), userID, thread)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			if !owned {
+				writeJSON(w, http.StatusOK, map[string]any{"messages": []any{}})
+				return
+			}
+		}
+		msgs, err := deps.ChatMessages.ListByUserThread(r.Context(), userID, thread, 50)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -190,10 +241,15 @@ func extractCommand(msg string) string {
 	return msg[:idx]
 }
 
-// publishChat fans a single message out to the WS "chat" topic so
-// the Dashboard updates live. nil-safe.
+// publishChat fans a single message out to the WS topics so the
+// Dashboard updates live: "chat" keeps the legacy shape (any
+// thread, no user filter); "dashboard-chat" carries the T9 per-user
+// contract — user_id routes the event through the hub's per-user
+// filter, thread_id lets the panel ignore other threads, and
+// sender_type tells the UI when to drop the "agent is typing"
+// indicator. nil-safe.
 func publishChat(ctx context.Context, deps *Dependencies, m *chat.Message) {
-	if deps.WSHub == nil {
+	if deps.WSHub == nil || m == nil {
 		return
 	}
 	deps.WSHub.Publish(ctx, ws.Event{
@@ -201,6 +257,15 @@ func publishChat(ctx context.Context, deps *Dependencies, m *chat.Message) {
 		Body: map[string]any{
 			"thread_id": m.ThreadID,
 			"message":   m,
+		},
+	})
+	deps.WSHub.Publish(ctx, ws.Event{
+		Topic: "dashboard-chat",
+		Body: map[string]any{
+			"user_id":     m.UserID,
+			"thread_id":   m.ThreadID,
+			"sender_type": string(m.SenderType),
+			"message":     m,
 		},
 	})
 }
