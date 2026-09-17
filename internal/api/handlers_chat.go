@@ -276,6 +276,11 @@ func publishChat(ctx context.Context, deps *Dependencies, m *chat.Message) {
 	deps.WSHub.Publish(ctx, ws.Event{
 		Topic: "chat",
 		Body: map[string]any{
+			// user_id scopes the event to its owner: a body
+			// without user_id is a "system" event (hub.go) and
+			// would broadcast to every WS subscriber now that
+			// "chat" is in AllTopics.
+			"user_id":   m.UserID,
 			"thread_id": m.ThreadID,
 			"message":   m,
 		},
