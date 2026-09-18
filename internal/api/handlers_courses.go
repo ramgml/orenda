@@ -423,6 +423,10 @@ type activeCourseProgress struct {
 	OpenLessons     []*openLessonEntry `json:"open_lessons"`
 	LastCompletedAt *string            `json:"last_completed_at,omitempty"`
 	Pace            *activeCoursePace  `json:"pace,omitempty"`
+	// PendingReviews (task 18): open spaced-repetition rows of this
+	// course that are due as of now — the planner mentions them when
+	// pacing proposals ("2 lessons due for review today").
+	PendingReviews int `json:"pending_reviews"`
 }
 
 // activeCoursePace is the per-course pace metrics the planner
@@ -535,6 +539,19 @@ func enrichActiveCourse(ctx context.Context, deps *Dependencies, base map[string
 		LessonsDone:  progress.LessonsDone,
 		OpenLessons:  open,
 	}
+	// Task 18: due spaced-repetition count, best-effort like the pace
+	// lookups — a review-queue failure must not fail the whole agent
+	// course list; the planner reads 0 as "nothing due".
+	if deps.ReviewService != nil {
+		if n, rerr := deps.ReviewService.CountDueInCourse(ctx, courseID, time.Now().UTC()); rerr != nil {
+			if deps.Logger != nil {
+				deps.Logger.Warn("course pending reviews lookup failed",
+					zap.String("course_id", courseID), zap.Error(rerr))
+			}
+		} else {
+			prog.PendingReviews = n
+		}
+	}
 	// Phase 32.12: pace metrics. The drift classifier compares
 	// actual_velocity_per_week against target_velocity_per_week
 	// (target = accepted study proposals / week). When the user
@@ -545,8 +562,8 @@ func enrichActiveCourse(ctx context.Context, deps *Dependencies, base map[string
 	if windowDur <= 0 {
 		windowDur = 14 * 24 * time.Hour
 	}
-	actualPerWeek := float64(velocity.LessonsDoneInWindow) * float64(7*24*time.Hour) / float64(windowDur)
-	targetPerWeek := float64(targetCount) * float64(7*24*time.Hour) / float64(windowDur)
+	actualPerWeek := course.PerWeek(velocity.LessonsDoneInWindow, windowDur)
+	targetPerWeek := course.PerWeek(targetCount, windowDur)
 	prog.Pace = &activeCoursePace{
 		Since:                 velocity.Since.UTC().Format(time.RFC3339),
 		WindowDays:            int(windowDur / (24 * time.Hour)),

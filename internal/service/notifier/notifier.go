@@ -104,6 +104,9 @@ type InboxRepository interface {
 
 	// UnreadCount returns the number of unread notifications per user.
 	UnreadCount(ctx context.Context, userID string) (int, error)
+
+	// MarkAllRead sets read_at for every unread notification of a user.
+	MarkAllRead(ctx context.Context, userID string) error
 }
 
 // SubscriptionRepository is the small surface for bot_subscriptions.

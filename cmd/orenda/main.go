@@ -51,15 +51,19 @@ import (
 	activityservice "github.com/ramgml/orenda/internal/service/activity"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	attachmentsvc "github.com/ramgml/orenda/internal/service/attachment"
+	chatdialog "github.com/ramgml/orenda/internal/service/chatdialog"
 	commentservice "github.com/ramgml/orenda/internal/service/comment"
 	courseservice "github.com/ramgml/orenda/internal/service/course"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 	projectservice "github.com/ramgml/orenda/internal/service/project"
+	projectagent "github.com/ramgml/orenda/internal/service/projectagent"
+	reviewservice "github.com/ramgml/orenda/internal/service/review"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
 	studyservice "github.com/ramgml/orenda/internal/service/study"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
+	tutorsvc "github.com/ramgml/orenda/internal/service/tutor"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 
@@ -682,6 +686,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = db.Close() }()
 
+	// T9: the dashboard-chat pipeline needs the synthetic "chat"
+	// actor (study_proposals.created_by_agent FK). Runtime ensure,
+	// by the ensureOwner precedent — migrations must not create
+	// users (015 invariant).
+	if err := sqlite.EnsureChatActor(cmd.Context(), db); err != nil {
+		return err
+	}
+
 	// Calendar events can be created with or without a project — the
 	// event service no longer falls back to a system "Inbox" project,
 	// it simply files events with project_id IS NULL when no project
@@ -769,7 +781,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		hub,
 		nil, // Recorder wired separately when needed (Phase 3.9+)
 	)
-	_ = agentSvc
+
+	// T330: dedicated per-project agent provisioning. POST /projects
+	// registers project-<number>-<slug> via agentSvc and writes the
+	// single project_agents grant row through the same projects repo.
+	projectAgentSvc := projectagent.New(agentSvc, projects)
 
 	// Event + Time services (Phase 4).
 	// Phase 11: events are stored as tasks with start_at/end_at. The
@@ -809,6 +825,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	courseActivityRecorder := courseservice.NewCourseActivityRecorder(courseActivityRepo)
 	courseActivityRecorder.IdentitySource = identitySourceFromAPI
 	courseSvc = courseSvc.WithActivity(courseActivityRecorder)
+
+	// Task 18: spaced repetition. The review service owns the ladder
+	// and the queue; the course service gets it through the nil-safe
+	// ReviewScheduler seam so CompleteLesson seeds a step-0 review
+	// (due completed_at + 1d) on every flip to done.
+	reviewRepo := sqlite.NewLessonReviewRepository(db)
+	reviewSvc := reviewservice.New(reviewRepo)
+	courseSvc = courseSvc.WithReviews(reviewSvc)
 
 	botRegistry, err := serveBots(cmd.Context(), cfg, logger)
 	if err != nil {
@@ -875,8 +899,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		// instead of a bare "lock_taken".
 		TaskLockHolder: taskLocks,
 		AgentService:   agentSvc,
-		Agents:         sqlite.NewAgentRepository(db),
-		Comments:       commentSvc,
+		// T330: dedicated per-project agent provisioning (project-
+		// <number>-<slug> + grant row) for POST /projects.
+		ProjectAgentProvisioner: projectAgentSvc,
+		Agents:                  sqlite.NewAgentRepository(db),
+		Comments:                commentSvc,
 		Attachments: attachmentServiceFor(attachmentsvc.New(sqlite.NewAttachmentRepository(db), attachmentsvc.Config{
 			UploadDir:    cfg.ResolveUploadsDir(cwdOr(absCfg, ".")),
 			MaxSizeBytes: int64(cfg.Uploads.MaxSizeMB) * 1024 * 1024,
@@ -894,6 +921,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		SearchService:      searchSvc,
 		Courses:            courseRepo,
 		CourseService:      courseSvc,
+		ReviewService:      reviewSvc,
 		CourseActivityRepo: courseActivityRepo,
 		// wiki:agent-project-description — write side for project_activity
 		// rows. The agent-namespace PATCH /agent/projects/{id} emits a
@@ -911,8 +939,24 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		StudyService: studySvc,
 		// Phase 32.11: dashboard chat thread persistence.
 		ChatMessages: sqlite.NewChatMessageRepository(db),
-		Notifier:     notifierSvc,
-		Backup:       backupSvc,
+		// T9: per-user chat thread ownership + the agent dialog
+		// loop over the same repo. usersRepo backs the display
+		// names in the agent's pending queue.
+		ChatThreads: sqlite.NewChatThreadRepository(db),
+		ChatDialog: chatdialog.New(
+			sqlite.NewChatMessageRepository(db),
+			users,
+		),
+		// T16: dialog tutor — lesson-scoped student/agent threads
+		// over tutor_messages; activity rows via the course
+		// recorder wired above.
+		Tutor: tutorsvc.New(
+			sqlite.NewTutorMessageRepository(db),
+			courseRepo,
+		),
+		CourseActivityRecorder: courseActivityRecorder,
+		Notifier:               notifierSvc,
+		Backup:                 backupSvc,
 		// Phase 28.1 polish.1: UI-editable override repo. PUT
 		// /api/v1/backups/settings writes here; GET merges it over
 		// the in-memory cfg (see handlers_backup.go). Settings take

@@ -348,4 +348,72 @@ describe('NotificationsBell', () => {
       expect.arrayContaining(['/wiki/home', '/tasks/42']),
     );
   });
+  it('shows "Mark all read" in the dropdown when there are unread notifications', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        notifications: [makeNotification({ id: 'n-1', read_at: null })],
+        unread: 1,
+      },
+    });
+
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }));
+
+    expect(await screen.findByText('Mark all read')).toBeTruthy();
+  });
+
+  it('hides "Mark all read" when unread is zero', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: { notifications: [], unread: 0 },
+    });
+
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }));
+
+    expect(await screen.findByText('No notifications.')).toBeTruthy();
+    expect(screen.queryByText('Mark all read')).toBeNull();
+  });
+
+  it('"Mark all read" posts to read-all and clears the unread state', async () => {
+    stubHttp.get
+      .mockResolvedValueOnce({
+        data: {
+          notifications: [
+            makeNotification({ id: 'n-1', read_at: null }),
+            makeNotification({ id: 'n-2', read_at: null }),
+          ],
+          unread: 2,
+        },
+      })
+      // After mark-all-read, the refresh GET returns everything read.
+      .mockResolvedValueOnce({
+        data: {
+          notifications: [
+            makeNotification({ id: 'n-1', read_at: '2026-08-12T11:00:00Z' }),
+            makeNotification({ id: 'n-2', read_at: '2026-08-12T11:00:00Z' }),
+          ],
+          unread: 0,
+        },
+      });
+    stubHttp.post.mockResolvedValueOnce({ data: undefined });
+
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }));
+    await screen.findByText('Mark all read');
+
+    fireEvent.click(screen.getByText('Mark all read'));
+
+    await waitFor(() => {
+      expect(stubHttp.post).toHaveBeenCalledWith('/api/v1/notifications/read-all');
+    });
+    await waitFor(() => {
+      // Badge is gone.
+      expect(screen.queryByText('2')).toBeNull();
+    });
+    // The refresh GET returned unread: 0, so the per-item
+    // "mark read" buttons disappeared too.
+    await waitFor(() => {
+      expect(screen.queryByText('mark read')).toBeNull();
+    });
+  });
 });

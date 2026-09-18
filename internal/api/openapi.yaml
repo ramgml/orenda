@@ -63,6 +63,8 @@ tags:
     description: Phase 16: tasks without a project.
   - name: review-queue
     description: Phase 19: tasks awaiting human verdict.
+  - name: reviews
+    description: 'Task 18: spaced-repetition lesson reviews (the ladder seeded by CompleteLesson).'
   - name: today
     description: Phase 20: daily-driver dashboard.
   - name: courses
@@ -200,6 +202,8 @@ components:
             - module_edited
             - status_changed
             - archived
+            - tutor_question
+            - tutor_reply
         payload: { type: string }
         created_at: { type: string, format: date-time }
 
@@ -233,6 +237,9 @@ components:
       properties:
         lessons_total: { type: integer }
         lessons_done: { type: integer }
+        # Task 18: open spaced-repetition reviews of this course that
+        # are due as of now.
+        pending_reviews: { type: integer }
         open_lessons:
           type: array
           items: { $ref: '#/components/schemas/OpenLesson' }
@@ -339,6 +346,75 @@ components:
           type: array
           description: 'Phase 31.7: pending study proposals for the Dashboard tray. Empty array when none.'
           items: { $ref: '#/components/schemas/StudyProposalView' }
+        courses:
+          type: array
+          description: 'Task 30: the owner''s ACTIVE courses with the server-side pace marker. Empty array when none (never null). drift is classified over the same 14-day window as the agent-side course pace.'
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              title: { type: string }
+              drift: { type: string, enum: [ahead, on_track, behind] }
+        # Task 18: spaced-repetition queue. Missed reviews stay here
+        # with overdue=true (informational only — never rendered red,
+        # never moved into the overdue task list).
+        due_reviews:
+          type: array
+          description: 'Task 18: signed-in user''s due lesson reviews (completed_at IS NULL, due_at <= now). Empty array when none.'
+          items: { $ref: '#/components/schemas/TodayReviewView' }
+
+    # Task 18: one due spaced-repetition row on the Today dashboard.
+    TodayReviewView:
+      type: object
+      properties:
+        id: { type: string }
+        lesson_id: { type: string }
+        lesson_title: { type: string }
+        course_id: { type: string }
+        course_title: { type: string }
+        step:
+          type: integer
+          description: 'Ladder position; ReviewStepsDays = [1, 3, 7, 16, 35].'
+        due_at: { type: string, format: date-time }
+        overdue:
+          type: boolean
+          description: 'due_at predates today''s UTC midnight. Informational only.'
+
+    # Task 18: one row of the due review queue (GET /reviews/due).
+    ReviewView:
+      type: object
+      properties:
+        id: { type: string }
+        lesson_id: { type: string }
+        lesson_title: { type: string }
+        course_id: { type: string }
+        course_title: { type: string }
+        step:
+          type: integer
+          description: 'Ladder position; ReviewStepsDays = [1, 3, 7, 16, 35].'
+        due_at: { type: string, format: date-time }
+        last_result:
+          description: 'null for a never-attempted review.'
+          type: string
+          enum: [pass, fail]
+          nullable: true
+
+    # Task 18: response of POST /reviews/{id}/result.
+    ReviewResultResponse:
+      type: object
+      properties:
+        id: { type: string }
+        lesson_id: { type: string }
+        step: { type: integer }
+        due_at: { type: string, format: date-time }
+        last_result:
+          description: 'Outcome of THIS attempt: always pass or fail.'
+          type: string
+          enum: [pass, fail]
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
 
     # Task 107: payload returned by /overview — the system Dashboard.
     OverviewResponse:
@@ -440,6 +516,46 @@ components:
         blocks:
           type: array
           items: { $ref: '#/components/schemas/Block' }
+
+    TutorMessage:
+      type: object
+      description: One turn in a lesson tutoring thread (T16). Thread = (lesson_id, user_id).
+      required: [id, lesson_id, user_id, role, body_md, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        lesson_id: { type: string }
+        user_id: { type: string }
+        role: { type: string, enum: [user, agent] }
+        body_md: { type: string }
+        created_at: { type: string, format: date-time }
+
+    TutorPendingQuestion:
+      type: object
+      description: A pending user question plus the lesson material to answer from (one agent round-trip).
+      allOf:
+        - $ref: '#/components/schemas/TutorMessage'
+        - type: object
+          required: [course_id, course_title, lesson_title, content_md]
+          properties:
+            course_id: { type: string }
+            course_title: { type: string }
+            lesson_title: { type: string }
+            content_md: { type: string }
+            quizzes:
+              type: array
+              description: |
+                Minimal inline quiz shape (mirrors course.Quiz JSON);
+                inlined because no shared Quiz schema exists yet.
+              items:
+                type: object
+                required: [id, lesson_id, position, question_md, kind]
+                properties:
+                  id: { type: string, format: uuid }
+                  lesson_id: { type: string }
+                  position: { type: integer }
+                  question_md: { type: string }
+                  expected_md: { type: string }
+                  kind: { type: string, enum: [open, exact] }
 
 paths:
 
@@ -544,9 +660,46 @@ paths:
       responses: { '200': { description: ok } }
     post:
       tags: [projects]
-      summary: Create a project (auto-creates default board + 5 columns).
+      summary: >-
+        Create a project (auto-creates default board + 5 columns) and
+        provision its dedicated agent (T330: project-<number>-<slug>,
+        type ["custom"], grant row in project_agents).
       security: [{ bearerAuth-cookie: [] }]
-      responses: { '201': { description: created } }
+      responses:
+        '201':
+          description: |
+            created. When agent provisioning succeeded, `agent_token`
+            carries the agent and the plaintext API token — shown
+            exactly once (stored bcrypt-hashed; rotate to re-issue).
+            When provisioning failed, `agent_token` is absent and the
+            X-Agent-Provision-Error header names the failure; the
+            project itself is always created.
+          headers:
+            X-Agent-Provision-Error:
+              description: >-
+                Present only on provisioning failure: error text with
+                token-shaped secrets redacted. The 201 body has no
+                agent_token field in that case.
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: object
+                description: >-
+                  The created Project (id, number, name, color,
+                  description, wiki_slug, owner_id, archived,
+                  agents_allowed, created_at, updated_at) plus the
+                  optional agent_token envelope.
+                properties:
+                  agent_token:
+                    type: object
+                    description: Present only when provisioning succeeded.
+                    required: [agent, plain_token]
+                    properties:
+                      agent: { $ref: '#/components/schemas/Agent' }
+                      plain_token:
+                        type: string
+                        description: New opaque token; shown exactly once.
 
   /api/v1/projects/{id}:
     get:
@@ -1397,6 +1550,71 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/TodayResponse' }
 
+  # ---- reviews (task 18: spaced repetition) ----
+  /api/v1/reviews/due:
+    get:
+      tags: [reviews]
+      summary: Signed-in user's due lesson reviews (completed_at IS NULL, due_at <= now).
+      description: >-
+        Task 18. Rows carry lesson/course titles so the client renders
+        without follow-up fetches. A result recorded on a review never
+        mutates lesson progress.
+      security: [{ bearerAuth-cookie: [] }]
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reviews:
+                    type: array
+                    items: { $ref: '#/components/schemas/ReviewView' }
+        '401': { description: not signed in }
+        '503': { description: review service not wired }
+
+  /api/v1/reviews/{id}/result:
+    post:
+      tags: [reviews]
+      summary: Record the aggregated repeat-session result for one review.
+      description: >-
+        Task 18. The repeat means "answer the lesson's quizzes again"
+        (exact auto-checked, open via the existing review-task flow);
+        this endpoint takes only the aggregated outcome. pass advances
+        the ladder (due = now + steps[step+1]); a pass on the last step
+        (ReviewStepsDays = [1,3,7,16,35]) closes it (completed_at set);
+        fail resets to step 0 (due = now + 1d). Lesson progress is
+        untouched.
+      security: [{ bearerAuth-cookie: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [result]
+              properties:
+                result:
+                  type: string
+                  enum: [pass, fail]
+      responses:
+        '200':
+          description: recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewResultResponse' }
+        '400': { description: invalid or missing result }
+        '401': { description: not signed in }
+        '404': { description: unknown id or a foreign user's review }
+        '409': { description: review already completed (ladder closed) }
+        '503': { description: review service not wired }
+
   # Task 107: system Dashboard — entity counts + activity series.
   /api/v1/overview:
     get:
@@ -1896,6 +2114,13 @@ paths:
       summary: Mark a notification as read.
       security: [{ bearerAuth-cookie: [] }]
       responses: { '200': { description: ok } }
+
+  /api/v1/notifications/read-all:
+    post:
+      tags: [notifications]
+      summary: Mark all notifications as read for the current user.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '204': { description: read } }
 
   /api/v1/notifications/subscriptions:
     get:
@@ -3173,7 +3398,7 @@ paths:
   /api/v1/dashboard/chat:
     post:
       tags: [chat]
-      summary: Post a dashboard chat message ("/plan day" | "/help" | plain echo).
+      summary: Post a dashboard chat message; commands ("/plan day", "/help") dispatch immediately, plain text stays pending for the agent.
       security: [{ cookieAuth: [] }]
       requestBody:
         required: true
@@ -3186,7 +3411,7 @@ paths:
                 thread_id: { type: string, description: 'defaults to "default"' }
                 message: { type: string }
       responses:
-        '201': { description: 'created — { user_message, agent_message, result_ref? }' }
+        '201': { description: 'created — { user_message, agent_message, result_ref, pending }; agent_message is null and pending=true for plain text' }
         '400': { description: invalid_json / empty_message }
         '503': { description: chat_not_wired }
 
@@ -3196,6 +3421,120 @@ paths:
       summary: List chat messages for a thread (history replay, capped at 50; ?limit=N).
       security: [{ cookieAuth: [] }]
       responses: { '200': { description: ok } }
+
+  # ---------------------------------------------------------------------------
+  # T9: dashboard agent chat. The pending queue is derived: a
+  # (user, thread) is pending iff its last message has
+  # sender_type='user'. WS topic "dashboard-chat" fans out every
+  # new message (body carries user_id, thread_id, sender_type,
+  # message).
+  # ---------------------------------------------------------------------------
+  /api/v1/agent/chat/pending:
+    get:
+      tags: [agents]
+      summary: Pending dashboard chat questions — { pending: [{ message, user_id, user_display_name, thread_id }] }.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200':
+          description: ok — { pending: ChatAgentPending[] }
+        '401': { description: unauthorized (user cookie or missing bearer) }
+        '503': { description: chat_not_wired }
+
+  /api/v1/agent/chat/{message_id}/reply:
+    post:
+      tags: [agents]
+      summary: Answer one pending dashboard chat question; the answer lands on the question's (user, thread) (last message becomes sender_type=agent).
+      security: [{ bearerAuth-agent: [] }]
+      parameters:
+        - { name: message_id, in: path, required: true, schema: { type: string }, description: Pending user-message id from /agent/chat/pending }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body_md]
+              properties:
+                body_md: { type: string }
+      responses:
+        '201': { description: 'created — chat.Message (sender_type=agent); emits WS "dashboard-chat"' }
+        '400': { description: invalid_input (empty/whitespace body_md) }
+        '401': { description: unauthorized (user cookie or missing bearer) }
+        '404': { description: not_found (unknown message id) }
+        '409': { description: conflict (the question is no longer pending) }
+
+  # ---------------------------------------------------------------------------
+  # T16: dialog tutor. Lesson-scoped student/agent threads over
+  # tutor_messages. Pending is derived: a thread is pending iff its
+  # last message has role='user'. WS topic "tutor" fans out every
+  # new message (body carries user_id, lesson_id, role, message).
+  # ---------------------------------------------------------------------------
+  /api/v1/lessons/{id}/tutor:
+    get:
+      tags: [courses]
+      summary: Tutor thread history for the current user on this lesson (oldest first; empty thread = empty list).
+      security: [{ bearerAuth-cookie: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string }, description: Lesson id (UUID or L-number ref) }
+      responses:
+        '200':
+          description: ok — { messages: TutorMessage[] }
+        '401': { description: unauthorized }
+        '404': { description: not_found (unknown lesson) }
+    post:
+      tags: [courses]
+      summary: Ask the tutor a question; the thread becomes pending (last message role=user). One open question per thread.
+      security: [{ bearerAuth-cookie: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string }, description: Lesson id (UUID or L-number ref) }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question_md]
+              properties:
+                question_md: { type: string }
+      responses:
+        '201': { description: 'created — TutorMessage (role=user); emits WS "tutor"' }
+        '400': { description: invalid_input (empty/whitespace question_md) }
+        '401': { description: unauthorized }
+        '404': { description: not_found (unknown lesson) }
+        '409': { description: conflict (a question is already pending) }
+
+  /api/v1/agent/tutor/pending:
+    get:
+      tags: [agents]
+      summary: Pending tutor questions with the lesson context embedded (content_md + quizzes) — one call is enough to answer.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200':
+          description: ok — { pending: TutorPendingQuestion[] }
+        '401': { description: unauthorized (user cookie or missing bearer) }
+
+  /api/v1/agent/tutor/{lesson_id}/reply:
+    post:
+      tags: [agents]
+      summary: Answer the lesson's pending tutor question; resolves the thread (last message becomes role=agent).
+      security: [{ bearerAuth-agent: [] }]
+      parameters:
+        - { name: lesson_id, in: path, required: true, schema: { type: string }, description: Lesson id (UUID or L-number ref) }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body_md]
+              properties:
+                body_md: { type: string }
+      responses:
+        '201': { description: 'created — TutorMessage (role=agent); emits WS "tutor"' }
+        '400': { description: invalid_input (empty/whitespace body_md) }
+        '401': { description: unauthorized (user cookie or missing bearer) }
+        '404': { description: not_found (unknown lesson) }
+        '409': { description: conflict (no pending question on the thread) }
 
   # ---- SPA fallback ----
   /{catchAll}:

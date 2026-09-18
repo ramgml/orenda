@@ -116,5 +116,5 @@ type Column struct {
 //
 // Phase 2 will switch this to a configurable list owned by the user; for
 // Phase 1 we ship a fixed sequence that matches the kanban workflow from
-// docs/PRD.md (S4).
+// docs/context/PRD.md (S4).
 var DefaultColumns = []string{"backlog", "todo", "in_progress", "review", "done"}

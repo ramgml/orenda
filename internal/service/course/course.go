@@ -35,6 +35,15 @@ var (
 	ErrLessonLocked = errors.New("course service: lesson is locked")
 )
 
+// ReviewScheduler is the optional spaced-repetition seam (task 18).
+// The default implementation lives in internal/service/review; the
+// course service only needs to know "a lesson was completed, seed the
+// chain". nil-safe — every call site guards `if s.Reviews != nil`,
+// mirroring TaskCreator/ActivityRecorder. Tests pass a stub or nil.
+type ReviewScheduler interface {
+	ScheduleReview(ctx context.Context, lessonID, userID string, completedAt time.Time) error
+}
+
 // TaskCreator is the narrow seam the course service uses to spawn
 // follow-up tasks (Phase 27.4). The default implementation lives in
 // cmd/orenda and reuses the existing task service — the course
@@ -102,6 +111,10 @@ type Service struct {
 	Repo     course.Repository
 	Tasks    TaskCreator      // nil-safe; CreateWithIntent/AnswerQuiz no-op when unset
 	Activity ActivityRecorder // nil-safe; course mutation methods emit activity rows when wired (Phase 32.5)
+	// Reviews is the task-18 spaced-repetition seam. nil-safe: when
+	// unset, CompleteLesson just skips seeding the review chain (older
+	// test fixtures and partial routers keep working unchanged).
+	Reviews ReviewScheduler
 }
 
 func New(repo course.Repository) *Service {
@@ -124,6 +137,16 @@ func (s *Service) WithTaskCreator(tc TaskCreator) *Service {
 func (s *Service) WithActivity(rec ActivityRecorder) *Service {
 	cp := *s
 	cp.Activity = rec
+	return &cp
+}
+
+// WithReviews returns a copy of the service wired to the
+// spaced-repetition scheduler (task 18). Same nil-safe copy pattern as
+// WithTaskCreator — production wiring (cmd/orenda) passes the review
+// service; unit tests pass a stub or leave it unset.
+func (s *Service) WithReviews(rs ReviewScheduler) *Service {
+	cp := *s
+	cp.Reviews = rs
 	return &cp
 }
 
@@ -373,6 +396,21 @@ func (s *Service) CompleteLesson(ctx context.Context, lessonID string) (*course.
 		}
 		if l.ID == lesson.ID {
 			nextUnlocked = true
+		}
+	}
+	// Task 18: seed the spaced-repetition ladder. The owner comes from
+	// ModuleCourseOwner (single-owner install today — the lesson row
+	// itself carries no user_id; the review table is keyed per-user
+	// from day one so multi-student courses won't need a migration).
+	// nil-safe seam: a scheduling failure must NOT fail the completion
+	// — the lesson is done, a missing review chain is an audit gap, not
+	// a user-visible error. The stub-free default implementation lives
+	// in internal/service/review.
+	if s.Reviews != nil {
+		owner, err := s.Repo.ModuleCourseOwner(ctx, lesson.ModuleID)
+		if err == nil {
+			//nolint:errcheck // deliberately swallowed: see comment above.
+			_ = s.Reviews.ScheduleReview(ctx, lesson.ID, owner, *lesson.CompletedAt)
 		}
 	}
 	return lesson, nil

@@ -3,6 +3,47 @@ import type { Task } from './taskDetails';
 import type { ReviewQueueItem } from './taskDetails';
 
 /**
+ * T9: one turn in the Dashboard user/agent chat. Mirrors the
+ * server's chat.Message (internal/domain/chat).
+ */
+export interface ChatMessage {
+  id: string;
+  thread_id: string;
+  sender_type: 'user' | 'agent';
+  body_md: string;
+  /** Set when the user message starts with "/" (e.g. "/plan day"). */
+  command?: string;
+  /** Id of the side-effect a command produced (a study_proposal id for "/plan"). */
+  result_ref?: string;
+  created_at: string;
+}
+
+/**
+ * POST /api/v1/dashboard/chat response. agent_message is null and
+ * pending=true for plain text: the dashboard agent answers later via
+ * /api/v1/agent/chat, and the reply rides in on WS "dashboard-chat".
+ */
+export interface ChatSendResponse {
+  user_message: ChatMessage;
+  agent_message: ChatMessage | null;
+  result_ref: string;
+  pending: boolean;
+}
+
+/**
+ * WS "dashboard-chat" event body: user_id routes the event through
+ * the hub's per-user filter, thread_id lets the panel ignore other
+ * threads, sender_type tells the UI when to drop the typing
+ * indicator.
+ */
+export interface ChatEventBody {
+  user_id: string;
+  thread_id: string;
+  sender_type: 'user' | 'agent';
+  message: ChatMessage;
+}
+
+/**
  * Agent entity (Phase 3 + Phase 28.19 labels).
  */
 export interface Agent {
@@ -26,6 +67,42 @@ export interface Agent {
 // StudyProposalView — Phase 31.9: the lightweight projection the
 // Dashboard tray renders. The full Proposal entity (with body_md,
 // accepted_task_id, resolved_at) stays in the agent namespace.
+// Task 18: one due spaced-repetition row on the Today dashboard.
+// overdue is informational (due_at before today's UTC midnight); the
+// row stays in due_reviews and is never rendered red.
+export interface TodayReviewView {
+  id: string;
+  lesson_id: string;
+  lesson_title: string;
+  course_id: string;
+  course_title: string;
+  step: number;
+  due_at: string;
+  overdue: boolean;
+}
+
+// Task 18: GET /api/v1/reviews/due row (the standalone due queue).
+export interface ReviewView {
+  id: string;
+  lesson_id: string;
+  lesson_title: string;
+  course_id: string;
+  course_title: string;
+  step: number;
+  due_at: string;
+  last_result: 'pass' | 'fail' | null;
+}
+
+// Task 18: POST /api/v1/reviews/{id}/result response.
+export interface ReviewResultResponse {
+  id: string;
+  lesson_id: string;
+  step: number;
+  due_at: string;
+  last_result: 'pass' | 'fail';
+  completed_at: string | null;
+}
+
 export interface StudyProposalView {
   id: string;
   course_id?: string;
@@ -34,6 +111,17 @@ export interface StudyProposalView {
   target_date: string; // YYYY-MM-DD
   agent_id: string;
   created_at: string;
+}
+
+// TodayCourseView — Task 30: the lightweight per-course projection
+// the Today page renders. Drift is computed server-side over the
+// same 14-day window as the agent-side course pace, so the
+// dashboard never flags a course the planner wouldn't. Only active
+// courses of the session user appear.
+export interface TodayCourseView {
+  id: string;
+  title: string;
+  drift: 'ahead' | 'on_track' | 'behind';
 }
 
 // StudyProposalFull — returned by the accept/dismiss endpoints
@@ -181,6 +269,13 @@ export const agentsEndpoints = {
     // Phase 31.9: pending study proposals for the Dashboard tray.
     // Empty array when none; never null.
     proposals: StudyProposalView[];
+    // Task 30: active courses of the session user with the
+    // server-computed drift marker. Empty array when none.
+    courses: TodayCourseView[];
+    // Task 18: due spaced-repetition reviews. Missed reviews stay in
+    // the list with overdue=true — informational only (never red,
+    // never merged into the overdue task list). Empty when none.
+    due_reviews: TodayReviewView[];
   }> {
     return this.http
       .get<{
@@ -191,7 +286,25 @@ export const agentsEndpoints = {
         awaiting_count: number;
         active_timer?: { task_id: string; started_at: string };
         proposals: StudyProposalView[];
+        courses: TodayCourseView[];
+        due_reviews: TodayReviewView[];
       }>(`/api/v1/today`)
+      .then((r) => r.data);
+  },
+
+  // ---- Reviews (Task 18: spaced repetition) ----
+
+  // The signed-in user's due review queue (due_at <= now,
+  // completed_at IS NULL), with lesson/course titles joined.
+  listDueReviews(): Promise<{ reviews: ReviewView[] }> {
+    return this.http.get<{ reviews: ReviewView[] }>(`/api/v1/reviews/due`).then((r) => r.data);
+  },
+
+  // Record the aggregated repeat-session result. pass advances the
+  // ladder; fail resets it. Never mutates lesson progress.
+  postReviewResult(id: string, result: 'pass' | 'fail'): Promise<ReviewResultResponse> {
+    return this.http
+      .post<ReviewResultResponse>(`/api/v1/reviews/${id}/result`, { result })
       .then((r) => r.data);
   },
 
@@ -232,6 +345,29 @@ export const agentsEndpoints = {
   dismissStudyProposal(id: string): Promise<{ proposal: StudyProposalFull }> {
     return this.http
       .post<{ proposal: StudyProposalFull }>(`/api/v1/study-proposals/${id}/dismiss`)
+      .then((r) => r.data);
+  },
+
+  // ---- Dashboard chat (T9) ----
+  //
+  // A thread is (user_id, thread name); the server scopes every read
+  // and write to the session user, so a thread another user opened
+  // replays as an empty list. The panel polls nothing: it loads the
+  // history once and merges live turns from WS "dashboard-chat".
+
+  // Replay one thread for the signed-in user, oldest-first.
+  chatHistory(thread: string): Promise<{ messages: ChatMessage[] }> {
+    return this.http
+      .get<{ messages: ChatMessage[] }>(`/api/v1/dashboard/chat/${thread}`)
+      .then((r) => r.data);
+  },
+
+  // Send one message. Commands ("/plan day", "/help") answer
+  // synchronously; plain text persists as a pending question and the
+  // agent reply arrives over WS "dashboard-chat" later.
+  sendChatMessage(thread: string, message: string): Promise<ChatSendResponse> {
+    return this.http
+      .post<ChatSendResponse>('/api/v1/dashboard/chat', { thread_id: thread, message })
       .then((r) => r.data);
   },
 } satisfies ThisType<ApiClient>;

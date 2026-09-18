@@ -16,6 +16,9 @@ import (
 	"sort"
 	"time"
 
+	"go.uber.org/zap"
+
+	"github.com/ramgml/orenda/internal/domain/course"
 	"github.com/ramgml/orenda/internal/domain/study"
 	"github.com/ramgml/orenda/internal/domain/task"
 )
@@ -39,8 +42,33 @@ type todayResponse struct {
 	UpcomingWeek   []upcomingDay       `json:"upcoming_week"`
 	AwaitingCount  int                 `json:"awaiting_count"`
 	Proposals      []studyProposalView `json:"proposals"`
+	// Courses is the Task 30 slice of the owner's active courses
+	// with the server-side drift marker. Always present (empty
+	// array, never null) so the front-end renders without a
+	// "loading" guard.
+	Courses []todayCourseView `json:"courses"`
+	// DueReviews (task 18): the signed-in user's spaced-repetition
+	// queue (completed_at IS NULL, due_at <= now). Missed reviews stay
+	// here with overdue=true — a lapsed repeat never turns red and
+	// never migrates into the Overdue task list.
+	DueReviews []todayReviewView `json:"due_reviews"`
 	// ActiveTimer is nil when no time entry is open.
 	ActiveTimer *activeTimerView `json:"active_timer,omitempty"`
+}
+
+// todayReviewView is one due spaced-repetition row on the Today
+// dashboard. Overdue flags a review whose due_at predates today's UTC
+// midnight — informational only (slate/indigo section on the client,
+// never red).
+type todayReviewView struct {
+	ID          string `json:"id"`
+	LessonID    string `json:"lesson_id"`
+	LessonTitle string `json:"lesson_title"`
+	CourseID    string `json:"course_id"`
+	CourseTitle string `json:"course_title"`
+	Step        int    `json:"step"`
+	DueAt       string `json:"due_at"`
+	Overdue     bool   `json:"overdue"`
 }
 
 // studyProposalView is the projected shape of a pending study
@@ -56,6 +84,80 @@ type studyProposalView struct {
 	TargetDate string `json:"target_date"`
 	AgentID    string `json:"agent_id"`
 	CreatedAt  string `json:"created_at"`
+}
+
+// todayCourseView is the lightweight per-course projection the
+// Today page renders (Task 30): id/title for the card link plus
+// the drift classification computed server-side. Only active
+// courses of the requesting owner appear; draft/done/archived
+// ones stay out of the dashboard.
+type todayCourseView struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Drift string `json:"drift"` // ahead|on_track|behind
+}
+
+// todayCourses projects the owner's active courses into
+// todayCourseView rows, classifying drift over the same 14-day
+// window the agent-side enrichActiveCourse uses (Task 30 keeps the
+// two surfaces consistent by construction — the per-week math and
+// the classifier are shared).
+//
+// Best-effort: a velocity/target lookup error degrades to
+// drift=on_track with a warn (a broken pace signal must never take
+// the whole dashboard down). deps.StudyProposals is nil-safe —
+// without the repo the target count is 0 and ClassifyDrift returns
+// on_track per its "no data" rule.
+func todayCourses(ctx context.Context, deps *Dependencies, userID string) []todayCourseView {
+	if deps.Courses == nil {
+		return []todayCourseView{}
+	}
+	items, err := deps.Courses.ListCourses(ctx, userID)
+	if err != nil {
+		if deps.Logger != nil {
+			deps.Logger.Warn("today courses list failed", zap.Error(err))
+		}
+		return []todayCourseView{}
+	}
+	now := time.Now().UTC()
+	since := now.Add(-14 * 24 * time.Hour)
+	window := 14 * 24 * time.Hour
+
+	out := make([]todayCourseView, 0)
+	for _, c := range items {
+		if c.Status != course.StatusActive {
+			continue
+		}
+
+		// Actual leg: done lessons in the window. The count is what
+		// PerWeek needs; LastCompletedAt is the tray's concern.
+		actualCount := 0
+		if v, verr := deps.Courses.VelocityStatsByCourse(ctx, c.ID, since); verr != nil {
+			if deps.Logger != nil {
+				deps.Logger.Warn("today course pace velocity lookup failed",
+					zap.String("course_id", c.ID), zap.Error(verr))
+			}
+		} else {
+			actualCount = v.LessonsDoneInWindow
+		}
+
+		// Target leg: accepted study proposals in the same window.
+		var targetCount int
+		if deps.StudyProposals != nil {
+			if n, terr := deps.StudyProposals.CountAcceptedInWindow(ctx, c.ID, since); terr != nil {
+				if deps.Logger != nil {
+					deps.Logger.Warn("today course pace target lookup failed",
+						zap.String("course_id", c.ID), zap.Error(terr))
+				}
+			} else {
+				targetCount = n
+			}
+		}
+
+		drift := course.ClassifyDrift(course.PerWeek(actualCount, window), course.PerWeek(targetCount, window))
+		out = append(out, todayCourseView{ID: c.ID, Title: c.Title, Drift: string(drift)})
+	}
+	return out
 }
 
 // upcomingDay is one row in the "next 7 days" section.
@@ -123,6 +225,15 @@ func getTodayHandler(deps *Dependencies) http.HandlerFunc {
 		// Upcoming week: due dates in (today, today+7d), bucketed by date.
 		week := upcomingWeek(r.Context(), deps, endOfDay)
 
+		// Active courses of the owner with the drift marker (Task 30).
+		// nil-safe: an unwired Courses repo yields an empty array.
+		courses := todayCourses(r.Context(), deps, userID)
+		// Task 18: spaced-repetition queue. nil-safe — early fixtures
+		// don't wire the review service and simply render an empty
+		// section. overdue = due_at < startOfDay (informational; the
+		// row stays in due_reviews, never in the red Overdue list).
+		dueReviews := todayDueReviews(r.Context(), deps, userID, now, startOfDay)
+
 		writeJSON(w, http.StatusOK, todayResponse{
 			Overdue:        overdue,
 			DueToday:       dueToday,
@@ -130,6 +241,8 @@ func getTodayHandler(deps *Dependencies) http.HandlerFunc {
 			UpcomingWeek:   week,
 			AwaitingCount:  awaiting,
 			Proposals:      proposals,
+			Courses:        courses,
+			DueReviews:     dueReviews,
 			ActiveTimer:    active,
 		})
 	}
@@ -348,4 +461,32 @@ func todayActiveTimer(ctx context.Context, deps *Dependencies, userID string) *a
 		}
 	}
 	return nil
+}
+
+// todayDueReviews projects the review service's due queue onto the
+// Today wire shape (task 18). nil-safe on deps.ReviewService.
+func todayDueReviews(ctx context.Context, deps *Dependencies, userID string, now, startOfDay time.Time) []todayReviewView {
+	if deps.ReviewService == nil || userID == "" {
+		return []todayReviewView{}
+	}
+	items, err := deps.ReviewService.ListDue(ctx, userID, now)
+	if err != nil {
+		// The dashboard must render even if the review queue hiccups;
+		// an empty section is the conservative degradation.
+		return []todayReviewView{}
+	}
+	out := make([]todayReviewView, 0, len(items))
+	for _, it := range items {
+		out = append(out, todayReviewView{
+			ID:          it.ID,
+			LessonID:    it.LessonID,
+			LessonTitle: it.LessonTitle,
+			CourseID:    it.CourseID,
+			CourseTitle: it.CourseTitle,
+			Step:        it.Step,
+			DueAt:       it.DueAt.UTC().Format(time.RFC3339),
+			Overdue:     it.DueAt.Before(startOfDay),
+		})
+	}
+	return out
 }

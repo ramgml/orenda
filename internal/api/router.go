@@ -48,13 +48,16 @@ import (
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
+	chatdialog "github.com/ramgml/orenda/internal/service/chatdialog"
 	coursesvc "github.com/ramgml/orenda/internal/service/course"
 	eventservice "github.com/ramgml/orenda/internal/service/event"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
+	reviewsvc "github.com/ramgml/orenda/internal/service/review"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
 	studysvc "github.com/ramgml/orenda/internal/service/study"
 	taskservice "github.com/ramgml/orenda/internal/service/task"
 	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
+	tutorsvc "github.com/ramgml/orenda/internal/service/tutor"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 )
@@ -104,9 +107,15 @@ type Dependencies struct {
 	TaskLockHolder TaskLockHolder
 	Agents         agent.Repository
 	AgentService   *agentservice.Service
-	Comments       CommentService
-	Attachments    AttachmentService
-	Activities     ActivityService
+	// ProjectAgentProvisioner (T330) provisions the dedicated
+	// per-project agent on POST /projects and returns the plaintext
+	// token exactly once. nil-safe: when unwired (early fixtures,
+	// CLI) the 201 response simply carries no agent_token field.
+	ProjectAgentProvisioner ProjectAgentProvisioner
+
+	Comments    CommentService
+	Attachments AttachmentService
+	Activities  ActivityService
 	// ActivityRecorder is the write side for task_activity rows.
 	// nil-safe (handlers must guard). Phase 28.5: wired so
 	// createTaskCommentHandler / addTaskAttachmentHandler can emit
@@ -176,6 +185,10 @@ type Dependencies struct {
 	// not wired (drift classifier then defaults to on_track per the
 	// wiki "don't panic without data" rule).
 	StudyProposals study.Repository
+	// ReviewService (task 18): the spaced-repetition ladder behind
+	// /reviews/due and /today's due_reviews. nil-safe — handlers
+	// return 503 when not wired (early fixtures).
+	ReviewService *reviewsvc.Service
 	// Phase 32.5: course activity repo (read side for /courses/{id}/activity).
 	// nil-safe — handler returns 503 when not wired.
 	CourseActivityRepo CourseActivityRepo
@@ -193,11 +206,33 @@ type Dependencies struct {
 	// nil-safe — handlers return 503 when the repo isn't wired
 	// (e.g. the early Phase 0 fixtures).
 	ChatMessages chat.MessageRepository
+	// T9: per-user chat thread ownership (migration 047). nil-safe
+	// — the dashboard handlers fall back to the shared history
+	// when it isn't wired (early fixtures).
+	ChatThreads chat.ThreadRepository
+	// T9: dashboard agent dialog loop. nil-safe — agent chat
+	// handlers return 503 when the service isn't wired.
+	ChatDialog *chatdialog.Service
+	// T16: dialog tutor. Lesson-scoped student/agent threads over
+	// tutor_messages. nil-safe — tutor handlers return 503 when
+	// the service isn't wired (e.g. the early fixtures).
+	Tutor *tutorsvc.Service
+	// T16: tutor turns write course_activity rows (tutor_question /
+	// tutor_reply). Same seam the course service uses; nil-safe.
+	CourseActivityRecorder *coursesvc.CourseActivityRecorder
 	// RateLimitClose is set by NewRouter to a function that stops
 	// background goroutines (rate-limiter cleanup loops). Callers
 	// SHOULD wire it via t.Cleanup in tests to prevent goroutine
 	// leaks that accumulate across many fixture instantiations.
 	RateLimitClose func()
+}
+
+// ProjectAgentProvisioner is the T330 seam: register the dedicated
+// agent for a fresh project and write its project_agents grant row.
+// *projectagent.Service satisfies it. Kept as an interface so test
+// fixtures can stub provisioning without the storage layer.
+type ProjectAgentProvisioner interface {
+	EnsureProjectAgent(ctx context.Context, p *project.Project, ownerUserID string) (*agentservice.Registered, error)
 }
 
 // CourseActivityRepo is the small read surface needed by the
@@ -312,7 +347,7 @@ func NewRouter(deps *Dependencies) http.Handler {
 	r.Get("/api/v1/stats", getStatsHandler(deps.WSHub, deps.DBPath))
 
 	// Phase 24: machine-readable contract for external agents.
-	// Public — the spec isn't secret, and matching docs/API.md
+	// Public — the spec isn't secret, and matching docs/context/API.md
 	// means "everything documented is reachable".
 	r.Get("/api/v1/openapi.yaml", openAPIHandler())
 
@@ -591,6 +626,18 @@ func NewRouter(deps *Dependencies) http.Handler {
 			r.Put("/lessons/{id}/content", updateLessonContentHandlerUser(deps))
 			// Phase 27.4: quiz answer (user-side).
 			r.Post("/lessons/{id}/quizzes/{qid}/answer", answerQuizHandler(deps))
+			// T16: dialog tutor (user side). Thread history +
+			// asking a question; the agent answers through the
+			// agent-namespace routes below.
+			r.Get("/lessons/{id}/tutor", tutorHistoryHandler(deps))
+			r.Post("/lessons/{id}/tutor", tutorAskHandler(deps))
+
+			// Task 18: spaced-repetition reviews. GET returns the
+			// signed-in user's due queue; POST records the aggregated
+			// repeat-session result (pass advances the ladder, fail
+			// resets it). A result never mutates lesson progress.
+			r.Get("/reviews/due", listDueReviewsHandler(deps))
+			r.Post("/reviews/{id}/result", postReviewResultHandler(deps))
 
 			r.Get("/reports/time", reportTimeHandler(deps))
 
@@ -616,6 +663,7 @@ func NewRouter(deps *Dependencies) http.Handler {
 			// Phase 6: notifications inbox.
 			r.Get("/notifications", listNotificationsHandler(deps))
 			r.Post("/notifications/{id}/read", markNotificationReadHandler(deps))
+			r.Post("/notifications/read-all", markAllNotificationsReadHandler(deps))
 
 			// Phase 10: bot subscriptions.
 			r.Get("/notifications/subscriptions", listSubscriptionsHandler(deps))
@@ -739,6 +787,18 @@ func NewRouter(deps *Dependencies) http.Handler {
 				// RequireAgent so a bearer token resolves through to
 				// the WS hub and the agent id is the filter key.
 				r.Post("/agent/events/await", agentAwaitHandler(deps))
+				// T16: dialog tutor (agent side). The pending
+				// queue embeds the lesson context (content_md +
+				// quizzes); the reply resolves the thread.
+				r.Get("/agent/tutor/pending", tutorPendingHandler(deps))
+				r.Post("/agent/tutor/{lesson_id}/reply", tutorReplyHandler(deps))
+				// T9: dashboard agent chat. The pending
+				// queue lists every (user, thread) whose
+				// last message is a user question; the
+				// reply pins the thread via the message
+				// id in the URL.
+				r.Get("/agent/chat/pending", chatAgentPendingHandler(deps))
+				r.Post("/agent/chat/{message_id}/reply", chatAgentReplyHandler(deps))
 				// Phase 18: courses for the tutor agent.
 				// Phase 29.4/29.5: the agent can also create a course
 				// (owner = first non-system user, generator task

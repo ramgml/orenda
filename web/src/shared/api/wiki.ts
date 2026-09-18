@@ -166,6 +166,10 @@ export const wikiEndpoints = {
   markNotificationRead(id: string): Promise<void> {
     return this.http.post<void>(`/api/v1/notifications/${id}/read`).then(() => undefined);
   },
+
+  markAllNotificationsRead(): Promise<void> {
+    return this.http.post<void>('/api/v1/notifications/read-all').then(() => undefined);
+  },
 } satisfies ThisType<ApiClient>;
 
 /** Method surface contributed by this domain to the ApiClient type. */

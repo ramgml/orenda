@@ -57,6 +57,15 @@ export function NotificationsBell(): JSX.Element {
     }
   }
 
+  async function markAllRead(): Promise<void> {
+    try {
+      await api.markAllNotificationsRead();
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   function parsePayload(n: Notification): Payload {
     try {
       return JSON.parse(n.payload) as Payload;
@@ -91,8 +100,18 @@ export function NotificationsBell(): JSX.Element {
       </PopoverTrigger>
 
       <PopoverContent align="end" sideOffset={8} className="w-80 p-0">
-        <div className="px-3 py-2 border-b border-border text-xs text-slate-500">
-          {unread} unread
+        <div className="px-3 py-2 border-b border-border text-xs text-slate-500 flex justify-between items-center">
+          <span>{unread} unread</span>
+          {unread > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => markAllRead()}
+              className="text-xs text-slate-500 hover:underline h-auto px-1 py-0.5"
+            >
+              Mark all read
+            </Button>
+          )}
         </div>
         {error && <p className="px-3 py-2 text-xs text-red-600">{error}</p>}
         <ul className="max-h-96 overflow-auto divide-y divide-slate-100 dark:divide-slate-800">

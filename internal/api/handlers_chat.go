@@ -16,40 +16,50 @@ import (
 
 // chatPostBody is the wire shape for POST /api/v1/dashboard/chat.
 //
-// Phase 32.11: messages start with "/" for commands. We support:
+// T9: messages starting with "/" are commands, anything else is a
+// plain question for the dashboard agent. Commands:
 //   - "/plan day"     → triggers study-proposal pipeline. Returns the
 //     proposal id in result_ref so the UI can link back.
 //   - "/help"         → static text.
-//   - plain text      → echoes back with an "agent" response that
-//     acknowledges; this is the MVP-only path; free-
-//     form dialogue is a future phase.
+//
+// Plain text (no "/") is persisted as the user's message and left
+// pending — the dashboard agent answers it via /agent/chat.
 type chatPostBody struct {
 	ThreadID string `json:"thread_id"`
 	Message  string `json:"message"`
 }
 
-// chatPostResponse is the wire shape we return.
+// chatPostResponse is the wire shape we return. agent_message is
+// null and pending=true when the message is plain text — the
+// dashboard agent answers it later via /agent/chat.
 type chatPostResponse struct {
 	UserMessage  *chat.Message `json:"user_message"`
 	AgentMessage *chat.Message `json:"agent_message"`
-	ResultRef    string        `json:"result_ref,omitempty"`
+	ResultRef    string        `json:"result_ref"`
+	Pending      bool          `json:"pending"`
 }
 
-// postDashboardChatHandler — Phase 32.11 minimal chat endpoint.
+// postDashboardChatHandler — Phase 32.11 chat endpoint, extended
+// by T9 with per-user threads and the pending-question flow.
 //
-// MVP scope (commands only):
+// Command messages:
 //   - /plan day  → server calls StudyService.Propose with a
 //     generic daily-plan payload. The /plan result lands in the
 //     existing study-proposals tray (Phase 31.6) so the user can
 //     accept/dismiss via the existing UI.
 //   - /help      → static text.
-//   - plain      → echoes a short "received" message.
 //
-// The endpoint persists both messages via ChatMessages so the
-// Dashboard can replay history on page load (ListByThread). Live
-// updates fan out over the WS topic "chat".
+// Plain text: persisted as the user's message and left pending
+// (agent_message=null, pending=true); the dashboard agent
+// answers via GET /agent/chat/pending + POST
+// /agent/chat/{id}/reply.
 //
-// UI side is out of scope for this PR (separate task).
+// The endpoint persists messages via ChatMessages so the
+// Dashboard can replay history on page load (ListByUserThread,
+// scoped to the signed-in user). Live updates fan out over the
+// WS topics "chat" and "dashboard-chat".
+//
+// UI: web/src/features/today/DashboardChatPanel.tsx (T9).
 func postDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.ChatMessages == nil {
@@ -65,11 +75,49 @@ func postDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "empty_message"})
 			return
 		}
+		userID := userIDFromCtx(r)
+		if userID == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
 		if body.ThreadID == "" {
 			body.ThreadID = "default"
 		}
 
+		// T9: record thread ownership so only this user can replay
+		// it later. A failed upsert must not eat the message — but
+		// it IS a data bug, so surface it.
+		if deps.ChatThreads != nil {
+			if err := deps.ChatThreads.Upsert(r.Context(), userID, body.ThreadID); err != nil {
+				writeError(w, err)
+				return
+			}
+		}
+
+		// T327: plain text goes through the dialog service so the
+		// "at most one open question per thread" invariant is
+		// enforced at the HTTP boundary too (ErrConflict → 409 —
+		// two racing POSTs must not strand the first question).
+		// Ask persists the row itself, so plain text must be
+		// handled BEFORE the generic Create below. nil-safe: early
+		// fixtures without ChatDialog keep the direct path.
+		if extractCommand(body.Message) == "" && deps.ChatDialog != nil {
+			asked, err := deps.ChatDialog.Ask(r.Context(), userID, body.ThreadID, body.Message)
+			if err != nil {
+				writeChatDialogError(w, err)
+				return
+			}
+			asked.UserID = userID
+			publishChat(r.Context(), deps, asked)
+			writeJSON(w, http.StatusCreated, chatPostResponse{
+				UserMessage: asked,
+				Pending:     true,
+			})
+			return
+		}
+
 		user := &chat.Message{
+			UserID:     userID,
 			ThreadID:   body.ThreadID,
 			SenderType: chat.SenderUser,
 			BodyMD:     body.Message,
@@ -82,17 +130,28 @@ func postDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		publishChat(r.Context(), deps, user)
 
+		// T9/T327: plain text with ChatDialog == nil (early
+		// fixtures only — production always wires the service)
+		// still stays pending instead of falling into the
+		// unknown-command acknowledgement.
+		if user.Command == "" {
+			writeJSON(w, http.StatusCreated, chatPostResponse{
+				UserMessage: user,
+				Pending:     true,
+			})
+			return
+		}
 		agent, resultRef, err := dispatchChatCommand(r.Context(), deps, body)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
+		agent.UserID = userID
 		if err := deps.ChatMessages.Create(r.Context(), agent); err != nil {
 			writeError(w, err)
 			return
 		}
 		publishChat(r.Context(), deps, agent)
-
 		writeJSON(w, http.StatusCreated, chatPostResponse{
 			UserMessage:  user,
 			AgentMessage: agent,
@@ -109,11 +168,31 @@ func getDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "chat_not_wired"})
 			return
 		}
+		userID := userIDFromCtx(r)
+		if userID == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
 		thread := chi.URLParam(r, "thread")
 		if thread == "" {
 			thread = "default"
 		}
-		msgs, err := deps.ChatMessages.ListByThread(r.Context(), thread, 50)
+		// T9: only the thread owner replays it. A thread another
+		// user opened (or one that does not exist) is an empty
+		// history — 200 with an empty list, not 404, so the UI
+		// just renders an empty pane.
+		if deps.ChatThreads != nil {
+			owned, err := deps.ChatThreads.Owned(r.Context(), userID, thread)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			if !owned {
+				writeJSON(w, http.StatusOK, map[string]any{"messages": []any{}})
+				return
+			}
+		}
+		msgs, err := deps.ChatMessages.ListByUserThread(r.Context(), userID, thread, 50)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -125,18 +204,32 @@ func getDashboardChatHandler(deps *Dependencies) http.HandlerFunc {
 // dispatchChatCommand routes the user message to the right backend
 // side-effect and returns the agent reply + result_ref.
 //
-// Phase 32.11 MVP commands:
+// T9 command set (plain text never reaches here — the handler
+// returns early when Command is empty; the default arm only sees
+// unknown "/commands"):
 //   - "/plan day"  → StudyService.Propose with a generic daily-plan
-//     payload. The /plan result lands in the study-
-//     proposals tray (Phase 31.6). The result_ref is
-//     the proposal id.
+//     payload. The actor id is the literal "chat";
+//     study_proposals.created_by_agent has a FK to
+//     agents(id), satisfied at runtime by sqlite.EnsureChatActor
+//     (runServe calls it right after migrations; seeds the agents
+//     row id='chat' by the ensureOwner precedent — migrations
+//     must not create users). The /plan result lands in the
+//     study-proposals tray (Phase 31.6); result_ref is the
+//     proposal id.
 //   - "/help"      → static help.
-//   - "" (plain)   → echo.
+//   - unknown "/cmd" → acknowledgement reply.
 func dispatchChatCommand(ctx context.Context, deps *Dependencies, body chatPostBody) (*chat.Message, string, error) {
 	now := time.Now().UTC()
-	cmd := strings.ToLower(strings.TrimSpace(extractCommand(body.Message)))
-	switch cmd {
-	case "/plan day":
+	// Match on the full (lowercased) message, not the
+	// extractCommand token: the token is the first "/word" only,
+	// so "/plan day" yields "/plan" and the case "/plan day"
+	// label can never match on the token alone. Plain text never
+	// reaches here (the handler returns early on Command == ""),
+	// so a HasPrefix dispatch is safe.
+	msg := strings.ToLower(strings.TrimSpace(body.Message))
+	switch {
+	case strings.HasPrefix(msg, "/plan day"):
+		cmd := "/plan day"
 		title := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(body.Message), cmd))
 		if title == "" || title == strings.TrimSpace(body.Message) {
 			title = "Daily plan"
@@ -158,7 +251,7 @@ func dispatchChatCommand(ctx context.Context, deps *Dependencies, body chatPostB
 			ResultRef:  result.Proposal.ID,
 			CreatedAt:  now,
 		}, result.Proposal.ID, nil
-	case "/help":
+	case strings.HasPrefix(msg, "/help"):
 		return &chat.Message{
 			ThreadID:   body.ThreadID,
 			SenderType: chat.SenderAgent,
@@ -190,17 +283,36 @@ func extractCommand(msg string) string {
 	return msg[:idx]
 }
 
-// publishChat fans a single message out to the WS "chat" topic so
-// the Dashboard updates live. nil-safe.
+// publishChat fans a single message out to the WS topics so the
+// Dashboard updates live: "chat" keeps the legacy shape (any
+// thread, no user filter); "dashboard-chat" carries the T9 per-user
+// contract — user_id routes the event through the hub's per-user
+// filter, thread_id lets the panel ignore other threads, and
+// sender_type tells the UI when to drop the "agent is typing"
+// indicator. nil-safe.
 func publishChat(ctx context.Context, deps *Dependencies, m *chat.Message) {
-	if deps.WSHub == nil {
+	if deps.WSHub == nil || m == nil {
 		return
 	}
 	deps.WSHub.Publish(ctx, ws.Event{
 		Topic: "chat",
 		Body: map[string]any{
+			// user_id scopes the event to its owner: a body
+			// without user_id is a "system" event (hub.go) and
+			// would broadcast to every WS subscriber now that
+			// "chat" is in AllTopics.
+			"user_id":   m.UserID,
 			"thread_id": m.ThreadID,
 			"message":   m,
+		},
+	})
+	deps.WSHub.Publish(ctx, ws.Event{
+		Topic: "dashboard-chat",
+		Body: map[string]any{
+			"user_id":     m.UserID,
+			"thread_id":   m.ThreadID,
+			"sender_type": string(m.SenderType),
+			"message":     m,
 		},
 	})
 }

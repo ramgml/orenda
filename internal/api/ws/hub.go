@@ -35,6 +35,12 @@ var AllTopics = []string{
 	"projects",
 	"timers",
 	"wiki",
+	"tutor",
+	// T9: dashboard agent chat. "chat" is the legacy firehose;
+	// "dashboard-chat" carries the per-user body (user_id,
+	// thread_id, sender_type, message) the chat panel filters on.
+	"chat",
+	"dashboard-chat",
 }
 
 // Event is the wire shape sent over WebSocket. Subscribers receive the raw

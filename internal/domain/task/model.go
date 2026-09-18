@@ -1,6 +1,6 @@
 // Package task holds the Task domain entity and related value objects.
 //
-// Phase 1 implements the minimum surface required by docs/PRD.md F-T-1..F-T-9:
+// Phase 1 implements the minimum surface required by docs/context/PRD.md F-T-1..F-T-9:
 // CRUD, subtasks, checklists, tags, statuses, priority, assignee, awaiting.
 // Phase 3 will add atomic claim/release and review flow.
 package task

@@ -21,6 +21,7 @@ import { AxiosError } from 'axios';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { TodayPage } from '@/features/today/TodayPage';
 import { wsClient } from '@/shared/ws';
@@ -53,11 +54,23 @@ afterEach(() => {
 });
 
 function mount(initialEntries?: string[]) {
+  // Task 268: the page tree runs real queries (the TodayPage data
+  // fetch and, since T9, the DashboardChatPanel history query), so
+  // every render sits inside a QueryClientProvider (retry off to
+  // keep failures loud). Fresh client per render — shared caches
+  // leak state across tests.
   return render(
-    <MemoryRouter initialEntries={initialEntries ?? ['/']}>
-      <TodayPage />
-    </MemoryRouter>,
+    <QueryClientProvider client={qc()}>
+      <MemoryRouter initialEntries={initialEntries ?? ['/']}>
+        <TodayPage />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
+}
+
+/** Fresh client per render — shared caches leak state across tests. */
+function qc(): QueryClient {
+  return new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
 }
 
 /**
@@ -120,6 +133,7 @@ const emptyToday = {
   upcoming_week: [],
   awaiting_count: 0,
   proposals: [],
+  courses: [],
 };
 
 describe('TodayPage', () => {
@@ -501,10 +515,12 @@ describe('TodayPage', () => {
 
     const navigations: Array<{ pathname: string; state: unknown }> = [];
     render(
-      <MemoryRouter initialEntries={['/']}>
-        <RouteProbe onNavigate={(loc) => navigations.push(loc)} />
-        <TodayPage />
-      </MemoryRouter>,
+      <QueryClientProvider client={qc()}>
+        <MemoryRouter initialEntries={['/']}>
+          <RouteProbe onNavigate={(loc) => navigations.push(loc)} />
+          <TodayPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
 
     fireEvent.click(await screen.findByText('Open me as modal'));
@@ -535,10 +551,12 @@ describe('TodayPage', () => {
       return null;
     }
     render(
-      <MemoryRouter initialEntries={['/']}>
-        <RecordingProbe />
-        <TodayPage />
-      </MemoryRouter>,
+      <QueryClientProvider client={qc()}>
+        <MemoryRouter initialEntries={['/']}>
+          <RecordingProbe />
+          <TodayPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
 
     fireEvent.click(await screen.findByText('stop'));
@@ -547,5 +565,140 @@ describe('TodayPage', () => {
     expect(last.pathname).toBe('/tasks/abc12345-deadbeef');
     expect(last.search).toBe('');
     expect(last.state).toEqual({ backgroundLocation: expect.objectContaining({ pathname: '/' }) });
+  });
+
+  // --- Task 30: courses section with the soft drift marker ---
+  //
+  // The drift classification is computed server-side; the page only
+  // decides whether the "behind pace" marker shows. behind → marker,
+  // on_track/ahead → card without a marker, empty → no section.
+
+  it('renders the soft "behind pace" marker on a drifting course card', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        ...emptyToday,
+        courses: [{ id: 'c-1', title: 'Rust', drift: 'behind' }],
+      },
+    });
+
+    mount();
+
+    const card = await screen.findByTestId('today-course-card');
+    expect(card).toBeTruthy();
+    expect(card.textContent).toContain('Rust');
+    expect(screen.getByTestId('course-drift-behind')).toBeTruthy();
+
+    // Soft marker contract: links to the course, no red.
+    const marker = screen.getByTestId('course-drift-behind');
+    expect(marker.className).toContain('text-amber-700');
+    expect(marker.className).not.toContain('text-red');
+  });
+
+  it('renders a course card without a marker when drift is on_track', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        ...emptyToday,
+        courses: [{ id: 'c-2', title: 'Go deep dive', drift: 'on_track' }],
+      },
+    });
+
+    mount();
+
+    const card = await screen.findByTestId('today-course-card');
+    expect(card.textContent).toContain('Go deep dive');
+    expect(screen.queryByTestId('course-drift-behind')).toBeNull();
+  });
+
+  it('renders a course card without a marker when drift is ahead', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: {
+        ...emptyToday,
+        courses: [{ id: 'c-3', title: 'Algorithms', drift: 'ahead' }],
+      },
+    });
+
+    mount();
+
+    const card = await screen.findByTestId('today-course-card');
+    expect(card.textContent).toContain('Algorithms');
+    expect(screen.queryByTestId('course-drift-behind')).toBeNull();
+  });
+
+  it('does not render the courses section when courses is empty', async () => {
+    stubHttp.get.mockResolvedValueOnce({ data: emptyToday });
+    mount();
+    await screen.findByText(/Day is clear\./);
+    expect(screen.queryByTestId('today-courses-section')).toBeNull();
+    expect(screen.queryByTestId('today-course-card')).toBeNull();
+  });
+});
+
+// ---- Task 18: Reviews due section ----
+
+const reviewRow = (overdue: boolean) => ({
+  id: 'rv-1',
+  lesson_id: 'l-1',
+  lesson_title: 'Channels',
+  course_id: 'c-1',
+  course_title: 'Go Deep',
+  step: overdue ? 2 : 0,
+  due_at: overdue ? '2026-08-10T10:00:00Z' : '2026-08-12T10:00:00Z',
+  overdue,
+});
+
+describe('TodayPage — reviews due (task 18)', () => {
+  it('renders the reviews-due section when reviews are due', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: { ...emptyToday, due_reviews: [reviewRow(false)] },
+    });
+
+    mount();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('reviews-due')).toBeTruthy();
+    });
+    expect(screen.getByText('Channels')).toBeTruthy();
+    expect(screen.getByText(/Go Deep/)).toBeTruthy();
+    // Neutral colors only — no red section appears for due reviews.
+    const section = screen.getByTestId('reviews-due');
+    expect(section.className).not.toMatch(/red/);
+    expect(section.querySelector('button')?.textContent).toMatch(/Reviewed/);
+  });
+
+  it('keeps a missed (overdue) review in the reviews-due list — never in the red overdue section', async () => {
+    stubHttp.get.mockResolvedValueOnce({
+      data: { ...emptyToday, due_reviews: [reviewRow(true)] },
+    });
+
+    mount();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('reviews-due')).toBeTruthy();
+    });
+    // Still listed with the "missed" badge…
+    expect(screen.getByText('Channels')).toBeTruthy();
+    expect(screen.getByText('missed')).toBeTruthy();
+    // …and no "Overdue" task section header is rendered for it
+    // (the Overdue section renders only when data.overdue is
+    // non-empty; here it is empty).
+    // The Overdue section itself renders with an empty task list —
+    // the invariant is that the review row never appears inside it.
+    // The reviews row and the overdue empty-text live in sibling
+    // sections: the review row's container must not be the same
+    // element that holds the Overdue task list.
+    const li = screen.getByText('Channels').closest('li');
+    expect(li?.textContent).toContain('missed');
+    expect(li?.parentElement?.closest('section')?.getAttribute('data-testid')).toBe('reviews-due');
+  });
+
+  it('renders no reviews-due section when the queue is empty', async () => {
+    stubHttp.get.mockResolvedValueOnce({ data: { ...emptyToday } });
+
+    mount();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Day is clear/)).toBeTruthy();
+    });
+    expect(screen.queryByTestId('reviews-due')).toBeNull();
   });
 });
