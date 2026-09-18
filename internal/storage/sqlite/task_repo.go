@@ -909,7 +909,7 @@ func (r *taskRepo) ListAgentStarved(ctx context.Context) ([]task.AgentStarvedIte
 	if err != nil {
 		return nil, fmt.Errorf("task.ListAgentStarved: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := make([]task.AgentStarvedItem, 0)
 	for rows.Next() {
 		var (
