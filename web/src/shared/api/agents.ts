@@ -1,6 +1,6 @@
 import type { ApiClient } from './core';
 import type { Task } from './taskDetails';
-import type { ReviewQueueItem } from './taskDetails';
+import type { ReviewQueueItem, AgentStarvedItem } from './taskDetails';
 
 /**
  * T9: one turn in the Dashboard user/agent chat. Mirrors the
@@ -255,6 +255,23 @@ export const agentsEndpoints = {
 
   getReviewQueueCount(): Promise<{ count: number }> {
     return this.http.get<{ count: number }>(`/api/v1/review-queue/count`).then((r) => r.data);
+  },
+
+  // ---- Agent-starved queue (T336) ----
+  //
+  // awaiting='agent' work in projects no agent can reach (Task 140
+  // scope filter). The kanban board surfaces a warning banner from
+  // this; the task rows deep-link into the project settings where
+  // the fix lives (open the project or grant the agent).
+
+  listAgentStarved(): Promise<{ tasks: AgentStarvedItem[]; count: number }> {
+    return this.http
+      .get<{ tasks: AgentStarvedItem[]; count: number }>(`/api/v1/agent-starved`)
+      .then((r) => r.data);
+  },
+
+  getAgentStarvedCount(): Promise<{ count: number }> {
+    return this.http.get<{ count: number }>(`/api/v1/agent-starved/count`).then((r) => r.data);
   },
 
   // ---- Today (Phase 20) ----

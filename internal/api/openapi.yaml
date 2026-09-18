@@ -1537,6 +1537,29 @@ paths:
       security: [{ bearerAuth-cookie: [] }]
       responses: { '200': { description: ok } }
 
+  # ---- agent-starved (T336) ----
+  /api/v1/agent-starved:
+    get:
+      tags: [review-queue]
+      summary: Open tasks with awaiting=agent stranded in projects no agent can reach (T336).
+      description: |
+        Owner-side visibility for the silent-starvation failure mode of
+        the Task 140 project-scope filter: a task with awaiting='agent'
+        in a project where agents_allowed = 0 and NO grant rows exist
+        can never appear in /agent/tasks?ready=true — the agent queue
+        answers "no work" while the board shows agent-facing work.
+        Rows carry {task, project_name, agent_grants} (agent_grants is
+        always 0 for returned rows).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/agent-starved/count:
+    get:
+      tags: [review-queue]
+      summary: Cheap count of agent-starved tasks (T336).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
   # ---- today ----
   /api/v1/today:
     get:

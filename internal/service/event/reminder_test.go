@@ -140,6 +140,12 @@ func (f *fakeRepo) ListAwaitingReview(context.Context) ([]task.ReviewQueueItem, 
 	return nil, nil
 }
 
+// ListAgentStarved is unused by the reminder path; T336 added it to
+// the interface and the fake has to satisfy the contract.
+func (f *fakeRepo) ListAgentStarved(context.Context) ([]task.AgentStarvedItem, error) {
+	return nil, nil
+}
+
 // Phase 15: dependency methods on the fake (reminder path doesn't
 // touch them; the empty implementation just keeps the contract).
 func (f *fakeRepo) AddDependency(context.Context, string, string) error {

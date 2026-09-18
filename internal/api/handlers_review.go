@@ -62,3 +62,55 @@ func reviewQueueCountHandler(deps *Dependencies) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, map[string]any{"count": len(items)})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Agent-starved queue (T336)
+// ---------------------------------------------------------------------------
+//
+// The owner-side half of the Task 140 project-scope filter: tasks
+// with awaiting='agent' in projects where agents_allowed = 0 and no
+// grant rows exist. Those rows can never surface through
+// /agent/tasks?ready=true — the agent queue answers "no work" while
+// the board says agents have work. These endpoints make the
+// starvation visible instead of silent:
+//
+//	GET /api/v1/agent-starved        — {tasks: [...], count: N}
+//	GET /api/v1/agent-starved/count  — {count: N} (badge/announcement use)
+//
+// Same owner-only posture as /review-queue (RequireUser).
+
+// listAgentStarvedHandler returns stranded agent-awaiting work with
+// the project name and grant count denormalised per row.
+func listAgentStarvedHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.Tasks == nil {
+			http.Error(w, "task repo not wired", http.StatusServiceUnavailable)
+			return
+		}
+		items, err := deps.Tasks.ListAgentStarved(r.Context())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"tasks": items,
+			"count": len(items),
+		})
+	}
+}
+
+// agentStarvedCountHandler returns just the count.
+func agentStarvedCountHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if deps.Tasks == nil {
+			http.Error(w, "task repo not wired", http.StatusServiceUnavailable)
+			return
+		}
+		items, err := deps.Tasks.ListAgentStarved(r.Context())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"count": len(items)})
+	}
+}

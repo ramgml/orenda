@@ -550,6 +550,15 @@ func NewRouter(deps *Dependencies) http.Handler {
 				r.Get("/count", reviewQueueCountHandler(deps))
 			})
 
+			// T336: agent-starved queue — awaiting=agent work stranded
+			// in projects no agent can reach. Owner-side visibility for
+			// the silent-starvation failure mode of the Task 140
+			// project-scope filter.
+			r.Route("/agent-starved", func(r chi.Router) {
+				r.Get("/", listAgentStarvedHandler(deps))
+				r.Get("/count", agentStarvedCountHandler(deps))
+			})
+
 			// Phase 20: Today screen — single round-trip with overdue,
 			// due-today, scheduled-today, awaiting count, active timer.
 			r.Get("/today", getTodayHandler(deps))

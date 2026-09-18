@@ -878,6 +878,62 @@ func (r *taskRepo) ListAwaitingReview(ctx context.Context) ([]task.ReviewQueueIt
 }
 
 // ---------------------------------------------------------------------------
+// Agent-starved queue (T336)
+// ---------------------------------------------------------------------------
+//
+// Open tasks with awaiting='agent' that live in a project closed to
+// the whole agent fleet: agents_allowed = 0 AND zero grant rows in
+// project_agents. The Task 140 visibility filter hides these rows
+// from /agent/tasks?ready=true, while the board still says
+// "awaiting=agent" — silent starvation of the delegation loop. The
+// NOT EXISTS probe on project_agents is the same index-backed
+// pattern AgentAccessibleProjectIDs uses.
+//
+// Rows come newest-first so the owner sees freshest stranded work
+// at the top; the project name is joined for the board warning.
+
+func (r *taskRepo) ListAgentStarved(ctx context.Context) ([]task.AgentStarvedItem, error) {
+	const q = `
+		SELECT t.id, t.number, t.title, t.status, t.awaiting,
+		       COALESCE(p.name, '') AS project_name,
+		       (SELECT COUNT(*) FROM project_agents pa WHERE pa.project_id = t.project_id) AS grants
+		FROM tasks t
+		JOIN projects p ON p.id = t.project_id
+		WHERE t.awaiting = 'agent'
+		  AND t.status NOT IN ('done', 'rejected')
+		  AND p.agents_allowed = 0
+		  AND NOT EXISTS (SELECT 1 FROM project_agents pa WHERE pa.project_id = p.id)
+		ORDER BY t.updated_at DESC, t.created_at DESC
+	`
+	rows, err := r.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("task.ListAgentStarved: %w", err)
+	}
+	defer rows.Close()
+	out := make([]task.AgentStarvedItem, 0)
+	for rows.Next() {
+		var (
+			item        task.AgentStarvedItem
+			projectName string
+			grants      int
+			status      string
+			awaiting    string
+		)
+		item.Task = &task.Task{}
+		if err := rows.Scan(&item.Task.ID, &item.Task.Number, &item.Task.Title,
+			&status, &awaiting, &projectName, &grants); err != nil {
+			return nil, fmt.Errorf("task.ListAgentStarved: scan: %w", err)
+		}
+		item.Task.Status = task.Status(status)
+		item.Task.Awaiting = task.Awaiting(awaiting)
+		item.ProjectName = projectName
+		item.AgentGrants = grants
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+// ---------------------------------------------------------------------------
 // Tags (Phase 13)
 // ---------------------------------------------------------------------------
 //
