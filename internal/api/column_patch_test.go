@@ -3,6 +3,7 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -40,6 +41,10 @@ type colFixtures struct {
 	// interface above). nil when not wired — callers should prefer
 	// the narrow `tasks` for seeding.
 	taskRepo task.Repository
+	// T339: raw handle for repos not on the fixture (time entries,
+	// agents) plus the owner id for rows that reference a user.
+	db      *sql.DB
+	ownerID string
 }
 
 func columnDeps(t *testing.T) colFixtures {
@@ -95,6 +100,8 @@ func columnDeps(t *testing.T) colFixtures {
 		cols:      cols,
 		tasks:     repo,
 		taskRepo:  repo,
+		db:        db,
+		ownerID:   u.ID,
 	}
 }
 
