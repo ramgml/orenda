@@ -17,6 +17,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [0.22.0] — 2026-09-18
+
+Minor release. Focus: the agent chat lands in the product (Dashboard chat with pending/reply threads over WS, plain-text guard against stranded questions), LMS post-MVP wave one (dialog tutor, spaced repetition reviews, today drift marker), the project → auto-provisioned dedicated agent, CLI user deletion with refusal guards, and a batch of docs/UX hygiene fixes. Migrations 045–049.
+
+### Added
+- **Task 9 (PR #230):** agent chat in the Dashboard — commands-only pane plus free dialog with the agent: per-user chat threads (migration 047), `chat_messages.user_id` with index (migrations 048–049), `POST /dashboard/chat` with `pending=true` while the agent works, WS topic `dashboard-chat` for live fan-out, agent reply path via `chatdialog.Ask`; the chat actor is seeded idempotently at startup (`EnsureChatActor` — migrations stay user-free, invariant 015 kept); UI chat panel on Today with proposals-tray invalidation; legacy chat WS events scoped to their owner (sec-review, medium).
+- **Task 16 (PR #223):** LMS dialog tutor — `tutor_messages` (migration 045), tutor service + REST handlers + WS topic, `TutorChatPanel` on LessonPage (history, ask, live WS reply), openapi paths/schemas.
+- **Task 18 (PR #224):** LMS spaced repetition — `lesson_reviews` (migration 046), review service ladder with a `CompleteLesson` seam, `/reviews/due` + `/reviews/{id}/result` endpoints, Today «reviews due» section, API client reviews methods.
+- **Task 30 (PR #222):** Today courses section with a server-side drift marker — plan-vs-fact coverage of study tasks rendered per course; `ActualVelocityPerWeek` docs aligned with the 14-day fallback; seeded-course data race fixed.
+- **Task 330 (PR #234):** project creation auto-provisions a dedicated agent — `POST /projects` in one transaction registers the agent (`project-<number>-<slug>`, collision suffix), mints its API token, and writes the `project_agents` grant (the project itself stays `agents_allowed=0` per the task-140 closed-by-default model); the one-time plaintext token returns in the 201 body as `agent_token`; provisioning failure degrades to `201` + `X-Agent-Provision-Error` (secrets redacted) instead of failing the create; archive keeps the agent, delete cascades the grant; openapi synced.
+- **Task 328 (PR #233):** CLI `orenda user delete` — `--email`/`--id` with a `--yes` confirmation; refusal guards for the system agent-owner, the last owner and preview users; `--force` deletes all of the user's courses through the DeleteCourse cascade path; a preflight blocker count plus an atomic courses+user transaction fix a review-caught ordering bug where `projects.owner_id` FK aborted the delete only AFTER courses were already gone; table-driven tests cover refuse-leaves-DB-untouched and post-project-delete residue.
+- **Task 280 (PR #221):** notifications mark-all-read endpoint + bell button.
+- **Task 319 (PR #227):** legacy QA screenshot archives removed from the repo.
+
+### Changed
+- **Task 324 (PR #231):** docs — «User management on dogfood» in `docs/context/DOGFOOD.md`: `user create/reset-password` must run the server binary with the server config (a checkout-local binary writes to the checkout's own DB — reproduced live as 401 on :2137); the `qa@*.local` naming convention for disposable test users.
+- **Task 293 (PR #226):** development docs moved to `docs/context/` with rewritten links.
+- **Task 292 (PR #225):** `.opencode/` gitignored and untracked.
+
+### Fixed
+- **Task 327 (PR #232):** plain-text dashboard chat routed through `chatdialog.Ask` BEFORE the generic insert — previously a second POST while a question was pending silently stranded the first one (security-review finding, low); now `409` via the existing `writeChatDialogError` mapping, WS fan-out and `pending=true` contract preserved; regression test pins two-POST → `201/409` with exactly one stored row; fixture-only nil-ChatDialog builds keep the old path.
+- **Task 320 (PR #228):** flaky `TutorChatPanel` teardown — root cause: uncancelled WS scroll rAF firing after unmount.
+- **Task 322 (PR #229):** `outbox.test.ts` mock-store leak between tests (fresh IndexedDB store per test).
+
 ## [0.21.0] — 2026-09-15
 
 Minor release. Focus: internal quality — the frontend's server-state handling is unified on TanStack Query and the SPA API layer is split into domain modules, plus two Go-side cleanups. No user-facing features; no schema changes.
