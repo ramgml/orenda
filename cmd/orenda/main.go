@@ -57,6 +57,7 @@ import (
 	eventservice "github.com/ramgml/orenda/internal/service/event"
 	notifierservice "github.com/ramgml/orenda/internal/service/notifier"
 	projectservice "github.com/ramgml/orenda/internal/service/project"
+	projectagent "github.com/ramgml/orenda/internal/service/projectagent"
 	reviewservice "github.com/ramgml/orenda/internal/service/review"
 	searchservice "github.com/ramgml/orenda/internal/service/search"
 	studyservice "github.com/ramgml/orenda/internal/service/study"
@@ -780,7 +781,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		hub,
 		nil, // Recorder wired separately when needed (Phase 3.9+)
 	)
-	_ = agentSvc
+
+	// T330: dedicated per-project agent provisioning. POST /projects
+	// registers project-<number>-<slug> via agentSvc and writes the
+	// single project_agents grant row through the same projects repo.
+	projectAgentSvc := projectagent.New(agentSvc, projects)
 
 	// Event + Time services (Phase 4).
 	// Phase 11: events are stored as tasks with start_at/end_at. The
@@ -894,8 +899,11 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		// instead of a bare "lock_taken".
 		TaskLockHolder: taskLocks,
 		AgentService:   agentSvc,
-		Agents:         sqlite.NewAgentRepository(db),
-		Comments:       commentSvc,
+		// T330: dedicated per-project agent provisioning (project-
+		// <number>-<slug> + grant row) for POST /projects.
+		ProjectAgentProvisioner: projectAgentSvc,
+		Agents:                  sqlite.NewAgentRepository(db),
+		Comments:                commentSvc,
 		Attachments: attachmentServiceFor(attachmentsvc.New(sqlite.NewAttachmentRepository(db), attachmentsvc.Config{
 			UploadDir:    cfg.ResolveUploadsDir(cwdOr(absCfg, ".")),
 			MaxSizeBytes: int64(cfg.Uploads.MaxSizeMB) * 1024 * 1024,

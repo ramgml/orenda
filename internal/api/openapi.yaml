@@ -660,9 +660,46 @@ paths:
       responses: { '200': { description: ok } }
     post:
       tags: [projects]
-      summary: Create a project (auto-creates default board + 5 columns).
+      summary: >-
+        Create a project (auto-creates default board + 5 columns) and
+        provision its dedicated agent (T330: project-<number>-<slug>,
+        type ["custom"], grant row in project_agents).
       security: [{ bearerAuth-cookie: [] }]
-      responses: { '201': { description: created } }
+      responses:
+        '201':
+          description: |
+            created. When agent provisioning succeeded, `agent_token`
+            carries the agent and the plaintext API token — shown
+            exactly once (stored bcrypt-hashed; rotate to re-issue).
+            When provisioning failed, `agent_token` is absent and the
+            X-Agent-Provision-Error header names the failure; the
+            project itself is always created.
+          headers:
+            X-Agent-Provision-Error:
+              description: >-
+                Present only on provisioning failure: error text with
+                token-shaped secrets redacted. The 201 body has no
+                agent_token field in that case.
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: object
+                description: >-
+                  The created Project (id, number, name, color,
+                  description, wiki_slug, owner_id, archived,
+                  agents_allowed, created_at, updated_at) plus the
+                  optional agent_token envelope.
+                properties:
+                  agent_token:
+                    type: object
+                    description: Present only when provisioning succeeded.
+                    required: [agent, plain_token]
+                    properties:
+                      agent: { $ref: '#/components/schemas/Agent' }
+                      plain_token:
+                        type: string
+                        description: New opaque token; shown exactly once.
 
   /api/v1/projects/{id}:
     get:
