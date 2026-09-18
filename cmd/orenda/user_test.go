@@ -24,7 +24,7 @@ func writeConfig(t *testing.T, path string, cfg *config.Config) {
 	t.Helper()
 	f, err := os.Create(path)
 	require.NoError(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	require.NoError(t, yaml.NewEncoder(f).Encode(cfg))
 }
 
@@ -81,7 +81,7 @@ func TestRunUserCreate_Success(t *testing.T) {
 		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
 	})
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
 
 	repo := sqlite.NewUserRepository(db)
@@ -224,7 +224,7 @@ func TestRunUserResetPassword_Success(t *testing.T) {
 		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
 	})
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
 
 	repo := sqlite.NewUserRepository(db)
@@ -308,7 +308,7 @@ func TestRunUserResetPassword_AutoPickSingleUser(t *testing.T) {
 		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
 	})
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	require.NoError(t, sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"))
 
 	repo := sqlite.NewUserRepository(db)
