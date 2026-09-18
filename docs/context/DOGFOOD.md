@@ -50,7 +50,9 @@
 - **Preview-инстанс**: PM собирает бинарь из worktree (`make build`), мигрирует отдельный `data/`
   внутри worktree (`./bin/orenda migrate up`), поднимает на свободном порту из **21400–21499**
   (2137 — usage, 2138 — dev, 21371 — E2E заняты), создаёт тестового юзера
-  (`./bin/orenda user create`). Процесс — долгоживущий (`hub start review-t<N>`, persist), гасится
+  (`./bin/orenda user create` — worktree-CLI здесь корректен: БД preview
+  локальна для worktree; отличие догфуда :2137 — см. «User management
+  на догфуде» ниже). Процесс — долгоживущий (`hub start review-t<N>`, persist), гасится
   гигиен-сканом PM после мержа.
 - **Чеклист читается воркером нативно (T96)**: чеклисты задачи видны агенту через
   `orenda agent checklists <task>` / MCP `orenda_checklists_list`, а держатель лока может
@@ -58,6 +60,42 @@
   `--done` / `orenda_checklist_item_update` — владельцу видно в таймлайне, что именно
   воркер проверил. Чтение открыто любому агенту (в т.ч. до claim), мутации — только
   держателю лока (403 `not_lock_holder`).
+
+### User management на догфуде (2026-09-17)
+
+`orenda user create/reset-password` — прямая запись в SQLite; HTTP-клиента у
+этих команд нет (env `ORENDA_URL` / `ORENDA_AGENT_TOKEN` действуют только на
+agent/mcp-proxy поверхность). Чья БД — определяется конфигом `-c`
+(по умолчанию `data/config.yaml` → `data/orenda.db` **текущего каталога**):
+
+- **checkout/worktree CLI** (`./bin/orenda user …`) пишет в `data/orenda.db`
+  чекаута/worktree. Это правильно для preview-инстансов QA-гейта (их БД
+  локальна) и локальных экспериментов;
+- **dogfood-инстанс :2137** запущен со своим конфигом
+  (`/home/aero/.local/share/orenda/config.yaml`) и своей БД
+  (`/home/aero/.local/share/orenda/orenda.db`). Юзер, созданный
+  чекаут-CLI, серверу :2137 невидим: логин даёт 401 `invalid_credentials`,
+  хотя `user list` чекаута «фантома» показывает.
+
+Управлять юзерами догфуда — серверным бинарником с серверным конфигом:
+
+```bash
+echo '<password>' | /home/aero/.local/bin/orenda \
+  -c /home/aero/.local/share/orenda/config.yaml \
+  user create --email <email> --display-name '<name>' --password-stdin
+```
+
+`reset-password` — так же. Пароль ≥ 8 символов, `\r\n` на stdin триммится.
+Пути в примере — раскладка этой машины; принцип общий: бинарник и конфиг
+того инстанса, чью БД меняешь.
+
+**Тестовые юзеры.** Команды удаления в CLI нет, поэтому накопленные
+qa/probe-юзеры (qa@t160*.local, probe@nowhere.local, …) в обеих БД —
+мёртвый балласт: строка с bcrypt-хэшем, логин только по паролю, инстанс
+loopback-локальный. Конвенция: новые QA-юзеры называть единообразно
+`qa@*.local` — будущая чистка сведётся к одному списку. Реальная зачистка
+требует CLI-команды `user delete` (код, а не доки) — задача #328 в бэклоге
+инстанса.
 
 ## Правило новой работы
 
