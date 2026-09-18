@@ -743,6 +743,10 @@ func NewRouter(deps *Dependencies) http.Handler {
 					// triages it through the existing review queue.
 					r.Post("/", agentCreateTaskHandler(deps))
 					r.Route("/{id}", func(r chi.Router) {
+						// T337: lightweight single-task read — the task
+						// row only; comments/activity/children/checklists
+						// stay on /context.
+						r.Get("/", agentGetTaskHandler(deps))
 						r.Patch("/", agentPatchTaskHandler(deps))
 						r.Delete("/", agentDeleteTaskHandler(deps))
 						r.Post("/claim", agentClaimTaskHandler(deps))

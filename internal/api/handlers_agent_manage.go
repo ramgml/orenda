@@ -1,6 +1,6 @@
-// Package api — Phase 33.2: agent-side task management endpoints.
+// Package api — Phase 33.2 + T337: agent-side task management endpoints.
 //
-//	GET    /api/v1/agent/tasks/{id}              — single-task read (TODO)
+//	GET    /api/v1/agent/tasks/{id}              — single-task read (T337)
 //	PATCH  /api/v1/agent/tasks/{id}              — edit own un-triaged proposal
 //	                                            or update agent_notes when holder
 //	DELETE /api/v1/agent/tasks/{id}              — retract own un-triaged proposal
@@ -55,6 +55,42 @@ type agentTaskPatchInput struct {
 	// pointer keeps "absent" and "[]" (clear all) apart on the wire.
 	BlockedBy  *[]string `json:"blocked_by"`
 	AgentNotes string    `json:"agent_notes"`
+}
+
+// agentGetTaskHandler returns a single task to the bearer agent
+// (T337). Lightweight read: the task row only, same shape as the
+// flat listing's rows minus the blockers/ready enrichment —
+// comments, activity, children and checklists stay on /context.
+// Per-claim private fields (agent_notes, context_md) are scrubbed
+// unless the caller is the current holder, mirroring the context
+// handler's posture.
+func agentGetTaskHandler(deps *Dependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := IdentityFrom(r.Context())
+		if !ok || id.AgentID == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if deps.Tasks == nil {
+			http.Error(w, "task repo not wired", http.StatusServiceUnavailable)
+			return
+		}
+		// "T42" resolves to the UUID (same resolver as every other
+		// /agent/tasks/{id} route); unknown ref → 404 with the
+		// friendly "task T42 not found" body.
+		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
+		if rerr != nil {
+			writeResolveError(w, rerr)
+			return
+		}
+		tr, err := deps.Tasks.GetByID(r.Context(), taskID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		scrubTaskForNonHolder(tr, id.AgentID)
+		writeJSON(w, http.StatusOK, tr)
+	}
 }
 
 // agentPatchTaskHandler applies a PATCH to /api/v1/agent/tasks/{id}.

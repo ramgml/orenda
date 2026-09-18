@@ -521,6 +521,7 @@ env > project config > global config.`,
 	cmd.AddCommand(newAgentNextCmd())
 	cmd.AddCommand(newAgentProposeCmd())
 	cmd.AddCommand(newAgentContextCmd())
+	cmd.AddCommand(newAgentGetCmd())
 	cmd.AddCommand(newAgentClaimCmd())
 	cmd.AddCommand(newAgentReleaseCmd())
 	cmd.AddCommand(newAgentSubmitCmd())
@@ -1130,6 +1131,41 @@ func newAgentContextCmd() *cobra.Command {
 				return err
 			}
 			return printJSON(cmd, v)
+		},
+	}
+}
+
+func newAgentGetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "get <task-id|#N>",
+		Short: "Fetch a single task (lightweight; full snapshot lives in context)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			raw, code, err := ctx.agentGet(cmd.Context(),
+				"/api/v1/agent/tasks/"+url.PathEscape(args[0]))
+			if err != nil {
+				return err
+			}
+			if code != http.StatusOK {
+				return fmt.Errorf("agent get: HTTP %d: %s", code, raw)
+			}
+			var v struct {
+				ID     string `json:"id"`
+				Number int    `json:"number"`
+				Title  string `json:"title"`
+			}
+			if err := json.Unmarshal(raw, &v); err == nil {
+				printTaskRefHeader(cmd, v.Number, v.Title, v.ID)
+			}
+			var any1 any
+			if err := json.Unmarshal(raw, &any1); err != nil {
+				return err
+			}
+			return printJSON(cmd, any1)
 		},
 	}
 }

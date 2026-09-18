@@ -261,6 +261,108 @@ func TestAgent_ContextProposerSeesOwnContextBeforeClaim(t *testing.T) {
 		"context_md is per-claim private; pre-claim proposer is not yet the holder")
 }
 
+// ---- T337: GET /api/v1/agent/tasks/{id} — single-task read ----
+
+func (f *proposeFixture) getAsAgentToken(t *testing.T, id, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/tasks/"+id, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	f.router.ServeHTTP(rr, req)
+	return rr
+}
+
+func TestAgent_GetTask_OK(t *testing.T) {
+	t.Parallel()
+	f := newProposeFixture(t)
+	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var proposed task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
+
+	rr = f.getAsAgentToken(t, proposed.ID, f.token)
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+	var got task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+	assert.Equal(t, proposed.ID, got.ID)
+	assert.Equal(t, proposed.Title, got.Title)
+	assert.Equal(t, proposed.Number, got.Number)
+}
+
+func TestAgent_GetTask_ByNumber_OK(t *testing.T) {
+	t.Parallel()
+	f := newProposeFixture(t)
+	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var proposed task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
+
+	rr = f.getAsAgentToken(t, fmt.Sprintf("T%d", proposed.Number), f.token)
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+	var got task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+	assert.Equal(t, proposed.ID, got.ID)
+}
+
+func TestAgent_GetTask_UnknownRef_404(t *testing.T) {
+	t.Parallel()
+	f := newProposeFixture(t)
+
+	// Unknown T-ref: 404 with the friendly "task T42 not found" body.
+	rr := f.getAsAgentToken(t, "T999999", f.token)
+	require.Equal(t, http.StatusNotFound, rr.Code)
+	assert.Contains(t, rr.Body.String(), "task T999999 not found")
+
+	// Unknown UUID: 404 not_found.
+	rr = f.getAsAgentToken(t, "00000000-0000-0000-0000-000000000000", f.token)
+	require.Equal(t, http.StatusNotFound, rr.Code)
+	assert.Contains(t, rr.Body.String(), "not_found")
+}
+
+func TestAgent_GetTask_Unauthenticated_401(t *testing.T) {
+	t.Parallel()
+	f := newProposeFixture(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/tasks/T1", nil)
+	rr := httptest.NewRecorder()
+	f.router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
+func TestAgent_GetTask_ScrubsNotesForNonHolder(t *testing.T) {
+	t.Parallel()
+	// Same posture as /context: agent_notes + context_md are
+	// per-claim private — a non-holder GET sees them scrubbed.
+	// (context_md can't be set through the propose surface — the
+	// request struct doesn't decode it — so the holder side of this
+	// assertion covers agent_notes, the one private field PATCH can
+	// actually write.)
+	f := newProposeFixture(t)
+	rr := f.proposeAsAgent(t, validProposeBody(f.projectID))
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var proposed task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proposed))
+
+	moveTaskToColumn(t, f, proposed.ID, f.todoColID)
+	rr = f.claimAsAgent(t, proposed.ID)
+	require.Equal(t, http.StatusOK, rr.Code)
+	rr = f.patchAsAgent(t, proposed.ID, map[string]any{"agent_notes": "secret"})
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	agentB := registerSecondAgent(t, f, "get-scrub-reader")
+	rr = f.getAsAgentToken(t, proposed.ID, agentB.PlainToken)
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+	var got task.Task
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+	assert.Empty(t, got.AgentNotes, "agent_notes must be scrubbed for non-holder")
+	assert.Empty(t, got.ContextMD, "context_md must be scrubbed for non-holder")
+
+	// The holder reads their notes back.
+	rr = f.getAsAgentToken(t, proposed.ID, f.token)
+	require.Equal(t, http.StatusOK, rr.Code)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+	assert.Equal(t, "secret", got.AgentNotes)
+}
+
 func TestAgent_ContextAnyAgent_OK(t *testing.T) {
 	t.Parallel()
 	f := newProposeFixture(t)
