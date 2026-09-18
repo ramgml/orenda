@@ -394,18 +394,20 @@ func (r *taskRepo) aggregateCounters(ctx context.Context, ids []string) (map[str
 	if err != nil {
 		return nil, fmt.Errorf("aggregateCounters.timer: %w", err)
 	}
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var id string
 		var n int
 		if err := rows.Scan(&id, &n); err != nil {
-			rows.Close()
 			return nil, err
 		}
 		c := out[id]
 		c.TimerRunning = n > 0
 		out[id] = c
 	}
-	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("aggregateCounters.timer: %w", err)
+	}
 
 	return out, nil
 }
