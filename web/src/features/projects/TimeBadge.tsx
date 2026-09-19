@@ -23,10 +23,10 @@ export function TimeBadge({
   estimateS: number | null;
   spentS: number;
   /**
-   * True when a single-active-timer row is open (started_at != null
-   * && completed_at == null). The kanban's bulk-list payload doesn't
-   * carry this — we infer it from the field pair so the operator
-   * doesn't need a follow-up call to spot a leaked timer.
+   * True when an open time entry exists for the task (T339: wired
+   * from counters.timer_running by both the kanban list payload and
+   * the single-task GET, so the operator doesn't need a follow-up
+   * call to spot a leaked timer).
    */
   timerActive: boolean;
 }): JSX.Element | null {

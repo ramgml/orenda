@@ -116,6 +116,10 @@ interface TaskCounters {
   children_done: number;
   checklist_total: number;
   checklist_done: number;
+  /** T339: an open time entry exists for this task (ended_at IS NULL).
+   * Populated by the list endpoints and the single-task GET; the card
+   * renders the pulsing timer dot from this flag. */
+  timer_running: boolean;
 }
 
 export interface Comment {

@@ -384,7 +384,46 @@ func (r *taskRepo) aggregateCounters(ctx context.Context, ids []string) (map[str
 	}
 	rows.Close()
 
+	// T339: open time entries. One query over the batch's task ids;
+	// the single-active-timer invariant caps each task at one open
+	// row, so COUNT > 0 ⇔ the card renders the pulsing dot.
+	q = `SELECT task_id, COUNT(*) FROM time_entries
+	      WHERE task_id IN (` + placeholders + `) AND ended_at IS NULL
+	      GROUP BY task_id`
+	rows, err = r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("aggregateCounters.timer: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		c := out[id]
+		c.TimerRunning = n > 0
+		out[id] = c
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("aggregateCounters.timer: %w", err)
+	}
+
 	return out, nil
+}
+
+// CountersForTask returns the Counters bundle for one task (T339).
+// It delegates to the batch aggregator — a single id keeps the same
+// query set as the kanban list, so both surfaces can't drift.
+func (r *taskRepo) CountersForTask(ctx context.Context, taskID string) (task.Counters, error) {
+	if taskID == "" {
+		return task.Counters{}, sql.ErrNoRows
+	}
+	out, err := r.aggregateCounters(ctx, []string{taskID})
+	if err != nil {
+		return task.Counters{}, err
+	}
+	return out[taskID], nil
 }
 
 // aggregateBlockers returns the open-blocker count per task id.
