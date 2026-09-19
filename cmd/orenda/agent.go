@@ -419,7 +419,7 @@ func (a *agentCtx) doRaw(ctx context.Context, method, path string, body io.Reade
 	if err != nil {
 		return nil, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // best-effort: body already read or request failed
 	raw, _ := io.ReadAll(resp.Body)
 	return raw, resp.StatusCode, nil
 }
@@ -1445,7 +1445,7 @@ func newAgentChecklistItemUpdateCmd() *cobra.Command {
 				return fmt.Errorf("agent checklist-item-update: HTTP %d: %s", code, raw)
 			}
 			if code == http.StatusNoContent {
-				fmt.Fprintln(cmd.OutOrStdout(), "updated")
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "updated") // stdout status line
 				return nil
 			}
 			var v any
@@ -1478,7 +1478,7 @@ func newAgentChecklistItemDeleteCmd() *cobra.Command {
 			if code != http.StatusNoContent && code != http.StatusOK {
 				return fmt.Errorf("agent checklist-item-delete: HTTP %d: %s", code, raw)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "deleted")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "deleted") // stdout status line
 			return nil
 		},
 	}
@@ -1579,7 +1579,7 @@ func newAgentRetractCmd() *cobra.Command {
 				return fmt.Errorf("agent retract: HTTP %d: %s", code, raw)
 			}
 			if code == http.StatusNoContent {
-				fmt.Fprintln(cmd.OutOrStdout(), "retracted")
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "retracted") // stdout status line
 				return nil
 			}
 			var v any

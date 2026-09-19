@@ -845,7 +845,10 @@ paths:
   /api/v1/projects/{id}/tasks:
     get:
       tags: [projects, tasks]
-      summary: List tasks in a project (Phase 17: enriched with counters + blocked_by_count).
+      summary: >-
+        List tasks in a project (Phase 17: enriched with counters +
+        blocked_by_count; T339: counters.timer_running — an open time
+        entry exists for the task, drives the card's pulsing timer dot).
       security: [{ bearerAuth-cookie: [] }]
       parameters:
         - in: query
@@ -959,7 +962,10 @@ paths:
   /api/v1/tasks/{id}:
     get:
       tags: [tasks]
-      summary: Get a single task.
+      summary: >-
+        Get a single task. T339: the response carries the counters
+        bundle (timer_running) so the task view renders the same
+        live time badge as the kanban card.
       security: [{ bearerAuth-cookie: [] }]
       responses:
         '200': { description: ok }

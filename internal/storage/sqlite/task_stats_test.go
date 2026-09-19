@@ -2,12 +2,17 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/task"
+	"github.com/ramgml/orenda/internal/domain/timeentry"
+	"github.com/ramgml/orenda/internal/domain/user"
 )
 
 // Phase 17: aggregate counters on the list endpoint.
@@ -169,4 +174,70 @@ func TestTaskRepo_ListByProjectWithStats_BlockedPrevRoundTrip(t *testing.T) {
 			assert.Empty(t, tk.BlockedPrevStatus, "plain row stays NULL")
 		}
 	}
+}
+
+// T339: the timer flag rides in the counters bundle. An open
+// time_entries row (ended_at IS NULL) ⇒ Counters.TimerRunning; a
+// closed entry or no entry ⇒ false. CountersForTask (the single-task
+// GET shape) must agree with the batch list aggregation.
+func TestTaskRepo_ListByProjectWithStats_TimerRunning(t *testing.T) {
+	db := setupUserDB(t)
+	p, col := setupTaskProject(t, db)
+	ctx := context.Background()
+	repo := NewTaskRepository(db)
+	timeEntries := NewTimeEntryRepository(db)
+
+	timed := &task.Task{ProjectID: p.ID, ColumnID: col.ID, Title: "timed"}
+	closed := &task.Task{ProjectID: p.ID, ColumnID: col.ID, Title: "closed"}
+	plain := &task.Task{ProjectID: p.ID, ColumnID: col.ID, Title: "plain"}
+	for _, tk := range []*task.Task{timed, closed, plain} {
+		require.NoError(t, repo.Create(ctx, tk))
+	}
+
+	users := NewUserRepository(db)
+	owner := &user.User{
+		Email: "t339-" + newUUID()[:8] + "@x.com", PasswordHash: "x", DisplayName: "O",
+	}
+	require.NoError(t, users.Create(ctx, owner))
+	tok, err := NewAPITokenRepository(db).Create(ctx, owner.ID, "t339-tok", "fake", "[]", nil)
+	require.NoError(t, err)
+	agentRow := &agent.Agent{Name: "t339-" + newUUID()[:6], TokenID: tok.ID}
+	require.NoError(t, NewAgentRepository(db).Create(ctx, agentRow))
+
+	now := time.Now().Truncate(time.Second)
+	_, err = timeEntries.Create(ctx, &timeentry.TimeEntry{
+		TaskID: timed.ID, AgentID: agentRow.ID, StartedAt: now, Source: timeentry.SourceTimer,
+	})
+	require.NoError(t, err)
+	done := now.Add(-time.Hour)
+	_, err = timeEntries.Create(ctx, &timeentry.TimeEntry{
+		TaskID: closed.ID, AgentID: agentRow.ID, StartedAt: done, EndedAt: &now,
+		DurationS: &[]int64{3600}[0],
+	})
+	require.NoError(t, err)
+
+	got, err := repo.ListByProjectWithStats(ctx, task.Filter{ProjectID: p.ID})
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	byID := map[string]*task.Task{}
+	for _, tk := range got {
+		byID[tk.ID] = tk
+	}
+	require.NotNil(t, byID[timed.ID].Counters)
+	assert.True(t, byID[timed.ID].Counters.TimerRunning, "open entry ⇒ timer_running")
+	require.NotNil(t, byID[closed.ID].Counters)
+	assert.False(t, byID[closed.ID].Counters.TimerRunning, "closed entry ⇒ no pulse")
+	require.NotNil(t, byID[plain.ID].Counters)
+	assert.False(t, byID[plain.ID].Counters.TimerRunning, "no entry ⇒ no pulse")
+
+	// Single-task GET shape agrees with the batch aggregation.
+	c, err := repo.CountersForTask(ctx, timed.ID)
+	require.NoError(t, err)
+	assert.True(t, c.TimerRunning)
+	c, err = repo.CountersForTask(ctx, plain.ID)
+	require.NoError(t, err)
+	assert.False(t, c.TimerRunning)
+	assert.Equal(t, 0, c.Comments, "plain task: zero-valued bundle, not missing key")
+	_, err = repo.CountersForTask(ctx, "")
+	assert.ErrorIs(t, err, sql.ErrNoRows, "empty id is rejected, not a silent zero")
 }

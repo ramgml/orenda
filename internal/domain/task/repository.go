@@ -198,6 +198,13 @@ type Repository interface {
 	SetTaskTags(ctx context.Context, taskID string, tagIDs []string) error
 	TagsForTasks(ctx context.Context, taskIDs []string) (map[string][]Tag, error)
 
+	// CountersForTask returns the per-task Counters bundle (T339)
+	// for a single task — the same shape ListByProjectWithStats
+	// aggregates in batch. The single-task GET populates the
+	// TimerRunning flag from it so the task view's time badge sees
+	// the live open-timer state without a per-card follow-up call.
+	CountersForTask(ctx context.Context, taskID string) (Counters, error)
+
 	// ---- Task dependencies (Phase 15) ----
 	//
 	// A "dependency" means "this task can't be claimed until the

@@ -268,6 +268,13 @@ func getTaskHandler(deps *Dependencies) http.HandlerFunc {
 		if tags, terr := deps.Tasks.ListTagsForTask(r.Context(), tr.ID); terr == nil {
 			tr.Tags = tags
 		}
+		// T339: the task view renders the same time badge as the
+		// kanban card, so the single-task GET carries the counters
+		// bundle too — but only the timer flag the badge needs (the
+		// list endpoints own the full counters aggregation).
+		if c, cerr := deps.Tasks.CountersForTask(r.Context(), tr.ID); cerr == nil {
+			tr.Counters = &c
+		}
 		writeJSON(w, http.StatusOK, tr)
 	}
 }
