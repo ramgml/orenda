@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/knip/schema.json",
   "entry": ["e2e/**/*.spec.ts", "src/**/*.test.{ts,tsx}"],
+  "ignore": ["dist/**"],
   "ignoreIssues": {
     "src/shared/ui/{badge,button,calendar,card,dialog,dropdown-menu,select,tooltip}.tsx": [
       "exports",
