@@ -275,7 +275,7 @@ func (u *userRepoAdapterForTest) ListAll(_ context.Context) ([]ownerRecord, erro
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := make([]ownerRecord, 0)
 	for rows.Next() {
 		var id, role string

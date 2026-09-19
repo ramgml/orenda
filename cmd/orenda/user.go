@@ -148,14 +148,14 @@ func runUserList(cmd *cobra.Command) error {
 		return fmt.Errorf("user list: %w", err)
 	}
 	if len(users) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "no users configured")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "no users configured") // stdout status line
 		return nil
 	}
 
 	tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tEMAIL\tROLE\tDISPLAY_NAME\tCREATED")
+	_, _ = fmt.Fprintln(tw, "ID\tEMAIL\tROLE\tDISPLAY_NAME\tCREATED") // row errors surface via Flush below
 	for _, u := range users {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
 			u.ID, u.Email, u.Role, u.DisplayName, u.CreatedAt.Format("2006-01-02 15:04"))
 	}
 	return tw.Flush()
@@ -269,9 +269,9 @@ func runUserResetPassword(cmd *cobra.Command, in userResetPasswordInput) error {
 	}
 	_ = newPassword // hint for go vet: drop reference early
 
-	fmt.Fprintf(cmd.OutOrStdout(),
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(),
 		"password reset for %s (id=%s)\n", target.Email, target.ID,
-	)
+	) // stdout status line
 	return nil
 }
 
