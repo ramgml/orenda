@@ -17,6 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [0.23.0] — 2026-09-19
+
+Minor release. Focus: the delegation loop closes its observability gaps — a single-task agent read (`GET /api/v1/agent/tasks/{id}` + CLI `agent get`), a guard for agent-starved work on the kanban, live time badges on kanban cards, and the first burn-down slice of `cmd/` errcheck debt. No schema changes; no new dependencies.
+
+### Added
+- **Task 337 (PR #237):** single-task agent read — `GET /api/v1/agent/tasks/{id}` (any authenticated agent, open-read posture like `/context`'s task field set but without the comments/activity/children/checklists snapshot weight; supports the T-ref resolver), CLI `orenda agent get <task-id>` with `--json` parity; openapi synced.
+- **Task 336 (PR #238):** agent-starved work surface — `GET /agent/tasks?starved=true` (queue listing scoped to tasks whose assignee agent is offline/unreachable, `ListAgentStarved` repo query + `AgentStarvedItem`), kanban column warning badge for agent-held work with no reachable agent, CLI/`--group-by` compatible output; long-poll `agent await` unchanged.
+- **Task 339 (PR #240):** kanban time badges — card-level «⏱ spent / estimate» badge with over-budget red state and a pulsing live-timer dot while the auto-timer runs (`CountersForTask` in the list aggregation + single GET, openapi/embed synced); verified in-browser on a preview instance (238/238 vitest).
+
+### Changed
+- **Task 340 (PR #241):** docs — dropped the stale Phase 32.13 `Backups.tsx` note from the AGENTS.md stack table (modal consolidation long finished).
+- **Task 338 (PR #239):** lint burn-down in `cmd/` — all errcheck findings resolved with explicit handling (no `//nolint` suppressions); `golangci-lint` debt down to ~52 repo-wide.
+
 ## [0.22.0] — 2026-09-18
 
 Minor release. Focus: the agent chat lands in the product (Dashboard chat with pending/reply threads over WS, plain-text guard against stranded questions), LMS post-MVP wave one (dialog tutor, spaced repetition reviews, today drift marker), the project → auto-provisioned dedicated agent, CLI user deletion with refusal guards, and a batch of docs/UX hygiene fixes. Migrations 045–049.
