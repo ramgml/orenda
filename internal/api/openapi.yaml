@@ -845,7 +845,10 @@ paths:
   /api/v1/projects/{id}/tasks:
     get:
       tags: [projects, tasks]
-      summary: List tasks in a project (Phase 17: enriched with counters + blocked_by_count).
+      summary: >-
+        List tasks in a project (Phase 17: enriched with counters +
+        blocked_by_count; T339: counters.timer_running — an open time
+        entry exists for the task, drives the card's pulsing timer dot).
       security: [{ bearerAuth-cookie: [] }]
       parameters:
         - in: query
@@ -959,7 +962,10 @@ paths:
   /api/v1/tasks/{id}:
     get:
       tags: [tasks]
-      summary: Get a single task.
+      summary: >-
+        Get a single task. T339: the response carries the counters
+        bundle (timer_running) so the task view renders the same
+        live time badge as the kanban card.
       security: [{ bearerAuth-cookie: [] }]
       responses:
         '200': { description: ok }
@@ -1534,6 +1540,29 @@ paths:
     get:
       tags: [review-queue]
       summary: Cheap count for the sidebar badge.
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  # ---- agent-starved (T336) ----
+  /api/v1/agent-starved:
+    get:
+      tags: [review-queue]
+      summary: Open tasks with awaiting=agent stranded in projects no agent can reach (T336).
+      description: |
+        Owner-side visibility for the silent-starvation failure mode of
+        the Task 140 project-scope filter: a task with awaiting='agent'
+        in a project where agents_allowed = 0 and NO grant rows exist
+        can never appear in /agent/tasks?ready=true — the agent queue
+        answers "no work" while the board shows agent-facing work.
+        Rows carry {task, project_name, agent_grants} (agent_grants is
+        always 0 for returned rows).
+      security: [{ bearerAuth-cookie: [] }]
+      responses: { '200': { description: ok } }
+
+  /api/v1/agent-starved/count:
+    get:
+      tags: [review-queue]
+      summary: Cheap count of agent-starved tasks (T336).
       security: [{ bearerAuth-cookie: [] }]
       responses: { '200': { description: ok } }
 
@@ -2634,6 +2663,17 @@ paths:
 
   # Phase 33.2: agent-side task management — PATCH + DELETE.
   /api/v1/agent/tasks/{id}:
+    get:
+      tags: [agent]
+      summary: Single-task read (T337) — the task row only; comments/activity/children/checklists live on /context.
+      description: |
+        {id} accepts the task UUID or T-prefixed number ("T42").
+        Per-claim private fields (agent_notes, context_md) are scrubbed
+        unless the caller is the current lock holder.
+      security: [{ bearerAuth-agent: [] }]
+      responses:
+        '200': { description: ok — task JSON, same shape as the listing rows }
+        '404': { description: 'not_found — includes "task T42 not found" for unknown T-refs' }
     patch:
       tags: [agent]
       summary: Edit own un-triaged proposal (full set); as lock holder edit title/description + agent_notes.

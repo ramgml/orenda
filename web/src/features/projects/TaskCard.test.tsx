@@ -50,6 +50,15 @@ function makeTask(): Task {
     awaiting: 'none',
     time_spent_s: 0,
     position: 0,
+    counters: {
+      comments: 0,
+      attachments: 0,
+      children_total: 0,
+      children_done: 0,
+      checklist_total: 0,
+      checklist_done: 0,
+      timer_running: false,
+    },
     color: '',
     created_at: '',
     updated_at: '',
@@ -497,5 +506,104 @@ describe('TaskCard', () => {
     expect(chip).toBeTruthy();
     expect(getTitleRow(container).contains(chip)).toBe(false);
     expect(getDetailedBadgesRow(container).contains(chip)).toBe(true);
+  });
+
+  // ---- T339: time badge rules ----
+
+  it('shows the timer pulse from counters.timer_running, not from started_at (T339)', () => {
+    // A claimed-but-not-done task: started_at set, completed_at null —
+    // under the old heuristic this pulsed even with no open entry.
+    const { container } = render(
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard task={{ ...makeTask(), started_at: '2026-09-18T10:00:00Z' }} />
+          </DndContext>
+        </MemoryRouter>,
+      ),
+    );
+    expect(container.querySelector('[data-testid="timer-active-badge"]')).toBeNull();
+    // No tracked time and no open timer → no badge at all.
+    expect(container.querySelector('[data-testid="time-badge"]')).toBeNull();
+  });
+
+  it('renders the pulsing badge while counters.timer_running is true (T339)', () => {
+    const { container } = render(
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard
+              task={{
+                ...makeTask(),
+                counters: { ...makeTask().counters!, timer_running: true },
+              }}
+            />
+          </DndContext>
+        </MemoryRouter>,
+      ),
+    );
+    const pulse = container.querySelector('[data-testid="timer-active-badge"]') as HTMLElement;
+    expect(pulse).toBeTruthy();
+    // Detailed mode: the pulse rides inside the shared badges row.
+    expect(getDetailedBadgesRow(container).contains(pulse)).toBe(true);
+  });
+
+  it('keeps the timer pulse visible in compact mode (T339 leaked-timer rule)', () => {
+    window.localStorage.setItem('orenda.kanban.cardDensity', 'compact');
+    try {
+      const { container } = render(
+        withQuery(
+          <MemoryRouter>
+            <DndContext>
+              <TaskCard
+                task={{
+                  ...makeTask(),
+                  counters: { ...makeTask().counters!, timer_running: true },
+                }}
+              />
+            </DndContext>
+          </MemoryRouter>,
+        ),
+      );
+      // The spent/estimate badge is hidden in compact mode, but the
+      // pulse must still render — a running timer at zero spent is
+      // exactly the leak the operator needs to catch.
+      expect(container.querySelector('[data-testid="time-badge"]')).toBeNull();
+      expect(container.querySelector('[data-testid="timer-active-badge"]')).toBeTruthy();
+    } finally {
+      window.localStorage.removeItem('orenda.kanban.cardDensity');
+    }
+  });
+
+  it('shows the spent/estimate badge only when time is tracked, red on overrun (T339)', () => {
+    const { container: noTime } = render(
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard task={makeTask()} />
+          </DndContext>
+        </MemoryRouter>,
+      ),
+    );
+    expect(noTime.querySelector('[data-testid="time-badge"]')).toBeNull();
+
+    const { container } = render(
+      withQuery(
+        <MemoryRouter>
+          <DndContext>
+            <TaskCard
+              task={{
+                ...makeTask(),
+                time_spent_s: 120,
+                time_estimate_s: 60,
+              }}
+            />
+          </DndContext>
+        </MemoryRouter>,
+      ),
+    );
+    const badge = container.querySelector('[data-testid="time-badge"]') as HTMLElement;
+    expect(badge).toBeTruthy();
+    expect(badge.className).toContain('border-red-300');
   });
 });

@@ -198,6 +198,13 @@ type Repository interface {
 	SetTaskTags(ctx context.Context, taskID string, tagIDs []string) error
 	TagsForTasks(ctx context.Context, taskIDs []string) (map[string][]Tag, error)
 
+	// CountersForTask returns the per-task Counters bundle (T339)
+	// for a single task — the same shape ListByProjectWithStats
+	// aggregates in batch. The single-task GET populates the
+	// TimerRunning flag from it so the task view's time badge sees
+	// the live open-timer state without a per-card follow-up call.
+	CountersForTask(ctx context.Context, taskID string) (Counters, error)
+
 	// ---- Task dependencies (Phase 15) ----
 	//
 	// A "dependency" means "this task can't be claimed until the
@@ -247,6 +254,18 @@ type Repository interface {
 	// Inbox tasks (project_id IS NULL after Phase 16) are included;
 	// the joined project name + colour come back as empty strings.
 	ListAwaitingReview(ctx context.Context) ([]ReviewQueueItem, error)
+
+	// ---- Agent-starved queue (T336) ----
+	//
+	// ListAgentStarved returns open tasks with awaiting='agent' that
+	// NO agent can ever claim: the parent project is closed
+	// (agents_allowed = 0) and carries no grant rows. These rows are
+	// invisible to /agent/tasks?ready=true (Task 140 filter) while
+	// the board says "agents have work" — the silent starvation the
+	// owner-side surface must expose. project_agents grant count is
+	// denormalised per row (always 0 for returned rows) so the wire
+	// payload stays self-describing.
+	ListAgentStarved(ctx context.Context) ([]AgentStarvedItem, error)
 
 	// TitlesByIDs returns id→title for every requested task in a
 	// single round-trip (Phase 27.9). Missing ids are simply absent
@@ -301,6 +320,19 @@ type ReviewQueueItem struct {
 	Task         *Task  `json:"task"`
 	ProjectName  string `json:"project_name"`
 	ProjectColor string `json:"project_color"`
+}
+
+// AgentStarvedItem is a task the agent side is supposed to pick up
+// (awaiting='agent') but that lives in a project the agent fleet
+// cannot reach (T336): agents_allowed = 0 and no grant rows. The
+// flag is denormalised so the UI can render the warning without a
+// second round-trip; it is always true for rows this query returns
+// (the query only finds unreachable rows), kept as a field so the
+// wire shape stays self-describing.
+type AgentStarvedItem struct {
+	Task        *Task  `json:"task"`
+	ProjectName string `json:"project_name"`
+	AgentGrants int    `json:"agent_grants"`
 }
 
 // BlockerRow is one blocker of a task in the dependency graph.

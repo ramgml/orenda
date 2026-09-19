@@ -92,6 +92,18 @@ export interface ReviewQueueItem {
 }
 
 /**
+ * T336: a task with awaiting='agent' stranded in a project no agent
+ * can reach (agents_allowed=false, zero grant rows). `agent_grants`
+ * is always 0 for returned rows — kept on the wire so the payload is
+ * self-describing.
+ */
+export interface AgentStarvedItem {
+  task: Task;
+  project_name: string;
+  agent_grants: number;
+}
+
+/**
  * Phase 15: one blocker in a task's dependency graph. `done` is true
  * when the blocker has reached status='done' (or has completed_at set);
  * the UI uses it to grey out satisfied dependencies on the task page.
@@ -116,6 +128,10 @@ interface TaskCounters {
   children_done: number;
   checklist_total: number;
   checklist_done: number;
+  /** T339: an open time entry exists for this task (ended_at IS NULL).
+   * Populated by the list endpoints and the single-task GET; the card
+   * renders the pulsing timer dot from this flag. */
+  timer_running: boolean;
 }
 
 export interface Comment {

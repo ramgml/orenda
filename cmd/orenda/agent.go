@@ -419,7 +419,7 @@ func (a *agentCtx) doRaw(ctx context.Context, method, path string, body io.Reade
 	if err != nil {
 		return nil, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // best-effort: body already read or request failed
 	raw, _ := io.ReadAll(resp.Body)
 	return raw, resp.StatusCode, nil
 }
@@ -521,6 +521,7 @@ env > project config > global config.`,
 	cmd.AddCommand(newAgentNextCmd())
 	cmd.AddCommand(newAgentProposeCmd())
 	cmd.AddCommand(newAgentContextCmd())
+	cmd.AddCommand(newAgentGetCmd())
 	cmd.AddCommand(newAgentClaimCmd())
 	cmd.AddCommand(newAgentReleaseCmd())
 	cmd.AddCommand(newAgentSubmitCmd())
@@ -1134,6 +1135,41 @@ func newAgentContextCmd() *cobra.Command {
 	}
 }
 
+func newAgentGetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "get <task-id|#N>",
+		Short: "Fetch a single task (lightweight; full snapshot lives in context)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := resolveAgentCtx(cmd)
+			if err != nil {
+				return err
+			}
+			raw, code, err := ctx.agentGet(cmd.Context(),
+				"/api/v1/agent/tasks/"+url.PathEscape(args[0]))
+			if err != nil {
+				return err
+			}
+			if code != http.StatusOK {
+				return fmt.Errorf("agent get: HTTP %d: %s", code, raw)
+			}
+			var v struct {
+				ID     string `json:"id"`
+				Number int    `json:"number"`
+				Title  string `json:"title"`
+			}
+			if err := json.Unmarshal(raw, &v); err == nil {
+				printTaskRefHeader(cmd, v.Number, v.Title, v.ID)
+			}
+			var any1 any
+			if err := json.Unmarshal(raw, &any1); err != nil {
+				return err
+			}
+			return printJSON(cmd, any1)
+		},
+	}
+}
+
 func newAgentClaimCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "claim <task-id|#N>",
@@ -1409,7 +1445,7 @@ func newAgentChecklistItemUpdateCmd() *cobra.Command {
 				return fmt.Errorf("agent checklist-item-update: HTTP %d: %s", code, raw)
 			}
 			if code == http.StatusNoContent {
-				fmt.Fprintln(cmd.OutOrStdout(), "updated")
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "updated") // stdout status line
 				return nil
 			}
 			var v any
@@ -1442,7 +1478,7 @@ func newAgentChecklistItemDeleteCmd() *cobra.Command {
 			if code != http.StatusNoContent && code != http.StatusOK {
 				return fmt.Errorf("agent checklist-item-delete: HTTP %d: %s", code, raw)
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "deleted")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "deleted") // stdout status line
 			return nil
 		},
 	}
@@ -1543,7 +1579,7 @@ func newAgentRetractCmd() *cobra.Command {
 				return fmt.Errorf("agent retract: HTTP %d: %s", code, raw)
 			}
 			if code == http.StatusNoContent {
-				fmt.Fprintln(cmd.OutOrStdout(), "retracted")
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "retracted") // stdout status line
 				return nil
 			}
 			var v any

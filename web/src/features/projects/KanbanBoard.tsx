@@ -21,7 +21,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 
 import { useAuth } from '@/features/auth/AuthContext';
-import { api, type Column, type Task } from '@/shared/api/client';
+import { api, type AgentStarvedItem, type Column, type Task } from '@/shared/api/client';
 import { useWebSocketTopic } from '@/shared/ws';
 import { queueMoveTask } from '@/shared/offline/outbox';
 import { Button } from '@/shared/ui/button';
@@ -161,6 +161,11 @@ export function KanbanBoard({
   const [bulkAssignee, setBulkAssignee] = useState('');
   const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // T336: awaiting=agent tasks stranded in projects no agent can
+  // reach (agents_allowed=false + zero grants). Loaded once per
+  // board mount + refetched on "tasks" WS events; non-null count
+  // renders the warning banner above the board.
+  const [starved, setStarved] = useState<AgentStarvedItem[]>([]);
   // T106: client-side task search. Local board state on purpose —
   // no URL sync (the постановка explicitly keeps routing untouched)
   // and no persistence: the query resets when the user leaves the
@@ -215,6 +220,10 @@ export function KanbanBoard({
   async function load(): Promise<void> {
     try {
       setTasks(await api.listProjectTasks(projectId));
+      // T336: the starved queue is global (not per-project) — the
+      // banner is the same on every board, so one fetch here keeps
+      // it in sync with the same WS debounce cycle as the board.
+      setStarved((await api.listAgentStarved()).tasks ?? []);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -657,6 +666,23 @@ export function KanbanBoard({
       {error && (
         <div className="rounded border border-red-300 bg-red-50 text-red-800 px-3 py-2 text-sm">
           {error}
+        </div>
+      )}
+      {starved.length > 0 && (
+        <div
+          data-testid="agent-starved-banner"
+          className="rounded border border-amber-300 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 px-3 py-2 text-sm"
+        >
+          <strong>
+            {starved.length} task{starved.length === 1 ? '' : 's'} waiting on agents that no agent
+            can claim:
+          </strong>{' '}
+          {starved
+            .slice(0, 3)
+            .map((s) => `T${s.task.number} (${s.project_name})`)
+            .join(', ')}
+          {starved.length > 3 && ` +${starved.length - 3} more`}. The project is closed to agents
+          with no grants — open it or grant the agent in Project → Settings.
         </div>
       )}
       <div className="flex items-center justify-between">

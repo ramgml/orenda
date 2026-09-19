@@ -507,3 +507,132 @@ func (f *accessFixture) loginOwner(t *testing.T) string {
 	t.Fatal("login response did not include orenda_session cookie")
 	return ""
 }
+
+// ---- T336: agent-starved queue ----
+//
+// awaiting='agent' + closed project + zero grants = work no agent
+// can ever reach. The queue must list it (owner cookie required);
+// granting or reopening must remove it. The claim path stays 422
+// not_in_scope (unchanged Task 140 behaviour).
+
+// seedAwaitingAgent flips tasks.awaiting to 'agent' directly — the
+// only legitimate producer of that value (Review reject) requires a
+// claim, which is exactly what the closed project blocks. The starved
+// queue is about the row STATE, not the write path.
+func (f *accessFixture) seedAwaitingAgent(t *testing.T, taskID string) {
+	t.Helper()
+	_, err := f.db.ExecContext(context.Background(),
+		`UPDATE tasks SET awaiting = 'agent' WHERE id = ?`, taskID)
+	require.NoError(t, err)
+}
+
+func TestAgentStarved_ListsStrandedWork(t *testing.T) {
+	t.Parallel()
+	f := newAccessFixture(t)
+	closed := f.createProject(t, "starved-closed")
+	stranded := f.seedTask(t, closed, "stranded work")
+	f.seedAwaitingAgent(t, stranded.ID)
+
+	// Control row: awaiting=agent in an OPEN project — reachable,
+	// must NOT be listed.
+	open := f.createProject(t, "starved-open")
+	openTask := f.seedTask(t, open, "reachable work")
+	f.setAgentsAllowed(t, open.ID, true)
+	f.seedAwaitingAgent(t, openTask.ID)
+
+	// Control row: closed project WITH a grant — reachable, not listed.
+	granted := f.createProject(t, "starved-granted")
+	grantedTask := f.seedTask(t, granted, "granted work")
+	f.grantAgent(t, granted.ID, f.agentAID)
+	f.seedAwaitingAgent(t, grantedTask.ID)
+
+	// Owner-only surface.
+	cookie := f.loginOwner(t)
+	ownerDo := func(path string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+		rr := httptest.NewRecorder()
+		f.router.ServeHTTP(rr, req)
+		return rr
+	}
+
+	rr := ownerDo("/api/v1/agent-starved")
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+	var got struct {
+		Count int              `json:"count"`
+		Tasks []map[string]any `json:"tasks"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+	require.Equal(t, 1, got.Count, "only the closed+grantless row is starved; body=%s", rr.Body.String())
+	first := got.Tasks[0]
+	assert.Equal(t, stranded.ID, first["task"].(map[string]any)["id"])
+	assert.Equal(t, "starved-closed", first["project_name"])
+	assert.InDelta(t, 0.0, first["agent_grants"], 0)
+
+	// Count endpoint agrees.
+	rr = ownerDo("/api/v1/agent-starved/count")
+	require.Equal(t, http.StatusOK, rr.Code)
+	var cnt struct {
+		Count int `json:"count"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &cnt))
+	assert.Equal(t, 1, cnt.Count)
+
+	// Agent token sees nothing here — owner namespace only.
+	rr = f.do(t, http.MethodGet, "/api/v1/agent-starved", f.agentAToken, nil)
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
+func TestAgentStarved_GrantClearsQueue(t *testing.T) {
+	t.Parallel()
+	f := newAccessFixture(t)
+	p := f.createProject(t, "grant-clears")
+	stranded := f.seedTask(t, p, "stranded then granted")
+	f.seedAwaitingAgent(t, stranded.ID)
+
+	cookie := f.loginOwner(t)
+	ownerDo := func(method, path string, body any) *httptest.ResponseRecorder {
+		t.Helper()
+		var buf bytes.Buffer
+		if body != nil {
+			require.NoError(t, json.NewEncoder(&buf).Encode(body))
+		}
+		req := httptest.NewRequest(method, path, &buf)
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		req.AddCookie(&http.Cookie{Name: "orenda_session", Value: cookie})
+		rr := httptest.NewRecorder()
+		f.router.ServeHTTP(rr, req)
+		return rr
+	}
+
+	count := func() int {
+		t.Helper()
+		rr := ownerDo(http.MethodGet, "/api/v1/agent-starved/count", nil)
+		require.Equal(t, http.StatusOK, rr.Code)
+		var c struct {
+			Count int `json:"count"`
+		}
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &c))
+		return c.Count
+	}
+
+	require.Equal(t, 1, count(), "stranded before grant")
+
+	// The fix path the banner points at: grant the agent → the task
+	// becomes claimable → it leaves the starved queue.
+	rr := ownerDo(http.MethodPut, "/api/v1/projects/"+p.ID+"/agents",
+		map[string]any{"agent_ids": []string{f.agentAID}})
+	require.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, 0, count(), "grant clears starvation")
+
+	// Reopening the project does it too.
+	_, err := f.db.ExecContext(context.Background(),
+		`DELETE FROM project_agents WHERE project_id = ?`, p.ID)
+	require.NoError(t, err)
+	rr = ownerDo(http.MethodPatch, "/api/v1/projects/"+p.ID, map[string]any{"agents_allowed": true})
+	require.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, 0, count(), "reopen clears starvation")
+}

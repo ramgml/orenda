@@ -198,23 +198,32 @@ export function TaskCard({
               📎 {counters.attachments}
             </span>
           )}
-          {/* Phase 30.12: time-spent / estimate badge. Renders only
-              when at least one of the two is set; turns red when
-              spent exceeds the estimate (operator has overrun). The
-              active-timer "●" replaces the spent count when a
-              started_at timestamp is present without a completed_at
-              (single-active-timer constraint, Phase 4). Hidden in
-              compact mode to keep the row height stable. */}
+          {/* Phase 30.12: time-spent / estimate badge. Renders when
+              time is tracked; turns red when spent exceeds the
+              estimate (operator has overrun). T339: a running timer
+              also opens the row — TimeBadge swaps the spent count
+              for the pulse dot while an entry is open. */}
           {detailed &&
             (task.time_estimate_s != null ||
               task.time_spent_s > 0 ||
-              (task.started_at != null && task.completed_at == null)) && (
+              task.counters?.timer_running === true) && (
               <TimeBadge
                 estimateS={task.time_estimate_s ?? null}
                 spentS={task.time_spent_s}
-                timerActive={task.started_at != null && task.completed_at == null}
+                timerActive={task.counters?.timer_running === true}
               />
             )}
+        </div>
+      )}
+
+      {/* T339: the pulse renders at every density — a leaked timer
+          is a time-tracking bug the operator must see, including in
+          compact mode where the badges row above is hidden. In
+          detailed mode the pulse already rides in that row, so this
+          fallback mounts only when it would double-render. */}
+      {!detailed && task.counters?.timer_running === true && (
+        <div className="flex items-center gap-2 mt-1 text-[10px]">
+          <TimeBadge estimateS={null} spentS={0} timerActive />
         </div>
       )}
 

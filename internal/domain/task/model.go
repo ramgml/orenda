@@ -261,6 +261,12 @@ type Counters struct {
 	ChildrenDone   int `json:"children_done"`
 	ChecklistTotal int `json:"checklist_total"`
 	ChecklistDone  int `json:"checklist_done"`
+	// T339: a time entry for this task is open right now (ended_at
+	// IS NULL). The single-active-timer invariant (Phase 4) makes it
+	// one entry at most; the kanban card renders the pulsing dot
+	// from this flag instead of guessing from started_at/completed_at
+	// — a claimed-but-not-done task is not necessarily timed.
+	TimerRunning bool `json:"timer_running"`
 }
 
 // Validate returns an error if the Task fields are inconsistent.

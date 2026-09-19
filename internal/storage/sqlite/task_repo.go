@@ -384,7 +384,46 @@ func (r *taskRepo) aggregateCounters(ctx context.Context, ids []string) (map[str
 	}
 	rows.Close()
 
+	// T339: open time entries. One query over the batch's task ids;
+	// the single-active-timer invariant caps each task at one open
+	// row, so COUNT > 0 ⇔ the card renders the pulsing dot.
+	q = `SELECT task_id, COUNT(*) FROM time_entries
+	      WHERE task_id IN (` + placeholders + `) AND ended_at IS NULL
+	      GROUP BY task_id`
+	rows, err = r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("aggregateCounters.timer: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		c := out[id]
+		c.TimerRunning = n > 0
+		out[id] = c
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("aggregateCounters.timer: %w", err)
+	}
+
 	return out, nil
+}
+
+// CountersForTask returns the Counters bundle for one task (T339).
+// It delegates to the batch aggregator — a single id keeps the same
+// query set as the kanban list, so both surfaces can't drift.
+func (r *taskRepo) CountersForTask(ctx context.Context, taskID string) (task.Counters, error) {
+	if taskID == "" {
+		return task.Counters{}, sql.ErrNoRows
+	}
+	out, err := r.aggregateCounters(ctx, []string{taskID})
+	if err != nil {
+		return task.Counters{}, err
+	}
+	return out[taskID], nil
 }
 
 // aggregateBlockers returns the open-blocker count per task id.
@@ -872,6 +911,62 @@ func (r *taskRepo) ListAwaitingReview(ctx context.Context) ([]task.ReviewQueueIt
 		item.Task = t
 		item.ProjectName = projectName
 		item.ProjectColor = projectCol
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+// ---------------------------------------------------------------------------
+// Agent-starved queue (T336)
+// ---------------------------------------------------------------------------
+//
+// Open tasks with awaiting='agent' that live in a project closed to
+// the whole agent fleet: agents_allowed = 0 AND zero grant rows in
+// project_agents. The Task 140 visibility filter hides these rows
+// from /agent/tasks?ready=true, while the board still says
+// "awaiting=agent" — silent starvation of the delegation loop. The
+// NOT EXISTS probe on project_agents is the same index-backed
+// pattern AgentAccessibleProjectIDs uses.
+//
+// Rows come newest-first so the owner sees freshest stranded work
+// at the top; the project name is joined for the board warning.
+
+func (r *taskRepo) ListAgentStarved(ctx context.Context) ([]task.AgentStarvedItem, error) {
+	const q = `
+		SELECT t.id, t.number, t.title, t.status, t.awaiting,
+		       COALESCE(p.name, '') AS project_name,
+		       (SELECT COUNT(*) FROM project_agents pa WHERE pa.project_id = t.project_id) AS grants
+		FROM tasks t
+		JOIN projects p ON p.id = t.project_id
+		WHERE t.awaiting = 'agent'
+		  AND t.status NOT IN ('done', 'rejected')
+		  AND p.agents_allowed = 0
+		  AND NOT EXISTS (SELECT 1 FROM project_agents pa WHERE pa.project_id = p.id)
+		ORDER BY t.updated_at DESC, t.created_at DESC
+	`
+	rows, err := r.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("task.ListAgentStarved: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := make([]task.AgentStarvedItem, 0)
+	for rows.Next() {
+		var (
+			item        task.AgentStarvedItem
+			projectName string
+			grants      int
+			status      string
+			awaiting    string
+		)
+		item.Task = &task.Task{}
+		if err := rows.Scan(&item.Task.ID, &item.Task.Number, &item.Task.Title,
+			&status, &awaiting, &projectName, &grants); err != nil {
+			return nil, fmt.Errorf("task.ListAgentStarved: scan: %w", err)
+		}
+		item.Task.Status = task.Status(status)
+		item.Task.Awaiting = task.Awaiting(awaiting)
+		item.ProjectName = projectName
+		item.AgentGrants = grants
 		out = append(out, item)
 	}
 	return out, rows.Err()

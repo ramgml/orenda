@@ -477,6 +477,12 @@ export function TaskViewBody({
         {task.awaiting && task.awaiting !== 'none' && (
           <div className="rounded border border-blue-300 bg-blue-50 p-3 text-blue-900 text-sm">
             Awaiting <span className="font-mono">{task.awaiting}</span> action
+            {task.awaiting === 'agent' && (
+              <span className="block text-xs text-slate-500 mt-1">
+                Agents only see this task while its project is open to them (agents_allowed) or the
+                agent has a grant — check Project → Settings if the queue stays quiet.
+              </span>
+            )}
           </div>
         )}
         <DueEditor task={task} busy={busy} onSaveDue={onSaveDue} />

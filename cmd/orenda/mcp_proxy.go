@@ -147,7 +147,7 @@ func runHTTPProxy(ctx context.Context, baseURL, token string) error {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }() // best-effort: response is being streamed
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode)
 		_, _ = io.Copy(w, resp.Body)
