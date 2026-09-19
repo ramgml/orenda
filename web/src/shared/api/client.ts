@@ -55,6 +55,7 @@ export type {
   UserProfile,
 } from './system';
 export type {
+  AgentStarvedItem,
   BlockerRow,
   Checklist,
   ChecklistItem,
