@@ -38,7 +38,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { TimerWidget } from '@/features/tasks/TimerWidget';
+import { StartTimer, TimerWidget } from '@/features/tasks/TimerWidget';
+import type { Task } from '@/shared/api/client';
 
 vi.mock('@/features/auth/AuthContext', () => ({
   useAuth: () => ({
@@ -50,11 +51,12 @@ vi.mock('@/features/auth/AuthContext', () => ({
   }),
 }));
 
+const startTimer = vi.fn((_taskId: string) => Promise.resolve({}));
 const stopTimer = vi.fn((_taskId: string) => Promise.resolve({}));
 
 vi.mock('@/shared/api/client', () => ({
   api: {
-    startTimer: vi.fn(() => Promise.resolve({})),
+    startTimer: (taskId: string) => startTimer(taskId),
     stopTimer: (taskId: string) => stopTimer(taskId),
   },
 }));
@@ -63,6 +65,7 @@ afterEach(() => {
   // globals:false → RTL auto-cleanup is disabled; tests share the DOM
   // otherwise and "found multiple elements" would poison the suite.
   document.body.replaceChildren();
+  startTimer.mockClear();
 });
 
 beforeEach(() => {
@@ -76,6 +79,20 @@ describe('TimerWidget (T86 pointer events / T95 no empty card)', () => {
     // the QuickCapture FAB.
     expect(container.childElementCount).toBe(0);
     expect(screen.queryByText(/No active timer/)).toBeNull();
+  });
+
+  it('StartTimer arms the timer even in the idle state (T348)', async () => {
+    // T348 regression: the launcher used to live inside the
+    // conditional return, so with no active timer StartTimer() —
+    // TaskViewBody's "Start timer" onClick — was a silent no-op.
+    const { container } = render(<TimerWidget />);
+    // Idle: no visible card (T95 contract still holds)…
+    expect(container.childElementCount).toBe(0);
+
+    // …but the pub-sub launcher must be mounted, so starting a timer
+    // from anywhere actually fires the API call.
+    StartTimer({ id: 'task-1', title: 'Any task' } as Task);
+    await waitFor(() => expect(startTimer).toHaveBeenCalledWith('task-1'));
   });
 
   it('container is click-transparent in the active state', () => {
