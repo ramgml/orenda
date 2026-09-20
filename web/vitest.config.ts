@@ -12,6 +12,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // Task 351: the VitePWA plugin (vite.config.ts) resolves
+      // virtual:pwa-register at app build time; vitest has no plugin
+      // wired, so point the specifier at the plugin's own dev stub.
+      // Tests that need behavior mock the module with vi.mock instead.
+      'virtual:pwa-register': 'vite-plugin-pwa/dist/client/dev/register.js',
     },
   },
   test: {
