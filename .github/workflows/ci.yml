@@ -275,3 +275,63 @@ jobs:
             web/test-results
           retention-days: 7
           if-no-files-found: ignore
+
+  release:
+    name: Publish GitHub Release
+    # Task 346: a `vX.Y.Z` tag push now PUBLISHES the GitHub Release object
+    # automatically — until now releases were created by hand (v0.17–v0.21)
+    # and the practice silently lapsed (v0.22.0–v0.23.1 had tags but no
+    # release pages until the 2026-09-20 catch-up). Notes are cut from the
+    # matching `## [X.Y.Z]` section of CHANGELOG.md — the same canonical
+    # text the release branch just shipped.
+    # The tag CI has already run the full gate (lint/test/build/e2e above);
+    # this job only publishes, so it must never run on a red gate.
+    if: >-
+      github.event_name == 'push'
+      && startsWith(github.ref, 'refs/tags/v')
+      && !cancelled()
+      && needs.lint.result == 'success'
+      && needs.test.result == 'success'
+      && needs.build.result == 'success'
+      && needs.e2e.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [lint, test, build, e2e]
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Extract changelog section for the tag
+        # Tag "v0.23.1" → heading "## [0.23.1]"; grab everything up to the
+        # next "## [" heading. An empty cut means the release branch forgot
+        # the changelog entry — fail loudly instead of publishing junk.
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          awk -v pat="^## \\[$VER\\]" '
+            $0 ~ pat {found=1; next}
+            found && /^## \[/ {exit}
+            found {print}
+          ' CHANGELOG.md > /tmp/notes.md
+          if [ ! -s /tmp/notes.md ]; then
+            echo "::error::No CHANGELOG.md section '## [$VER]' found (or section is empty) — release notes would be blank."
+            exit 1
+          fi
+          echo "--- notes preview (first 10 lines) ---"
+          head -10 /tmp/notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists — updating notes instead."
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --title "Orenda $GITHUB_REF_NAME" --notes-file /tmp/notes.md --latest
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "Orenda $GITHUB_REF_NAME" --notes-file /tmp/notes.md --latest
