@@ -257,9 +257,12 @@ web-build:
 	cd $(WEB_DIR) && $(NPM) ci
 	cd $(WEB_DIR) && $(NPM) run build
 
-## web-test: Run the vitest suite (component / unit / hook tests)
+## web-test: Run the vitest suite (component / unit / hook tests).
+## Pass vitest path filters through TARGETS to scope the run to a
+## feature directory, e.g. `make web-test TARGETS=src/features/tasks`
+## (Task 352 — symmetric with web-typecheck for single-feature checks).
 web-test:
-	cd $(WEB_DIR) && $(NPM) run test
+	cd $(WEB_DIR) && $(NPM) run test -- $(TARGETS)
 
 ## web-typecheck: Run tsc --noEmit on the SPA.
 ## Task 44: catches TS errors locally before push; mirrors `web-test` style.

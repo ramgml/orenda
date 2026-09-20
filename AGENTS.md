@@ -93,6 +93,11 @@ release blocker where `shadcn.test.tsx` referenced an undefined
 identifier). The CI backstop on push to `dev` also runs this step
 (`make web-typecheck` + `make test-full`).
 
+`make web-test` runs the vitest suite; pass a path filter through
+`TARGETS` to scope it to one feature directory —
+`make web-test TARGETS=src/features/tasks` (Task 352) — instead of
+guessing raw `npx vitest` invocations for single-feature checks.
+
 `make web-knip` is the knip unused-exports/files audit for the SPA — blocking since Task 180. Dead exports must be removed; the only sanctioned allow-list (web/knip.json `ignoreIssues`) covers the regenerable shadcn/ui primitives that `shadcn` CLI rewrites on re-add.
 
 `make test` runs `go test ./... -race` + vitest **with the Go test cache
