@@ -816,7 +816,7 @@ export function EstimateEditor({
           onChange={(e) => setMinutes(e.target.value)}
           placeholder={estimateS == null ? 'Estimate (min)' : 'min'}
           disabled={busy}
-          className="h-7 text-xs"
+          className="h-7 min-w-0 flex-1 text-xs"
           title="Time estimate"
         />
         <Button
@@ -825,7 +825,7 @@ export function EstimateEditor({
           size="sm"
           disabled={busy || minutes === ''}
           onClick={set}
-          className="h-6 px-2 text-xs"
+          className="h-7 shrink-0 px-2 text-xs"
           title="Set the time estimate"
         >
           Set
@@ -837,7 +837,7 @@ export function EstimateEditor({
             size="sm"
             disabled={busy}
             onClick={clear}
-            className="h-6 px-2 text-xs"
+            className="h-7 shrink-0 px-2 text-xs"
             title="Clear the time estimate"
           >
             clear

@@ -106,7 +106,15 @@ export function TimerWidget(): JSX.Element {
   // timer" empty card occupied the same fixed bottom-right corner as
   // the QuickCapture FAB (+) and visually covered it. With no idle
   // card, the corner belongs to the FAB whenever the timer is off.
-  if (!active && !error) return <></>;
+  //
+  // T348: the TimerLauncher pub-sub below must stay mounted even in
+  // this empty state. It used to live inside the conditional return,
+  // so with no active timer launcherRef was never registered and
+  // StartTimer() — the onClick of TaskViewBody's "Start timer"
+  // button — was a silent no-op exactly when a timer needed
+  // starting. The launcher renders no DOM, so the T95 "renders
+  // nothing" contract is preserved.
+  if (!active && !error) return <TimerLauncher startOn={startOn} />;
 
   // The container sits one FAB-height above the corner (bottom-20):
   // the active card / error banner must never overlap the FAB, which
