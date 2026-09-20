@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [0.23.1] — 2026-09-20
+
+Patch release. Focus: release-infra reliability — the knip gate no longer fails when a local `make build` has produced `web/dist/`.
+
+### Fixed
+- **Task 343 (PR #244):** knip ignores the SPA build output — `web/knip.json` gains `"ignore": ["dist/**"]`, so the gitignored `web/dist/` (vite bundle + service-worker chunks from `make build`) can no longer be reported as "Unused files" and block the pre-push gate (v0.23.0 tag-push incident; the push went through only via the named `SKIP_ORENDA_HOOKS=1` exception). The `knip` script also passes `--no-config-hints`, which removes the «Remove from ignore» configuration hint knip printed on every clean tree without a build. The gate stays blocking; the shadcn `ignoreIssues` allow-list is untouched.
+
 ## [0.23.0] — 2026-09-19
 
 Minor release. Focus: the delegation loop closes its observability gaps — a single-task agent read (`GET /api/v1/agent/tasks/{id}` + CLI `agent get`), a guard for agent-starved work on the kanban, live time badges on kanban cards, and the first burn-down slice of `cmd/` errcheck debt. No schema changes; no new dependencies.
