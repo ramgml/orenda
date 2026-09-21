@@ -77,14 +77,15 @@ func newAgentFixture(t *testing.T) *agentFixture {
 	require.NoError(t, err)
 
 	deps := api.Dependencies{
-		Logger:       zap.NewNop(),
-		Signer:       signer,
-		Users:        users,
-		Projects:     sqlite.NewProjectRepository(db),
-		Tasks:        sqlite.NewTaskRepository(db),
-		Tokens:       tokens,
-		TaskService:  taskSvc,
-		TimeService:  timeentryservice.New(sqlite.NewTimeEntryRepository(db), hub, nil),
+		Logger:      zap.NewNop(),
+		Signer:      signer,
+		Users:       users,
+		Projects:    sqlite.NewProjectRepository(db),
+		Tasks:       sqlite.NewTaskRepository(db),
+		Tokens:      tokens,
+		TaskService: taskSvc,
+		TimeService: timeentryservice.New(sqlite.NewTimeEntryRepository(db), hub, nil).
+			WithInfos(sqlite.NewTaskRepository(db)),
 		Agents:       agents,
 		AgentService: agentSvc,
 		Comments:     commentSvc,

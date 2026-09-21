@@ -793,7 +793,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// reads and writes the tasks table now.
 	eventSvc := eventservice.New(sqlite.NewTaskRepository(db), hub, nil)
 	timeSvc := timeentryservice.New(timeEntryRepo, hub, nil).
-		WithTitles(sqlite.NewTaskRepository(db))
+		WithInfos(sqlite.NewTaskRepository(db))
 
 	// Wiki + Search services (Phase 5).
 	wikiSvc := wikiservice.New(sqlite.NewWikiRepository(db), hub)

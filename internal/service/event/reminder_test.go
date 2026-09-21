@@ -190,6 +190,11 @@ func (f *fakeRepo) TitlesByIDs(_ context.Context, _ []string) (map[string]string
 	return map[string]string{}, nil
 }
 
+// InfosByIDs (T354) — same story: the reminder path never reads it.
+func (f *fakeRepo) InfosByIDs(_ context.Context, _ []string) (map[string]task.Info, error) {
+	return map[string]task.Info{}, nil
+}
+
 // withStart helper — Set StartAt + EndAt on a task for the fake.
 func withStart(t *task.Task, start time.Time) *task.Task {
 	t.StartAt = &start

@@ -275,6 +275,27 @@ type Repository interface {
 	// Used by the time-entry report to render task titles next to
 	// the aggregated seconds.
 	TitlesByIDs(ctx context.Context, ids []string) (map[string]string, error)
+
+	// InfosByIDs returns Info (title + denormalised project
+	// name/color) for every requested task in a single round-trip
+	// (T354). Missing ids are simply absent from the map; empty
+	// input → empty map. Project fields are empty strings when the
+	// task has no project or the project row is gone.
+	//
+	// Used by the time-entry report to group rows by project and
+	// colour them; the plain TitlesByIDs stays untouched for the
+	// event-reminder path.
+	InfosByIDs(ctx context.Context, ids []string) (map[string]Info, error)
+}
+
+// Info is a task title enriched with its project's denormalised
+// name and colour (T354). Empty ProjectID means the task has no
+// project; the other Project* fields are then empty too.
+type Info struct {
+	Title        string
+	ProjectID    string
+	ProjectName  string
+	ProjectColor string
 }
 
 // ProposalPatchParams is the patch shape accepted by
