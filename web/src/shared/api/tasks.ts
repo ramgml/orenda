@@ -11,11 +11,23 @@ interface TimeEntry {
   source: 'timer' | 'manual';
 }
 
+/** T354: one report row — a task, or a project subtotal (projects[]). */
+export interface TimeReportRow {
+  task_id?: string;
+  title?: string;
+  project_id?: string;
+  project_name?: string;
+  project_color?: string;
+  total_sec: number;
+}
+
 export interface TimeReport {
   agent_id: string;
   from: string;
   to: string;
-  tasks: { task_id: string; total_sec: number; title?: string }[];
+  /** Per-project subtotals, total_sec desc. No entry for projectless tasks. */
+  projects?: TimeReportRow[];
+  tasks: TimeReportRow[];
   total_sec: number;
 }
 

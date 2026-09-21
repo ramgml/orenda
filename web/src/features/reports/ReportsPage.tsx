@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { api, type TimeReport } from '@/shared/api/client';
+import { api, type TimeReport, type TimeReportRow } from '@/shared/api/client';
 import { useAgents } from '@/shared/hooks/useAgents';
 import { Input } from '@/shared/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
@@ -8,9 +8,61 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 /**
  * /reports — time aggregation per task over a window.
  *
- * The backend groups by task only (Phase 4.5), so the chart is a
- * horizontal bar per task. Default window: last 7 days.
+ * T354: the backend tags every task row with its project and reports
+ * per-project subtotals, so the chart renders one section per project
+ * (coloured dot + name + subtotal) with the task bars tinted in the
+ * project colour; tasks without a project land in a trailing
+ * "No project" section. Default window: last 7 days.
  */
+
+/** Neutral fallback for rows whose project carries no colour. */
+const DEFAULT_PROJECT_COLOR = '#94a3b8';
+
+/** Group report rows into ordered sections: projects desc, no-project last. */
+function groupByProject(report: TimeReport): Array<{
+  key: string;
+  name: string;
+  color: string;
+  totalSec: number;
+  tasks: TimeReportRow[];
+}> {
+  const sections = new Map<
+    string,
+    { name: string; color: string; totalSec: number; tasks: TimeReportRow[] }
+  >();
+  const noProject = {
+    name: 'No project',
+    color: DEFAULT_PROJECT_COLOR,
+    totalSec: 0,
+    tasks: [] as TimeReportRow[],
+  };
+
+  for (const t of report.tasks) {
+    if (!t.project_id) {
+      noProject.tasks.push(t);
+      noProject.totalSec += t.total_sec;
+      continue;
+    }
+    let s = sections.get(t.project_id);
+    if (!s) {
+      s = {
+        name: t.project_name || t.project_id,
+        color: t.project_color || DEFAULT_PROJECT_COLOR,
+        totalSec: 0,
+        tasks: [],
+      };
+      sections.set(t.project_id, s);
+    }
+    s.totalSec += t.total_sec;
+    s.tasks.push(t);
+  }
+
+  const out = [...sections.entries()].map(([key, s]) => ({ key, ...s }));
+  out.sort((a, b) => b.totalSec - a.totalSec);
+  if (noProject.tasks.length > 0) out.push({ key: '__none__', ...noProject });
+  return out;
+}
+
 export function ReportsPage(): JSX.Element {
   // Default: today and 7 days back.
   const today = useMemo(() => isoDate(new Date()), []);
@@ -51,6 +103,7 @@ export function ReportsPage(): JSX.Element {
   }, [from, to, actorID]);
 
   const tasks = report?.tasks ?? [];
+  const sections = useMemo(() => (report ? groupByProject(report) : []), [report]);
   const max = tasks.reduce((m, t) => Math.max(m, t.total_sec), 0);
 
   return (
@@ -111,38 +164,57 @@ export function ReportsPage(): JSX.Element {
         {tasks.length === 0 ? (
           <p className="text-slate-500 text-sm">No time logged in this window.</p>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-slate-500 border-b border-border">
-                <th className="py-2">Task</th>
-                <th>Total</th>
-                <th className="w-1/2">Distribution</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tasks.map((t) => (
-                <tr key={t.task_id} className="border-b border-border">
-                  <td className="py-2">
-                    {t.title ?? (
-                      <span className="text-slate-400 font-mono text-xs">
-                        {t.task_id.slice(0, 8)}…
-                      </span>
-                    )}
-                  </td>
-                  <td className="font-mono">{formatHM(t.total_sec)}</td>
-                  <td>
-                    <div className="h-3 bg-muted rounded overflow-hidden">
-                      <div
-                        className="h-full bg-orenda-500"
-                        style={{ width: `${max ? Math.round((t.total_sec / max) * 100) : 0}%` }}
-                        aria-label={`${formatHM(t.total_sec)} of ${formatHM(max)}`}
-                      />
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          sections.map((section) => (
+            <div key={section.key} className="mb-4 last:mb-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span
+                  data-testid="project-dot"
+                  className="inline-block h-3 w-3 rounded-full"
+                  style={{ backgroundColor: section.color }}
+                  aria-hidden="true"
+                />
+                <span className="font-semibold text-sm">{section.name}</span>
+                <span className="ml-auto text-xs text-slate-500 font-mono">
+                  {formatHM(section.totalSec)}
+                </span>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-slate-500 border-b border-border">
+                    <th className="py-2">Task</th>
+                    <th>Total</th>
+                    <th className="w-1/2">Distribution</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {section.tasks.map((t) => (
+                    <tr key={t.task_id} className="border-b border-border last:border-b-0">
+                      <td className="py-2">
+                        {t.title ?? (
+                          <span className="text-slate-400 font-mono text-xs">
+                            {t.task_id!.slice(0, 8)}…
+                          </span>
+                        )}
+                      </td>
+                      <td className="font-mono">{formatHM(t.total_sec)}</td>
+                      <td>
+                        <div className="h-3 bg-muted rounded overflow-hidden">
+                          <div
+                            className="h-full"
+                            style={{
+                              width: `${max ? Math.round((t.total_sec / max) * 100) : 0}%`,
+                              backgroundColor: section.color,
+                            }}
+                            aria-label={`${formatHM(t.total_sec)} of ${formatHM(max)}`}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))
         )}
       </div>
     </section>

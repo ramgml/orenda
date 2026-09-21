@@ -9,9 +9,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/ramgml/orenda/internal/api/ws"
+	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/timeentry"
 )
 
@@ -34,15 +36,19 @@ type Recorder interface {
 	Record(ctx context.Context, action, payload string) error
 }
 
-// TaskTitleLookup is the narrow surface the report needs to enrich
-// per-task rows with the task title (Phase 27.9). We don't import the
-// task package directly to keep this service free of the task service
-// dependency graph — main.go wires an adapter that satisfies it.
+// TaskInfoLookup is the narrow surface the report needs to enrich
+// per-task rows with the task title and the project name/color
+// (T354). We don't import the task package directly to keep this
+// service free of the task service dependency graph — main.go wires
+// the task repository, which satisfies it.
 //
 // Missing ids are simply absent from the result; the report renders
 // a slice of the id in that case so the row stays identifiable.
-type TaskTitleLookup interface {
-	TitlesByIDs(ctx context.Context, ids []string) (map[string]string, error)
+// Replaces the Phase 27.9 TaskTitleLookup (TitlesByIDs) that only
+// carried the title — the cutover is safe because Report was its
+// only caller.
+type TaskInfoLookup interface {
+	InfosByIDs(ctx context.Context, ids []string) (map[string]task.Info, error)
 }
 
 // Service is the dependency holder.
@@ -50,7 +56,7 @@ type Service struct {
 	Repo     timeentry.Repository
 	Hub      ws.Hub
 	Recorder Recorder
-	Titles   TaskTitleLookup // optional; nil disables title lookup
+	Infos    TaskInfoLookup // optional; nil disables the title/project lookup
 }
 
 // New returns a TimeEntry service.
@@ -58,11 +64,11 @@ func New(repo timeentry.Repository, hub ws.Hub, rec Recorder) *Service {
 	return &Service{Repo: repo, Hub: hub, Recorder: rec}
 }
 
-// WithTitles wires the title lookup used by Report. Returns the
+// WithInfos wires the info lookup used by Report. Returns the
 // receiver so calls chain like the other With* methods on the
 // service constructors.
-func (s *Service) WithTitles(t TaskTitleLookup) *Service {
-	s.Titles = t
+func (s *Service) WithInfos(t TaskInfoLookup) *Service {
+	s.Infos = t
 	return s
 }
 
@@ -207,15 +213,20 @@ type AggregateReport struct {
 	AgentID  string                `json:"agent_id"`
 	From     time.Time             `json:"from"`
 	To       time.Time             `json:"to"`
+	Projects []AggregateReportTask `json:"projects"`
 	Tasks    []AggregateReportTask `json:"tasks"`
 	TotalSec int64                 `json:"total_sec"`
 }
 
-// AggregateReportTask is one row in the report.
+// AggregateReportTask is one row in the report — a task row, or a
+// project subtotal in Projects (T354; there TaskID stays empty).
 type AggregateReportTask struct {
-	TaskID   string `json:"task_id"`
-	Title    string `json:"title,omitempty"`
-	TotalSec int64  `json:"total_sec"`
+	TaskID       string `json:"task_id"`
+	Title        string `json:"title,omitempty"`
+	ProjectID    string `json:"project_id"`
+	ProjectName  string `json:"project_name"`
+	ProjectColor string `json:"project_color"`
+	TotalSec     int64  `json:"total_sec"`
 }
 
 // Report builds a per-task aggregation for [from, to).
@@ -225,10 +236,14 @@ type AggregateReportTask struct {
 // show every entry unless the caller filters by one actor. A non-empty
 // agentID restricts the aggregation to that actor (ListByAgent).
 //
-// Phase 27.9: enriches each row with the task title when a Title
-// lookup is wired (via WithTitles). The lookup is one batch query
-// for all distinct task ids — no N+1. Missing ids (deleted tasks)
-// fall back to a slice of the id so the row stays identifiable.
+// Phase 27.9: enriches each row with the task title when a lookup is
+// wired (via WithInfos). T354: the lookup carries the project
+// name/color too, so rows are tagged with their project and the
+// report gains a per-project subtotal (Projects, sorted by total_sec
+// desc). The lookup is one batch query for all distinct task ids —
+// no N+1. Missing ids (deleted tasks) fall back to a slice of the id
+// so the row stays identifiable; taskless-project rows never enter
+// Projects — the frontend renders a "no project" section for them.
 func (s *Service) Report(ctx context.Context, agentID string, from, to time.Time) (*AggregateReport, error) {
 	var entries []*timeentry.TimeEntry
 	var err error
@@ -250,35 +265,60 @@ func (s *Service) Report(ctx context.Context, agentID string, from, to time.Time
 		}
 		byTask[e.TaskID] += d
 	}
-	// Batch title lookup — one query for every distinct task id
-	// (Phase 27.9). The lookup is optional; nil falls back to the
-	// pre-27.9 behaviour (empty title).
-	var titles map[string]string
-	if s.Titles != nil && len(byTask) > 0 {
+	// Batch info lookup — one query for every distinct task id
+	// (Phase 27.9, extended in T354 with the project fields). The
+	// lookup is optional; nil falls back to the pre-27.9 behaviour
+	// (empty title, no project grouping).
+	infos := make(map[string]task.Info, len(byTask))
+	if s.Infos != nil && len(byTask) > 0 {
 		ids := make([]string, 0, len(byTask))
 		for id := range byTask {
 			ids = append(ids, id)
 		}
-		got, err := s.Titles.TitlesByIDs(ctx, ids)
+		got, err := s.Infos.InfosByIDs(ctx, ids)
 		if err != nil {
-			return nil, fmt.Errorf("timeentry.Report: titles lookup: %w", err)
+			return nil, fmt.Errorf("timeentry.Report: info lookup: %w", err)
 		}
-		titles = got
+		infos = got
 	}
 	rep := &AggregateReport{
-		AgentID: agentID,
-		From:    from,
-		To:      to,
-		Tasks:   make([]AggregateReportTask, 0, len(byTask)),
+		AgentID:  agentID,
+		From:     from,
+		To:       to,
+		Projects: make([]AggregateReportTask, 0),
+		Tasks:    make([]AggregateReportTask, 0, len(byTask)),
 	}
+	byProjectSec := make(map[string]int64)
+	projectRows := make(map[string]*AggregateReportTask)
 	for tid, sec := range byTask {
 		row := AggregateReportTask{TaskID: tid, TotalSec: sec}
-		if titles != nil {
-			row.Title = titles[tid]
+		if info, ok := infos[tid]; ok {
+			row.Title = info.Title
+			row.ProjectID = info.ProjectID
+			row.ProjectName = info.ProjectName
+			row.ProjectColor = info.ProjectColor
+		}
+		if row.ProjectID != "" {
+			byProjectSec[row.ProjectID] += sec
+			if _, seen := projectRows[row.ProjectID]; !seen {
+				projectRows[row.ProjectID] = &AggregateReportTask{
+					ProjectID:    row.ProjectID,
+					ProjectName:  row.ProjectName,
+					ProjectColor: row.ProjectColor,
+				}
+			}
 		}
 		rep.Tasks = append(rep.Tasks, row)
 		rep.TotalSec += sec
 	}
+	for pid, sec := range byProjectSec {
+		p := projectRows[pid]
+		p.TotalSec = sec
+		rep.Projects = append(rep.Projects, *p)
+	}
+	sort.Slice(rep.Projects, func(i, j int) bool {
+		return rep.Projects[i].TotalSec > rep.Projects[j].TotalSec
+	})
 	return rep, nil
 }
 

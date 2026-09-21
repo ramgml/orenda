@@ -90,9 +90,19 @@ func reportGet(fx *agentFixture, cookie, query string) *httptest.ResponseRecorde
 type reportRow struct {
 	AgentID  string `json:"agent_id"`
 	TotalSec int64  `json:"total_sec"`
-	Tasks    []struct {
-		TaskID   string `json:"task_id"`
-		TotalSec int64  `json:"total_sec"`
+	Projects []struct {
+		ProjectID    string `json:"project_id"`
+		ProjectName  string `json:"project_name"`
+		ProjectColor string `json:"project_color"`
+		TotalSec     int64  `json:"total_sec"`
+	} `json:"projects"`
+	Tasks []struct {
+		TaskID       string `json:"task_id"`
+		Title        string `json:"title"`
+		ProjectID    string `json:"project_id"`
+		ProjectName  string `json:"project_name"`
+		ProjectColor string `json:"project_color"`
+		TotalSec     int64  `json:"total_sec"`
 	} `json:"tasks"`
 }
 
@@ -149,4 +159,86 @@ func TestReportTime_RequiresAuth(t *testing.T) {
 	rr := httptest.NewRecorder()
 	fx.router.ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
+// T354: task rows carry project_id/name/color, projects[] holds one
+// subtotal per project sorted by total_sec desc, and a projectless
+// task keeps empty project fields and stays out of projects[].
+func TestReportTime_ProjectsGrouping(t *testing.T) {
+	t.Parallel()
+	fx, taskID := newReportFixture(t)
+	cookie := reportSessionToken(t, fx)
+
+	// Second project (different colour) + a second task in it and a
+	// projectless (Inbox) task.
+	var ownerID string
+	require.NoError(t, fx.db.QueryRow("SELECT id FROM users LIMIT 1").Scan(&ownerID))
+	projects := sqlite.NewProjectRepository(fx.db)
+	p2, _, cols2, err := projects.CreateProject(context.Background(), &project.Project{
+		Name: "Beta", Color: "#ff0000", OwnerID: ownerID, AgentsAllowed: true,
+	})
+	require.NoError(t, err)
+	tasks := sqlite.NewTaskRepository(fx.db)
+	tBeta := &task.Task{ProjectID: p2.ID, ColumnID: cols2[0].ID, Title: "beta task"}
+	require.NoError(t, tasks.Create(context.Background(), tBeta))
+	tOrphan := &task.Task{Title: "orphan"}
+	require.NoError(t, tasks.Create(context.Background(), tOrphan))
+
+	// Three disjoint intervals inside [winStart, winEnd): Alpha 10m,
+	// Beta 25m (must top Alpha), orphan 5m.
+	now := time.Now().Truncate(time.Second).UTC()
+	seedManualEntry(t, fx, cookie, taskID, fx.agentID,
+		now.Add(-60*time.Minute).Format(time.RFC3339), now.Add(-50*time.Minute).Format(time.RFC3339))
+	seedManualEntry(t, fx, cookie, tBeta.ID, fx.agentID,
+		now.Add(-55*time.Minute).Format(time.RFC3339), now.Add(-30*time.Minute).Format(time.RFC3339))
+	seedManualEntry(t, fx, cookie, tOrphan.ID, fx.agentID,
+		now.Add(-35*time.Minute).Format(time.RFC3339), now.Add(-30*time.Minute).Format(time.RFC3339))
+
+	rr := reportGet(fx, cookie,
+		"?from="+now.Add(-time.Hour).Format(time.RFC3339)+"&to="+now.Add(-29*time.Minute).Format(time.RFC3339))
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+
+	var rep reportRow
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &rep))
+
+	require.Len(t, rep.Tasks, 3)
+	rowByTask := make(map[string]struct {
+		ProjectID    string
+		ProjectName  string
+		ProjectColor string
+		TotalSec     int64
+	}, len(rep.Tasks))
+	for _, row := range rep.Tasks {
+		rowByTask[row.TaskID] = struct {
+			ProjectID    string
+			ProjectName  string
+			ProjectColor string
+			TotalSec     int64
+		}{row.ProjectID, row.ProjectName, row.ProjectColor, row.TotalSec}
+	}
+
+	alpha := rowByTask[taskID]
+	assert.Equal(t, "ReportTest", alpha.ProjectName)
+	assert.Equal(t, int64(600), alpha.TotalSec)
+
+	beta := rowByTask[tBeta.ID]
+	assert.Equal(t, p2.ID, beta.ProjectID)
+	assert.Equal(t, "Beta", beta.ProjectName)
+	assert.Equal(t, "#ff0000", beta.ProjectColor)
+	assert.Equal(t, int64(1500), beta.TotalSec)
+
+	// Orphan row: empty project fields.
+	orphan := rowByTask[tOrphan.ID]
+	assert.Equal(t, "", orphan.ProjectID)
+	assert.Equal(t, "", orphan.ProjectName)
+	assert.Equal(t, "", orphan.ProjectColor)
+
+	// projects[]: Beta (25m) before ReportTest (10m), orphan absent.
+	require.Len(t, rep.Projects, 2)
+	assert.Equal(t, p2.ID, rep.Projects[0].ProjectID)
+	assert.Equal(t, "Beta", rep.Projects[0].ProjectName)
+	assert.Equal(t, "#ff0000", rep.Projects[0].ProjectColor)
+	assert.Equal(t, int64(1500), rep.Projects[0].TotalSec)
+	assert.Equal(t, "ReportTest", rep.Projects[1].ProjectName)
+	assert.Equal(t, int64(600), rep.Projects[1].TotalSec)
 }

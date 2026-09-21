@@ -557,6 +557,44 @@ components:
                   expected_md: { type: string }
                   kind: { type: string, enum: [open, exact] }
 
+    # T354: response shape of GET /api/v1/reports/time. Additive
+    # extension of the Phase 4.5 payload — existing fields keep their
+    # names; tasks[] rows gained the project_* fields and the new
+    # projects[] carries per-project subtotals (total_sec desc).
+    TimeReportTask:
+      type: object
+      description: |
+        One report row: an aggregated task (task_id set), or a
+        per-project subtotal inside projects[] (task_id empty there).
+      required: [task_id, total_sec]
+      properties:
+        task_id: { type: string }
+        title: { type: string }
+        project_id: { type: string }
+        project_name: { type: string }
+        project_color: { type: string }
+        total_sec: { type: integer, format: int64 }
+
+    TimeReport:
+      type: object
+      required: [agent_id, from, to, total_sec, tasks]
+      properties:
+        agent_id: { type: string }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        projects:
+          type: array
+          description: |
+            One subtotal per project with logged time in the window,
+            sorted by total_sec desc. Tasks without a project are not
+            represented here — the client renders a "no project"
+            section for them.
+          items: { $ref: '#/components/schemas/TimeReportTask' }
+        tasks:
+          type: array
+          items: { $ref: '#/components/schemas/TimeReportTask' }
+        total_sec: { type: integer, format: int64 }
+
 paths:
 
   # ---- meta ----
@@ -2015,8 +2053,18 @@ paths:
     get:
       tags: [calendar]
       summary: Aggregated time report (by task / by day).
+      description: |
+        T354: tasks[] rows carry project_id/project_name/project_color
+        and projects[] holds per-project subtotals sorted by
+        total_sec desc; projectless tasks keep empty project fields
+        and stay out of projects[]. Existing fields are unchanged.
       security: [{ bearerAuth-cookie: [] }]
-      responses: { '200': { description: ok } }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TimeReport' }
 
   # ---- wiki + search ----
   /api/v1/pages:

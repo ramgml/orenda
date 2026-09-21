@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -1875,6 +1876,51 @@ func (r *taskRepo) TitlesByIDs(ctx context.Context, ids []string) (map[string]st
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("task.TitlesByIDs: rows: %w", err)
+	}
+	return out, nil
+}
+
+// InfosByIDs returns TaskInfo (title + project name/color) for every
+// requested task in one round-trip (T354). One batched LEFT JOIN —
+// no N+1; a task without a project (or with a missing project row)
+// scans back as empty Project* strings via sql.NullString. Missing
+// ids are absent from the map; empty input → empty map.
+func (r *taskRepo) InfosByIDs(ctx context.Context, ids []string) (map[string]task.Info, error) {
+	out := make(map[string]task.Info, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	placeholders := strings.Repeat("?, ", len(ids)-1) + "?"
+	args := make([]any, 0, len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	q := `SELECT t.id, t.title, t.project_id, p.name, p.color
+		FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
+		WHERE t.id IN (` + placeholders + `)`
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("task.InfosByIDs: query: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "task.InfosByIDs: close: %v\n", cerr)
+		}
+	}()
+	for rows.Next() {
+		var id string
+		var info task.Info
+		var projectID, projectName, projectColor sql.NullString
+		if err := rows.Scan(&id, &info.Title, &projectID, &projectName, &projectColor); err != nil {
+			return nil, fmt.Errorf("task.InfosByIDs: scan: %w", err)
+		}
+		info.ProjectID = projectID.String
+		info.ProjectName = projectName.String
+		info.ProjectColor = projectColor.String
+		out[id] = info
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("task.InfosByIDs: rows: %w", err)
 	}
 	return out, nil
 }

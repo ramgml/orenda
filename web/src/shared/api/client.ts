@@ -66,7 +66,7 @@ export type {
   TaskActivity,
   TaskAttachment,
 } from './taskDetails';
-export type { Tag, TimeReport } from './tasks';
+export type { Tag, TimeReport, TimeReportRow } from './tasks';
 export type { Notification, SearchHit, WikiBlock, WikiPage, WikiTreeNode } from './wiki';
 
 // Transitional re-export so feature modules don't need their own
