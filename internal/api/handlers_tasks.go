@@ -84,6 +84,12 @@ func listProjectTasksHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		// T356: entry-less legacy tasks show their status-log-derived
+		// spent time on the kanban/inbox cards (virtual — nothing
+		// persisted; one batched read for the whole listing).
+		if deps.TaskService != nil {
+			deps.TaskService.StampDerivedSpent(r.Context(), tasks)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
 	}
 }
@@ -274,6 +280,12 @@ func getTaskHandler(deps *Dependencies) http.HandlerFunc {
 		// list endpoints own the full counters aggregation).
 		if c, cerr := deps.Tasks.CountersForTask(r.Context(), tr.ID); cerr == nil {
 			tr.Counters = &c
+		}
+		// T356: entry-less legacy tasks show their status-log-derived
+		// spent time (virtual — nothing persisted). No-op without the
+		// Spent seam wired.
+		if deps.TaskService != nil {
+			deps.TaskService.StampDerivedSpent(r.Context(), []*task.Task{tr})
 		}
 		writeJSON(w, http.StatusOK, tr)
 	}
