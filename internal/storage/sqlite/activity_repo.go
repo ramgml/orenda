@@ -5,8 +5,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/ramgml/orenda/internal/domain/activity"
+	"github.com/ramgml/orenda/internal/domain/timeentry"
 )
 
 // activityRepo persists task_activity rows. Append-only.
@@ -51,6 +53,62 @@ func (r *activityRepo) ListByTask(ctx context.Context, taskID string) ([]*activi
 func (r *activityRepo) ListByActor(ctx context.Context, actorType activity.ActorType, actorID string) ([]*activity.Activity, error) {
 	const q = activitySelectColumns + " WHERE actor_type = ? AND actor_id = ? ORDER BY created_at DESC"
 	return r.query(ctx, q, string(actorType), actorID)
+}
+
+// StatusChangesByTasks implements activity.Repository. One batched
+// SELECT over the status_changed rows of the requested tasks
+// (T356 spent fallback) — placeholders + ORDER BY task_id,
+// created_at ASC so each task's timeline arrives oldest first. A nil
+// ids slice reads every usable row (the service-side report fallback
+// cannot enumerate legacy candidates upfront); SQLite scans the
+// `task.status_changed` subset through the action filter. Payloads
+// that do not parse into {from,to} are dropped here; the derivation
+// contract is best-effort. Empty (non-nil) input → empty map.
+func (r *activityRepo) StatusChangesByTasks(ctx context.Context, taskIDs []string) (map[string][]timeentry.StatusSpentEvent, error) {
+	out := make(map[string][]timeentry.StatusSpentEvent, len(taskIDs))
+	if taskIDs != nil && len(taskIDs) == 0 {
+		return out, nil
+	}
+	const base = `SELECT task_id, payload, created_at FROM task_activity
+	      WHERE action = 'task.status_changed'`
+	var (
+		q    string
+		args []any
+	)
+	if taskIDs == nil {
+		q = base + ` ORDER BY task_id, created_at ASC`
+	} else {
+		placeholders := strings.Repeat("?, ", len(taskIDs)-1) + "?"
+		args = make([]any, 0, len(taskIDs))
+		for _, id := range taskIDs {
+			args = append(args, id)
+		}
+		q = base + ` AND task_id IN (` + placeholders + `)
+		      ORDER BY task_id, created_at ASC`
+	}
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("activity.StatusChangesByTasks: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var taskID string
+		var payload sql.NullString
+		var createdAt string
+		if err := rows.Scan(&taskID, &payload, &createdAt); err != nil {
+			return nil, fmt.Errorf("activity.StatusChangesByTasks: scan: %w", err)
+		}
+		events := timeentry.ParseStatusSpentEvents([]string{payload.String})
+		if len(events) == 0 {
+			continue
+		}
+		events[0].At = parseTime(createdAt)
+		out[taskID] = append(out[taskID], events[0])
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("activity.StatusChangesByTasks: rows: %w", err)
+	}
+	return out, nil
 }
 
 // ListByProject aggregates activity rows from every task that belongs

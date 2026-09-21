@@ -57,6 +57,12 @@ type Service struct {
 	Hub      ws.Hub
 	Recorder Recorder
 	Infos    TaskInfoLookup // optional; nil disables the title/project lookup
+	// SpentStatuses/SpentGate wire the T356 spent-time fallback:
+	// derived seconds from the status audit timeline for tasks with
+	// no time_entries rows at all. Either nil → fallback off (the
+	// service then behaves exactly as pre-T356; fixtures rely on it).
+	SpentStatuses timeentry.StatusSpentSource // status_changed rows
+	SpentGate     timeentry.Repository        // HasAnyEntriesByTasks probe
 }
 
 // New returns a TimeEntry service.
@@ -69,6 +75,17 @@ func New(repo timeentry.Repository, hub ws.Hub, rec Recorder) *Service {
 // service constructors.
 func (s *Service) WithInfos(t TaskInfoLookup) *Service {
 	s.Infos = t
+	return s
+}
+
+// WithSpentFallback wires the T356 spent-time fallback. statuses
+// supplies the ordered status_changed timelines, gate answers
+// "does this task have any time_entries rows". Both come from the
+// sqlite repos in main.go; the split keeps the derivation testable
+// without a database.
+func (s *Service) WithSpentFallback(statuses timeentry.StatusSpentSource, gate timeentry.Repository) *Service {
+	s.SpentStatuses = statuses
+	s.SpentGate = gate
 	return s
 }
 
@@ -265,6 +282,13 @@ func (s *Service) Report(ctx context.Context, agentID string, from, to time.Time
 		}
 		byTask[e.TaskID] += d
 	}
+	// T356 spent fallback: tasks with NO time_entries rows at all get
+	// their in_progress history derived from the status audit log,
+	// clipped to the report window. Tasks with any entry are skipped
+	// (stored counter semantics win), and only closed intervals count
+	// — live in_progress time belongs to the runtime auto-timer.
+	// Best-effort: a fallback failure must never fail the report.
+	s.applySpentFallback(ctx, byTask, from, to)
 	// Batch info lookup — one query for every distinct task id
 	// (Phase 27.9, extended in T354 with the project fields). The
 	// lookup is optional; nil falls back to the pre-27.9 behaviour
@@ -320,6 +344,55 @@ func (s *Service) Report(ctx context.Context, agentID string, from, to time.Time
 		return rep.Projects[i].TotalSec > rep.Projects[j].TotalSec
 	})
 	return rep, nil
+}
+
+// applySpentFallback stamps T356 derived seconds into byTask for
+// every task that (a) has no time_entries rows at all and (b) has a
+// non-zero CLOSED in_progress history inside the report window
+// [from, to), derived from the status audit timeline.
+//
+// The query side is two batched calls (StatusChangesByTasks + the
+// gate probe) — no per-task N+1. Only closed intervals count; live
+// in_progress time belongs to the runtime auto-timer. Best-effort by
+// contract: any fallback failure just leaves the report as-is.
+//
+// Rows added for tasks with no entry-derived row become full
+// report rows (title/project via the normal Infos lookup), so
+// TotalSec and the T354 projects[] subtotals stay consistent with
+// the visible rows.
+func (s *Service) applySpentFallback(ctx context.Context, byTask map[string]int64, from, to time.Time) {
+	if s.SpentStatuses == nil || s.SpentGate == nil {
+		return
+	}
+	// Candidate set = every task that has status_changed rows
+	// (nil ids = "all tasks with usable rows"). Legacy tasks have no
+	// entries, so they can only surface through this call — the
+	// window filter happens after derivation, over derived intervals.
+	statuses, err := s.SpentStatuses.StatusChangesByTasks(ctx, nil)
+	if err != nil {
+		return
+	}
+	if len(statuses) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(statuses))
+	for id := range statuses {
+		ids = append(ids, id)
+	}
+	hasEntries, err := s.SpentGate.HasAnyEntriesByTasks(ctx, ids)
+	if err != nil {
+		return
+	}
+	for id, events := range statuses {
+		if hasEntries[id] {
+			continue // stored counter semantics win — no fallback
+		}
+		derived := timeentry.SumClipped(
+			timeentry.DeriveClosedIntervals(events), from, to)
+		if derived > 0 {
+			byTask[id] += derived
+		}
+	}
 }
 
 func (s *Service) publish(ctx context.Context, eventType string, e *timeentry.TimeEntry) {

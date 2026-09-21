@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [Unreleased]
+
+### Added
+- **Task 356:** Spent-time fallback for legacy tasks — tasks that predate the Task 87 auto-timer (no `time_entries` rows, zero stored `time_spent_s`) now surface their `in_progress` history on every read surface: the derivation walks the `task.status_changed` audit timeline (pure functions in `internal/domain/timeentry/status_spent.go`, batched via `StatusChangesByTasks` + `HasAnyEntriesByTasks` — no N+1), and task reads (single GET, project/inbox listings, `GET /reports/time` with window clipping) stamp the value virtually without persisting it. A stored counter >0 or any entry disables the fallback per task. Pinned by `status_spent_test.go`, `handlers_spent_fallback_test.go`, `report_fallback_test.go`; documented in `docs/context/API.md`.
+
 ## [0.23.1] — 2026-09-20
 
 Patch release. Focus: release-infra reliability — the knip gate no longer fails when a local `make build` has produced `web/dist/`.

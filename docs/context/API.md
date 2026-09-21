@@ -172,6 +172,15 @@ agent namespace. Source: `cmd/orenda/agent.go`. See
 | POST | `/api/v1/tasks/{id}/time` | `{agent_id?, start_at, end_at}` manual entry |
 | GET | `/api/v1/reports/time` | `?agent_id=&from=&to=` per-task aggregation |
 
+**T356 spent fallback (read-only):** tasks that predate the auto-timer have no
+`time_entries` rows and a zero stored `time_spent_s`, even though their
+`in_progress` stays are in the `task.status_changed` audit log. When a task has
+no entries at all and a zero counter, task reads (single GET, project/inbox
+listings) and `GET /reports/time` stamp a DERIVED value in the response:
+sum of closed `in_progress` intervals from the audit timeline (report rows
+clipped to the `from..to` window). Nothing is persisted; a manually set
+counter (>0) or any `time_entries` row disables the fallback for that task.
+
 ## Wiki / Search
 
 | Method | Path | Notes |

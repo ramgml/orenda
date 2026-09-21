@@ -1,6 +1,10 @@
 package activity
 
-import "context"
+import (
+	"context"
+
+	"github.com/ramgml/orenda/internal/domain/timeentry"
+)
 
 // Repository persists Activity rows.
 //
@@ -14,6 +18,16 @@ type Repository interface {
 	// carries the joined task title so the project Activity tab can show
 	// "X commented on Y" without a second round-trip per row.
 	ListByProject(ctx context.Context, projectID string, limit int) ([]*ProjectActivityEvent, error)
+
+	// StatusChangesByTasks returns the `task.status_changed` audit
+	// rows for the requested tasks in one round-trip (T356 spent
+	// fallback), oldest first per task. A nil taskIDs slice means
+	// "every task that has usable rows"; an empty (non-nil) slice
+	// returns an empty map. Rows whose payload fails to parse as
+	// {"from":…,"to":…} are skipped; tasks with no usable rows are
+	// absent from the map. Used only by the time-fallback read path;
+	// write paths are untouched.
+	StatusChangesByTasks(ctx context.Context, taskIDs []string) (map[string][]timeentry.StatusSpentEvent, error)
 }
 
 // ProjectActivityEvent is one row in the project Activity tab.

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ramgml/orenda/internal/domain/timeentry"
@@ -214,6 +215,37 @@ func (r *timeEntryRepo) ListByDay(ctx context.Context, agentID string, day time.
 	dayStart := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location())
 	dayEnd := dayStart.Add(24 * time.Hour)
 	return r.ListByAgent(ctx, agentID, dayStart, dayEnd)
+}
+
+// HasAnyEntriesByTasks implements timeentry.Repository. One batched
+// EXISTS probe over the requested ids (T356 spent-fallback gate):
+// true = the task owns at least one time_entries row. Tasks with no
+// rows are absent from the map; empty input → empty map.
+func (r *timeEntryRepo) HasAnyEntriesByTasks(ctx context.Context, taskIDs []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(taskIDs))
+	if len(taskIDs) == 0 {
+		return out, nil
+	}
+	placeholders := strings.Repeat("?, ", len(taskIDs)-1) + "?"
+	args := make([]any, 0, len(taskIDs))
+	for _, id := range taskIDs {
+		args = append(args, id)
+	}
+	q := `SELECT DISTINCT task_id FROM time_entries
+	      WHERE task_id IN (` + placeholders + `)`
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("timeentry.HasAnyEntriesByTasks: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("timeentry.HasAnyEntriesByTasks: scan: %w", err)
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
 }
 
 const timeEntrySelectColumns = `
