@@ -50,4 +50,12 @@ type Repository interface {
 	// transaction. Used by ManualAdd: a manual interval is born
 	// closed and must land on the task total atomically.
 	CreateAndAccrue(ctx context.Context, e *TimeEntry) (*TimeEntry, error)
+
+	// HasAnyEntriesByTasks reports, per requested task, whether the
+	// task has at least one time_entries row (any state, any actor).
+	// One batched EXISTS query (T356): the spent-fallback gate is
+	// "no entries at all" — a task with even a single entry keeps its
+	// stored counter semantics and never gets derived time. Tasks
+	// absent from the map have no entries. Empty input → empty map.
+	HasAnyEntriesByTasks(ctx context.Context, taskIDs []string) (map[string]bool, error)
 }

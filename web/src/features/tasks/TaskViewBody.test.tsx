@@ -218,4 +218,28 @@ describe('EstimateEditor (T120)', () => {
 
     expect(onSaveEstimate).not.toHaveBeenCalled();
   });
+
+  // T348: the estimate row must survive the narrow task sidebar —
+  // jsdom has no layout engine, so the compiled Tailwind utilities
+  // are pinned here (same precedent as the TimerWidget pointer-events
+  // tests); the real hit-check over the built UI lives in the PR
+  // evidence (headless Chrome).
+  it('estimate input fills the row and stays shrink-safe (T348)', () => {
+    mountEstimate(dueTask());
+
+    const input = screen.getByTitle('Time estimate');
+    expect(input.className).toMatch(/\bmin-w-0\b/);
+    expect(input.className).toMatch(/\bflex-1\b/);
+    expect(input.className).toMatch(/\bh-7\b/);
+  });
+
+  it('Set and clear match the input height and never shrink (T348)', () => {
+    mountEstimate(dueTask({ time_estimate_s: 5400 }));
+
+    for (const name of ['Set', 'clear']) {
+      const btn = screen.getByRole('button', { name });
+      expect(btn.className).toMatch(/\bh-7\b/);
+      expect(btn.className).toMatch(/\bshrink-0\b/);
+    }
+  });
 });

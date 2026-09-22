@@ -753,6 +753,12 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	taskSvc := taskservice.New(tasksRepo, taskLocks, taskRecorderFor(activityRecorder), commentAdderFor(commentSvc), hub)
 	taskSvc.Logger = logger
 	taskSvc.Time = timeEntryRepo // Task 87: status-driven auto-timer
+	// T356: spent fallback on the task read surface — derived
+	// time_spent_s for entry-less legacy tasks (virtual stamp).
+	taskSvc.Spent = taskservice.SpentFallbackAdapter{
+		Statuses: activityRepo.(*sqlite.ActivityRepo),
+		Gate:     timeEntryRepo,
+	}
 	taskSvc.Mirror = mirrorSvc
 	taskSvc.Columns = projects // Phase 23.1 + 16.7: WIP lookup + inbox→project filing
 	// Phase Wave 4 PR 2: wire CommentLister so the markdown
@@ -793,7 +799,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// reads and writes the tasks table now.
 	eventSvc := eventservice.New(sqlite.NewTaskRepository(db), hub, nil)
 	timeSvc := timeentryservice.New(timeEntryRepo, hub, nil).
-		WithTitles(sqlite.NewTaskRepository(db))
+		WithInfos(sqlite.NewTaskRepository(db)).
+		WithSpentFallback(activityRepo.(*sqlite.ActivityRepo), timeEntryRepo)
 
 	// Wiki + Search services (Phase 5).
 	wikiSvc := wikiservice.New(sqlite.NewWikiRepository(db), hub)

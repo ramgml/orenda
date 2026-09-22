@@ -131,6 +131,10 @@ type Service struct {
 	// tracked time flows from the task lifecycle instead of a manual
 	// timer. nil-safe — the timer simply stays off.
 	Time TimeEntries
+	// Spent is the T356 spent-fallback read seam (see
+	// spent_fallback.go): when wired, task reads stamp a derived
+	// time_spent_s onto entry-less tasks. nil-safe — no fallback.
+	Spent SpentFallback
 	// Logger is used for warn/error logs in the service layer.
 	// nil-safe — callers that don't set it get silent degradation.
 	Logger *zap.Logger

@@ -2,6 +2,7 @@ package timeentry_test
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"testing"
 	"time"
@@ -38,7 +39,15 @@ func (r *memRecorder) Record(_ context.Context, _ string, _ string) error {
 	return nil
 }
 
+// setupTimeSvc keeps the historical four-value signature most tests
+// use; setupTimeSvcFull also returns the raw *sql.DB for tests that
+// build a second repository (T354 project grouping test).
 func setupTimeSvc(t *testing.T) (*timeentrysvc.Service, string, string, task.Repository) {
+	svc, taskID, agentID, tasks, _ := setupTimeSvcFull(t)
+	return svc, taskID, agentID, tasks
+}
+
+func setupTimeSvcFull(t *testing.T) (*timeentrysvc.Service, string, string, task.Repository, *sql.DB) {
 	t.Helper()
 	db, _ := testutil.TemplateDBOpen(t)
 
@@ -69,7 +78,7 @@ func setupTimeSvc(t *testing.T) (*timeentrysvc.Service, string, string, task.Rep
 
 	hub := &memHub{}
 	svc := timeentrysvc.New(sqlite.NewTimeEntryRepository(db), hub, &memRecorder{})
-	return svc, tr.ID, a.ID, tasks
+	return svc, tr.ID, a.ID, tasks, db
 }
 
 func newIDLite() string {
@@ -169,28 +178,29 @@ func TestTimeEntryService_ListByDay(t *testing.T) {
 	assert.Len(t, list, 1)
 }
 
-// fakeTitleLookup is a stand-in TaskTitleLookup for Report tests.
+// fakeInfoLookup is a stand-in TaskInfoLookup for Report tests.
 // It returns exactly the map the test sets; missing ids are absent
 // (matching the contract — caller renders the id slice as fallback).
-type fakeTitleLookup struct {
-	titles map[string]string
+type fakeInfoLookup struct {
+	infos map[string]task.Info
 }
 
-func (f *fakeTitleLookup) TitlesByIDs(_ context.Context, ids []string) (map[string]string, error) {
-	out := make(map[string]string, len(ids))
+func (f *fakeInfoLookup) InfosByIDs(_ context.Context, ids []string) (map[string]task.Info, error) {
+	out := make(map[string]task.Info, len(ids))
 	for _, id := range ids {
-		if t, ok := f.titles[id]; ok {
-			out[id] = t
+		if i, ok := f.infos[id]; ok {
+			out[id] = i
 		}
 	}
 	return out, nil
 }
 
-// TestTimeEntryService_Report_PopulatesTitles (Phase 27.9) guards the
-// one-batch lookup contract: Report enriches every row with the task
-// title using a single call to TitlesByIDs (no N+1), and missing
-// titles fall back to an empty title (caller renders the id slice).
-func TestTimeEntryService_Report_PopulatesTitles(t *testing.T) {
+// TestTimeEntryService_Report_PopulatesInfos (Phase 27.9, T354)
+// guards the one-batch lookup contract: Report enriches every row
+// with the task title using a single call to InfosByIDs (no N+1),
+// and missing entries fall back to an empty title (caller renders
+// the id slice).
+func TestTimeEntryService_Report_PopulatesInfos(t *testing.T) {
 	svc, taskID, agentID, _ := setupTimeSvc(t)
 	now := time.Now().Truncate(time.Second)
 	end := now.Add(30 * time.Minute)
@@ -200,25 +210,102 @@ func TestTimeEntryService_Report_PopulatesTitles(t *testing.T) {
 	from := now.Add(-time.Hour)
 	to := now.Add(time.Hour)
 
-	// Without titles wired, the row keeps an empty title (pre-27.9).
+	// Without infos wired, the row keeps an empty title (pre-27.9).
 	rep, err := svc.Report(context.Background(), agentID, from, to)
 	require.NoError(t, err)
 	require.Len(t, rep.Tasks, 1)
-	assert.Equal(t, "", rep.Tasks[0].Title, "no titles wired → empty title")
+	assert.Equal(t, "", rep.Tasks[0].Title, "no infos wired → empty title")
 
 	// Wire a fake lookup and re-query — the row gets the title.
-	svc.WithTitles(&fakeTitleLookup{titles: map[string]string{taskID: "Study Redis cache invalidation"}})
+	svc.WithInfos(&fakeInfoLookup{infos: map[string]task.Info{
+		taskID: {Title: "Study Redis cache invalidation"},
+	}})
 	rep, err = svc.Report(context.Background(), agentID, from, to)
 	require.NoError(t, err)
 	require.Len(t, rep.Tasks, 1)
 	assert.Equal(t, "Study Redis cache invalidation", rep.Tasks[0].Title)
 
 	// Missing lookup entry → empty title (caller renders id slice).
-	svc.WithTitles(&fakeTitleLookup{titles: map[string]string{}})
+	svc.WithInfos(&fakeInfoLookup{})
 	rep, err = svc.Report(context.Background(), agentID, from, to)
 	require.NoError(t, err)
 	require.Len(t, rep.Tasks, 1)
 	assert.Equal(t, "", rep.Tasks[0].Title, "missing lookup key → empty title (caller falls back to id)")
+}
+
+// TestTimeEntryService_Report_GroupsByProject (T354) pins the project
+// contract: task rows carry their project's id/name/color, Projects
+// holds one subtotal per project sorted by total_sec desc, and a
+// projectless task keeps empty project fields and stays out of
+// Projects.
+func TestTimeEntryService_Report_GroupsByProject(t *testing.T) {
+	ctx := context.Background()
+	svc, taskID, agentID, tasks, db := setupTimeSvcFull(t)
+	now := time.Now().Truncate(time.Second)
+
+	// Owner id for the second project (the fixture made exactly one).
+	var ownerID string
+	require.NoError(t, db.QueryRow("SELECT id FROM users LIMIT 1").Scan(&ownerID))
+
+	projects := sqlite.NewProjectRepository(db)
+	p2, _, cols2, err := projects.CreateProject(ctx, &project.Project{
+		Name: "Beta", Color: "#ff0000", OwnerID: ownerID, AgentsAllowed: true,
+	})
+	require.NoError(t, err)
+	t2 := &task.Task{ProjectID: p2.ID, ColumnID: cols2[0].ID, Title: "beta task"}
+	require.NoError(t, tasks.Create(ctx, t2))
+	// A projectless (Inbox) task — project_id IS NULL.
+	t3 := &task.Task{Title: "orphan"}
+	require.NoError(t, tasks.Create(ctx, t3))
+
+	// Alpha task: 2 × 20m. Beta: 1h (must out-total Alpha). Orphan: 10m.
+	_, err = svc.ManualAdd(ctx, taskID, agentID, now, now.Add(20*time.Minute))
+	require.NoError(t, err)
+	_, err = svc.ManualAdd(ctx, taskID, agentID, now.Add(time.Hour), now.Add(time.Hour).Add(20*time.Minute))
+	require.NoError(t, err)
+	_, err = svc.ManualAdd(ctx, t2.ID, agentID, now, now.Add(time.Hour))
+	require.NoError(t, err)
+	_, err = svc.ManualAdd(ctx, t3.ID, agentID, now, now.Add(10*time.Minute))
+	require.NoError(t, err)
+
+	// Real lookup path — same wiring as main.go.
+	svc.WithInfos(sqlite.NewTaskRepository(db))
+
+	rep, err := svc.Report(ctx, agentID, now.Add(-time.Hour), now.Add(2*time.Hour))
+	require.NoError(t, err)
+
+	require.Len(t, rep.Tasks, 3)
+	rows := make(map[string]timeentrysvc.AggregateReportTask, len(rep.Tasks))
+	for _, row := range rep.Tasks {
+		rows[row.TaskID] = row
+	}
+
+	// Alpha row: joined project name comes through (fixture project
+	// was created without a colour, so only the name is pinned here).
+	alpha := rows[taskID]
+	require.NotEmpty(t, alpha.ProjectID)
+	assert.Equal(t, "TS", alpha.ProjectName)
+
+	beta := rows[t2.ID]
+	assert.Equal(t, p2.ID, beta.ProjectID)
+	assert.Equal(t, "Beta", beta.ProjectName)
+	assert.Equal(t, "#ff0000", beta.ProjectColor)
+
+	// Orphan row: empty project fields.
+	orphan := rows[t3.ID]
+	assert.Equal(t, "", orphan.ProjectID)
+	assert.Equal(t, "", orphan.ProjectName)
+	assert.Equal(t, "", orphan.ProjectColor)
+
+	// Subtotals: Beta 1h > Alpha 40m, desc order, orphan absent.
+	require.Len(t, rep.Projects, 2)
+	assert.Equal(t, p2.ID, rep.Projects[0].ProjectID)
+	assert.Equal(t, int64(3600), rep.Projects[0].TotalSec)
+	assert.Equal(t, int64(2400), rep.Projects[1].TotalSec)
+	for _, p := range rep.Projects {
+		assert.NotEqual(t, "", p.ProjectID, "Projects only carries real projects")
+	}
+	assert.Equal(t, int64(6600), rep.TotalSec)
 }
 
 // spentS reads the task's stored time_spent_s counter.

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { App } from './App';
 import { registerOfflineHandlers } from '@/shared/offline/outbox';
+import { registerServiceWorker } from '@/shared/pwa/registerServiceWorker';
 import './index.css';
 import '@blocknote/core/style.css';
 import '@blocknote/mantine/style.css';
@@ -26,6 +27,11 @@ import '@fontsource/jetbrains-mono/cyrillic-500.css';
 import '@fontsource/jetbrains-mono/cyrillic-600.css';
 
 registerOfflineHandlers();
+// Task 351: app-managed SW registration — with registerType 'autoUpdate'
+// this un-sticks waiting updates (SKIP_WAITING) and reloads the page
+// once when the new worker activates, so a deployed bundle actually
+// reaches the next reload (see shared/pwa/registerServiceWorker.ts).
+registerServiceWorker();
 
 const queryClient = new QueryClient({
   defaultOptions: {

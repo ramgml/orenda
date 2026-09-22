@@ -50,6 +50,10 @@ func listInboxTasksHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		// T356: spent fallback for entry-less legacy tasks (virtual).
+		if deps.TaskService != nil {
+			deps.TaskService.StampDerivedSpent(r.Context(), tasks)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
 	}
 }
