@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [Unreleased]
+
+### Fixed
+- **Task 346 (hotfix):** release job's changelog extraction — `awk -v pat="^## \\[$VER\\]"` degrades on the runner (gawk processes `-v` escapes a second time, so `\[` reaches the regex as a bare `[` and the pattern becomes a character class that never matches a heading), and the first real run (tag `v0.24.0`, run 35698912903) cut no section and failed. Extraction now matches the literal `## [X.Y.Z]` heading with `index()` prefix comparisons — no escapes in play; the empty-section `::error` guard and preview are unchanged.
+
 ## [0.24.0] — 2026-09-22
 
 Minor release. Focus: time tracking end to end — the time report groups by project and colours rows with project colours (Task 354), legacy pre-auto-timer tasks get their spent time derived from the status audit (Task 356), and the task sidebar's timer entry points work again (Task 348). Release infrastructure: pushing a `v*` tag now publishes the GitHub Release from the changelog (Task 346), SPA deploys reach users without manual DevTools cleanup (Task 351), and `make web-test` accepts a path filter (Task 352). No schema changes; no new dependencies.
