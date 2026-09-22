@@ -306,14 +306,18 @@ jobs:
           fetch-depth: 0
 
       - name: Extract changelog section for the tag
-        # Tag "v0.23.1" → heading "## [0.23.1]"; grab everything up to the
+        # Tag "v0.24.0" → heading "## [0.24.0]"; grab everything up to the
         # next "## [" heading. An empty cut means the release branch forgot
         # the changelog entry — fail loudly instead of publishing junk.
+        # Literal index() prefix matches, not a regex: awk -v processes
+        # escape sequences a second time, so -v pat="^## \\[$VER\\]" once
+        # degraded into a bare character class and never matched (first
+        # real run of this job, tag v0.24.0, run 35698912903).
         run: |
           VER="${GITHUB_REF_NAME#v}"
-          awk -v pat="^## \\[$VER\\]" '
-            $0 ~ pat {found=1; next}
-            found && /^## \[/ {exit}
+          awk -v hdr="## [$VER]" '
+            index($0, hdr) == 1 {found=1; next}
+            found && index($0, "## [") == 1 {exit}
             found {print}
           ' CHANGELOG.md > /tmp/notes.md
           if [ ! -s /tmp/notes.md ]; then
