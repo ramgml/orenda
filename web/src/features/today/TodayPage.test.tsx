@@ -55,9 +55,9 @@ afterEach(() => {
 
 function mount(initialEntries?: string[]) {
   // Task 268: the page tree runs real queries (the TodayPage data
-  // fetch and, since T9, the DashboardChatPanel history query), so
-  // every render sits inside a QueryClientProvider (retry off to
-  // keep failures loud). Fresh client per render — shared caches
+  // fetch), so every render sits inside a QueryClientProvider
+  // (retry off to keep failures loud). Fresh client per render —
+  // shared caches
   // leak state across tests.
   return render(
     <QueryClientProvider client={qc()}>
