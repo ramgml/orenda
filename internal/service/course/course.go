@@ -563,6 +563,8 @@ func (s *Service) AddQuiz(ctx context.Context, lessonID, questionMD, expectedMD 
 	return q, nil
 }
 
+// AnswerQuiz grades a student's quiz answer through the LLM grader.
+//
 // Two paths, one grader:
 //
 //   - QuizExact (difficulty-free, short answers: yes/no, numbers,
