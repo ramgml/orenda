@@ -174,6 +174,65 @@ ratelimit:
 	assert.Equal(t, 1.5, c.RateLimit.AnonPerSec)
 }
 
+// LLM section: yaml + env override + api_key file resolution. The
+// quiz grader is off unless base_url is set.
+func TestLoad_LLMFromYAMLAndEnv(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yaml := `
+llm:
+  base_url: http://from-yaml:8080/v1
+  model: yaml-model
+`
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o600))
+
+	c, err := Load(path)
+	require.NoError(t, err)
+	assert.True(t, c.LLM.Enabled())
+	assert.Equal(t, "http://from-yaml:8080/v1", c.LLM.BaseURL)
+	assert.Equal(t, "yaml-model", c.LLM.Model)
+	assert.Equal(t, 30*time.Second, c.LLM.Timeout, "default timeout applies without yaml/env")
+
+	t.Setenv("ORENDA_LLM__BASE_URL", "http://from-env:9000/v1")
+	t.Setenv("ORENDA_LLM__API_KEY", "k-env")
+	t.Setenv("ORENDA_LLM__TIMEOUT", "5s")
+
+	c, err = Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "http://from-env:9000/v1", c.LLM.BaseURL, "env wins over yaml")
+	assert.Equal(t, "k-env", c.LLM.APIKey)
+	assert.Equal(t, 5*time.Second, c.LLM.Timeout)
+}
+
+func TestLoad_LLMDisabledByDefault(t *testing.T) {
+	clearORENDAEnv(t)
+	c := DefaultConfig()
+	assert.False(t, c.LLM.Enabled(), "no [llm] config = grading off")
+}
+
+func TestLoad_LLMAPIKeyFile(t *testing.T) {
+	clearORENDAEnv(t)
+	dir := t.TempDir()
+	keyFile := filepath.Join(dir, "llm.key")
+	require.NoError(t, os.WriteFile(keyFile, []byte("sk-file-key\n"), 0o600))
+
+	c := LLMConfig{APIKeyFile: keyFile}
+	key, err := c.ResolveAPIKey()
+	require.NoError(t, err)
+	assert.Equal(t, "sk-file-key", key, "file contents are trimmed")
+
+	// Direct value wins over the file.
+	c = LLMConfig{APIKey: "sk-direct", APIKeyFile: keyFile}
+	key, err = c.ResolveAPIKey()
+	require.NoError(t, err)
+	assert.Equal(t, "sk-direct", key)
+
+	// Missing file errors.
+	c = LLMConfig{APIKeyFile: filepath.Join(dir, "nope.key")}
+	_, err = c.ResolveAPIKey()
+	require.Error(t, err)
+}
+
 func TestLoad_MalformedYAML_ReturnsError(t *testing.T) {
 	clearORENDAEnv(t)
 	dir := t.TempDir()

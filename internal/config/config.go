@@ -52,6 +52,9 @@ type Config struct {
 	// Phase 30.5: weekly digest scheduler config. DigestInterval
 	// <= 0 disables the scheduler entirely.
 	Notifier NotifierConfig `yaml:"notifier"`
+	// LLM configures the OpenAI-compatible client used for
+	// semantic quiz grading. Unset = feature off.
+	LLM LLMConfig `yaml:"llm"`
 }
 
 // ServerConfig controls the HTTP listener.
@@ -169,6 +172,54 @@ type UploadsConfig struct {
 	AllowedMimes []string `yaml:"allowed_mimes"`
 }
 
+// LLMConfig configures the OpenAI-compatible chat-completions client
+// used for semantic quiz grading (AnswerQuiz). Empty BaseURL means
+// the feature is off — quiz answers then fail with llm_not_configured.
+//
+// APIKey follows the same file-indirection pattern as auth.jwt_secret:
+// a direct api_key value or api_key_file pointing at a file holding
+// the secret (trimmed) so the key stays out of /proc/*/environ.
+type LLMConfig struct {
+	// BaseURL is the OpenAI-compatible API root, e.g.
+	// "https://api.openai.com/v1" or a local ollama/vLLM endpoint.
+	// Must include the version prefix; the client appends
+	// /chat/completions. Empty disables LLM grading.
+	BaseURL string `yaml:"base_url"`
+	// APIKey is the bearer token sent as Authorization. Optional —
+	// local runtimes (ollama) often need none.
+	APIKey string `yaml:"api_key"`
+	// APIKeyFile names a file holding the API key (trimmed). A
+	// direct api_key value wins over the file.
+	APIKeyFile string `yaml:"api_key_file"`
+	// Model is the chat model id, e.g. "gpt-4o-mini".
+	Model string `yaml:"model"`
+	// Timeout bounds one grading request. Default 30s.
+	Timeout time.Duration `yaml:"timeout"`
+}
+
+// Enabled reports whether LLM grading is configured.
+func (c LLMConfig) Enabled() bool { return c.BaseURL != "" }
+
+// ResolveAPIKey returns the effective API key: the direct value when
+// set, otherwise the trimmed contents of APIKeyFile.
+func (c LLMConfig) ResolveAPIKey() (string, error) {
+	if c.APIKey != "" {
+		return c.APIKey, nil
+	}
+	if c.APIKeyFile != "" {
+		raw, err := os.ReadFile(c.APIKeyFile)
+		if err != nil {
+			return "", fmt.Errorf("config: llm.api_key_file %q: %w", c.APIKeyFile, err)
+		}
+		key := strings.TrimSpace(string(raw))
+		if key == "" {
+			return "", fmt.Errorf("config: llm.api_key_file %q is empty", c.APIKeyFile)
+		}
+		return key, nil
+	}
+	return "", nil
+}
+
 // DefaultConfig returns safe built-in defaults.
 //
 // Tests and tooling that don't need a real config file can call this directly.
@@ -241,6 +292,12 @@ func DefaultConfig() *Config {
 			AnonPerSec: 20.0,
 			AuthBurst:  300,
 			AuthPerSec: 100.0,
+		},
+		// LLM grading defaults: off (empty BaseURL). Timeout has a
+		// sane value so an operator who only sets base_url+model
+		// gets a working client.
+		LLM: LLMConfig{
+			Timeout: 30 * time.Second,
 		},
 	}
 }
@@ -369,6 +426,32 @@ func overrideField(cfg *Config, path, value string) {
 	// of the commit message and in PLAN.md.
 	case "ratelimit":
 		overrideRateLimit(&cfg.RateLimit, parts[1:], value)
+	case "llm":
+		overrideLLM(&cfg.LLM, parts[1:], value)
+	}
+}
+
+// overrideLLM assigns one ORENDA_LLM__* env override. Sub-keys use
+// the `__` tokenisation like every other section, re-joined to the
+// YAML key shape.
+func overrideLLM(c *LLMConfig, p []string, v string) {
+	if len(p) == 0 {
+		return
+	}
+	key := strings.Join(p, "_")
+	switch key {
+	case "base_url":
+		c.BaseURL = v
+	case "api_key":
+		c.APIKey = v
+	case "api_key_file":
+		c.APIKeyFile = v
+	case "model":
+		c.Model = v
+	case "timeout":
+		if d, err := time.ParseDuration(v); err == nil {
+			c.Timeout = d
+		}
 	}
 }
 

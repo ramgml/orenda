@@ -47,6 +47,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
+	"github.com/ramgml/orenda/internal/llm"
 	"github.com/ramgml/orenda/internal/mirror"
 	activityservice "github.com/ramgml/orenda/internal/service/activity"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
@@ -840,6 +841,19 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	reviewRepo := sqlite.NewLessonReviewRepository(db)
 	reviewSvc := reviewservice.New(reviewRepo)
 	courseSvc = courseSvc.WithReviews(reviewSvc)
+
+	// Quiz grading: wire the LLM grader when [llm] is configured.
+	// Unset config keeps the service without a grader — AnswerQuiz
+	// then fails with a dedicated error instead of guessing.
+	if cfg.LLM.Enabled() {
+		apiKey, err := cfg.LLM.ResolveAPIKey()
+		if err != nil {
+			return err
+		}
+		gradeClient := llm.NewClient(cfg.LLM.BaseURL, apiKey, cfg.LLM.Model, cfg.LLM.Timeout)
+		courseSvc = courseSvc.WithGrader(llm.NewGrader(gradeClient))
+		logger.Info("llm quiz grading enabled", zap.String("base_url", cfg.LLM.BaseURL), zap.String("model", cfg.LLM.Model))
+	}
 
 	botRegistry, err := serveBots(cmd.Context(), cfg, logger)
 	if err != nil {

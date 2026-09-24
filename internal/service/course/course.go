@@ -11,20 +11,20 @@
 //     and the linked exercise task; the lesson flips from locked to
 //     open so the student can read it.
 //   - CompleteLesson: mark a lesson done and unlock the next one.
-//   - AnswerQuiz (Phase 27.4): server-side check for `exact` quizzes
-//     (normalised string compare); `open` quizzes spawn a review
-//     task on the tutor agent and return its id.
+//   - AnswerQuiz (Phase 27.4): semantic grading of both quiz kinds
+//     through the LLM-backed QuizGrader seam; the exact-kind
+//     string compare was removed — an exact quiz grades by
+//     meaning, not by a normalised string.
 package service
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
-	"unicode"
 
 	"github.com/ramgml/orenda/internal/domain/course"
+	"github.com/ramgml/orenda/internal/llm"
 )
 
 // Sentinel errors. Handlers translate these to HTTP status codes.
@@ -33,6 +33,11 @@ var (
 	ErrInvalidInput = errors.New("course service: invalid input")
 	ErrTransition   = errors.New("course service: invalid lifecycle transition")
 	ErrLessonLocked = errors.New("course service: lesson is locked")
+	// ErrGraderNotWired means quiz grading was requested but no LLM
+	// grader is configured ([llm] section unset). Handlers surface
+	// it as a dedicated 503 so the UI can show "grading not
+	// configured" instead of a generic failure.
+	ErrGraderNotWired = errors.New("course service: quiz grader not configured")
 )
 
 // ReviewScheduler is the optional spaced-repetition seam (task 18).
@@ -115,6 +120,17 @@ type Service struct {
 	// unset, CompleteLesson just skips seeding the review chain (older
 	// test fixtures and partial routers keep working unchanged).
 	Reviews ReviewScheduler
+	// Grader is the semantic quiz-checking seam (LLM-backed).
+	// nil-safe: when unset, AnswerQuiz fails with a dedicated
+	// error instead of guessing a grade — there is deliberately
+	// no string-compare fallback left.
+	Grader QuizGrader
+}
+
+// QuizGrader is the semantic answer-checking seam AnswerQuiz uses.
+// internal/llm.Grader satisfies it; tests stub it.
+type QuizGrader interface {
+	Grade(ctx context.Context, question, expected, answer string) (verdict llm.Verdict, err error)
 }
 
 func New(repo course.Repository) *Service {
@@ -137,6 +153,15 @@ func (s *Service) WithTaskCreator(tc TaskCreator) *Service {
 func (s *Service) WithActivity(rec ActivityRecorder) *Service {
 	cp := *s
 	cp.Activity = rec
+	return &cp
+}
+
+// WithGrader returns a copy of the service wired to the LLM quiz
+// grader. Same nil-safe pattern as the other seams — when unset,
+// AnswerQuiz fails with ErrGraderNotWired instead of grading.
+func (s *Service) WithGrader(g QuizGrader) *Service {
+	cp := *s
+	cp.Grader = g
 	return &cp
 }
 
@@ -538,20 +563,15 @@ func (s *Service) AddQuiz(ctx context.Context, lessonID, questionMD, expectedMD 
 	return q, nil
 }
 
-// Two paths:
+// Two paths, one grader:
 //
-//   - QuizExact: server-side comparison. Both sides are normalised
-//     (trimmed, lowercased, whitespace collapsed, diacritics
-//     stripped) before comparison. The result returns Correct=true
-//     on a match; Correct=false otherwise. We don't persist the
-//     attempt — the student's score is recomputed on the fly from
-//     the latest attempt stored by the caller (Phase 27.4 keeps it
-//     minimal; a richer attempt log is a future enhancement).
-//
-//   - QuizOpen: a review task is created on the tutor agent with
-//     the answer in context_md. The id is returned so the UI can
-//     show "pending review" and the agent can claim it through the
-//     standard /api/v1/agent/{claim,submit} flow.
+//   - QuizExact (difficulty-free, short answers: yes/no, numbers,
+//     dates) and QuizOpen (free-form) both grade through the LLM
+//     QuizGrader. The distinction that used to drive the code path
+//     (string compare vs review task) is gone: every answer is
+//     judged by meaning. The difference that remains is UX
+//     presentation only — Exact quizzes surface plain feedback,
+//     Open quizzes additionally surface a tutor review task.
 //
 // The function is read-only for the lesson status; quizzes don't
 // block lesson completion (a student can keep going even if a
@@ -564,92 +584,50 @@ func (s *Service) AnswerQuiz(ctx context.Context, quizID string, answer course.Q
 	if err != nil {
 		return course.QuizResult{}, ErrNotFound
 	}
-	switch quiz.Kind {
-	case course.QuizExact:
-		expected := normalizeQuizAnswer(quiz.ExpectedMD)
-		got := normalizeQuizAnswer(answer.Answer)
-		return course.QuizResult{
-			Correct:    expected == got,
-			FeedbackMD: fmt.Sprintf("expected: %s", quiz.ExpectedMD),
-		}, nil
-	case course.QuizOpen:
-		if s.Tasks == nil {
-			return course.QuizResult{}, errors.New("course: open-quiz answers require a TaskCreator")
-		}
-		// We don't know the lesson owner here; the course is
-		// single-owner so we look up the course via the lesson.
-		lesson, err := s.Repo.GetLesson(ctx, quiz.LessonID)
-		if err != nil {
-			return course.QuizResult{}, ErrNotFound
-		}
-		courseOwner, err := s.Repo.ModuleCourseOwner(ctx, lesson.ModuleID)
-		if err != nil {
-			return course.QuizResult{}, err
-		}
-		reviewTaskID, err := s.Tasks.CreateQuizReviewTask(ctx, courseOwner, quizID, lesson.ID, answer.Answer)
-		if err != nil {
-			return course.QuizResult{}, fmt.Errorf("course.AnswerQuiz: review task: %w", err)
-		}
-		return course.QuizResult{
-			Correct:      false,
-			FeedbackMD:   "submitted for tutor review",
-			ReviewTaskID: reviewTaskID,
-		}, nil
-	default:
-		return course.QuizResult{}, fmt.Errorf("course: unknown quiz kind %q", quiz.Kind)
+	if s.Grader == nil {
+		return course.QuizResult{}, ErrGraderNotWired
 	}
+	verdict, err := s.Grader.Grade(ctx, quiz.QuestionMD, quiz.ExpectedMD, answer.Answer)
+	if err != nil {
+		return course.QuizResult{}, fmt.Errorf("course.AnswerQuiz: %w", err)
+	}
+	res := course.QuizResult{
+		Correct:    verdict.Passed,
+		FeedbackMD: verdict.Feedback,
+	}
+	// Open quizzes also spawn the tutor review task so a human/agent
+	// can revisit the answer beyond the automated verdict.
+	if quiz.Kind == course.QuizOpen {
+		taskID, taskErr := s.createOpenQuizReviewTask(ctx, quiz, answer.Answer)
+		if taskErr == nil {
+			res.ReviewTaskID = taskID
+		}
+		// A review-task failure must not discard the LLM verdict —
+		// the grade stands; the extra review task is best-effort.
+	}
+	return res, nil
 }
 
-// normalizeQuizAnswer canonicalises an answer string for exact-quiz
-// comparison. Lowercase, strip leading/trailing whitespace, collapse
-// internal whitespace, and drop diacritics — so "café" matches
-// "cafe" and "  Hello  World  " matches "hello world".
-func normalizeQuizAnswer(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	// Collapse any run of whitespace (incl. unicode spaces) into
-	// a single ASCII space.
-	var b strings.Builder
-	prevSpace := false
-	for _, r := range s {
-		if unicode.IsSpace(r) {
-			if !prevSpace {
-				b.WriteByte(' ')
-				prevSpace = true
-			}
-			continue
-		}
-		prevSpace = false
-		// Strip diacritics — NFD-split then drop combining marks.
-		for _, mr := range normalizedRunes(r) {
-			b.WriteRune(mr)
-		}
+// createOpenQuizReviewTask spawns the tutor review task for an open
+// quiz answer (the old QuizOpen path, kept as a best-effort
+// companion to the automated verdict).
+func (s *Service) createOpenQuizReviewTask(ctx context.Context, quiz *course.Quiz, answer string) (string, error) {
+	if s.Tasks == nil {
+		return "", errors.New("course: open-quiz answers require a TaskCreator")
 	}
-	return b.String()
-}
-
-// normalizedRunes does NFD-decomposition for a single rune so the
-// `é` becomes `e` + combining acute; the caller drops the marks.
-// We do this on a per-rune basis to avoid pulling a full
-// normalisation package — the quiz answer vocabulary is small.
-func normalizedRunes(r rune) []rune {
-	// runes that are already ASCII bypass the decomposition path.
-	if r < 0x80 {
-		return []rune{r}
+	// We don't know the lesson owner here; the course is
+	// single-owner so we look up the course via the lesson.
+	lesson, err := s.Repo.GetLesson(ctx, quiz.LessonID)
+	if err != nil {
+		return "", ErrNotFound
 	}
-	// Common pre-composed Latin letters and their NFD base.
-	// Anything outside this small table stays as-is — the
-	// comparison is best-effort, not a Unicode conformance test.
-	precomposed := map[rune]rune{
-		'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e', 'ē': 'e',
-		'á': 'a', 'à': 'a', 'â': 'a', 'ä': 'a', 'ā': 'a',
-		'í': 'i', 'ì': 'i', 'î': 'i', 'ï': 'i', 'ī': 'i',
-		'ó': 'o', 'ò': 'o', 'ô': 'o', 'ö': 'o', 'ō': 'o',
-		'ú': 'u', 'ù': 'u', 'û': 'u', 'ü': 'u', 'ū': 'u',
-		'ñ': 'n', 'ç': 'c',
-		'ý': 'y', 'ÿ': 'y',
+	courseOwner, err := s.Repo.ModuleCourseOwner(ctx, lesson.ModuleID)
+	if err != nil {
+		return "", err
 	}
-	if base, ok := precomposed[r]; ok {
-		return []rune{base}
+	reviewTaskID, err := s.Tasks.CreateQuizReviewTask(ctx, courseOwner, quiz.ID, lesson.ID, answer)
+	if err != nil {
+		return "", fmt.Errorf("course.AnswerQuiz: review task: %w", err)
 	}
-	return []rune{r}
+	return reviewTaskID, nil
 }
