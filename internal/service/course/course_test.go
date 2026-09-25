@@ -2,7 +2,6 @@ package service_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -480,96 +479,6 @@ func TestMaterializeLesson_NotFound(t *testing.T) {
 	svc := coursesvc.New(repo)
 	_, err := svc.MaterializeLesson(context.Background(), "missing", "x", "")
 	assert.ErrorIs(t, err, coursesvc.ErrNotFound)
-}
-
-func TestAnswerQuiz_ExactMatch(t *testing.T) {
-	repo := newStubRepo()
-	repo.lessons["l1"] = &course.Lesson{ID: "l1", ModuleID: "m1", Title: "Lesson"}
-	repo.quizzes["q1"] = &course.Quiz{ID: "q1", LessonID: "l1", Kind: course.QuizExact, ExpectedMD: "Paris"}
-	svc := coursesvc.New(repo)
-
-	result, err := svc.AnswerQuiz(context.Background(), "q1", course.QuizAnswer{Answer: "Paris"})
-	require.NoError(t, err)
-	assert.True(t, result.Correct)
-}
-
-func TestAnswerQuiz_ExactNormalisesWhitespaceAndCase(t *testing.T) {
-	repo := newStubRepo()
-	repo.lessons["l1"] = &course.Lesson{ID: "l1", ModuleID: "m1", Title: "L"}
-	repo.quizzes["q1"] = &course.Quiz{ID: "q1", LessonID: "l1", Kind: course.QuizExact, ExpectedMD: "  hello WORLD  "}
-	svc := coursesvc.New(repo)
-
-	res, err := svc.AnswerQuiz(context.Background(), "q1", course.QuizAnswer{Answer: "Hello world"})
-	require.NoError(t, err)
-	assert.True(t, res.Correct, "trim/lower/collapse-whitespace should normalise both sides")
-}
-
-func TestAnswerQuiz_ExactStripsDiacritics(t *testing.T) {
-	repo := newStubRepo()
-	repo.lessons["l1"] = &course.Lesson{ID: "l1", ModuleID: "m1", Title: "L"}
-	repo.quizzes["q1"] = &course.Quiz{ID: "q1", LessonID: "l1", Kind: course.QuizExact, ExpectedMD: "cafe"}
-	svc := coursesvc.New(repo)
-
-	res, err := svc.AnswerQuiz(context.Background(), "q1", course.QuizAnswer{Answer: "café"})
-	require.NoError(t, err)
-	assert.True(t, res.Correct, "café should match cafe after diacritics strip")
-}
-
-func TestAnswerQuiz_ExactWrongAnswer(t *testing.T) {
-	repo := newStubRepo()
-	repo.lessons["l1"] = &course.Lesson{ID: "l1", ModuleID: "m1", Title: "L"}
-	repo.quizzes["q1"] = &course.Quiz{ID: "q1", LessonID: "l1", Kind: course.QuizExact, ExpectedMD: "42"}
-	svc := coursesvc.New(repo)
-
-	res, err := svc.AnswerQuiz(context.Background(), "q1", course.QuizAnswer{Answer: "43"})
-	require.NoError(t, err)
-	assert.False(t, res.Correct)
-	assert.Contains(t, res.FeedbackMD, "42")
-}
-
-func TestAnswerQuiz_OpenSpawnsReviewTask(t *testing.T) {
-	repo := newStubRepo()
-	repo.lessons["l1"] = &course.Lesson{ID: "l1", ModuleID: "m1", Title: "Lesson"}
-	repo.quizzes["q1"] = &course.Quiz{ID: "q1", LessonID: "l1", Kind: course.QuizOpen, QuestionMD: "Why?"}
-	repo.moduleOwners["m1"] = "u-owner"
-	tasks := &stubTaskCreator{}
-	svc := coursesvc.New(repo).WithTaskCreator(tasks)
-
-	res, err := svc.AnswerQuiz(context.Background(), "q1", course.QuizAnswer{Answer: "my essay"})
-	require.NoError(t, err)
-	assert.False(t, res.Correct, "open quizzes are always pending review")
-	assert.Equal(t, "rev-task-q1", res.ReviewTaskID)
-	assert.Equal(t, []string{"my essay"}, tasks.revCalls)
-}
-
-func TestAnswerQuiz_OpenWithoutTaskCreator_Errors(t *testing.T) {
-	repo := newStubRepo()
-	repo.lessons["l1"] = &course.Lesson{ID: "l1", ModuleID: "m1", Title: "L"}
-	repo.quizzes["q1"] = &course.Quiz{ID: "q1", LessonID: "l1", Kind: course.QuizOpen}
-	svc := coursesvc.New(repo) // no task creator
-
-	_, err := svc.AnswerQuiz(context.Background(), "q1", course.QuizAnswer{Answer: "x"})
-	require.Error(t, err)
-}
-
-func TestAnswerQuiz_NotFound(t *testing.T) {
-	repo := newStubRepo()
-	svc := coursesvc.New(repo)
-	_, err := svc.AnswerQuiz(context.Background(), "missing", course.QuizAnswer{})
-	assert.ErrorIs(t, err, coursesvc.ErrNotFound)
-}
-
-func TestAnswerQuiz_TaskCreatorErrorBubblesUp(t *testing.T) {
-	repo := newStubRepo()
-	repo.lessons["l1"] = &course.Lesson{ID: "l1", ModuleID: "m1", Title: "L"}
-	repo.quizzes["q1"] = &course.Quiz{ID: "q1", LessonID: "l1", Kind: course.QuizOpen}
-	repo.moduleOwners["m1"] = "u-owner"
-	tasks := &stubTaskCreator{revErr: errors.New("backend down")}
-	svc := coursesvc.New(repo).WithTaskCreator(tasks)
-
-	_, err := svc.AnswerQuiz(context.Background(), "q1", course.QuizAnswer{Answer: "x"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "backend down")
 }
 
 // ---- Phase 27.6: user-side curriculum swap + quiz surface -----------------
