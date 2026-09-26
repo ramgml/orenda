@@ -73,7 +73,7 @@ type AuthConfig struct {
 
 // TokenLookup is the small surface the auth middleware needs from the
 // api_tokens storage. Defining it as an interface here avoids an import cycle
-// with internal/storage/sqlite.
+// with the storage driver package.
 type TokenLookup interface {
 	ListAllHashes(ctx context.Context) (map[string]auth.TokenRow, error)
 	TouchLastUsed(ctx context.Context, id string) error

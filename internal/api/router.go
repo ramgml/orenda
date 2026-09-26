@@ -59,7 +59,7 @@ import (
 	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
 	tutorsvc "github.com/ramgml/orenda/internal/service/tutor"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
-	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/storage"
 )
 
 // Version is the build-time version string.
@@ -132,7 +132,7 @@ type Dependencies struct {
 	// which is why PUT /backups/settings returned 501; the GET
 	// path here can be nil-safe (only PUT + the GET merge needs
 	// it; partial-router fixtures can leave it nil).
-	BackupSettings sqlite.BackupSettingsRepository
+	BackupSettings storage.BackupSettingsRepository
 	SyncOps        SyncOpsStore
 	BotCallback    *bot.CallbackHandler
 	// BotBindCodes is the (optional) bind-code store. Wired only when
@@ -236,8 +236,8 @@ type ProjectAgentProvisioner interface {
 }
 
 // CourseActivityRepo is the small read surface needed by the
-// /courses/{id}/activity endpoint (Phase 32.5). *sqlite.CourseActivityRepository
-// satisfies it.
+// /courses/{id}/activity endpoint (Phase 32.5). The sqlite adapter's
+// CourseActivityRepository satisfies it.
 type CourseActivityRepo interface {
 	ListByCourse(ctx context.Context, courseID string, limit int) ([]*course.Activity, error)
 }
