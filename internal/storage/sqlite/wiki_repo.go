@@ -64,7 +64,7 @@ func (r *wikiRepo) Create(ctx context.Context, p *wiki.Page) (*wiki.Page, error)
 		p.ID, nullString(p.ParentID), p.Slug, p.Title, p.ContentMD, cf, p.Position, number,
 	)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if IsUniqueViolation(err) {
 			return nil, wiki.ErrSlugTaken
 		}
 		return nil, fmt.Errorf("wiki.Create: %w", err)
@@ -132,7 +132,7 @@ func (r *wikiRepo) Update(ctx context.Context, p *wiki.Page) error {
 		p.Position, p.ID,
 	)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if IsUniqueViolation(err) {
 			return wiki.ErrSlugTaken
 		}
 		return fmt.Errorf("wiki.Update: %w", err)
@@ -229,7 +229,7 @@ func (r *wikiRepo) SetLinks(ctx context.Context, fromPageID string, toPageIDs []
 			`INSERT INTO wiki_links (from_page_id, to_page_id) VALUES (?, ?)`,
 			fromPageID, toID,
 		); err != nil {
-			if isUniqueViolation(err) {
+			if IsUniqueViolation(err) {
 				continue
 			}
 			return fmt.Errorf("wiki.SetLinks: insert: %w", err)

@@ -170,4 +170,5 @@ func (r *apiTokenRepo) UpdateHash(ctx context.Context, id, hash string, expiresA
 }
 
 // ErrTokenNotFound is returned by GetByID when no row matches.
-var ErrTokenNotFound = errors.New("apiToken: not found")
+// Re-exported driver-neutrally as storage.ErrTokenNotFound.
+var ErrTokenNotFound = errors.New("token not found")
