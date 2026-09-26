@@ -77,13 +77,33 @@ type ServerConfig struct {
 	PProfAddr  string `yaml:"pprof_addr"`
 }
 
-// StorageConfig controls the SQLite database.
+// StorageConfig controls the storage layer.
+//
+// Driver selects the backend: "sqlite" (default, the only driver
+// implemented today) or "postgres" (accepted and validated here; the
+// runtime adapter lands with the storage-adapters phase — selecting it
+// fails fast in storage.Open with a clear not-implemented error).
 type StorageConfig struct {
-	DataDir       string `yaml:"data_dir"`
-	DBPath        string `yaml:"db_path"`
-	WALMode       bool   `yaml:"wal_mode"`
-	BusyTimeoutMs int    `yaml:"busy_timeout_ms"`
-	EnableForeign bool   `yaml:"enable_foreign_keys"`
+	Driver        string         `yaml:"driver"`
+	DataDir       string         `yaml:"data_dir"`
+	DBPath        string         `yaml:"db_path"`
+	WALMode       bool           `yaml:"wal_mode"`
+	BusyTimeoutMs int            `yaml:"busy_timeout_ms"`
+	EnableForeign bool           `yaml:"enable_foreign_keys"`
+	Postgres      PostgresConfig `yaml:"postgres"`
+}
+
+// PostgresConfig holds connection parameters for the (future)
+// postgres driver. The section is read and structurally validated
+// today; nothing consumes it at runtime yet.
+type PostgresConfig struct {
+	Host         string `yaml:"host"`
+	Port         int    `yaml:"port"`
+	User         string `yaml:"user"`
+	Password     string `yaml:"password"`
+	Database     string `yaml:"database"`
+	Embedded     bool   `yaml:"embedded"`
+	EmbeddedPort int    `yaml:"embedded_port"`
 }
 
 // AuthConfig controls authentication parameters.
@@ -239,6 +259,7 @@ func DefaultConfig() *Config {
 			PProfAddr:  "127.0.0.1:6060",
 		},
 		Storage: StorageConfig{
+			Driver:        "sqlite",
 			DataDir:       "data",
 			DBPath:        "data/orenda.db",
 			WALMode:       true,
@@ -521,6 +542,8 @@ func overrideStorage(c *StorageConfig, p []string, v string) {
 		return
 	}
 	switch p[0] {
+	case "driver":
+		c.Driver = v
 	case "data_dir":
 		c.DataDir = v
 	case "db_path":
@@ -536,6 +559,38 @@ func overrideStorage(c *StorageConfig, p []string, v string) {
 	case "enable_foreign_keys":
 		if b, err := strconv.ParseBool(v); err == nil {
 			c.EnableForeign = b
+		}
+	case "postgres":
+		overridePostgres(&c.Postgres, p[1:], v)
+	}
+}
+
+// overridePostgres assigns one ORENDA_STORAGE__POSTGRES__* env override.
+// Sub-keys use the `__` tokenisation like every other section.
+func overridePostgres(c *PostgresConfig, p []string, v string) {
+	if len(p) == 0 {
+		return
+	}
+	switch p[0] {
+	case "host":
+		c.Host = v
+	case "port":
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Port = n
+		}
+	case "user":
+		c.User = v
+	case "password":
+		c.Password = v
+	case "database":
+		c.Database = v
+	case "embedded":
+		if b, err := strconv.ParseBool(v); err == nil {
+			c.Embedded = b
+		}
+	case "embedded_port":
+		if n, err := strconv.Atoi(v); err == nil {
+			c.EmbeddedPort = n
 		}
 	}
 }
@@ -639,11 +694,22 @@ func (c *Config) Validate() error {
 	if c.Server.Port <= 0 || c.Server.Port > 65535 {
 		errs = append(errs, fmt.Sprintf("server.port out of range: %d", c.Server.Port))
 	}
+	switch c.Storage.Driver {
+	case "sqlite", "postgres":
+	default:
+		errs = append(errs, fmt.Sprintf("storage.driver invalid: %q (must be sqlite or postgres)", c.Storage.Driver))
+	}
 	if c.Storage.DBPath == "" {
 		errs = append(errs, "storage.db_path is required")
 	}
 	if c.Storage.BusyTimeoutMs < 0 {
 		errs = append(errs, "storage.busy_timeout_ms must be >= 0")
+	}
+	if p := c.Storage.Postgres; p.Port != 0 && (p.Port < 1 || p.Port > 65535) {
+		errs = append(errs, fmt.Sprintf("storage.postgres.port out of range: %d", p.Port))
+	}
+	if p := c.Storage.Postgres; p.EmbeddedPort != 0 && (p.EmbeddedPort < 1 || p.EmbeddedPort > 65535) {
+		errs = append(errs, fmt.Sprintf("storage.postgres.embedded_port out of range: %d", p.EmbeddedPort))
 	}
 	if c.Auth.BcryptCost < 4 || c.Auth.BcryptCost > 31 {
 		errs = append(errs, fmt.Sprintf("auth.bcrypt_cost out of range: %d", c.Auth.BcryptCost))

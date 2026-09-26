@@ -279,6 +279,46 @@ func TestLoad_EnvOnly_NoFile(t *testing.T) {
 	assert.Equal(t, 4321, c.Server.Port)
 }
 
+// TestLoad_StorageDriverAndPostgres covers the T360 storage seam config
+// surface: the driver selector defaults to sqlite, ORENDA_STORAGE__DRIVER
+// overrides it, the postgres section is readable via YAML/env, and a
+// bogus driver fails config validation naming the allowed values.
+func TestLoad_StorageDriverAndPostgres(t *testing.T) {
+	t.Run("default driver is sqlite", func(t *testing.T) {
+		c, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
+		require.NoError(t, err)
+		assert.Equal(t, "sqlite", c.Storage.Driver)
+	})
+
+	t.Run("env override postgres + section", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		require.NoError(t, os.WriteFile(path, []byte(
+			"storage:\n  postgres:\n    host: yaml-host\n"), 0o600))
+		t.Setenv("ORENDA_STORAGE__DRIVER", "postgres")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__HOST", "db.local")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__PORT", "5433")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__EMBEDDED", "true")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__EMBEDDED_PORT", "5433")
+
+		c, err := Load(path)
+		require.NoError(t, err)
+		assert.Equal(t, "postgres", c.Storage.Driver)
+		assert.Equal(t, "db.local", c.Storage.Postgres.Host)
+		assert.Equal(t, 5433, c.Storage.Postgres.Port)
+		assert.True(t, c.Storage.Postgres.Embedded)
+		assert.Equal(t, 5433, c.Storage.Postgres.EmbeddedPort)
+		require.NoError(t, c.Validate())
+	})
+
+	t.Run("bogus driver fails validation", func(t *testing.T) {
+		t.Setenv("ORENDA_STORAGE__DRIVER", "bogus")
+		_, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "sqlite or postgres")
+	})
+}
+
 // TestLoad_JWTSecretFile covers the Task 138 credential-file path: the
 // secret may come from a file (ORENDA_AUTH__JWT_SECRET_FILE /
 // auth.jwt_secret_file) when no direct secret is configured. A direct
@@ -441,6 +481,36 @@ func TestValidate(t *testing.T) {
 			name:    "invalid log level",
 			mutate:  func(c *Config) { c.Logging.Level = "verbose" },
 			wantErr: "logging.level invalid",
+		},
+		{
+			name:    "driver sqlite valid",
+			mutate:  func(c *Config) { c.Storage.Driver = "sqlite" },
+			wantErr: "",
+		},
+		{
+			name:    "driver postgres valid",
+			mutate:  func(c *Config) { c.Storage.Driver = "postgres" },
+			wantErr: "",
+		},
+		{
+			name:    "driver bogus rejected",
+			mutate:  func(c *Config) { c.Storage.Driver = "bogus" },
+			wantErr: `storage.driver invalid: "bogus" (must be sqlite or postgres)`,
+		},
+		{
+			name:    "driver empty rejected",
+			mutate:  func(c *Config) { c.Storage.Driver = "" },
+			wantErr: "storage.driver invalid",
+		},
+		{
+			name:    "postgres port out of range",
+			mutate:  func(c *Config) { c.Storage.Postgres.Port = 70_000 },
+			wantErr: "storage.postgres.port out of range",
+		},
+		{
+			name:    "postgres embedded_port out of range",
+			mutate:  func(c *Config) { c.Storage.Postgres.EmbeddedPort = -1 },
+			wantErr: "storage.postgres.embedded_port out of range",
 		},
 	}
 

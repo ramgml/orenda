@@ -18,7 +18,7 @@ import (
 	"github.com/ramgml/orenda/internal/auth"
 	"github.com/ramgml/orenda/internal/domain/course"
 	"github.com/ramgml/orenda/internal/domain/user"
-	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/storage"
 )
 
 func newUserCmd() *cobra.Command {
@@ -102,7 +102,7 @@ func runUserCreate(cmd *cobra.Command, in userCreateInput) error {
 	}
 	defer cleanup()
 
-	repo := sqlite.NewUserRepository(db)
+	repo := storage.NewUserRepository(db)
 	u := &user.User{
 		Email:        in.Email,
 		PasswordHash: hash,
@@ -143,7 +143,7 @@ func runUserList(cmd *cobra.Command) error {
 	}
 	defer cleanup()
 
-	users, err := sqlite.NewUserRepository(db).List(cmd.Context())
+	users, err := storage.NewUserRepository(db).List(cmd.Context())
 	if err != nil {
 		return fmt.Errorf("user list: %w", err)
 	}
@@ -224,7 +224,7 @@ func runUserResetPassword(cmd *cobra.Command, in userResetPasswordInput) error {
 	}
 	defer cleanup()
 
-	repo := sqlite.NewUserRepository(db)
+	repo := storage.NewUserRepository(db)
 
 	var target *user.User
 	if in.Email != "" {
@@ -364,8 +364,8 @@ func runUserDelete(cmd *cobra.Command, in userDeleteInput) error {
 	}
 	defer cleanup()
 
-	users := sqlite.NewUserRepository(db)
-	coursesRepo := sqlite.NewCourseRepository(db)
+	users := storage.NewUserRepository(db)
+	coursesRepo := storage.NewCourseRepository(db)
 
 	target, err := resolveUserForDelete(cmd.Context(), users, in.Email, in.ID)
 	if err != nil {

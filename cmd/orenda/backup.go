@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ramgml/orenda/internal/backup"
-	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/storage"
 )
 
 func newBackupCmd() *cobra.Command {
@@ -227,14 +227,22 @@ func runBackupRestoreWithVerify(cmd *cobra.Command, in restoreInput) error {
 	fmt.Printf("restored: %s <- %s\n", in.To, in.From)
 
 	// Step 3: open the restored DB and bring migrations up to current.
-	db, err := sqlite.Open(cmd.Context(), in.To, sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	// The restore artifact is always a sqlite file (VACUUM INTO
+	// snapshot), so this path pins the sqlite dialect regardless of
+	// storage.driver.
+	sdb, err := storage.Open(cmd.Context(), storage.Config{
+		Driver:        string(storage.DialectSQLite),
+		Path:          in.To,
+		WALMode:       true,
+		EnableForeign: true,
+		BusyTimeoutMs: 5000,
 	})
 	if err != nil {
 		return fmt.Errorf("backup restore: open restored db: %w", err)
 	}
+	db := sdb.DB
 	defer func() { _ = db.Close() }()
-	if err := sqlite.Migrate(cmd.Context(), db, sqlite.MigrationsFS, "migrations"); err != nil {
+	if err := storage.Migrate(cmd.Context(), db); err != nil {
 		return fmt.Errorf("backup restore: migrate: %w", err)
 	}
 

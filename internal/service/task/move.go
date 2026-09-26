@@ -18,7 +18,7 @@ import (
 	commentdomain "github.com/ramgml/orenda/internal/domain/comment"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
-	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/storage"
 )
 
 // Sentinel errors returned by Service. Handlers translate these into HTTP
@@ -519,7 +519,7 @@ func NullHub() Hub { return nullHub{} }
 // ----------------------------------------------------------------------------
 
 // Locks is the small surface Claim/Release/Submit need to interact with
-// the task_locks table. *sqlite.taskLockRepo satisfies it.
+// the task_locks table. The sqlite adapter taskLockRepo satisfies it.
 type Locks interface {
 	Acquire(ctx context.Context, taskID, agentID string) error
 	Release(ctx context.Context, taskID, agentID string) error
@@ -568,10 +568,10 @@ func (s *Service) Claim(ctx context.Context, taskID, agentID string) (*task.Task
 	}
 
 	if err := s.Locks.Acquire(ctx, taskID, agentID); err != nil {
-		if errors.Is(err, sqlite.ErrLockTaken) {
+		if errors.Is(err, storage.ErrLockTaken) {
 			return nil, ErrLockTaken
 		}
-		if errors.Is(err, sqlite.ErrLockNotFound) {
+		if errors.Is(err, storage.ErrLockNotFound) {
 			return nil, ErrNotFound
 		}
 		return nil, err
@@ -623,7 +623,7 @@ func (s *Service) Release(ctx context.Context, taskID, agentID string) (*task.Ta
 		return nil, errors.New("task service: Release requires a Locks backend")
 	}
 	if err := s.Locks.Release(ctx, taskID, agentID); err != nil {
-		if errors.Is(err, sqlite.ErrLockNotHeld) {
+		if errors.Is(err, storage.ErrLockNotHeld) {
 			return nil, ErrLockNotHeld
 		}
 		return nil, err

@@ -43,7 +43,7 @@ func (r *agentRepo) Create(ctx context.Context, a *agent.Agent) error {
 		string(a.Status), a.MaxConcurrent,
 	)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if IsUniqueViolation(err) {
 			return agent.ErrNameTaken
 		}
 		return fmt.Errorf("agent.Create: %w", err)
@@ -103,7 +103,7 @@ func (r *agentRepo) Update(ctx context.Context, a *agent.Agent) error {
 		a.Name, typeJSON, a.Description, string(a.Status), a.MaxConcurrent, a.ID,
 	)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if IsUniqueViolation(err) {
 			return agent.ErrNameTaken
 		}
 		return fmt.Errorf("agent.Update: %w", err)

@@ -18,12 +18,12 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/task"
+	"github.com/ramgml/orenda/internal/storage"
 )
 
 // ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ func createTagHandler(deps *Dependencies) http.HandlerFunc {
 		if err := deps.Tasks.CreateTag(r.Context(), t); err != nil {
 			// UNIQUE(name) surfaces here. translate to 409 so the
 			// frontend can show "tag already exists".
-			if isUniqueViolation(err) {
+			if errors.Is(err, storage.ErrUniqueViolation) {
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "tag_exists"})
 				return
 			}
@@ -108,7 +108,7 @@ func patchTagHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 		if err := deps.Tasks.UpdateTag(r.Context(), existing); err != nil {
-			if isUniqueViolation(err) {
+			if errors.Is(err, storage.ErrUniqueViolation) {
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "tag_exists"})
 				return
 			}
@@ -127,18 +127,6 @@ func deleteTagHandler(deps *Dependencies) http.HandlerFunc {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
-}
-
-// isUniqueViolation returns true when err is a SQLite UNIQUE
-// constraint failure on the tags.name column. modernc.org/sqlite
-// surfaces this as a plain error containing the SQLITE_CONSTRAINT
-// message and the column name.
-func isUniqueViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "UNIQUE") && strings.Contains(msg, "tags.name")
 }
 
 // ---------------------------------------------------------------------------

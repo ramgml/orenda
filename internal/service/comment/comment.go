@@ -1,8 +1,8 @@
 // Package comment provides business logic for comments.
 //
 // Phase 3.7 ships Add (wraps repository.Create + WS event),
-// ListByTarget, and MentionsForComment. The repository itself is in
-// internal/storage/sqlite/comment_repo.go.
+// ListByTarget, and MentionsForComment. The repository itself lives in
+// the storage driver package.
 package comment
 
 import (

@@ -26,8 +26,9 @@ func TestTaskRepo_Tags_CRUD(t *testing.T) {
 	require.NoError(t, repo.CreateTag(context.Background(), b))
 	assert.NotEmpty(t, b.ID)
 
-	// Duplicate name fails — repository surfaces the FK/UNIQUE
-	// violation verbatim; the handler translates to 409.
+	// Duplicate name fails — the repository translates the UNIQUE
+	// violation to ErrUniqueViolation; the handler errors.Is against
+	// the neutral storage.ErrUniqueViolation for its 409.
 	dup := &task.Tag{Name: "frontend"}
 	assert.Error(t, repo.CreateTag(context.Background(), dup))
 
