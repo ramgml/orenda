@@ -1,10 +1,11 @@
+package storage
+
 // Repository constructors re-exported from the sqlite driver so that
 // production call sites never import internal/storage/sqlite directly.
 //
 // These are plain aliases: same signatures, same concrete types, zero
 // behaviour change. When a second driver lands, the aliases become the
 // natural place to dispatch on the configured dialect.
-package storage
 
 import (
 	"github.com/ramgml/orenda/internal/storage/sqlite"

@@ -1,3 +1,5 @@
+package storage
+
 // Driver-neutral storage sentinels (wiki:storage-adapters D5).
 //
 // Consumers above the storage layer match these via errors.Is instead
@@ -6,7 +8,6 @@
 // sentinel identity holds no matter which name a caller uses. The
 // postgres adapter will reuse the same seam sentinels (classifying by
 // SQLSTATE instead of driver message text).
-package storage
 
 import (
 	"github.com/ramgml/orenda/internal/storage/sqlite"

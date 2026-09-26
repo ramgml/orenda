@@ -6,9 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ramgml/orenda/internal/storage/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ramgml/orenda/internal/storage/sqlite"
 )
 
 // TestOpen_SQLite covers the happy path: driver defaults to sqlite,
@@ -82,7 +83,7 @@ func TestSentinelsAliases(t *testing.T) {
 	assert.Equal(t, sqlite.ErrTokenNotFound, ErrTokenNotFound)
 	assert.Equal(t, sqlite.ErrUniqueViolation, ErrUniqueViolation)
 	assert.Equal(t, sqlite.ErrFKViolation, ErrFKViolation)
-	assert.True(t, errors.Is(sqlite.ErrLockTaken, ErrLockTaken))
+	assert.True(t, errors.Is(ErrLockTaken, sqlite.ErrLockTaken))
 }
 
 // TestClassifier covers the sqlite-implementation classifier that
