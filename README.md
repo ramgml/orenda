@@ -147,6 +147,39 @@ exceptions. See [AGENTS.md](AGENTS.md#local-gates--git-hooks-phase-326)
 and the [ci-local-gates-hooks](http://localhost:2137/wiki/ci-local-gates-hooks)
 wiki page.
 
+### Run in Docker
+
+Docker is an additional delivery channel; the canonical path is systemd
+(`scripts/install.sh --systemd`, see above).
+
+```bash
+# Build the image (multi-stage: node SPA → Go binary with the SPA embedded → alpine runtime)
+docker build -t orenda:local .
+
+# Run: the host port is set via ORENDA_PORT; the secret is required (compose
+# refuses to start without it — the error message says so; the variable is
+# needed for `docker compose exec`/`logs` too)
+ORENDA_PORT=8080 ORENDA_AUTH__JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build
+# → http://127.0.0.1:8080
+```
+
+- **Data:** named volume `orenda-data` → `/app/data` (SQLite + WAL);
+  `docker compose down` keeps it, the next `up` picks the database up.
+- **First user:**
+
+  ```bash
+  echo "your-password" | docker compose exec -T app orenda user create \
+      --email you@example.com --display-name You --password-stdin
+  ```
+
+- **Backup:** `docker compose exec app orenda backup snapshot` writes a
+  sqlite snapshot into the volume (`/app/data/snapshots/`). `orenda backup
+  push` (git) works too — git ships in the image, but the remote and its
+  credentials must be configured from inside the container yourself.
+- **Upgrade:** `docker compose down`, then `ORENDA_PORT=…
+  ORENDA_AUTH__JWT_SECRET=… docker compose up -d --build` again — data in
+  the volume survives the container recreation.
+
 ## Features
 
 - 📋 Projects, boards, kanban with drag-and-drop, columns-as-statuses (Phase 27.8)

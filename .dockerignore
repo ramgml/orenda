@@ -1,0 +1,16 @@
+# VCS / parallel agent worktrees
+.git
+.worktrees/
+
+# Local runtime state & build artifacts (rebuilt or created inside the image)
+bin/
+data/
+*.log
+coverage.*
+
+# Frontend — dependencies and build output are produced inside stage 1.
+# NOTE: internal/embed/web/dist must NOT be listed here — it ships with
+# .gitkeep, which //go:embed all:dist needs to compile.
+node_modules/
+**/node_modules/
+web/dist/

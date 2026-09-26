@@ -148,6 +148,39 @@ make hooks   # выставляет core.hooksPath = scripts/git-hooks (общи
 [AGENTS.md](AGENTS.md#local-gates--git-hooks-phase-326) и wiki-страницу
 [ci-local-gates-hooks](http://localhost:2137/wiki/ci-local-gates-hooks).
 
+### Запуск в Docker
+
+Docker — дополнительный канал поставки; основной путь — systemd
+(`scripts/install.sh --systemd`, см. выше).
+
+```bash
+# Сборка образа (multi-stage: SPA на node → Go-бинарь со встроенным SPA → alpine runtime)
+docker build -t orenda:local .
+
+# Запуск: порт хоста задаётся ORENDA_PORT, секрет обязателен (compose
+# откажется стартовать без него — в сообщении будет подсказка; переменная
+# нужна и для `docker compose exec`/`logs`)
+ORENDA_PORT=8080 ORENDA_AUTH__JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build
+# → http://127.0.0.1:8080
+```
+
+- **Данные:** named volume `orenda-data` → `/app/data` (SQLite + WAL);
+  `docker compose down` их сохраняет, при следующем `up` база подхватывается.
+- **Первый пользователь:**
+
+  ```bash
+  echo "ваш-пароль" | docker compose exec -T app orenda user create \
+      --email you@example.com --display-name You --password-stdin
+  ```
+
+- **Бэкап:** `docker compose exec app orenda backup snapshot` — sqlite-снапшот
+  пишется в volume (`/app/data/snapshots/`). `orenda backup push` (git) тоже
+  доступен — git в образе есть, но remote/учётные данные нужно настроить
+  изнутри контейнера самостоятельно.
+- **Обновление:** `docker compose down`, затем снова `ORENDA_PORT=…
+  ORENDA_AUTH__JWT_SECRET=… docker compose up -d --build` — данные в volume
+  переживают пересоздание контейнера.
+
 ## Возможности
 
 - 📋 Проекты, доски, kanban с drag-and-drop, колонки-как-статусы (Phase 27.8)
