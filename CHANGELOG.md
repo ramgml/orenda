@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Task 363:** working postgres driver — `storage.Open(postgres)` dials through the pgx v5 stdlib connector wrapped in the dialect shim (T362), so every `sqlite.New*Repository` constructor runs unchanged on PostgreSQL; `storage.postgres.dsn` (priority) or `host/port/user/password/database/ssl_mode` parts, `busy_timeout` mapped to a session `lock_timeout`; SQLSTATE 23505/23503 classified into the shared constraint sentinels; optional embedded-postgres runtime (`storage.postgres.embedded`, port 5433 default) owning a local cluster's lifecycle on serve / migrate / user commands with postmaster logs in zap and a clean stop; dialect-aware `(*storage.DB).Migrate/MigrateDown/AppliedVersions` route the postgres baseline (T361) through a simple-protocol handle. New dependency: `github.com/fergusstrange/embedded-postgres` (MIT, pure Go — `CGO_ENABLED=0` builds preserved).
+
 ### Fixed
 - **Task 346 (hotfix):** release job's changelog extraction — `awk -v pat="^## \\[$VER\\]"` degrades on the runner (gawk processes `-v` escapes a second time, so `\[` reaches the regex as a bare `[` and the pattern becomes a character class that never matches a heading), and the first real run (tag `v0.24.0`, run 35698912903) cut no section and failed. Extraction now matches the literal `## [X.Y.Z]` heading with `index()` prefix comparisons — no escapes in play; the empty-section `::error` guard and preview are unchanged.
 

@@ -62,14 +62,14 @@ func TestOpen_PostgresLive(t *testing.T) {
 
 	// Classifier against a real 23505: the SQLSTATE branch must fire
 	// through errors.As on the pgconn error the server returns.
-	_, err = db.DB.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS orenda_t363_unique_probe (id TEXT PRIMARY KEY)`)
+	_, err = db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS orenda_t363_unique_probe (id TEXT PRIMARY KEY)`)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = db.DB.ExecContext(context.Background(), `DROP TABLE IF EXISTS orenda_t363_unique_probe`)
+		_, _ = db.ExecContext(context.Background(), `DROP TABLE IF EXISTS orenda_t363_unique_probe`)
 	})
-	_, err = db.DB.ExecContext(ctx, `INSERT INTO orenda_t363_unique_probe (id) VALUES ('x')`)
+	_, err = db.ExecContext(ctx, `INSERT INTO orenda_t363_unique_probe (id) VALUES ('x')`)
 	require.NoError(t, err)
-	_, err = db.DB.ExecContext(ctx, `INSERT INTO orenda_t363_unique_probe (id) VALUES ('x')`)
+	_, err = db.ExecContext(ctx, `INSERT INTO orenda_t363_unique_probe (id) VALUES ('x')`)
 	require.Error(t, err)
 	assert.True(t, IsUniqueViolation(err), "real 23505 must classify as unique violation: %v", err)
 	var pgErr *pgconn.PgError
@@ -77,7 +77,7 @@ func TestOpen_PostgresLive(t *testing.T) {
 	assert.Equal(t, "23505", pgErr.Code)
 
 	// A different error class must NOT match.
-	_, err = db.DB.ExecContext(ctx, "SELECT no_such_column FROM orenda_t363_unique_probe")
+	_, err = db.ExecContext(ctx, "SELECT no_such_column FROM orenda_t363_unique_probe")
 	require.Error(t, err)
 	assert.False(t, IsUniqueViolation(err))
 	fmt.Println("postgres live smoke: applied", len(versions), "versions; lock_timeout:", lockTimeout)
