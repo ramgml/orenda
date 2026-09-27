@@ -2,6 +2,7 @@
 package sqlite
 
 import (
+	"errors"
 	"strings"
 	"time"
 
@@ -69,20 +70,30 @@ func newUUID() string {
 	return id.String()
 }
 
-// isUniqueViolation reports whether err is a SQLite UNIQUE constraint failure.
+// ErrUniqueViolation is the driver-level sentinel for a UNIQUE
+// constraint failure. Repositories translate raw driver errors into it
+// (via IsUniqueViolation) so callers above the storage layer can
+// errors.Is against the driver-neutral storage.ErrUniqueViolation.
+var ErrUniqueViolation = errors.New("unique constraint violated")
+
+// ErrFKViolation is the driver-level sentinel for a foreign-key
+// constraint failure, the FK counterpart of ErrUniqueViolation.
+var ErrFKViolation = errors.New("foreign key constraint violated")
+
+// IsUniqueViolation reports whether err is a SQLite UNIQUE constraint failure.
 //
 // The modernc driver returns errors prefixed with "constraint failed: UNIQUE
 // constraint failed:". We detect this with a string match — there is no
 // dedicated error code in modernc (no equivalent of pq.Error.Code).
-func isUniqueViolation(err error) bool {
+func IsUniqueViolation(err error) bool {
 	if err == nil {
 		return false
 	}
 	return strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
-// isFKViolation reports whether err is a SQLite foreign-key violation.
-func isFKViolation(err error) bool {
+// IsFKViolation reports whether err is a SQLite foreign-key violation.
+func IsFKViolation(err error) bool {
 	if err == nil {
 		return false
 	}

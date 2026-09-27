@@ -6,7 +6,7 @@ import "time"
 // middleware (and by the repo that backs it).
 //
 // It lives in the auth package so both internal/api (which only needs to
-// reference the fields) and internal/storage/sqlite (which reads/writes the
+// reference the fields) and the storage driver (which reads/writes the
 // table) can depend on it without an import cycle.
 type TokenRow struct {
 	ID         string

@@ -38,7 +38,7 @@ func (r *notificationRepo) Upsert(ctx context.Context, n *notifier.Notification)
 		n.ID, n.UserID, n.Type, nullString(n.TargetType), nullString(n.TargetID), n.Payload, n.DedupKey,
 	)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if IsUniqueViolation(err) {
 			// Another concurrent writer inserted the same dedup_key.
 			return nil
 		}

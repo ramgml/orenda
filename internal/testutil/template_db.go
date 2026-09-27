@@ -8,7 +8,7 @@
 //
 // This package is regular (non _test) code so _test files in any
 // package can import it. It must stay dependency-light: only
-// stdlib + internal/storage/sqlite.
+// stdlib + the storage seam.
 package testutil
 
 import (
@@ -20,7 +20,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/storage"
 )
 
 var (
@@ -43,14 +43,15 @@ func ensureTemplate(t testing.TB) (string, error) {
 		}
 
 		scratch := filepath.Join(dir, "scratch.db")
-		db, err := sqlite.Open(context.Background(), scratch, sqlite.OpenConfig{
-			WALMode: false, EnableForeign: true, BusyTimeoutMs: 5000,
+		sdb, err := storage.Open(context.Background(), storage.Config{
+			Path: scratch, WALMode: false, EnableForeign: true, BusyTimeoutMs: 5000,
 		})
 		if err != nil {
 			templateErr = fmt.Errorf("testutil: open scratch: %w", err)
 			return
 		}
-		if err := sqlite.Migrate(context.Background(), db, sqlite.MigrationsFS, "migrations"); err != nil {
+		db := sdb.DB
+		if err := storage.Migrate(context.Background(), db); err != nil {
 			_ = db.Close()
 			templateErr = fmt.Errorf("testutil: migrate scratch: %w", err)
 			return
@@ -118,12 +119,13 @@ func TemplateDB(t testing.TB) string {
 func TemplateDBOpen(t testing.TB) (db *sql.DB, dbPath string) {
 	t.Helper()
 	dst := TemplateDB(t)
-	db, err := sqlite.Open(context.Background(), dst, sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	sdb, err := storage.Open(context.Background(), storage.Config{
+		Path: dst, WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
 	})
 	if err != nil {
 		t.Fatalf("template DB open: %v", err)
 	}
+	db = sdb.DB
 	t.Cleanup(func() { _ = db.Close() })
 	return db, dst
 }

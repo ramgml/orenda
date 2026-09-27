@@ -30,7 +30,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/storage"
 )
 
 // maintenanceFlag is the process-wide toggle. atomic.Bool gives us
@@ -122,15 +122,25 @@ func maintenanceToggleHandler(action string) http.HandlerFunc {
 func runMaintenanceVerify(ctx context.Context, dbPath string) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	db, err := sqlite.Open(ctx, dbPath, sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+	// A verified restore artifact is always a sqlite snapshot file;
+	// the sqlite dialect is pinned here regardless of storage.driver.
+	sdb, err := storage.Open(ctx, storage.Config{
+		Driver:        string(storage.DialectSQLite),
+		Path:          dbPath,
+		WALMode:       true,
+		EnableForeign: true,
+		BusyTimeoutMs: 5000,
 	})
 	if err != nil {
 		return fmt.Errorf("open restored db: %w", err)
 	}
+	db := sdb.DB
 	defer func() { _ = db.Close() }()
-	if err := sqlite.Migrate(ctx, db, sqlite.MigrationsFS, "migrations"); err != nil {
+	if err := storage.Migrate(ctx, db); err != nil {
 		return fmt.Errorf("migrate: %w", err)
+	}
+	if sdb.Dialect() != storage.DialectSQLite {
+		return fmt.Errorf("maintenance verify: not implemented for the %s driver", sdb.Dialect())
 	}
 	if err := runMaintenancePragma(ctx, db, "integrity_check"); err != nil {
 		return err

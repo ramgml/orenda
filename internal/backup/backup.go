@@ -699,7 +699,7 @@ func IsServerRunning(ctx context.Context, host string, port int) bool {
 // helpers
 // ----------------------------------------------------------------------------
 
-// parseTime is a copy of the shared helper from internal/storage/sqlite.
+// parseTime is a copy of the shared helper from the storage driver.
 // We duplicate it here so backup doesn't import storage.
 func parseTime(s string) time.Time {
 	if s == "" {
