@@ -140,6 +140,11 @@ func openBackupDB(ctx context.Context, cfg *config.Config) (*sql.DB, func(), err
 		if err != nil {
 			return nil, nil, fmt.Errorf("backup: resolve embedded cluster: %w", err)
 		}
+		// DSN must lose: the whole point of this branch is dialing the
+		// bootstrap cluster the running server owns — a configured dsn
+		// (storage seam priority) would send the CLI to a different
+		// server than the one pg_dump/pg_restore (pgTarget) hit.
+		scfg.Postgres.DSN = ""
 		conn := opts.Connection()
 		scfg.Postgres.Host = conn.Host
 		scfg.Postgres.Port = conn.Port
@@ -158,10 +163,11 @@ func openBackupDB(ctx context.Context, cfg *config.Config) (*sql.DB, func(), err
 	return sdb.DB, func() { _ = sdb.Close() }, nil
 }
 
-// backupService wires a Service from the config + open DB. Reused by the
-// push/snapshot/status commands. The postgres dialect never opens the
-// app database here (pg_dump/pg_restore bring their own connections and
-// RecordLog is not needed for the one-shot commands).
+// backupService wires a Service from the config + a backup-scoped DB
+// handle. Reused by the push/snapshot/status commands. On postgres the
+// handle attaches to the running cluster (openBackupDB — the server
+// must be up); the pg_dump/pg_restore tools used by Snapshot/Restore
+// bring their own connections regardless of it.
 func backupService(ctx context.Context, cfgPath string) (*backup.Service, func(), error) {
 	cfg, err := loadConfigForCLI(cfgPath)
 	if err != nil {

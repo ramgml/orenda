@@ -241,6 +241,8 @@ type RestorePostgresResult struct {
 // A kept database must not exist beforehand — restore refuses to
 // overwrite. The server must be up: pg_dump/pg_restore own their
 // connections, so the backup Service needs no live *sql.DB here.
+//
+//nolint:contextcheck // RestorePostgres intentionally tears down on a detached context: a canceled/expired request ctx is exactly the case the scratch drop must survive (leak-free teardown beats ctx inheritance here).
 func (s *Service) RestorePostgres(ctx context.Context, dumpPath, keepDatabase string) (RestorePostgresResult, error) {
 	if dumpPath == "" {
 		return RestorePostgresResult{}, ErrInvalidInput
@@ -268,7 +270,10 @@ func (s *Service) RestorePostgres(ctx context.Context, dumpPath, keepDatabase st
 	scratch := keepDatabase
 	kept := scratch != ""
 	if !kept {
-		scratch = fmt.Sprintf("orenda_restore_%d", time.Now().Unix())
+		// Nanosecond granularity: same-second concurrent restores must
+		// not collide (prepare's DROP ... WITH (FORCE) would kill the
+		// first restore's in-flight pg_restore).
+		scratch = fmt.Sprintf("orenda_restore_%d", time.Now().UnixNano())
 	}
 
 	// Admin handle on the target server. postgres.Open is the simple-
@@ -285,14 +290,18 @@ func (s *Service) RestorePostgres(ctx context.Context, dumpPath, keepDatabase st
 		return RestorePostgresResult{}, err
 	}
 
+	// Teardown runs detached: a canceled/expired request ctx must not
+	// leak the scratch — the drop IS the cleanup for that very case.
+	//nolint:contextcheck // intentional detach: the request ctx may be the reason we're tearing down.
+	teardownCtx, teardownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer teardownCancel()
+
 	// Anything failing from here on must drop the scratch before
 	// returning — the operator should never have to clean up after a
 	// failed verify.
 	fail := func(err error) (RestorePostgresResult, error) {
 		if !kept {
-			dctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			defer cancel()
-			_, _ = admin.ExecContext(dctx, `DROP DATABASE IF EXISTS `+quoteIdent(scratch)+` WITH (FORCE)`)
+			_, _ = admin.ExecContext(teardownCtx, `DROP DATABASE IF EXISTS `+quoteIdent(scratch)+` WITH (FORCE)`)
 		}
 		return RestorePostgresResult{}, err
 	}
@@ -309,7 +318,9 @@ func (s *Service) RestorePostgres(ctx context.Context, dumpPath, keepDatabase st
 	}
 
 	if !kept {
-		if _, err := admin.ExecContext(ctx, `DROP DATABASE `+quoteIdent(scratch)+` WITH (FORCE)`); err != nil {
+		// Same detached teardown context — the drop must run even when
+		// the caller's ctx just expired (that's a verify failure too).
+		if _, err := admin.ExecContext(teardownCtx, `DROP DATABASE `+quoteIdent(scratch)+` WITH (FORCE)`); err != nil {
 			return fail(fmt.Errorf("backup restore: drop scratch: %w", err))
 		}
 	}
@@ -372,11 +383,15 @@ func verifyRestoredScratch(ctx context.Context, restoreBin, dumpPath, scratchDSN
 // pgRestoreList runs `pg_restore --list` — the readability probe that
 // parses the archive without touching any server.
 func pgRestoreList(ctx context.Context, restoreBin, dumpPath string) (toc, error) {
-	var out bytes.Buffer
+	var out, errOut bytes.Buffer
 	cmd := exec.CommandContext(ctx, restoreBin, "--list", dumpPath)
 	cmd.Stdout = &out
+	cmd.Stderr = &errOut
 	if err := cmd.Run(); err != nil {
-		return toc{}, fmt.Errorf("backup restore: pg_restore --list: %w: %s", err, out.String())
+		// stderr carries the actual parser complaint ("did not find
+		// magic string in file header", …) — surface it, an empty
+		// "exit status 1:" reason helps nobody.
+		return toc{}, fmt.Errorf("backup restore: pg_restore --list: %w: %s", err, strings.TrimSpace(errOut.String()))
 	}
 	return parseTOC(out.String()), nil
 }
