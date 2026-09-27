@@ -300,6 +300,7 @@ func TestLoad_StorageDriverAndPostgres(t *testing.T) {
 		t.Setenv("ORENDA_STORAGE__POSTGRES__PORT", "5433")
 		t.Setenv("ORENDA_STORAGE__POSTGRES__EMBEDDED", "true")
 		t.Setenv("ORENDA_STORAGE__POSTGRES__EMBEDDED_PORT", "5433")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__DATABASE", "orenda")
 
 		c, err := Load(path)
 		require.NoError(t, err)
@@ -308,7 +309,29 @@ func TestLoad_StorageDriverAndPostgres(t *testing.T) {
 		assert.Equal(t, 5433, c.Storage.Postgres.Port)
 		assert.True(t, c.Storage.Postgres.Embedded)
 		assert.Equal(t, 5433, c.Storage.Postgres.EmbeddedPort)
+		assert.Equal(t, "orenda", c.Storage.Postgres.Database)
 		require.NoError(t, c.Validate())
+	})
+
+	t.Run("env override dsn, ssl_mode, binaries_url", func(t *testing.T) {
+		t.Setenv("ORENDA_STORAGE__DRIVER", "postgres")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__DSN", "postgres://u:p@db.local:5433/orenda")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__SSL_MODE", "require")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__BINARIES_URL", "https://mirror.example/maven2")
+
+		c, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
+		require.NoError(t, err)
+		assert.Equal(t, "postgres://u:p@db.local:5433/orenda", c.Storage.Postgres.DSN)
+		assert.Equal(t, "require", c.Storage.Postgres.SSLMode)
+		assert.Equal(t, "https://mirror.example/maven2", c.Storage.Postgres.BinariesURL)
+		require.NoError(t, c.Validate())
+	})
+
+	t.Run("driver postgres without dsn and database fails validation", func(t *testing.T) {
+		t.Setenv("ORENDA_STORAGE__DRIVER", "postgres")
+		_, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "storage.postgres.dsn or storage.postgres.database is required")
 	})
 
 	t.Run("bogus driver fails validation", func(t *testing.T) {
@@ -488,8 +511,36 @@ func TestValidate(t *testing.T) {
 			wantErr: "",
 		},
 		{
-			name:    "driver postgres valid",
+			name:    "driver postgres valid with database",
+			mutate:  func(c *Config) { c.Storage.Driver = "postgres"; c.Storage.Postgres.Database = "orenda" },
+			wantErr: "",
+		},
+		{
+			name:    "driver postgres valid with dsn",
+			mutate:  func(c *Config) { c.Storage.Driver = "postgres"; c.Storage.Postgres.DSN = "postgres://localhost/orenda" },
+			wantErr: "",
+		},
+		{
+			name:    "driver postgres without dsn and database rejected",
 			mutate:  func(c *Config) { c.Storage.Driver = "postgres" },
+			wantErr: "storage.postgres.dsn or storage.postgres.database is required",
+		},
+		{
+			name: "driver postgres embedded requires database",
+			mutate: func(c *Config) {
+				c.Storage.Driver = "postgres"
+				c.Storage.Postgres.Embedded = true
+				c.Storage.Postgres.DSN = "postgres://localhost/orenda"
+			},
+			wantErr: "storage.postgres.database is required when storage.postgres.embedded is true",
+		},
+		{
+			name: "driver postgres embedded with database valid",
+			mutate: func(c *Config) {
+				c.Storage.Driver = "postgres"
+				c.Storage.Postgres.Embedded = true
+				c.Storage.Postgres.Database = "orenda"
+			},
 			wantErr: "",
 		},
 		{
