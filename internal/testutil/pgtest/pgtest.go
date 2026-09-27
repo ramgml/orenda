@@ -350,6 +350,15 @@ func theClusterFor(t testing.TB) *cluster {
 // under `go test ./...` a dozen matrix binaries start their clusters
 // simultaneously and the first calls queue behind that storm.
 func TemplateDB(t testing.TB) *sql.DB {
+	pool, _ := TemplateDBNamed(t)
+	return pool
+}
+
+// TemplateDBNamed is TemplateDB plus the libpq connection string for
+// the cloned database — tooling that shells out to the same server the
+// pool dials (T366 backup round-trip: pg_dump/pg_restore) needs the
+// target, not just the handle.
+func TemplateDBNamed(t testing.TB) (*sql.DB, string) {
 	t.Helper()
 	c := theClusterFor(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -374,7 +383,7 @@ func TemplateDB(t testing.TB) *sql.DB {
 	cfg := c.open
 	cfg.Database = name
 	cfg.BusyTimeoutMs = testBusyTimeoutMs
-	_, pool, err := postgres.OpenRuntime(ctx, cfg)
+	dsn, pool, err := postgres.OpenRuntime(ctx, cfg)
 	if err != nil {
 		t.Fatalf("pgtest: open %s: %v", name, err)
 	}
@@ -384,7 +393,7 @@ func TemplateDB(t testing.TB) *sql.DB {
 		defer dropCancel()
 		_ = c.execAdmin(dropCtx, "DROP DATABASE IF EXISTS "+quoteIdent(name)+" WITH (FORCE)")
 	})
-	return pool
+	return pool, dsn
 }
 
 // shutdown terminates the embedded cluster, if one was started. It is
