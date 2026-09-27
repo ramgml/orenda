@@ -108,7 +108,7 @@ func (r *searchRepo) SearchPages(ctx context.Context, q string, limit int) ([]se
 	if err != nil {
 		return nil, fmt.Errorf("search.page: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make([]search.Hit, 0)
 	for rows.Next() {
@@ -137,7 +137,7 @@ func (r *searchRepo) runQuery(ctx context.Context, sqlQuery, q string, limit int
 	if err != nil {
 		return nil, fmt.Errorf("search.%s: %w", t, err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make([]search.Hit, 0)
 	for rows.Next() {
