@@ -51,10 +51,11 @@ func NewSearchRepository(db *sql.DB) search.Repository {
 }
 
 // headlineOpts mirrors the FTS5 snippet options of the sqlite repo:
-// '<mark>'/'</mark>' markers, '…' ellipses, 30-token window.
-// MaxFragments=0 keeps the single-excerpt shape of FTS5 snippet(),
-// ShortWord=0 stops postgres from dropping short words at the edges.
-const headlineOpts = `StartSel=<mark>, StopSel=</mark>, MaxWords=30, MinWords=1, ShortWord=0, MaxFragments=0, Ellipses=…`
+// '<mark>'/'</mark>' markers, '…' as the truncation delimiter, ~30-token
+// window. MaxFragments=0 keeps the single-excerpt shape of FTS5
+// snippet(), ShortWord=0 stops postgres from dropping short words at the
+// fragment edges, MinWords/MaxWords bound the excerpt window.
+const headlineOpts = `StartSel=<mark>, StopSel=</mark>, MaxWords=30, MinWords=15, ShortWord=0, MaxFragments=0, FragmentDelimiter=…`
 
 const searchPagesSQL = `
 	SELECT id, slug, title, snippet, score::double precision
