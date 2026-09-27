@@ -1471,6 +1471,13 @@ func runMigrate(cmd *cobra.Command, action migrateAction) error {
 	}
 	defer func() { _ = logger.Sync() }()
 
+	// Postgres dialect: wired directly through the postgres runner
+	// (external DSN from storage.postgres), past the driver-neutral
+	// seam — its postgres rebind lands with T362/T363.
+	if cfg.Storage.Driver == "postgres" {
+		return runMigratePostgres(cmd.Context(), cfg, logger, action)
+	}
+
 	// T154: `migrate down` must see the DB exactly as it is on
 	// disk. The migrating opener (openCLIDB) ran a hidden
 	// Migrate(UP) first — re-applying whatever a previous `down`
