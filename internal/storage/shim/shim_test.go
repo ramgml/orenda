@@ -381,7 +381,7 @@ func TestRebindNumberingSequentialOnLargeInsert(t *testing.T) {
 	b.WriteString("\ttime_estimate_s, time_spent_s, start_at, end_at, all_day, color,\n")
 	b.WriteString("\trecurrence, study_course_id, blocked_prev_status, number,\n")
 	b.WriteString("\tcreated_by_type, created_by_id) VALUES (\n")
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		b.WriteString("?, ")
 	}
 	b.WriteString("\n)")

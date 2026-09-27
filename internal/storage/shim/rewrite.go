@@ -59,7 +59,8 @@ var insertOrIgnoreRe = regexp.MustCompile(`(?i)\bINSERT\s+OR\s+IGNORE\b`)
 // trailing semicolon are trimmed — the storage layer never batches
 // statements through the shim (the migration runner works directly on
 // the sqlite driver and never enters this path). A query carrying more
-// than one INSERT statement is rejected rather than mangled.
+// than one INSERT statement, or one whose tail lies inside a comment,
+// is rejected loudly instead of mangled.
 func rewriteInsertOrIgnore(q string) (string, error) {
 	locs := insertOrIgnoreRe.FindAllStringIndex(q, -1)
 	if len(locs) == 0 {
@@ -71,7 +72,38 @@ func rewriteInsertOrIgnore(q string) (string, error) {
 	loc := locs[0]
 	q = q[:loc[0]] + "INSERT" + q[loc[1]:]
 	q = strings.TrimRight(q, " \t\r\n;")
+	if endsInsideComment(q) {
+		return "", fmt.Errorf("shim: unsupported query shape: statement ends inside a comment; the appended ON CONFLICT DO NOTHING clause would be swallowed")
+	}
 	return q + " ON CONFLICT DO NOTHING", nil
+}
+
+// endsInsideComment reports whether q ends inside an open comment
+// region: a `--` line comment whose newline was trimmed away (or never
+// existed), or an unterminated `/*` block. Appending a statement-final
+// clause there would silently move it into the comment.
+func endsInsideComment(q string) bool {
+	for i := 0; i < len(q); i++ {
+		switch c := q[i]; {
+		case c == '\'':
+			i = scanQuoted(q, i, '\'') - 1
+		case c == '"':
+			i = scanQuoted(q, i, '"') - 1
+		case c == '-' && i+1 < len(q) && q[i+1] == '-':
+			rel := strings.IndexByte(q[i+2:], '\n')
+			if rel < 0 {
+				return true
+			}
+			i += rel + 1 // resume after the closing newline
+		case c == '/' && i+1 < len(q) && q[i+1] == '*':
+			rel := strings.Index(q[i+2:], "*/")
+			if rel < 0 {
+				return true
+			}
+			i += rel + 3
+		}
+	}
+	return false
 }
 
 // rewrite applies the full PostgreSQL rule set to one statement.

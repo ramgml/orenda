@@ -33,13 +33,61 @@ var (
 	// The vocabulary is deliberately narrow so ordinary error messages
 	// and log lines don't trip the audit.
 	auditSQLKeywordRe = regexp.MustCompile(`(?i)\b(select|insert|update|delete|create|values|returning|from|where|limit|join)\b`)
-	// auditSQLLiteralRe yields the single-quoted spans of a SQL
-	// literal (doubled '' reads as two adjacent spans).
-	auditSQLLiteralRe = regexp.MustCompile(`'([^']*)'`)
 )
 
+// sqlMaskedRegions returns the single-quoted string literals (with
+// their quotes) and the comment regions (`-- …`, `/* … */`) of one SQL
+// text — everything the runtime rewriter's regexes do not see. The
+// static audit checks the rule tokens against exactly these regions:
+// a `datetime('now')` or `INSERT OR IGNORE` smuggled into a literal or
+// comment would be invisible to the shim yet change the query's
+// meaning.
+func sqlMaskedRegions(s string) (literals, comments []string) {
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case c == '\'':
+			end := scanQuoted(s, i, '\'')
+			literals = append(literals, s[i:end])
+			i = end - 1
+		case c == '-' && i+1 < len(s) && s[i+1] == '-':
+			rel := strings.IndexByte(s[i+2:], '\n')
+			if rel < 0 {
+				comments = append(comments, s[i:])
+				i = len(s)
+			} else {
+				comments = append(comments, s[i:i+2+rel])
+				i += 2 + rel
+			}
+		case c == '/' && i+1 < len(s) && s[i+1] == '*':
+			rel := strings.Index(s[i+2:], "*/")
+			if rel < 0 {
+				comments = append(comments, s[i+2:])
+				i = len(s)
+			} else {
+				comments = append(comments, s[i+2:i+2+rel])
+				i += rel + 3
+			}
+		}
+	}
+	return literals, comments
+}
+
+// auditRuleTokensRe checks the rewriter's blind spots: the exact token
+// sequences its rules match on. A doubled quote inside a literal hides
+// `datetime('now')` as `datetime(”now”)`, so literals are also
+// probed in a de-doubled form.
+var auditRuleTokens = []struct {
+	name string
+	re   *regexp.Regexp
+}{
+	{"datetime('now')", datetimeNowRe},
+	{"INSERT OR IGNORE", insertOrIgnoreRe},
+}
+
 // TestStaticAudit_NoPlaceholderInsideSQLStringLiteral fails when any
-// SQL literal in the storage layer hides a '?' inside quotes.
+// SQL literal in the storage layer hides a '?' inside quotes, or when
+// a rewrite-rule token sits where the runtime rewriter cannot see it
+// (inside a string literal or a comment).
 func TestStaticAudit_NoPlaceholderInsideSQLStringLiteral(t *testing.T) {
 	entries, err := os.ReadDir(auditSqliteDir)
 	require.NoError(t, err, "audit must read the sqlite storage package")
@@ -70,10 +118,26 @@ func TestStaticAudit_NoPlaceholderInsideSQLStringLiteral(t *testing.T) {
 				continue
 			}
 			inspected++
-			for _, m := range auditSQLLiteralRe.FindAllStringSubmatch(s, -1) {
-				if strings.Contains(m[1], "?") {
-					t.Errorf("%s: '?' inside SQL string literal %s (span %q)",
-						fset.Position(lit.pos), name, m[0])
+			literals, comments := sqlMaskedRegions(s)
+			for _, span := range literals {
+				if strings.Contains(span, "?") {
+					t.Errorf("%s: '?' inside SQL string literal %s (span %s)",
+						fset.Position(lit.pos), name, span)
+				}
+			}
+			for _, group := range [2][]string{literals, comments} {
+				for _, span := range group {
+					for _, tok := range auditRuleTokens {
+						// Comments are probed as-is; literals also in
+						// de-doubled form ('' collapses to ' inside a
+						// literal's value space).
+						for _, probe := range []string{span, strings.ReplaceAll(span, "''", "'")} {
+							if tok.re.MatchString(probe) {
+								t.Errorf("%s: %s sits where the runtime rewriter cannot see it (rule-token blind spot) in %s: %s",
+									fset.Position(lit.pos), tok.name, name, span)
+							}
+						}
+					}
 				}
 			}
 			totalPlaceholders += strings.Count(s, "?")
@@ -89,6 +153,90 @@ func TestStaticAudit_NoPlaceholderInsideSQLStringLiteral(t *testing.T) {
 	assert.Greater(t, totalPlaceholders, 400, "audit saw too few '?' placeholders")
 	t.Logf("audit: %d SQL literals inspected, %d positional '?' placeholders across internal/storage/sqlite",
 		inspected, totalPlaceholders)
+}
+
+// TestSqlMaskedRegions pins the blind-spot scanner on the reviewer's
+// repro shapes: rule tokens hidden in literals and comments must be
+// surfaced; clean SQL must stay clean.
+func TestSqlMaskedRegions(t *testing.T) {
+	tests := []struct {
+		name             string
+		sql              string
+		wantLiteralHit   string // rule token expected inside a literal ("" = none)
+		wantCommentHit   string // rule token expected inside a comment ("" = none)
+		wantQuestionMark bool   // '?' expected inside a literal
+	}{
+		{
+			name:           "reviewer repro: INSERT OR IGNORE inside a literal",
+			sql:            `SELECT 'INSERT OR IGNORE' AS s FROM t`,
+			wantLiteralHit: "INSERT OR IGNORE",
+		},
+		{
+			name:           "doubled-quote smuggling of datetime('now')",
+			sql:            "SELECT 'call datetime(''now'') again' AS s FROM t",
+			wantLiteralHit: "datetime('now')",
+		},
+		{
+			name:           "raw datetime('now') inside a literal",
+			sql:            "SELECT 'stamp: datetime(''now'')' FROM t WHERE id = ?",
+			wantLiteralHit: "datetime('now')",
+		},
+		{
+			name:           "token inside a line comment",
+			sql:            "INSERT INTO t (a) VALUES (?) -- historically INSERT OR IGNORE\n",
+			wantCommentHit: "INSERT OR IGNORE",
+		},
+		{
+			name:           "token inside a block comment",
+			sql:            "SELECT /* datetime('now') legacy */ 1 FROM t",
+			wantCommentHit: "datetime('now')",
+		},
+		{
+			name:             "placeholder inside a literal",
+			sql:              "SELECT * FROM t WHERE note = 'best ? ever' AND id = ?",
+			wantQuestionMark: true,
+		},
+		{
+			name: "clean query: no blind spots",
+			sql:  "INSERT INTO task_tags (task_id, tag_id) VALUES (?, ?)",
+		},
+		{
+			name: "code-position tokens are NOT blind spots",
+			sql:  "INSERT OR IGNORE INTO s (a) VALUES (?, datetime('now'))",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			literals, comments := sqlMaskedRegions(tt.sql)
+
+			literalHit, commentHit := "", ""
+			for _, span := range literals {
+				for _, tok := range auditRuleTokens {
+					if tok.re.MatchString(span) || tok.re.MatchString(strings.ReplaceAll(span, "''", "'")) {
+						literalHit = tok.name
+					}
+				}
+			}
+			for _, span := range comments {
+				for _, tok := range auditRuleTokens {
+					if tok.re.MatchString(span) {
+						commentHit = tok.name
+					}
+				}
+			}
+			assert.Equal(t, tt.wantLiteralHit, literalHit, "literal blind spot")
+			assert.Equal(t, tt.wantCommentHit, commentHit, "comment blind spot")
+
+			qInLiteral := false
+			for _, span := range literals {
+				if strings.Contains(span, "?") {
+					qInLiteral = true
+				}
+			}
+			assert.Equal(t, tt.wantQuestionMark, qInLiteral, "'?' inside literal")
+		})
+	}
 }
 
 // litString is one Go string literal with its source position.

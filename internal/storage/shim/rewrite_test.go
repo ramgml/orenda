@@ -172,6 +172,62 @@ func TestInsertOrIgnoreMultipleStatementsRejected(t *testing.T) {
 	assert.Contains(t, err.Error(), "INSERT OR IGNORE")
 }
 
+// A statement whose tail lies inside a comment would silently swallow
+// the appended ON CONFLICT DO NOTHING clause (`… -- seed ON CONFLICT
+// DO NOTHING` is all comment), so the shim rejects it loudly. A
+// comment that properly closes before the end keeps the statement
+// rewritable only when nothing follows it — the clause is
+// statement-final, so any closed comment at the very end is equally
+// rejected by the trim; only comments strictly inside the statement
+// are fine.
+func TestInsertOrIgnoreTrailingCommentRejected(t *testing.T) {
+	tests := []struct {
+		name    string
+		query   string
+		wantErr bool
+	}{
+		{
+			name:    "trailing line comment swallows the clause",
+			query:   "INSERT OR IGNORE INTO sync_ops (client_id) VALUES (?) -- seed",
+			wantErr: true,
+		},
+		{
+			name:    "line comment closed by newline, then trimmed off",
+			query:   "INSERT OR IGNORE INTO sync_ops (client_id) VALUES (?) -- seed\n",
+			wantErr: true,
+		},
+		{
+			name:    "unterminated block comment at the tail",
+			query:   "INSERT OR IGNORE INTO sync_ops (client_id) VALUES (?) /* seed",
+			wantErr: true,
+		},
+		{
+			name:    "comment inside a literal is not a comment region",
+			query:   "INSERT OR IGNORE INTO t (note) VALUES ('a -- b')",
+			wantErr: false,
+		},
+		{
+			name:    "no trailing comment rewrites normally",
+			query:   "INSERT OR IGNORE INTO t (a) VALUES (?)",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := rewriteFor(DialectPostgres, tt.query)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "ends inside a comment")
+				return
+			}
+			require.NoError(t, err)
+			assert.Contains(t, got, "ON CONFLICT DO NOTHING")
+			assert.NotContains(t, got, "INSERT OR IGNORE")
+		})
+	}
+}
+
 // TestAllRulesTogetherRewritesTaskCreate runs every rule over the
 // biggest production statement (task_repo.Create): the 30 real
 // placeholders renumber sequentially and both created_at/updated_at

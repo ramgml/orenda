@@ -65,10 +65,14 @@ func TestPostgresSmoke_RepositoryQueriesThroughShim(t *testing.T) {
 		"SELECT COUNT(*) FROM users WHERE id = 'u-chat'").Scan(&users))
 	assert.Equal(t, 1, users, "OR IGNORE must not duplicate the seed row")
 
-	// --- INSERT OR IGNORE (sync_ops_repo.go:38) ----------------------
+	// --- INSERT OR IGNORE (sync_ops_repo.go:38), PK on client_id -----
 	syncOps := sqlite.NewSyncOpsRepository(db)
 	require.NoError(t, syncOps.Record(ctx, "client-1", "server-1"))
 	require.NoError(t, syncOps.Record(ctx, "client-1", "server-2"), "duplicate client must be ignored")
+	var syncRows int
+	require.NoError(t, db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM sync_ops WHERE client_id = ?", "client-1").Scan(&syncRows))
+	assert.Equal(t, 1, syncRows, "PK + OR IGNORE must keep exactly one row per client")
 	seen, serverID, err := syncOps.Seen(ctx, "client-1")
 	require.NoError(t, err)
 	assert.True(t, seen)
@@ -297,7 +301,7 @@ func createMinimalSchema(t *testing.T, ctx context.Context, db *sql.DB) {
 		`CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT, password_hash TEXT, display_name TEXT, role TEXT, created_at TEXT DEFAULT (` + now + `), updated_at TEXT DEFAULT (` + now + `))`,
 		`CREATE TABLE api_tokens (id TEXT PRIMARY KEY, user_id TEXT, name TEXT, hash TEXT, scopes TEXT, expires_at TEXT, created_at TEXT DEFAULT (` + now + `))`,
 		`CREATE TABLE agents (id TEXT PRIMARY KEY, name TEXT, type TEXT, description TEXT, token_id TEXT, last_seen_at TEXT, status TEXT, max_concurrent INTEGER, created_at TEXT DEFAULT (` + now + `))`,
-		`CREATE TABLE sync_ops (client_id TEXT, server_id TEXT, op TEXT, target TEXT, applied_at TEXT NOT NULL DEFAULT (` + now + `))`,
+		`CREATE TABLE sync_ops (client_id TEXT PRIMARY KEY, server_id TEXT NOT NULL, op TEXT NOT NULL, target TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT (` + now + `))`,
 		`CREATE TABLE backup_settings (key TEXT PRIMARY KEY, value TEXT)`,
 		`CREATE TABLE chat_threads (id TEXT, user_id TEXT, thread_id TEXT, UNIQUE (user_id, thread_id))`,
 		`CREATE TABLE project_number_seq (id INTEGER PRIMARY KEY, next INTEGER NOT NULL)`,
