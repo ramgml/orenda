@@ -30,6 +30,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ramgml/orenda/internal/backup"
 	"github.com/ramgml/orenda/internal/storage"
 )
 
@@ -115,18 +116,36 @@ func maintenanceToggleHandler(action string) http.HandlerFunc {
 	}
 }
 
-// runMaintenanceVerify opens the restored DB and runs migrate +
-// integrity_check + foreign_key_check. Mirrors the CLI's
-// runBackupRestoreWithVerify pipeline. Best-effort: we don't
-// surface a typed error — just a summary string.
-func runMaintenanceVerify(ctx context.Context, dbPath string) error {
+// runMaintenanceVerify verifies the restore artifact for the live
+// dialect (T366, wiki:storage-adapters D8: maintenance verify is
+// per-dialect).
+//
+//   - sqlite: the artifact is the swapped live db file — open it, run
+//     migrate + integrity_check + foreign_key_check (unchanged).
+//   - postgres: the artifact is a pg_dump -Fc archive — RestorePostgres
+//     restores it into a scratch database on the target server, checks
+//     pg_restore --list readability plus the applied migrations, and
+//     drops the scratch. The live database is never modified under a
+//     running server; promotion is an operator action (CLI `--to`).
+//
+// Best-effort at the HTTP layer: the handler surfaces the error text,
+// not a typed payload. svc == nil keeps the sqlite path for fixtures.
+func runMaintenanceVerify(ctx context.Context, svc *backup.Service, artifactPath string) error {
+	if svc != nil && svc.Dialect() == backup.DialectPostgres {
+		// A real restore can legitimately take minutes; the sqlite
+		// pragma pair keeps its 30s budget.
+		pgCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		defer cancel()
+		_, err := svc.RestorePostgres(pgCtx, artifactPath, "")
+		return err
+	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	// A verified restore artifact is always a sqlite snapshot file;
 	// the sqlite dialect is pinned here regardless of storage.driver.
 	sdb, err := storage.Open(ctx, storage.Config{
 		Driver:        string(storage.DialectSQLite),
-		Path:          dbPath,
+		Path:          artifactPath,
 		WALMode:       true,
 		EnableForeign: true,
 		BusyTimeoutMs: 5000,

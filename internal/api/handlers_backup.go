@@ -209,6 +209,11 @@ func putBackupSettingsHandler(deps *Dependencies) http.HandlerFunc {
 				MirrorDir:   current.MirrorDir,
 				SnapshotDir: current.SnapshotDir,
 				DBPath:      current.DBPath,
+				// T366: dialect + pg target are restart-wired like
+				// the paths above — a settings PUT must not flip a
+				// postgres service back to the sqlite strategy.
+				Dialect:  current.Dialect,
+				Postgres: current.Postgres,
 				// UI-editable quintet (Phase 32.7), merged into
 				// the live state. SnapshotRotationDays moved
 				// here from the "restart-only" set in 28.9 —

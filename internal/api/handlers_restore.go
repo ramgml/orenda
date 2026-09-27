@@ -72,6 +72,29 @@ func restoreBackupHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "backup_not_wired"})
 			return
 		}
+		// T366: on postgres the artifact is a pg_dump archive and the
+		// live database is never swapped under a running server — the
+		// maintenance "restore" becomes a scratch-restore verify (the
+		// operator promotes via `orenda backup restore --to <database>`).
+		// No WS drain: the live data didn't change, subscribers stay
+		// connected.
+		if deps.Backup.Dialect() == backup.DialectPostgres {
+			if err := runMaintenanceVerify(r.Context(), deps.Backup, in.Path); err != nil {
+				writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+					"error":  "verify_failed",
+					"detail": err.Error(),
+				})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status":   "verified",
+				"snapshot": in.Path,
+				"hint": "the dump restored into a scratch database and was verified; " +
+					"the live database is untouched — promote with: orenda backup restore --from " +
+					in.Path + " --to <database> --yes",
+			})
+			return
+		}
 		if deps.WSHub != nil {
 			// Close every subscriber; their clients reconnect on the
 			// next request and read the restored DB. We don't need to
@@ -101,7 +124,7 @@ func restoreBackupHandler(deps *Dependencies) http.HandlerFunc {
 		// Verify + migrate: open the restored DB and check integrity.
 		// The CLI version already does this end-to-end; the API
 		// version delegates to the same Verify + Migrate flow.
-		if err := runMaintenanceVerify(r.Context(), dbPath); err != nil {
+		if err := runMaintenanceVerify(r.Context(), deps.Backup, dbPath); err != nil {
 			MaintenanceOff()
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
 				"error":  "verify_failed",

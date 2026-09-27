@@ -257,20 +257,24 @@ func (s *Scheduler) runSnapshot(ctx context.Context) {
 	path, err := s.svc.Snapshot(ctx)
 	status := "success"
 	msg := ""
+	op := "sqlite_snapshot"
+	if s.svc.Dialect() == DialectPostgres {
+		op = "pg_snapshot"
+	}
 	if err != nil {
 		status = "failed"
 		msg = err.Error()
 		if s.Notifier != nil {
-			s.Notifier.NotifyBackupFailed(ctx, "sqlite_snapshot", err)
+			s.Notifier.NotifyBackupFailed(ctx, op, err)
 		}
 	}
-	_ = s.svc.RecordLog(ctx, "sqlite_snapshot", status, msg, path)
+	_ = s.svc.RecordLog(ctx, op, status, msg, path)
 }
 
-// runCheckpoint truncates the SQLite WAL via
-// `PRAGMA wal_checkpoint(TRUNCATE)` — this bounds the WAL file
+// runCheckpoint bounds the SQLite WAL via the Service's dialect hook
+// (`PRAGMA wal_checkpoint(TRUNCATE)` — this bounds the WAL file
 // size and checkpoints committed frames back into the main DB
-// file. It is NOT a true WAL archive: we never copy WAL frames
+// file). It is NOT a true WAL archive: we never copy WAL frames
 // off-host for PITR. The audit (Phase 32.3) flagged the old
 // `runWAL` / `wal_archive` naming as "dead code" because the
 // name implied off-host shipping; the code itself was always
@@ -279,10 +283,18 @@ func (s *Scheduler) runSnapshot(ctx context.Context) {
 // contract explicit. See wiki:decision-log "WAL archive vs
 // WAL checkpoint" for the decision and the rationale.
 //
+// T366: the hook is dialect-aware. On postgres it reports skipped —
+// PostgreSQL checkpoints itself and pg_dump snapshots are consistent
+// without one — and nothing is logged: a scheduled job that never ran
+// must not leave a "success" row in backup_log.
+//
 // A failure here doesn't surface to the user directly but lands
 // in backup_log and (when wired) the FailureNotifier seam.
 func (s *Scheduler) runCheckpoint(ctx context.Context) {
-	_, err := s.svc.db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
+	skipped, err := s.svc.checkpoint(ctx)
+	if skipped {
+		return
+	}
 	status := "success"
 	msg := ""
 	if err != nil {

@@ -112,6 +112,11 @@ type PostgresConfig struct {
 	// downloads postgres binaries from (offline mirrors); empty uses
 	// the embedded-postgres default.
 	BinariesURL string `yaml:"binaries_url"`
+	// DumpBin overrides the pg_dump binary the backup subsystem uses
+	// (T366): a bare name resolves via PATH, a path is used as-is.
+	// The embedded bundle ships server binaries only, so without an
+	// override the backup subsystem falls back to the system PATH.
+	DumpBin string `yaml:"dump_bin"`
 }
 
 // AuthConfig controls authentication parameters.
@@ -606,6 +611,8 @@ func overridePostgres(c *PostgresConfig, p []string, v string) {
 		}
 	case "binaries_url":
 		c.BinariesURL = v
+	case "dump_bin":
+		c.DumpBin = v
 	}
 }
 
