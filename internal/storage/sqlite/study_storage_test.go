@@ -3,7 +3,6 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -211,24 +210,13 @@ func newCourseDraft(id string) *course.Course {
 	}
 }
 
-// openStudyTestDB opens a fresh SQLite DB with all migrations applied.
-// Used by the storage tests in this file plus the proposal lifecycle
-// test in study_proposal_repo_test.go (declared in the same package).
+// openStudyTestDB opens the fixture database for the active matrix
+// driver (sqlite or postgres — see matrix_test.go). Used by the storage
+// tests in this file plus the proposal lifecycle test in
+// study_proposal_repo_test.go (declared in the same package).
 func openStudyTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "orenda.db")
-	db, err := Open(context.Background(), dbPath, OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	if err := Migrate(context.Background(), db, MigrationsFS, "migrations"); err != nil {
-		_ = db.Close()
-		t.Fatalf("migrate: %v", err)
-	}
-	return db
+	return matrixDB(t)
 }
 
 var _ = (*sql.Tx)(nil) // keep database/sql import live even if some subtests don't use it

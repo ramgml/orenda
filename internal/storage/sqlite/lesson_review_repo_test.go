@@ -101,16 +101,11 @@ func TestMigrate_046LessonReviews(t *testing.T) {
 func setupReviewFixture(t *testing.T) (context.Context, course.LessonReviewSchedulerRepository, string, string) {
 	t.Helper()
 	ctx := context.Background()
-	db, err := Open(ctx, filepath.Join(t.TempDir(), "orenda.db"), OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, Migrate(ctx, db, MigrationsFS, "migrations"))
+	db := matrixDB(t)
 	users := NewUserRepository(db)
 	u := &user.User{Email: "reviews@x.com", PasswordHash: "x", DisplayName: "Student"}
 	require.NoError(t, users.Create(ctx, u))
-	_, err = db.ExecContext(ctx,
+	_, err := db.ExecContext(ctx,
 		`INSERT INTO courses (id, title, owner_id, status) VALUES (?, ?, ?, 'active')`,
 		"c-rev", "Go", u.ID)
 	require.NoError(t, err)
