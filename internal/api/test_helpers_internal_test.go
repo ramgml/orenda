@@ -2,21 +2,14 @@ package api
 
 // Shared test infrastructure for the api package (white-box tests).
 //
-// Mirrors the api_test helper: a fully-migrated template DB is
-// created once per test binary via sync.Once, then copied into each
-// test's temp directory.  The template uses DELETE journal mode so
-// copies are trivially safe.
+// Fixture databases come from testutil.MatrixDB: the active matrix
+// driver decides between the sqlite template copy and the postgres
+// template clone (T364).
 
 import (
-	"context"
 	"database/sql"
-	"os"
-	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
-	"github.com/ramgml/orenda/internal/storage/sqlite"
 	"github.com/ramgml/orenda/internal/testutil"
 )
 
@@ -27,23 +20,10 @@ func ensureInternalTemplateDB(t *testing.T) string {
 	return testutil.TemplateDBPath(t)
 }
 
-// copyInternalTemplateDB copies the pre-migrated template to a fresh
-// temp directory and returns *sql.DB.  The caller must close the DB
-// via t.Cleanup.
+// copyInternalTemplateDB returns the fixture database for the active
+// matrix driver (sqlite template copy or postgres template clone —
+// T364). The caller must not close it; cleanup is registered.
 func copyInternalTemplateDB(t *testing.T) *sql.DB {
 	t.Helper()
-	src := ensureInternalTemplateDB(t)
-	dir := t.TempDir()
-	dst := filepath.Join(dir, "orenda.db")
-
-	data, err := os.ReadFile(src)
-	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(dst, data, 0o600))
-
-	db, err := sqlite.Open(context.Background(), dst, sqlite.OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	return db
+	return testutil.MatrixDB(t)
 }

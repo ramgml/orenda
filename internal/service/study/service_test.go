@@ -31,7 +31,7 @@ func setupStudySvc(t *testing.T) (*studySvcFixture, string, string) {
 	t.Helper()
 	ctx := context.Background()
 
-	db, _ := testutil.TemplateDBOpen(t)
+	db := testutil.MatrixDB(t)
 
 	propRepo := sqlite.NewStudyProposalRepository(db)
 	taskRepo := sqlite.NewTaskRepository(db)

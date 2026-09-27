@@ -29,6 +29,7 @@ import (
 	"github.com/ramgml/orenda/internal/domain/user"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/testutil/pgtest"
 )
 
 // tokenRotateFixture bundles the real router + storage + one registered agent.
@@ -98,6 +99,19 @@ func newTokenRotateFixture(t *testing.T) *tokenRotateFixture {
 func (fx *tokenRotateFixture) danglingTokenID(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
+	if pgtest.ActiveDriver() == pgtest.DriverPostgres {
+		// SET LOCAL reverts with the transaction, so the trigger
+		// suspension lives on exactly one connection and leaves no
+		// session residue in the pool.
+		tx, err := fx.db.BeginTx(ctx, nil)
+		require.NoError(t, err)
+		_, err = tx.ExecContext(ctx, `SET LOCAL session_replication_role = replica`)
+		require.NoError(t, err)
+		_, err = tx.ExecContext(ctx, "DELETE FROM api_tokens WHERE id = ?", fx.tokenID)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit())
+		return
+	}
 	_, err := fx.db.ExecContext(ctx, "PRAGMA foreign_keys = OFF")
 	require.NoError(t, err)
 	_, err = fx.db.ExecContext(ctx, "DELETE FROM api_tokens WHERE id = ?", fx.tokenID)

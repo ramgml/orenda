@@ -29,7 +29,7 @@ func (h *memHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 
 func setupEventSvc(t *testing.T) (*eventsvc.Service, *memHub) {
 	t.Helper()
-	db, _ := testutil.TemplateDBOpen(t)
+	db := testutil.MatrixDB(t)
 
 	hub := &memHub{}
 	svc := eventsvc.New(sqlite.NewTaskRepository(db), hub, nil)
