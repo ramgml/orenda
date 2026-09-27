@@ -70,7 +70,7 @@ func TestPostgresSmoke_RepositoryQueriesThroughShim(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer dropAdmin.Close(context.Background())
+		defer func() { _ = dropAdmin.Close(context.Background()) }()
 		_, _ = dropAdmin.Exec(context.Background(),
 			fmt.Sprintf(`DROP DATABASE IF EXISTS %s WITH (FORCE)`, smokeDB))
 	})
