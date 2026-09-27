@@ -8,6 +8,10 @@ package storage
 // natural place to dispatch on the configured dialect.
 
 import (
+	"database/sql"
+
+	"github.com/ramgml/orenda/internal/service/search"
+	"github.com/ramgml/orenda/internal/storage/postgres"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 )
 
@@ -28,7 +32,6 @@ var (
 	NewNotificationRepository    = sqlite.NewNotificationRepository
 	NewProjectActivityRepository = sqlite.NewProjectActivityRepository
 	NewProjectRepository         = sqlite.NewProjectRepository
-	NewSearchRepository          = sqlite.NewSearchRepository
 	NewStudyProposalRepository   = sqlite.NewStudyProposalRepository
 	NewSyncOpsRepository         = sqlite.NewSyncOpsRepository
 	NewTaskLockRepository        = sqlite.NewTaskLockRepository
@@ -57,6 +60,21 @@ type (
 	// router never names the driver package).
 	BackupSettingsRepository = sqlite.BackupSettingsRepository
 )
+
+// NewSearchRepository returns the full-text search repository for the
+// dialect the handle speaks (T365). This is the one constructor that
+// grew from a plain alias into a real dispatch — exactly as the package
+// comment predicted — because full-text search is the first subsystem
+// with per-dialect implementations: FTS5 (MATCH/bm25/snippet) on sqlite,
+// generated tsvector columns + phraseto_tsquery/ts_headline/ts_rank on
+// postgres (migration 002_search). Both satisfy service/search.Repository;
+// the domain interface and the sqlite implementation are unchanged.
+func NewSearchRepository(dialect Dialect, db *sql.DB) search.Repository {
+	if dialect == DialectPostgres {
+		return postgres.NewSearchRepository(db)
+	}
+	return sqlite.NewSearchRepository(db)
+}
 
 // Migration runner sentinels, re-exported for the CLI's
 // errors.Is branches.

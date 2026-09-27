@@ -108,18 +108,20 @@ func listTables(t *testing.T, db *sql.DB) map[string]struct{} {
 }
 
 // TestMigrateUpDownUpCycle walks the full lifecycle on a real server:
-// up → all baseline tables + version recorded; repeated up → no-op;
-// down → schema gone and version unrecorded; up again → clean reapplied.
+// up → every migration applied (001_baseline + 002_search) and version
+// recorded; repeated up → no-op; down → the most recent migration's
+// objects rolled back and its version unrecorded while the baseline
+// stays; up again → clean reapply.
 func TestMigrateUpDownUpCycle(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)
 
-	// -- up: baseline applied -------------------------------------------
+	// -- up: full chain applied ------------------------------------------
 	require.NoError(t, Migrate(ctx, db, MigrationsFS, "migrations"))
 
 	versions, err := AppliedVersions(ctx, db)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"001_baseline"}, versions, "exactly the baseline version after up")
+	assert.Equal(t, []string{"001_baseline", "002_search"}, versions, "every migration applied once, in order")
 
 	tables := listTables(t, db)
 	for _, want := range baselineTables {
@@ -132,23 +134,50 @@ func TestMigrateUpDownUpCycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, versions, versionsAfter, "repeated up must not reapply or duplicate versions")
 
-	// -- down: schema and bookkeeping rolled back ------------------------
+	// -- down: most recent migration rolled back --------------------------
+	// One MigrateDown steps back exactly one migration: 002_search's
+	// objects disappear, the baseline stays intact.
 	require.NoError(t, MigrateDown(ctx, db, MigrationsFS, "migrations"))
 
 	versionsDown, err := AppliedVersions(ctx, db)
 	require.NoError(t, err)
-	assert.Empty(t, versionsDown, "version unrecorded after down")
+	assert.Equal(t, []string{"001_baseline"}, versionsDown, "only the head version unrecorded after down")
+
+	var searchColumns int
+	require.NoError(t, db.QueryRow(
+		`SELECT count(*) FROM information_schema.columns
+		 WHERE table_schema = 'public' AND column_name = 'search_vec'`,
+	).Scan(&searchColumns))
+	assert.Zero(t, searchColumns, "002_search generated columns dropped by down")
+
+	var searchIndexes int
+	require.NoError(t, db.QueryRow(
+		`SELECT count(*) FROM pg_indexes
+		 WHERE schemaname = 'public' AND indexname LIKE 'idx_%_search'`,
+	).Scan(&searchIndexes))
+	assert.Zero(t, searchIndexes, "002_search GIN indexes dropped by down")
 
 	tablesDown := listTables(t, db)
-	for _, gone := range baselineTables {
-		assert.NotContains(t, tablesDown, gone, "baseline table dropped by down")
+	for _, want := range baselineTables {
+		assert.Contains(t, tablesDown, want, "baseline tables survive the 002 down")
 	}
 
 	// -- up again: clean reapply ------------------------------------------
 	require.NoError(t, Migrate(ctx, db, MigrationsFS, "migrations"))
 	versionsAgain, err := AppliedVersions(ctx, db)
 	require.NoError(t, err)
-	assert.Equal(t, versions, versionsAgain, "baseline reapplies after down")
+	assert.Equal(t, versions, versionsAgain, "full chain reapplies after down")
+
+	// The regenerated tsvector columns are live: a stored document is
+	// searchable immediately after the reapply.
+	_, err = db.Exec(`INSERT INTO comments (id, target_type, target_id, author_type, author_id, body_md)
+		VALUES ('c-fts', 'task', 't-fts', 'user', 'u1', 'searchable reapply body')`)
+	require.NoError(t, err)
+	var matched bool
+	require.NoError(t, db.QueryRow(
+		`SELECT search_vec @@ phraseto_tsquery('simple', 'reapply body') FROM comments WHERE id = 'c-fts'`,
+	).Scan(&matched))
+	assert.True(t, matched, "generated column indexes new rows after reapply")
 }
 
 // TestMigrateDownWithoutMigrations pins the runner's contract for an
