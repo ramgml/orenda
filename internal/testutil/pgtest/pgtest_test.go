@@ -2,6 +2,7 @@ package pgtest
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -9,20 +10,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestMain routes this package's own tests through the driver matrix
+// so the embedded cluster is provisioned AND shut down by
+// DriverMatrix — a bare TemplateDB call would leak the postmaster and
+// its temp directories at binary exit.
+func TestMain(m *testing.M) {
+	os.Exit(DriverMatrix(m))
+}
+
 // TestTemplateDB_CloneAndIsolation is the accelerator's own smoke: the
 // embedded (or ORENDA_TEST_PG_DSN) server provisions once, the template
 // carries the migrated baseline, and every clone is an independent,
 // pristine database. The ?-placeholder probe proves the dialect shim is
 // live on the returned pool.
 func TestTemplateDB_CloneAndIsolation(t *testing.T) {
-	hasPostgres := false
-	for _, d := range Drivers() {
-		if d == DriverPostgres {
-			hasPostgres = true
-		}
-	}
-	if !hasPostgres {
-		t.Skip("postgres leg opted out: ORENDA_TEST_DRIVERS does not include postgres")
+	if ActiveDriver() != DriverPostgres {
+		t.Skip("accelerator smoke exercises the postgres leg only; skipped on the sqlite leg of the matrix to keep the cluster start off that run")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

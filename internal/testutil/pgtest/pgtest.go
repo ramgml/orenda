@@ -167,8 +167,9 @@ func freePort(t testing.TB) int {
 }
 
 // packageName derives the database namespace from the test binary so
-// that parallel package binaries are isolated even on one shared
-// external server. "sqlite.test" → "sqlite".
+// parallel package binaries are even distinguishable in pg_database;
+// the per-run pid component added to every name does the actual
+// isolation. "sqlite.test" → "sqlite".
 func packageName() string {
 	base := filepath.Base(os.Args[0])
 	base = strings.TrimSuffix(base, ".test")
@@ -191,13 +192,16 @@ func packageName() string {
 }
 
 // startCluster provisions the shared server and the migrated template.
-func startCluster(t testing.TB) (*cluster, error) {
+// On any failure after the postmaster started, c stays nil and the
+// deferred cleanup below stops the cluster — otherwise the postmaster
+// would outlive the binary (shutdown() only sees published clusters).
+func startCluster(t testing.TB) (c *cluster, err error) {
 	t.Helper()
 	pkg := packageName()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	c := &cluster{pkg: pkg, tmpl: "orenda_tmpl_" + pkg}
+	c = &cluster{pkg: pkg, tmpl: fmt.Sprintf("orenda_tmpl_%s_p%d", pkg, os.Getpid())}
 
 	if dsn := strings.TrimSpace(os.Getenv("ORENDA_TEST_PG_DSN")); dsn != "" {
 		// External server: reduce the DSN to parts so per-test opens
@@ -256,6 +260,16 @@ func startCluster(t testing.TB) (*cluster, error) {
 			_ = os.RemoveAll(runtimePath)
 			return nil, fmt.Errorf("pgtest: start embedded postgres (opt out with ORENDA_TEST_DRIVERS=sqlite, or point ORENDA_TEST_PG_DSN at a server): %w", err)
 		}
+		// From here on every failure must stop the postmaster, or it
+		// outlives the binary: shutdown() only sees the cluster once it
+		// is published on theCluster.
+		defer func() {
+			if c == nil {
+				_ = emb.Stop()
+				_ = os.RemoveAll(dataPath)
+				_ = os.RemoveAll(runtimePath)
+			}
+		}()
 		c.embedded = emb
 		c.dataPath = dataPath
 		c.runtimePath = runtimePath
@@ -341,7 +355,13 @@ func TemplateDB(t testing.TB) *sql.DB {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	name := fmt.Sprintf("orenda_%s_t%d", c.pkg, c.seq.Add(1))
+	// The pid component isolates same-package binaries from each other
+	// (two `go test ./internal/storage/sqlite/` runs against one shared
+	// external server would otherwise DROP each other's template and
+	// test databases). Leftover databases from crashed runs keep their
+	// pid in the name on a long-lived external server — a throwaway QA
+	// container self-cleans.
+	name := fmt.Sprintf("orenda_%s_p%d_t%d", c.pkg, os.Getpid(), c.seq.Add(1))
 	// Crash leftovers from a previous run with the same pid would make
 	// CREATE ... TEMPLATE fail; dropping first is one cheap round trip.
 	if err := c.execAdmin(ctx, "DROP DATABASE IF EXISTS "+quoteIdent(name)+" WITH (FORCE)"); err != nil {
