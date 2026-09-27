@@ -100,6 +100,7 @@ func (o EmbeddedOptions) Connection() RuntimeConfig {
 type Embedded struct {
 	db          *embeddedpostgres.EmbeddedPostgres
 	runtimePath string
+	stopped     bool
 }
 
 // StartEmbedded starts the cluster described by opts, creating the data
@@ -148,11 +149,16 @@ func StartEmbedded(opts EmbeddedOptions) (*Embedded, error) {
 
 // Stop terminates the postmaster (pg_ctl stop -w — a graceful fast
 // shutdown with no orphaned processes) and removes the scratch runtime
-// directory. The data directory survives for the next start.
+// directory. The data directory survives for the next start. Stopping
+// an already-stopped cluster is a no-op.
 func (e *Embedded) Stop() error {
+	if e.stopped {
+		return nil
+	}
 	if err := e.db.Stop(); err != nil {
 		return fmt.Errorf("postgres: embedded stop: %w", err)
 	}
+	e.stopped = true
 	// Scratch removal is best-effort: the library wipes the directory
 	// at the next Start anyway; a leaked tmp dir on a crashed run is
 	// acceptable scratch loss, not state corruption.

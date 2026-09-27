@@ -37,7 +37,10 @@ func TestOpen_PostgresLive(t *testing.T) {
 		Postgres:      PostgresConfig{DSN: dsn},
 	})
 	require.NoError(t, err)
-	defer func() { _ = db.Close() }()
+	// Registered BEFORE the probe-table drop below so cleanup runs
+	// drop-then-close (t.Cleanup is LIFO); a defer would close the
+	// pool first and strand the drop on a dead handle.
+	t.Cleanup(func() { _ = db.Close() })
 
 	assert.Equal(t, DialectPostgres, db.Dialect())
 
@@ -49,12 +52,13 @@ func TestOpen_PostgresLive(t *testing.T) {
 	assert.NotEmpty(t, versions, "baseline must register applied versions")
 
 	// busy_timeout → lock_timeout mapping via the after-connect hook:
-	// the pool hands out connections with the session GUC pre-set.
+	// the pool hands out connections with the session GUC pre-set
+	// (SHOW echoes the unit the value was SET with).
 	var lockTimeout string
 	require.NoError(t, db.DB.
 		QueryRowContext(ctx, "SHOW lock_timeout").
 		Scan(&lockTimeout))
-	assert.Equal(t, "1.5s", lockTimeout)
+	assert.Equal(t, "1500ms", lockTimeout)
 
 	// Classifier against a real 23505: the SQLSTATE branch must fire
 	// through errors.As on the pgconn error the server returns.

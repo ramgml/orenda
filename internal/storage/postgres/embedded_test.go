@@ -29,6 +29,10 @@ func TestEmbeddedLifecycle(t *testing.T) {
 	opts, err := BuildEmbeddedOptions("orenda_t363_test", 0, "", "")
 	require.NoError(t, err)
 	opts.DataPath = dataPath
+	scratch, err := ScratchRuntimePath()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(scratch) })
+	opts.RuntimePath = scratch
 	opts.Logs = testLogWriter{t: t}
 
 	t.Run("start, query, stop", func(t *testing.T) {
