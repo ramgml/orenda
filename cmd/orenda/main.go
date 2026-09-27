@@ -682,6 +682,15 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		zap.String("addr", net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))),
 	)
 
+	// Embedded postgres runtime: the cluster must be up before the
+	// database opens, and stops with the server (same shutdown path —
+	// runServe returns after the HTTP listener drained).
+	stopEmbedded, err := startEmbeddedIfConfigured(cfg, logger, cwdOr(absCfg, "."))
+	if err != nil {
+		return err
+	}
+	defer stopEmbedded()
+
 	db, err := serveOpenDB(cmd.Context(), cfg, logger, absCfg)
 	if err != nil {
 		return err
@@ -1072,19 +1081,13 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// serveOpenDB opens the database at the configured path via the
-// driver-neutral storage factory and applies pending migrations before
-// serving traffic. Driver tuning (single-writer cap, SQLite pragmas)
-// lives inside the driver's own open path.
+// serveOpenDB opens the database via the driver-neutral storage factory
+// and applies pending migrations before serving traffic. Driver tuning
+// (single-writer cap, SQLite pragmas, postgres pool shape) lives inside
+// the driver's own open path.
 func serveOpenDB(ctx context.Context, cfg *config.Config, logger *zap.Logger, absCfg string) (*sql.DB, error) {
 	dbPath := cfg.ResolveDBPath(cwdOr(absCfg, "."))
-	sdb, err := storage.Open(ctx, storage.Config{
-		Driver:        cfg.Storage.Driver,
-		Path:          dbPath,
-		WALMode:       cfg.Storage.WALMode,
-		EnableForeign: cfg.Storage.EnableForeign,
-		BusyTimeoutMs: cfg.Storage.BusyTimeoutMs,
-	})
+	sdb, err := storage.Open(ctx, storageConfigFor(cfg, dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("db: %w", err)
 	}
@@ -1093,7 +1096,7 @@ func serveOpenDB(ctx context.Context, cfg *config.Config, logger *zap.Logger, ab
 	logger.Info("storage opened", zap.String("driver", string(sdb.Dialect())), zap.String("path", dbPath))
 
 	// Ensure migrations are up to date before serving traffic.
-	if err := storage.Migrate(ctx, db); err != nil {
+	if err := sdb.Migrate(ctx); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	logger.Info("migrations applied")
@@ -1471,9 +1474,9 @@ func runMigrate(cmd *cobra.Command, action migrateAction) error {
 	}
 	defer func() { _ = logger.Sync() }()
 
-	// Postgres dialect: wired directly through the postgres runner
-	// (external DSN from storage.postgres), past the driver-neutral
-	// seam — its postgres rebind lands with T362/T363.
+	// Postgres dialect: routed through the driver-neutral seam
+	// (storage.Open + the dialect-aware migrate helpers), with the
+	// embedded lifecycle owned for the duration when requested.
 	if cfg.Storage.Driver == "postgres" {
 		return runMigratePostgres(cmd.Context(), cfg, logger, action)
 	}

@@ -26,7 +26,7 @@ func loadConfigForCLI(cfgPath string) (*config.Config, error) {
 
 // storageConfigFor builds the seam open config from the app config and
 // a resolved database path. Driver comes from storage.driver (default
-// sqlite); the postgres driver fails fast inside storage.Open.
+// sqlite); the postgres target rides along in Postgres.
 func storageConfigFor(cfg *config.Config, dbPath string) storage.Config {
 	return storage.Config{
 		Driver:        cfg.Storage.Driver,
@@ -34,12 +34,31 @@ func storageConfigFor(cfg *config.Config, dbPath string) storage.Config {
 		WALMode:       cfg.Storage.WALMode,
 		EnableForeign: cfg.Storage.EnableForeign,
 		BusyTimeoutMs: cfg.Storage.BusyTimeoutMs,
+		Postgres:      postgresConfigFor(cfg.Storage.Postgres),
+	}
+}
+
+// postgresConfigFor maps the config section into the seam's mirror
+// struct — 1:1, no defaults applied here (the adapter owns defaults).
+func postgresConfigFor(p config.PostgresConfig) storage.PostgresConfig {
+	return storage.PostgresConfig{
+		DSN:          p.DSN,
+		Host:         p.Host,
+		Port:         p.Port,
+		User:         p.User,
+		Password:     p.Password,
+		Database:     p.Database,
+		SSLMode:      p.SSLMode,
+		Embedded:     p.Embedded,
+		EmbeddedPort: p.EmbeddedPort,
+		BinariesURL:  p.BinariesURL,
 	}
 }
 
 // openCLIDB opens the database and applies pending migrations.
-// The returned cleanup function closes the handle. No system-Inbox
-// bootstrap — see the package doc.
+// The returned cleanup function closes the handle and stops the
+// embedded postgres cluster when this command started one. No
+// system-Inbox bootstrap — see the package doc.
 func openCLIDB(ctx context.Context, cfg *config.Config) (*sql.DB, func(), error) {
 	return openCLIDBWithRaw(ctx, cfg)
 }
@@ -53,26 +72,37 @@ func openCLIDB(ctx context.Context, cfg *config.Config) (*sql.DB, func(), error)
 // status command bootstrap schema_migrations themselves when it is
 // missing.
 func openCLIDBRaw(ctx context.Context, cfg *config.Config) (*sql.DB, func(), error) {
+	stopEmbedded, err := startEmbeddedIfConfiguredCLI(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
 	dbPath := cfg.ResolveDBPath(".")
 	sdb, err := storage.Open(ctx, storageConfigFor(cfg, dbPath))
 	if err != nil {
+		stopEmbedded()
 		return nil, nil, fmt.Errorf("open db: %w", err)
 	}
-	return sdb.DB, func() { _ = sdb.Close() }, nil
+	return sdb.DB, func() { _ = sdb.Close(); stopEmbedded() }, nil
 }
 
 // openCLIDBWithRaw opens the DB and runs migrations without any
 // additional seeding. Useful for subcommands that need a migrated
 // DB but not the bootstrap side-effects (e.g. `migrate status`).
 func openCLIDBWithRaw(ctx context.Context, cfg *config.Config) (*sql.DB, func(), error) {
+	stopEmbedded, err := startEmbeddedIfConfiguredCLI(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
 	dbPath := cfg.ResolveDBPath(".")
 	sdb, err := storage.Open(ctx, storageConfigFor(cfg, dbPath))
 	if err != nil {
+		stopEmbedded()
 		return nil, nil, fmt.Errorf("open db: %w", err)
 	}
-	if err := storage.Migrate(ctx, sdb.DB); err != nil {
+	if err := sdb.Migrate(ctx); err != nil {
 		_ = sdb.Close()
+		stopEmbedded()
 		return nil, nil, fmt.Errorf("migrate: %w", err)
 	}
-	return sdb.DB, func() { _ = sdb.Close() }, nil
+	return sdb.DB, func() { _ = sdb.Close(); stopEmbedded() }, nil
 }
