@@ -1120,21 +1120,16 @@ func serveOpenDB(ctx context.Context, cfg *config.Config, logger *zap.Logger, ab
 // when backups are disabled; the mirror service is NOT its concern
 // (Task 193 — the mirror must exist regardless of backup.enabled).
 //
-// The snapshot/checkpoint machinery is SQLite-only (VACUUM INTO,
-// PRAGMA wal_checkpoint): on other dialects the scheduler is skipped
-// with an explicit warning instead of scheduling statements that can
-// only fail (the API's /backups surface reads deps.Backup == nil as
-// scheduler_disabled). Callers nil-check deps.Backup already.
+// T366: the machinery is dialect-aware — sqlite snapshots via VACUUM
+// INTO, postgres via pg_dump --format=custom (the WAL checkpoint job
+// no-ops on postgres). A missing pg_dump surfaces at snapshot time as
+// a failed backup_log row + notifier event, not as a silently skipped
+// schedule. The API's /backups surface still reads deps.Backup == nil
+// as scheduler_disabled (backup.enabled=false); callers nil-check
+// deps.Backup already.
 func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, logger *zap.Logger, db *sql.DB, dialect storage.Dialect) (*backup.Service, *backup.Scheduler, error) {
 	if !cfg.Backup.Enabled {
 		//nolint:nilnil // documented contract: backups disabled → nil *backup.Service, nil scheduler (callers nil-check deps.Backup).
-		return nil, nil, nil
-	}
-	if dialect != storage.DialectSQLite {
-		logger.Warn("backup subsystem is sqlite-only; scheduled backups disabled for this driver",
-			zap.String("driver", string(dialect)),
-			zap.String("hint", "set storage.driver=sqlite or point backup.enabled=false to silence"))
-		//nolint:nilnil // same nil contract as the disabled branch — handlers nil-check deps.Backup.
 		return nil, nil, nil
 	}
 	// Backup service + scheduler (Phase 7). The mirror service is
@@ -1167,6 +1162,10 @@ func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, l
 		RemoteAuth:           cfg.Backup.RemoteAuth,
 		SnapshotRotationDays: cfg.Backup.SnapshotRotationDays,
 		SnapshotCron:         cfg.Backup.SQLiteSnapshotCron,
+		// T366: the snapshot strategy follows the storage dialect;
+		// the pg target/binary ride along from storage.postgres.
+		Dialect:  backup.Dialect(dialect),
+		Postgres: backupPostgresConfig(cfg.Storage.Postgres),
 	}, db)
 	// Phase 32.7: merge persisted DB overrides into the
 	// live config BEFORE the scheduler goroutine starts so
@@ -1189,6 +1188,24 @@ func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, l
 		zap.String("snapshot_dir", cfg.Backup.SnapshotDir),
 	)
 	return backupSvc, scheduler, nil
+}
+
+// backupPostgresConfig maps the config's postgres section into the
+// backup Service's pg target (1:1 — the adapter owns defaults, and the
+// embedded variant is resolved there from the bootstrap cluster).
+func backupPostgresConfig(p config.PostgresConfig) backup.PostgresConfig {
+	return backup.PostgresConfig{
+		DSN:          p.DSN,
+		Host:         p.Host,
+		Port:         p.Port,
+		User:         p.User,
+		Password:     p.Password,
+		Database:     p.Database,
+		SSLMode:      p.SSLMode,
+		Embedded:     p.Embedded,
+		EmbeddedPort: p.EmbeddedPort,
+		DumpBin:      p.DumpBin,
+	}
 }
 
 // serveBots builds the bot registry (console bot always available,

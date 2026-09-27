@@ -2410,11 +2410,17 @@ paths:
   /api/v1/backups/restore:
     post:
       tags: [backups]
-      summary: Restore from snapshot (server must be stopped; returns CLI hint otherwise).
+      summary: >-
+        Restore/verify from snapshot. sqlite (maintenance + force): swap the live
+        file, verify, report "restored". postgres: restore the pg_dump archive
+        into a scratch database and verify it, report "verified" — the live
+        database is untouched; promote via `orenda backup restore --to <database>`.
       security: [{ bearerAuth-cookie: [] }]
       responses:
-        '200': { description: ok }
+        '200':
+          description: ok (status=restored on sqlite, status=verified on postgres)
         '409': { description: server_running (returns hint) }
+        '422': { description: verify_failed }
 
   /api/v1/backups/log:
     get:
