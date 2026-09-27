@@ -374,14 +374,14 @@ func TestRebindNumbering(t *testing.T) {
 }
 
 func TestRebindNumberingSequentialOnLargeInsert(t *testing.T) {
-	// task.Create: 31 anonymous placeholders across a multi-line INSERT.
+	// task.Create: 30 anonymous placeholders across a multi-line INSERT.
 	var b strings.Builder
 	b.WriteString("INSERT INTO tasks (id, project_id, title, status, position,\n")
 	b.WriteString("\tcontext_md, agent_notes, due_at, started_at, claimed_at, completed_at,\n")
 	b.WriteString("\ttime_estimate_s, time_spent_s, start_at, end_at, all_day, color,\n")
 	b.WriteString("\trecurrence, study_course_id, blocked_prev_status, number,\n")
 	b.WriteString("\tcreated_by_type, created_by_id) VALUES (\n")
-	for i := 0; i < 31; i++ {
+	for i := 0; i < 30; i++ {
 		b.WriteString("?, ")
 	}
 	b.WriteString("\n)")
@@ -390,9 +390,9 @@ func TestRebindNumberingSequentialOnLargeInsert(t *testing.T) {
 
 	assert.NotContains(t, got, "?")
 	nums := placeholderNumbers(got)
-	require.Len(t, nums, 31)
+	require.Len(t, nums, 30)
 	for i, n := range nums {
-		assert.Equal(t, i+1, n, "placeholders must be sequential $1..$31")
+		assert.Equal(t, i+1, n, "placeholders must be sequential $1..$30")
 	}
 }
 

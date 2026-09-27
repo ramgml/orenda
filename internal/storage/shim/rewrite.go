@@ -15,7 +15,63 @@ func rewriteFor(target Dialect, q string) (string, error) {
 	if target != DialectPostgres {
 		return q, nil
 	}
+	q = rewriteDatetimeNow(q)
+	q, err := rewriteInsertOrIgnore(q)
+	if err != nil {
+		return "", err
+	}
 	return rebindPlaceholders(q), nil
+}
+
+// datetimeNowRe matches SQLite's UTC now-stamp exactly as the storage
+// layer writes it: datetime('now'), modulo internal whitespace. The
+// pattern is case-sensitive on purpose — 'now' is a string value for
+// SQLite (datetime('NOW') yields NULL), so only the strict form may be
+// rewritten, and argument variants like datetime('now','localtime')
+// are different functions with different semantics. The static corpus
+// audit keeps every call site on exactly this shape.
+var datetimeNowRe = regexp.MustCompile(`\bdatetime\s*\(\s*'now'\s*\)`)
+
+// pgNowUTC renders the same value SQLite's datetime('now') emits: the
+// current UTC time as a fixed-width, zero-padded, 19-character
+// "YYYY-MM-DD HH24:MI:SS" TEXT stamp. Keeping the layout identical
+// preserves the schema's lexicographic timestamp comparisons: for this
+// layout, string order equals chronological order, so every
+// created_at <= datetime('now')-style predicate keeps its meaning.
+const pgNowUTC = `to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS')`
+
+// rewriteDatetimeNow replaces every strict-form datetime('now') with
+// the PostgreSQL equivalent.
+func rewriteDatetimeNow(q string) string {
+	return datetimeNowRe.ReplaceAllLiteralString(q, pgNowUTC)
+}
+
+// insertOrIgnoreRe matches SQLite's conflict-skipping INSERT prefix.
+// Case-insensitive to survive hand-written SQL, strict on the OR
+// IGNORE token pair so MySQL-style INSERT IGNORE or plain INSERTs are
+// never touched.
+var insertOrIgnoreRe = regexp.MustCompile(`(?i)\bINSERT\s+OR\s+IGNORE\b`)
+
+// rewriteInsertOrIgnore rewrites INSERT OR IGNORE INTO into its
+// PostgreSQL equivalent: the marker is dropped and the statement ends
+// with ON CONFLICT DO NOTHING. The clause is statement-final in
+// PostgreSQL, so it is appended after trailing whitespace and one
+// trailing semicolon are trimmed — the storage layer never batches
+// statements through the shim (the migration runner works directly on
+// the sqlite driver and never enters this path). A query carrying more
+// than one INSERT statement is rejected rather than mangled.
+func rewriteInsertOrIgnore(q string) (string, error) {
+	locs := insertOrIgnoreRe.FindAllStringIndex(q, -1)
+	if len(locs) == 0 {
+		return q, nil
+	}
+	if len(locs) > 1 {
+		return "", fmt.Errorf("shim: unsupported query shape: %d INSERT OR IGNORE statements in one query", len(locs))
+	}
+	loc := locs[0]
+	q = q[:loc[0]] + "INSERT" + q[loc[1]:]
+	q = strings.TrimRight(q, " \t\r\n;")
+	return q + " ON CONFLICT DO NOTHING", nil
 }
 
 // rewrite applies the full PostgreSQL rule set to one statement.
