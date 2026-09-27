@@ -90,7 +90,7 @@ func AppliedVersions(ctx context.Context, db *sql.DB) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("postgres: query schema_migrations: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make([]string, 0)
 	for rows.Next() {
@@ -128,7 +128,7 @@ func loadApplied(ctx context.Context, db *sql.DB) (map[string]struct{}, error) {
 	if err != nil {
 		return nil, fmt.Errorf("postgres: query schema_migrations: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	out := make(map[string]struct{})
 	for rows.Next() {

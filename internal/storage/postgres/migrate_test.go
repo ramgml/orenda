@@ -73,7 +73,7 @@ func listTables(t *testing.T, db *sql.DB) map[string]struct{} {
 	t.Helper()
 	rows, err := db.Query(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`)
 	require.NoError(t, err)
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := make(map[string]struct{})
 	for rows.Next() {
 		var name string
@@ -168,7 +168,7 @@ func TestBaselineRuntimeContracts(t *testing.T) {
 		rowids = append(rowids, id)
 	}
 	require.NoError(t, rows.Err())
-	rows.Close()
+	_ = rows.Close()
 	assert.Equal(t, []int64{1, 2, 3}, rowids, "identity starts at 1 and preserves insertion order")
 
 	// GENERATED ALWAYS must reject explicit rowid writes.
