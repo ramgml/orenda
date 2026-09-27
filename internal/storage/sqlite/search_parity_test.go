@@ -202,6 +202,15 @@ func TestSearchParity(t *testing.T) {
 		assert.Contains(t, slugsOf(hits), fx.pageDiacr.Slug)
 	})
 
+	t.Run("hyphenated_compound", func(t *testing.T) {
+		// FTS5 splits "Wiki-page" into adjacent tokens; the postgres
+		// parser additionally emits the compound lexeme. The phrase
+		// query must hit on both engines either way.
+		hits, err := repo.SearchPages(ctx, "wiki-page", 20)
+		require.NoError(t, err)
+		assert.Contains(t, slugsOf(hits), fx.pageDiacr.Slug)
+	})
+
 	t.Run("long_query", func(t *testing.T) {
 		long := strings.TrimSpace("filler prose " + strings.Repeat("padding word ", 24) +
 			"with one arcane mention")
