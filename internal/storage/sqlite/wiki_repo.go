@@ -264,12 +264,16 @@ func (r *wikiRepo) Backlinks(ctx context.Context, pageID string) ([]*wiki.Page, 
 }
 
 // GetBlocks returns all blocks for a page, ordered by parent_block_id, position.
+// Root blocks (parent_block_id NULL) must sort before their children — the
+// tree builder consumes parents first. SQLite orders ASC NULLs first,
+// postgres last, so the NULL group is pinned explicitly with an
+// `IS NULL` predicate and both dialects return the same sequence.
 func (r *wikiRepo) GetBlocks(ctx context.Context, pageID string) ([]*wiki.Block, error) {
 	const q = `
 		SELECT id, page_id, parent_block_id, position, type, data, created_at, updated_at
 		FROM wiki_blocks
 		WHERE page_id = ?
-		ORDER BY parent_block_id, position
+		ORDER BY parent_block_id IS NULL DESC, parent_block_id, position
 	`
 	rows, err := r.db.QueryContext(ctx, q, pageID)
 	if err != nil {
