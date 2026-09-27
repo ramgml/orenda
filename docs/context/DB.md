@@ -1,6 +1,15 @@
 # Orenda — Database Schema
 
-SQLite (WAL mode), migrations in `internal/storage/sqlite/migrations/`.
+Two storage drivers behind one repository seam
+([README → Database backends](../README.md#database-backends-sqlite-or-postgresql)):
+**SQLite** (WAL mode, default) and **PostgreSQL** (opt-in,
+`storage.driver=postgres` — embedded / external server / Docker).
+Driver configuration (yaml + the `ORENDA_STORAGE__*` env table) lives in
+the README; this document describes what each driver actually runs.
+
+## SQLite
+
+Migrations in `internal/storage/sqlite/migrations/`.
 Current version: **021_agent_type_labels** (020 up files; номер 018 не занят).
 
 ## Core
@@ -148,3 +157,115 @@ when the table is missing. Header markers change runner behaviour:
 | 022_study_planning.sql | courses.pace_notes_md (default '') · tasks.study_course_id (FK SET NULL) + partial idx · study_proposals |
 
 *(номер 018 пропущен — зарезервированная нумерация съехала от текста фаз; не используется)*
+
+## Configuration reference
+
+The full `storage:` yaml block and the `ORENDA_STORAGE__*` env table live in
+[README → Database backends](../README.md#database-backends-sqlite-or-postgresql)
+(single source of truth — do not copy the table here). Rules worth knowing:
+
+- `storage.postgres.dsn` **wins outright** over
+  `host/port/user/password/database/ssl_mode` (T363). A DSN is never echoed —
+  logs carry `host:port/database` only (`postgres.TargetDescription`).
+- `storage.driver=postgres` requires `storage.postgres.database` (embedded
+  included) or a `dsn`; anything else fails at config validation, not at
+  first query.
+- `storage.busy_timeout_ms` maps to a session `lock_timeout` on postgres and
+  keeps meaning `busy_timeout` on sqlite.
+
+## PostgreSQL storage driver
+
+The postgres leg (T360–T367, [wiki:storage-adapters]) does not fork the
+repository layer: the same `sqlite.New*Repository` constructors run through
+the dialect shim (`internal/storage/shim` — rebinds `?` → `$n`, rewrites
+`datetime('now')` and `INSERT OR IGNORE`-class SQL), pgx v5 stdlib connector
+(`internal/storage/postgres/runtime.go`), and neutral error sentinels —
+SQLSTATE `23505`/`23503` classify into the same unique/FK violations sqlite
+text-classifies.
+
+### Migrations
+
+`internal/storage/postgres/migrations/` — a *baseline*, not a replay:
+
+| File | Contents |
+|---|---|
+| `001_baseline` | consolidated final state of the sqlite chain `001_init`…`049_chat_messages_user_idx` (018 does not exist upstream). Data backfills/table rebuilds from the sqlite chain are state-neutral on a fresh database and are not replayed. |
+| `002_search` | full-text objects: generated `tsvector` columns + GIN (no sync triggers — `GENERATED ALWAYS … STORED` maintains itself; sqlite needs the 9 FTS5 triggers) |
+
+`orenda migrate up/down/status` work identically on both drivers — the
+postgres runner applies each file inside a transaction (transactional DDL)
+and records versions in its own `schema_migrations(version, applied_at)`;
+every up-file has a paired `.down.sql` (001's down is lossy-by-design, same
+policy as sqlite).
+
+### Type mapping (D3: mirror sqlite)
+
+TEXT timestamps (same `'YYYY-MM-DD HH:MM:SS'` / RFC3339 formats —
+`DEFAULT to_char(now() AT TIME ZONE 'UTC', …)` reproduces
+sqlite's `datetime('now')`), INTEGER booleans, TEXT UUIDs,
+`DOUBLE PRECISION` for sqlite REAL. `updated_at` touch triggers hang off a
+shared `orenda_touch_updated_at()` function. `mentions` gets an explicit
+identity column in place of sqlite's implicit `rowid`. Not on the table
+today: `timestamptz`/`boolean` — a possible future migration, not a
+compatibility requirement.
+
+### Full-text search
+
+Same domain contract, engine-native ranking: `phraseto_tsquery('simple', ?)`
+mirrors the sqlite phrase wrapper (no stemming, no stop-words — parity with
+`unicode61`), `ts_headline` reproduces the `<mark>`/`</mark>` snippet
+markers (~30-token window), `ORDER BY ts_rank DESC` mirrors `ORDER BY -bm25`.
+**Known difference (PR #266):** the ranking *numbers* are not comparable
+across engines — bm25 is IDF + length-normalized, `ts_rank` is plain term
+frequency; hit sets and sanity ordering match. Neither engine stems:
+«поиск» never matches «поиска» on either driver. Russian stemming
+(`'russian'` config) is deliberately out of scope.
+
+### Embedded runtime (zero-setup mode)
+
+`storage.postgres.embedded=true` makes the binary own a PostgreSQL 16
+cluster ([fergusstrange/embedded-postgres], zonky binaries from Maven
+Central, cached in `~/.embedded-postgres-go`; offline mirrors via
+`storage.postgres.binaries_url`):
+
+- lifecycle: `serve`, `migrate` and `user` commands start it before any DB
+  access; shutdown/command exit stops it (clean postmaster, no orphans);
+- `PGDATA` is `<data_dir>/postgres/` and survives restarts (initdb runs
+  once); the runtime scratch dir lives *outside* PGDATA and is wiped per
+  start — never nest them;
+- loopback-only `127.0.0.1:5433` (`embedded_port`), bootstrap user/password
+  `postgres`/`postgres`, `sslmode=disable` (initdb creates no certificates);
+- locale pinned to `C.UTF-8` (fallback `en_US.UTF-8`), encoding `UTF8` — a
+  C-ctype cluster is rejected loudly after start (case-folding search would
+  silently break). Cross-platform locale policy: T368.
+
+### Backup, restore, maintenance (T366)
+
+Snapshots on postgres are `pg_dump --format=custom` archives in the same
+`SnapshotDir` with the same naming/rotation as sqlite; the mirror `LATEST`
+artifact becomes `orenda-LATEST.dump`. `orenda backup restore` restores
+into a scratch database on the target server (must be up — `pg_dump` owns
+the connection), verifies `pg_restore --list` + applied migrations, drops
+the scratch; `--to <database>` keeps it for promotion. Maintenance "verify"
+is per-dialect (sqlite pragmas vs scratch restore). **Honest tooling
+contract:** the embedded bundle ships *server* binaries only — `pg_dump`/
+`pg_restore` resolve via `storage.postgres.dump_bin` (bare name → `PATH`,
+path → as-is; `pg_restore` prefers the resolved `pg_dump`'s directory) →
+extracted embedded-runtime dirs → `PATH` (install `postgresql-client` in
+practice). The error says exactly this when a tool is missing — it never
+promises an embedded dump.
+
+### Known limitations
+
+- No automatic sqlite → postgres data migration: switching an existing
+  install is an open owner decision (a `pg_restore` cannot read sqlite).
+- `rowid`-dependent code paths were replaced explicitly (identity columns);
+  text `ORDER BY` collation differs between engines — key list orders are
+  pinned by the two-driver test matrix (T364), not by collation luck.
+- Embedded-mode dump tooling relies on `PATH`/`dump_bin` (above).
+- QA previews pointing at a shared `PGDATA` drop a `PREVIEW_OWNER` marker
+  file naming the owning instance/branch — check it before wiping (T365
+  preview incident).
+
+[wiki:storage-adapters]: http://localhost:2137/wiki/storage-adapters
+[fergusstrange/embedded-postgres]: https://github.com/fergusstrange/embedded-postgres
