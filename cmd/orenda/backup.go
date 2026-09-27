@@ -14,6 +14,7 @@ import (
 	"github.com/ramgml/orenda/internal/backup"
 	"github.com/ramgml/orenda/internal/config"
 	"github.com/ramgml/orenda/internal/storage"
+	"github.com/ramgml/orenda/internal/storage/postgres"
 )
 
 func newBackupCmd() *cobra.Command {
@@ -84,21 +85,6 @@ type restoreInput struct {
 	Yes  bool
 }
 
-// backupService wires a Service from the config + open DB. Reused by the
-// push/snapshot/status commands.
-func backupService(ctx context.Context, cfgPath string) (*backup.Service, func(), error) {
-	cfg, err := loadConfigForCLI(cfgPath)
-	if err != nil {
-		return nil, nil, err
-	}
-	db, cleanup, err := openCLIDB(ctx, cfg)
-	if err != nil {
-		return nil, nil, err
-	}
-	svc := backup.New(backupConfigFor(cfg), db)
-	return svc, cleanup, nil
-}
-
 // backupConfigFor maps the app config into the backup Service config.
 // Dialect + Postgres come from storage.* (T366): the snapshot strategy
 // follows the configured driver, and on postgres the pg_dump/pg_restore
@@ -114,19 +100,87 @@ func backupConfigFor(cfg *config.Config) backup.Config {
 		SnapshotRotationDays: cfg.Backup.SnapshotRotationDays,
 		SnapshotCron:         cfg.Backup.SQLiteSnapshotCron,
 		Dialect:              backup.Dialect(cfg.Storage.Driver),
-		Postgres: backup.PostgresConfig{
-			DSN:          cfg.Storage.Postgres.DSN,
-			Host:         cfg.Storage.Postgres.Host,
-			Port:         cfg.Storage.Postgres.Port,
-			User:         cfg.Storage.Postgres.User,
-			Password:     cfg.Storage.Postgres.Password,
-			Database:     cfg.Storage.Postgres.Database,
-			SSLMode:      cfg.Storage.Postgres.SSLMode,
-			Embedded:     cfg.Storage.Postgres.Embedded,
-			EmbeddedPort: cfg.Storage.Postgres.EmbeddedPort,
-			DumpBin:      cfg.Storage.Postgres.DumpBin,
-		},
+		Postgres:             backupPostgresConfigFor(cfg.Storage.Postgres),
 	}
+}
+
+// backupPostgresConfigFor maps the config's postgres section 1:1 into
+// the backup Service's pg target.
+func backupPostgresConfigFor(p config.PostgresConfig) backup.PostgresConfig {
+	return backup.PostgresConfig{
+		DSN:          p.DSN,
+		Host:         p.Host,
+		Port:         p.Port,
+		User:         p.User,
+		Password:     p.Password,
+		Database:     p.Database,
+		SSLMode:      p.SSLMode,
+		Embedded:     p.Embedded,
+		EmbeddedPort: p.EmbeddedPort,
+		DumpBin:      p.DumpBin,
+	}
+}
+
+// openBackupDB dials the configured database for the backup commands
+// WITHOUT owning the embedded cluster lifecycle (T366). The sqlite
+// dialect opens the file directly, as always. On postgres the backup
+// commands are operator actions against a running install — the server
+// (and, in embedded mode, the cluster it owns) must be up, so the CLI
+// attaches to the bootstrap cluster instead of trying to start a second
+// postmaster on the same port/PGDATA.
+func openBackupDB(ctx context.Context, cfg *config.Config) (*sql.DB, func(), error) {
+	scfg := storageConfigFor(cfg, cfg.ResolveDBPath("."))
+	if cfg.Storage.Driver == "postgres" && cfg.Storage.Postgres.Embedded {
+		opts, err := postgres.BuildEmbeddedOptions(
+			cfg.Storage.Postgres.Database,
+			cfg.Storage.Postgres.EmbeddedPort,
+			cfg.Storage.Postgres.User,
+			cfg.Storage.Postgres.Password,
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("backup: resolve embedded cluster: %w", err)
+		}
+		conn := opts.Connection()
+		scfg.Postgres.Host = conn.Host
+		scfg.Postgres.Port = conn.Port
+		scfg.Postgres.User = conn.User
+		scfg.Postgres.Password = conn.Password
+		scfg.Postgres.SSLMode = conn.SSLMode
+		scfg.Postgres.Embedded = false
+	}
+	sdb, err := storage.Open(ctx, scfg)
+	if err != nil {
+		if cfg.Storage.Driver == "postgres" && cfg.Storage.Postgres.Embedded {
+			return nil, nil, fmt.Errorf("backup: attach to the embedded cluster (is the server running? only the running server owns it): %w", err)
+		}
+		return nil, nil, err
+	}
+	return sdb.DB, func() { _ = sdb.Close() }, nil
+}
+
+// backupService wires a Service from the config + open DB. Reused by the
+// push/snapshot/status commands. The postgres dialect never opens the
+// app database here (pg_dump/pg_restore bring their own connections and
+// RecordLog is not needed for the one-shot commands).
+func backupService(ctx context.Context, cfgPath string) (*backup.Service, func(), error) {
+	cfg, err := loadConfigForCLI(cfgPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	var (
+		db  *sql.DB
+		cup func()
+	)
+	if cfg.Storage.Driver != "postgres" {
+		db, cup, err = openCLIDB(ctx, cfg)
+	} else {
+		db, cup, err = openBackupDB(ctx, cfg)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	svc := backup.New(backupConfigFor(cfg), db)
+	return svc, cup, nil
 }
 
 func runBackupPush(cmd *cobra.Command, _ []string) error {

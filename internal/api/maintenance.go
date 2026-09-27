@@ -76,10 +76,17 @@ func maintenanceMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// Allow the maintenance toggle itself + SPA fallback (any
-		// non-/api/ path serves the SPA's index.html).
+		// Allow the maintenance toggle itself + the restore endpoint
+		// + SPA fallback (any non-/api/ path serves the SPA's
+		// index.html). The restore POST is the one write that is
+		// DESIGNED to run under maintenance (Phase 22.3): the handler
+		// refuses it without force=true and with maintenance off, so
+		// exempting it here doesn't open a write path — before this
+		// exemption the documented maintenance/on → restore flow was
+		// unreachable (the middleware 503'd it first).
 		if r.URL.Path == "/api/v1/maintenance/off" ||
 			r.URL.Path == "/api/v1/maintenance/on" ||
+			r.URL.Path == "/api/v1/backups/restore" ||
 			r.URL.Path == "/" ||
 			!strings.HasPrefix(r.URL.Path, "/api/") {
 			next.ServeHTTP(w, r)
