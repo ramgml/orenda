@@ -177,7 +177,7 @@ func (c *leanConn) received() []string {
 func TestConnectorRewritesThroughEveryDriverPath(t *testing.T) {
 	conn := &fakeConn{}
 	db := sql.OpenDB(NewConnector(&fakeConnector{conn: conn}, DialectPostgres))
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	ctx := context.Background()
 
 	// Fast path: QueryerContext.
@@ -213,7 +213,7 @@ func TestConnectorRewritesThroughEveryDriverPath(t *testing.T) {
 func TestConnectorArgumentsReachDriverUnchanged(t *testing.T) {
 	conn := &fakeConn{}
 	db := sql.OpenDB(NewConnector(&fakeConnector{conn: conn}, DialectPostgres))
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	_, err := db.ExecContext(context.Background(),
 		"INSERT INTO t (a, b, c) VALUES (?, ?, ?)", "s", 42, nil)
@@ -228,7 +228,7 @@ func TestConnectorArgumentsReachDriverUnchanged(t *testing.T) {
 func TestConnectorRewritesWhenDriverLacksFastPaths(t *testing.T) {
 	conn := &leanConn{}
 	db := sql.OpenDB(NewConnector(&fakeConnector{conn: conn}, DialectPostgres))
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	var x any
 	err := db.QueryRowContext(context.Background(),

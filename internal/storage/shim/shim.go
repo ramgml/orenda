@@ -131,6 +131,7 @@ func (c *postgresConn) QueryContext(ctx context.Context, query string, args []dr
 	if q, ok := c.Conn.(driver.QueryerContext); ok {
 		return q.QueryContext(ctx, rq, args)
 	}
+	//nolint:staticcheck // legacy interface: fallback mirrors database/sql for drivers without QueryerContext
 	if q, ok := c.Conn.(driver.Queryer); ok {
 		return q.Query(rq, namedValuesToValues(args))
 	}
@@ -146,6 +147,7 @@ func (c *postgresConn) ExecContext(ctx context.Context, query string, args []dri
 	if e, ok := c.Conn.(driver.ExecerContext); ok {
 		return e.ExecContext(ctx, rq, args)
 	}
+	//nolint:staticcheck // legacy interface: fallback mirrors database/sql for drivers without ExecerContext
 	if e, ok := c.Conn.(driver.Execer); ok {
 		return e.Exec(rq, namedValuesToValues(args))
 	}
@@ -215,6 +217,7 @@ func (s *postgresStmt) ExecContext(ctx context.Context, args []driver.NamedValue
 	if e, ok := s.Stmt.(driver.StmtExecContext); ok {
 		return e.ExecContext(ctx, args)
 	}
+	//nolint:staticcheck // legacy interface: fallback mirrors database/sql for statements without StmtExecContext
 	return s.Stmt.Exec(namedValuesToValues(args))
 }
 
@@ -223,6 +226,7 @@ func (s *postgresStmt) QueryContext(ctx context.Context, args []driver.NamedValu
 	if q, ok := s.Stmt.(driver.StmtQueryContext); ok {
 		return q.QueryContext(ctx, args)
 	}
+	//nolint:staticcheck // legacy interface: fallback mirrors database/sql for statements without StmtQueryContext
 	return s.Stmt.Query(namedValuesToValues(args))
 }
 

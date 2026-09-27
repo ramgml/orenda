@@ -51,7 +51,7 @@ func TestPostgresSmoke_RepositoryQueriesThroughShim(t *testing.T) {
 	// this is the exact wiring T361's storage.Open postgres branch uses.
 	base := stdlib.GetConnector(*pgCfg)
 	db := sql.OpenDB(NewConnector(base, DialectPostgres))
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	ctx := context.Background()
 
 	require.NoError(t, db.PingContext(ctx))
