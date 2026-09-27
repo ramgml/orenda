@@ -35,6 +35,10 @@ var baselineTables = []string{
 // DATABASE, dropped with FORCE at cleanup). Running the migration cycle
 // against a dedicated database keeps the test side-effect free for
 // whatever the DSN points at.
+//
+// The cleanup drops through its own connection and verifies via
+// pg_database that the throwaway is really gone: a run of this suite
+// must leave zero orenda_pgtest_* databases behind.
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	dsn := os.Getenv("ORENDA_TEST_PG_DSN")
@@ -55,9 +59,28 @@ func openTestDB(t *testing.T) *sql.DB {
 	require.NoError(t, err, "create throwaway database")
 
 	t.Cleanup(func() {
-		// FORCE terminates lingering connections (PG 13+); the
-		// test handle is still open at cleanup time.
-		_, _ = admin.Exec(fmt.Sprintf(`DROP DATABASE IF EXISTS %s WITH (FORCE)`, testName))
+		// The admin handle above is already closed when cleanups run,
+		// so the drop goes through a fresh connection — a silent drop
+		// failure would leak orenda_pgtest_* databases. FORCE
+		// terminates the still-open test handle's connections (PG 13+).
+		vadmin, err := Open(context.Background(), dsn)
+		if err != nil {
+			t.Errorf("cleanup: connect to drop %s: %v", testName, err)
+			return
+		}
+		defer func() { _ = vadmin.Close() }()
+		if _, err := vadmin.Exec(fmt.Sprintf(`DROP DATABASE IF EXISTS %s WITH (FORCE)`, testName)); err != nil {
+			t.Errorf("cleanup: drop %s: %v", testName, err)
+			return
+		}
+		var leftovers int
+		if err := vadmin.QueryRow(`SELECT count(*) FROM pg_database WHERE datname = $1`, testName).Scan(&leftovers); err != nil {
+			t.Errorf("cleanup: verify %s dropped: %v", testName, err)
+			return
+		}
+		if leftovers != 0 {
+			t.Errorf("cleanup: database %s still exists after drop", testName)
+		}
 	})
 
 	u, err := url.Parse(dsn)
