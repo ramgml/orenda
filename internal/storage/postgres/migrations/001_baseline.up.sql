@@ -461,25 +461,42 @@ CREATE TABLE task_number_seq (
     next INTEGER NOT NULL
 );
 
+-- sqlite 033 seeds `SELECT 1, COALESCE(MAX(number), 0) + 1 FROM tasks`,
+-- which is (1, 1) on a fresh database; without the seed row the first
+-- `UPDATE ... RETURNING next - 1` in the repositories finds no rows.
+INSERT INTO task_number_seq (id, next) VALUES (1, 1);
+
 CREATE TABLE project_number_seq (
     id   INTEGER PRIMARY KEY CHECK (id = 1),
     next INTEGER NOT NULL
 );
+
+-- sqlite 036 seed, see task_number_seq above.
+INSERT INTO project_number_seq (id, next) VALUES (1, 1);
 
 CREATE TABLE wiki_page_number_seq (
     id   INTEGER PRIMARY KEY CHECK (id = 1),
     next INTEGER NOT NULL
 );
 
+-- sqlite 037 seed, see task_number_seq above.
+INSERT INTO wiki_page_number_seq (id, next) VALUES (1, 1);
+
 CREATE TABLE course_number_seq (
     id   INTEGER PRIMARY KEY CHECK (id = 1),
     next INTEGER NOT NULL
 );
 
+-- sqlite 038 seed, see task_number_seq above.
+INSERT INTO course_number_seq (id, next) VALUES (1, 1);
+
 CREATE TABLE lesson_number_seq (
     id   INTEGER PRIMARY KEY CHECK (id = 1),
     next INTEGER NOT NULL
 );
+
+-- sqlite 039 seed, see task_number_seq above.
+INSERT INTO lesson_number_seq (id, next) VALUES (1, 1);
 
 -- ---------------------------------------------------------------------------
 -- Indexes

@@ -210,9 +210,26 @@ func TestBaselineRuntimeContracts(t *testing.T) {
 	require.NoError(t, db.QueryRow(`SELECT updated_at FROM users WHERE id = 'u1'`).Scan(&updatedAt))
 	assert.NotEqual(t, "2000-01-01 00:00:00", updatedAt, "touch trigger must overwrite stale updated_at")
 
-	// number_seq high-watermark: the repository pattern verbatim.
-	_, err = db.Exec(`INSERT INTO task_number_seq (id, next) VALUES (1, 1)`)
-	require.NoError(t, err)
+	// number_seq tables: the BASELINE must seed the singleton rows —
+	// sqlite migrations 033/036/037/038/039 do (`SELECT 1,
+	// COALESCE(MAX(number), 0) + 1` → (1, 1) on a fresh database). The
+	// test deliberately does not seed anything itself: an unseeded
+	// table would make the repositories' watermark UPDATE find no rows
+	// (sql.ErrNoRows) and the first Create would fail.
+	numberSeqTables := []string{
+		"task_number_seq", "project_number_seq", "wiki_page_number_seq",
+		"course_number_seq", "lesson_number_seq",
+	}
+	for _, table := range numberSeqTables {
+		var seeded int
+		require.NoError(t, db.QueryRow(
+			fmt.Sprintf(`SELECT count(*) FROM %s WHERE id = 1 AND next = 1`, table),
+		).Scan(&seeded), "%s must be seeded by the baseline", table)
+		assert.Equal(t, 1, seeded, "%s must hold exactly the singleton (1, 1)", table)
+	}
+
+	// High-watermark: the repository pattern verbatim, on top of the
+	// migration-provided seed — first number is 1, watermark advanced.
 	var number int
 	require.NoError(t, db.QueryRow(
 		`UPDATE task_number_seq SET next = next + 1 WHERE id = 1 RETURNING next - 1`).Scan(&number))

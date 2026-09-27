@@ -49,6 +49,11 @@ func Migrate(ctx context.Context, db *sql.DB, migrationsFS fs.FS, dir string) er
 	return nil
 }
 
+// ErrNoDownFile is returned by MigrateDown when the most recent
+// migration has no `.down.sql` companion. Sentinel for parity with the
+// sqlite runner, so callers can branch on it with errors.Is.
+var ErrNoDownFile = errors.New("postgres: no down-migration file")
+
 // MigrateDown rolls back the most recently applied migration via its
 // `<version>.down.sql` companion. The rollback runs in a single
 // transaction together with the schema_migrations bookkeeping delete, so
@@ -69,7 +74,7 @@ func MigrateDown(ctx context.Context, db *sql.DB, migrationsFS fs.FS, dir string
 	body, err := fs.ReadFile(migrationsFS, downPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("postgres: no down-migration file: %s", downPath)
+			return fmt.Errorf("%w: %s", ErrNoDownFile, downPath)
 		}
 		return fmt.Errorf("postgres: read %s: %w", downPath, err)
 	}
