@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,14 +41,45 @@ func TestOpen_SQLiteExplicitDriver(t *testing.T) {
 	assert.Equal(t, DialectSQLite, db.Dialect())
 }
 
-// TestOpen_PostgresNotImplemented pins the T360 gate: selecting
-// driver=postgres yields a clear configuration error — no panic, no
-// silent fallback to sqlite.
-func TestOpen_PostgresNotImplemented(t *testing.T) {
+// TestOpen_PostgresUnreachable pins the T363 contract: selecting
+// driver=postgres actually dials the configured target (no panic, no
+// silent fallback to sqlite). With nothing listening, Open fails with
+// the postgres dial error instead of succeeding.
+func TestOpen_PostgresUnreachable(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := Open(ctx, Config{
+		Driver: "postgres",
+		Postgres: PostgresConfig{
+			Host:     "127.0.0.1",
+			Port:     1, // nothing listens on tcp/1
+			Database: "orenda",
+			SSLMode:  "disable",
+		},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "postgres: ping")
+	assert.NotErrorIs(t, err, sqlite.ErrUniqueViolation)
+}
+
+// TestOpen_PostgresMissingTarget pins the defensive seam check: without
+// a DSN or a database name there is nothing to dial and Open refuses.
+func TestOpen_PostgresMissingTarget(t *testing.T) {
 	_, err := Open(context.Background(), Config{Driver: "postgres"})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "postgres driver is not implemented")
-	assert.NotErrorIs(t, err, sqlite.ErrUniqueViolation)
+	assert.Contains(t, err.Error(), "database is required")
+}
+
+// TestOpen_PostgresEmbeddedRequiresDatabase pins the embedded
+// derivation guard: the bootstrap cluster needs a database name even
+// though config validation already requires one.
+func TestOpen_PostgresEmbeddedRequiresDatabase(t *testing.T) {
+	_, err := Open(context.Background(), Config{
+		Driver:   "postgres",
+		Postgres: PostgresConfig{Embedded: true},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "embedded runtime requires a database name")
 }
 
 func TestOpen_UnknownDriver(t *testing.T) {

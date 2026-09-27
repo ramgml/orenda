@@ -79,10 +79,9 @@ type ServerConfig struct {
 
 // StorageConfig controls the storage layer.
 //
-// Driver selects the backend: "sqlite" (default, the only driver
-// implemented today) or "postgres" (accepted and validated here; the
-// runtime adapter lands with the storage-adapters phase — selecting it
-// fails fast in storage.Open with a clear not-implemented error).
+// Driver selects the backend: "sqlite" (default) or "postgres"
+// (storage.Open dials through the pgx stdlib connector and the dialect
+// shim; storage.postgres carries the connection target).
 type StorageConfig struct {
 	Driver        string         `yaml:"driver"`
 	DataDir       string         `yaml:"data_dir"`
@@ -93,17 +92,26 @@ type StorageConfig struct {
 	Postgres      PostgresConfig `yaml:"postgres"`
 }
 
-// PostgresConfig holds connection parameters for the (future)
-// postgres driver. The section is read and structurally validated
-// today; nothing consumes it at runtime yet.
+// PostgresConfig holds connection parameters for the postgres driver.
+//
+// DSN (a libpq connection string) takes priority over the individual
+// parts: when set, host/port/user/password/database/ssl_mode are
+// ignored. Embedded runs a local cluster instead of dialing an
+// external server (see the storage-adapters design, D4/D7).
 type PostgresConfig struct {
+	DSN          string `yaml:"dsn"`
 	Host         string `yaml:"host"`
 	Port         int    `yaml:"port"`
 	User         string `yaml:"user"`
 	Password     string `yaml:"password"`
 	Database     string `yaml:"database"`
+	SSLMode      string `yaml:"ssl_mode"`
 	Embedded     bool   `yaml:"embedded"`
 	EmbeddedPort int    `yaml:"embedded_port"`
+	// BinariesURL overrides the Maven repository the embedded runtime
+	// downloads postgres binaries from (offline mirrors); empty uses
+	// the embedded-postgres default.
+	BinariesURL string `yaml:"binaries_url"`
 }
 
 // AuthConfig controls authentication parameters.
@@ -572,6 +580,8 @@ func overridePostgres(c *PostgresConfig, p []string, v string) {
 		return
 	}
 	switch p[0] {
+	case "dsn":
+		c.DSN = v
 	case "host":
 		c.Host = v
 	case "port":
@@ -584,6 +594,8 @@ func overridePostgres(c *PostgresConfig, p []string, v string) {
 		c.Password = v
 	case "database":
 		c.Database = v
+	case "ssl_mode":
+		c.SSLMode = v
 	case "embedded":
 		if b, err := strconv.ParseBool(v); err == nil {
 			c.Embedded = b
@@ -592,6 +604,8 @@ func overridePostgres(c *PostgresConfig, p []string, v string) {
 		if n, err := strconv.Atoi(v); err == nil {
 			c.EmbeddedPort = n
 		}
+	case "binaries_url":
+		c.BinariesURL = v
 	}
 }
 
@@ -710,6 +724,18 @@ func (c *Config) Validate() error {
 	}
 	if p := c.Storage.Postgres; p.EmbeddedPort != 0 && (p.EmbeddedPort < 1 || p.EmbeddedPort > 65535) {
 		errs = append(errs, fmt.Sprintf("storage.postgres.embedded_port out of range: %d", p.EmbeddedPort))
+	}
+	// driver=postgres must name a concrete target: either a libpq DSN
+	// or, at minimum, the database name (host/port/user/password carry
+	// libpq defaults). The embedded runtime bootstraps its cluster for
+	// the configured database, so a DSN alone can never drive it.
+	if c.Storage.Driver == "postgres" {
+		switch {
+		case c.Storage.Postgres.Embedded && c.Storage.Postgres.Database == "":
+			errs = append(errs, "storage.postgres.database is required when storage.postgres.embedded is true")
+		case !c.Storage.Postgres.Embedded && c.Storage.Postgres.DSN == "" && c.Storage.Postgres.Database == "":
+			errs = append(errs, "storage.postgres.dsn or storage.postgres.database is required when storage.driver is postgres")
+		}
 	}
 	if c.Auth.BcryptCost < 4 || c.Auth.BcryptCost > 31 {
 		errs = append(errs, fmt.Sprintf("auth.bcrypt_cost out of range: %d", c.Auth.BcryptCost))

@@ -4,10 +4,11 @@ package storage
 //
 // Consumers above the storage layer match these via errors.Is instead
 // of driver-package errors. The values are defined once — in the
-// sqlite driver, the only driver today — and re-exported here, so
-// sentinel identity holds no matter which name a caller uses. The
-// postgres adapter will reuse the same seam sentinels (classifying by
-// SQLSTATE instead of driver message text).
+// shared repository layer (internal/storage/sqlite) — and re-exported
+// here, so sentinel identity holds no matter which name a caller uses.
+// Both dialects classify into them: SQLite by modernc message text,
+// postgres by SQLSTATE (23505 → ErrUniqueViolation, 23503 →
+// ErrFKViolation).
 
 import (
 	"github.com/ramgml/orenda/internal/storage/sqlite"
@@ -30,9 +31,11 @@ var (
 )
 
 // IsUniqueViolation reports whether err is a driver-level UNIQUE
-// constraint failure. The sqlite implementation matches the modernc
-// driver's message text (moved out of the old unexported helpers);
-// postgres will classify by SQLSTATE 23505.
+// constraint failure on either dialect: PostgreSQL unique_violation
+// (SQLSTATE 23505, matched via errors.As on *pgconn.PgError) or the
+// modernc driver's SQLite message text. The classification itself lives
+// in the shared repository layer (sqlite.IsUniqueViolation) so every
+// repository boundary translates both representations.
 func IsUniqueViolation(err error) bool { return sqlite.IsUniqueViolation(err) }
 
 // IsFKViolation reports whether err is a driver-level foreign-key
