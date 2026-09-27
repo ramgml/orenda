@@ -816,7 +816,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Wiki + Search services (Phase 5).
 	wikiSvc := wikiservice.New(storage.NewWikiRepository(db), hub)
 	wikiSvc.Mirror = mirrorSvc
-	searchSvc := searchservice.New(storage.NewSearchRepository(db), hub)
+	searchSvc := searchservice.New(storage.NewSearchRepository(dialect, db), hub)
 
 	// Phase 18: courses (LMS).
 	courseRepo := storage.NewCourseRepository(db)
