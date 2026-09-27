@@ -16,6 +16,8 @@ import (
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
 	"github.com/ramgml/orenda/internal/domain/wiki"
+	"github.com/ramgml/orenda/internal/service/search"
+	"github.com/ramgml/orenda/internal/storage/postgres"
 	"github.com/ramgml/orenda/internal/testutil/pgtest"
 )
 
@@ -23,10 +25,18 @@ import (
 // (sqlite or postgres — see matrix_test.go).
 func setupSearchDB(t *testing.T) *sql.DB {
 	t.Helper()
-	if pgtest.ActiveDriver() == pgtest.DriverPostgres {
-		t.Skip("full-text search is sqlite-only by design: the postgres baseline deliberately omits the FTS5 tables and their sync triggers (001_baseline header, postgres full-text task T365); MATCH/bm25/snippet have no postgres translation in the shim")
-	}
 	return matrixDB(t)
+}
+
+// newSearchRepo builds the search repository for the active matrix
+// driver (T365): the sqlite FTS5 repo on the sqlite leg, the postgres
+// tsvector repo (internal/storage/postgres, migration 002_search) on
+// the postgres leg. Both satisfy service/search.Repository.
+func newSearchRepo(db *sql.DB) search.Repository {
+	if pgtest.ActiveDriver() == pgtest.DriverPostgres {
+		return postgres.NewSearchRepository(db)
+	}
+	return NewSearchRepository(db)
 }
 
 // seedSearchData inserts a task, a wiki page, and a comment so FTS5 has
@@ -75,7 +85,7 @@ func seedSearchData(t *testing.T, db *sql.DB) {
 func TestSearchRepo_Pages(t *testing.T) {
 	db := setupSearchDB(t)
 	seedSearchData(t, db)
-	repo := NewSearchRepository(db)
+	repo := newSearchRepo(db)
 
 	hits, err := repo.SearchPages(context.Background(), "wiki", 10)
 	require.NoError(t, err)
@@ -91,7 +101,7 @@ func TestSearchRepo_Pages(t *testing.T) {
 func TestSearchRepo_PagesCarrySlug(t *testing.T) {
 	db := setupSearchDB(t)
 	seedSearchData(t, db)
-	repo := NewSearchRepository(db)
+	repo := newSearchRepo(db)
 
 	hits, err := repo.SearchPages(context.Background(), "wiki", 10)
 	require.NoError(t, err)
@@ -108,7 +118,7 @@ func TestSearchRepo_PagesCarrySlug(t *testing.T) {
 func TestSearchRepo_Tasks(t *testing.T) {
 	db := setupSearchDB(t)
 	seedSearchData(t, db)
-	repo := NewSearchRepository(db)
+	repo := newSearchRepo(db)
 
 	hits, err := repo.SearchTasks(context.Background(), "wiki", 10)
 	require.NoError(t, err)
@@ -118,7 +128,7 @@ func TestSearchRepo_Tasks(t *testing.T) {
 func TestSearchRepo_Comments(t *testing.T) {
 	db := setupSearchDB(t)
 	seedSearchData(t, db)
-	repo := NewSearchRepository(db)
+	repo := newSearchRepo(db)
 
 	hits, err := repo.SearchComments(context.Background(), "searchable", 10)
 	require.NoError(t, err)
@@ -128,7 +138,7 @@ func TestSearchRepo_Comments(t *testing.T) {
 func TestSearchRepo_Cyrillic(t *testing.T) {
 	db := setupSearchDB(t)
 	seedSearchData(t, db)
-	repo := NewSearchRepository(db)
+	repo := newSearchRepo(db)
 
 	hits, err := repo.SearchPages(context.Background(), "wiki", 10)
 	require.NoError(t, err)
@@ -142,7 +152,7 @@ func TestSearchRepo_Cyrillic(t *testing.T) {
 func TestSearchRepo_EmptyReturnsEmpty(t *testing.T) {
 	db := setupSearchDB(t)
 	seedSearchData(t, db)
-	repo := NewSearchRepository(db)
+	repo := newSearchRepo(db)
 
 	hits, err := repo.SearchPages(context.Background(), "no-such-term", 10)
 	require.NoError(t, err)
@@ -168,7 +178,7 @@ func TestSearchRepo_SnippetMarkersWithHTMLContent(t *testing.T) {
 	_, err := wikis.Create(context.Background(), page)
 	require.NoError(t, err)
 
-	repo := NewSearchRepository(db)
+	repo := newSearchRepo(db)
 	hits, err := repo.SearchPages(context.Background(), "gadget", 10)
 	require.NoError(t, err)
 	require.Len(t, hits, 1)
