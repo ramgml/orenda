@@ -16,12 +16,16 @@ import (
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
 	"github.com/ramgml/orenda/internal/domain/wiki"
+	"github.com/ramgml/orenda/internal/testutil/pgtest"
 )
 
 // setupSearchDB opens a fixture database for the active matrix driver
 // (sqlite or postgres — see matrix_test.go).
 func setupSearchDB(t *testing.T) *sql.DB {
 	t.Helper()
+	if pgtest.ActiveDriver() == pgtest.DriverPostgres {
+		t.Skip("full-text search is sqlite-only by design: the postgres baseline deliberately omits the FTS5 tables and their sync triggers (001_baseline header, postgres full-text task T365); MATCH/bm25/snippet have no postgres translation in the shim")
+	}
 	return matrixDB(t)
 }
 
