@@ -161,8 +161,9 @@ func freePort(t testing.TB) int {
 	if err != nil {
 		t.Fatalf("pgtest: probe free port: %v", err)
 	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	return port
 }
 
 // packageName derives the database namespace from the test binary so
