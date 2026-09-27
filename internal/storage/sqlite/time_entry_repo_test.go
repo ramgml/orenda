@@ -3,7 +3,6 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,13 +21,7 @@ import (
 // + one task + one agent. Returns the db + the seeded task + agent ids.
 func setupTimeEntryDB(t *testing.T) (*sql.DB, string, string) {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := Open(context.Background(), filepath.Join(dir+"/te.db"), OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, Migrate(context.Background(), db, MigrationsFS, "migrations"))
+	db := matrixDB(t)
 
 	users := NewUserRepository(db)
 	owner := &user.User{Email: "te-" + strings.ReplaceAll(t.Name(), "/", "-") + "-" + newUUID()[:8] + "@x.com", PasswordHash: "x", DisplayName: "O"}

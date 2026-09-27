@@ -48,7 +48,7 @@ func (timerHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 
 func setupTimerDB(t *testing.T) (*sql.DB, *taskservice.Service, *project.Project, *project.Column) {
 	t.Helper()
-	db, _ := testutil.TemplateDBOpen(t)
+	db := testutil.MatrixDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	owner := &user.User{

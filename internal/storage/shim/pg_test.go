@@ -3,6 +3,7 @@ package shim
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"regexp"
 	"testing"
@@ -45,14 +46,41 @@ func TestPostgresSmoke_RepositoryQueriesThroughShim(t *testing.T) {
 		t.Skip("integration smoke: set ORENDA_TEST_PG_DSN to a throwaway postgres (see test comment)")
 	}
 
+	ctx := context.Background()
 	pgCfg, err := pgx.ParseConfig(dsn)
 	require.NoError(t, err)
+
+	// Hermetic database: the DSN may point at a shared throwaway
+	// server (concurrent `go test ./internal/storage/...` binaries),
+	// and creating public tables in the DSN's own database races other
+	// DDL — PostgreSQL collides on pg_type for duplicate table names.
+	// The schema lives in a per-pid database, dropped afterwards.
+	smokeDB := fmt.Sprintf("orenda_shim_smoke_%d", os.Getpid())
+	adminCfg := *pgCfg
+	adminCfg.Database = "postgres"
+	admin, err := pgx.ConnectConfig(ctx, &adminCfg)
+	require.NoError(t, err)
+	_, err = admin.Exec(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS %s WITH (FORCE)`, smokeDB))
+	require.NoError(t, err)
+	_, err = admin.Exec(ctx, fmt.Sprintf(`CREATE DATABASE %s`, smokeDB))
+	require.NoError(t, err)
+	require.NoError(t, admin.Close(ctx))
+	t.Cleanup(func() {
+		dropAdmin, err := pgx.ConnectConfig(context.Background(), &adminCfg)
+		if err != nil {
+			return
+		}
+		defer func() { _ = dropAdmin.Close(context.Background()) }()
+		_, _ = dropAdmin.Exec(context.Background(),
+			fmt.Sprintf(`DROP DATABASE IF EXISTS %s WITH (FORCE)`, smokeDB))
+	})
+
+	pgCfg.Database = smokeDB
 	// The shim sits between database/sql and the pgx stdlib connector —
 	// this is the exact wiring T361's storage.Open postgres branch uses.
 	base := stdlib.GetConnector(*pgCfg)
 	db := sql.OpenDB(NewConnector(base, DialectPostgres))
 	defer func() { _ = db.Close() }()
-	ctx := context.Background()
 
 	require.NoError(t, db.PingContext(ctx))
 	createMinimalSchema(t, ctx, db)

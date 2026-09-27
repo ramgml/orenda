@@ -29,7 +29,7 @@ func (h *memHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 
 func setupWikiSvc(t *testing.T) (*wikisvc.Service, *memHub) {
 	t.Helper()
-	db, _ := testutil.TemplateDBOpen(t)
+	db := testutil.MatrixDB(t)
 
 	hub := &memHub{}
 	return wikisvc.New(sqlite.NewWikiRepository(db), hub), hub

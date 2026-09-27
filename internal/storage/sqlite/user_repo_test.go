@@ -3,7 +3,6 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,18 +11,12 @@ import (
 	"github.com/ramgml/orenda/internal/domain/user"
 )
 
-// setupUserDB opens a temporary DB, applies migrations, and returns the
-// *sql.DB handle. Repositories are constructed separately by each test.
+// setupUserDB opens a fixture database for the active matrix driver
+// (sqlite or postgres — see matrix_test.go). Repositories are
+// constructed separately by each test.
 func setupUserDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := Open(context.Background(), filepath.Join(dir, "test.db"), OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	require.NoError(t, Migrate(context.Background(), db, MigrationsFS, "migrations"))
-	t.Cleanup(func() { _ = db.Close() })
-	return db
+	return matrixDB(t)
 }
 
 func TestUserRepo_CreateAndGet(t *testing.T) {

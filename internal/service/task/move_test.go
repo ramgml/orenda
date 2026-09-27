@@ -54,7 +54,7 @@ func (r *recordingRecorder) Record(_ context.Context, taskID string, _ activity.
 
 func setupMoveDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, _ := testutil.TemplateDBOpen(t)
+	db := testutil.MatrixDB(t)
 	return db
 }
 

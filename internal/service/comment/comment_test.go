@@ -32,7 +32,7 @@ func (m *memHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 
 func setupCommentSvc(t *testing.T) (*commentsvc.Service, *memHub) {
 	t.Helper()
-	db, _ := testutil.TemplateDBOpen(t)
+	db := testutil.MatrixDB(t)
 
 	hub := &memHub{}
 	svc := commentsvc.New(sqlite.NewCommentRepository(db), hub, nil)

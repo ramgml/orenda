@@ -46,7 +46,7 @@ func (h *claimHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 
 func setupClaimDB(t *testing.T) (*sql.DB, *taskservice.Service, *claimHub, *project.Project, *project.Column) {
 	t.Helper()
-	db, _ := testutil.TemplateDBOpen(t)
+	db := testutil.MatrixDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	owner := &user.User{

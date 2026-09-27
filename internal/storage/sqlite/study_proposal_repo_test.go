@@ -3,7 +3,6 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -162,20 +161,9 @@ func TestStudyProposalRepo_FullLifecycle(t *testing.T) {
 	})
 }
 
-// openTestDB is a tiny helper: opens a fresh SQLite DB with all
-// migrations applied. Lives alongside the existing openTestDB
-// pattern in db_test.go — kept local to avoid touching shared
-// test helpers.
+// openTestDB opens the fixture database for the active matrix driver
+// (sqlite or postgres — see matrix_test.go).
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := Open(context.Background(), filepath.Join(dir, "orenda.db"), OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	if err := Migrate(context.Background(), db, MigrationsFS, "migrations"); err != nil {
-		_ = db.Close()
-		t.Fatalf("migrate: %v", err)
-	}
-	return db
+	return matrixDB(t)
 }
