@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ramgml/orenda/internal/backup"
+	"github.com/ramgml/orenda/internal/config"
 	"github.com/ramgml/orenda/internal/storage"
 )
 
@@ -21,7 +22,7 @@ func newBackupCmd() *cobra.Command {
 		Short: "Backup operations (git push, sqlite snapshot, status, restore)",
 	}
 
-	cmd.AddCommand(&cobra.Command{
+	pushCmd := &cobra.Command{
 		Use:   "push",
 		Short: "Commit and push the mirror directory to the configured remote",
 		Long: "Without flags: commit any pending changes in the mirror and push.\n" +
@@ -29,8 +30,12 @@ func newBackupCmd() *cobra.Command {
 			"  into the mirror's snapshots/ directory, writes manifest.json\n" +
 			"  (sha256 + size), and commits both. Phase 32.5 pilot task #1.",
 		RunE: runBackupPush,
-	})
-	cmd.Flags().Bool("with-snapshots", false, "also push a fresh sqlite snapshot to the mirror repo")
+	}
+	// Registered on the subcommand: a parent-level flag never reached
+	// runBackupPush (cobra doesn't inherit plain Flags), so
+	// `backup push --with-snapshots` failed flag parsing outright.
+	pushCmd.Flags().Bool("with-snapshots", false, "also push a fresh sqlite snapshot to the mirror repo")
+	cmd.AddCommand(pushCmd)
 	cmd.AddCommand(&cobra.Command{
 		Use:   "snapshot",
 		Short: "Create a SQLite snapshot of the database",
@@ -95,9 +100,32 @@ func backupService(ctx context.Context, cfgPath string) (*backup.Service, func()
 	return svc, cleanup, nil
 }
 
+// backupSqliteOnlyGate rejects the backup operations that run SQLite
+// machinery (VACUUM INTO snapshots, WAL checkpoint) when the configured
+// driver is not sqlite. Plain `backup push` (git-only mirror commit)
+// stays available on every dialect.
+func backupSqliteOnlyGate(cfg *config.Config, operation string) error {
+	if cfg.Storage.Driver == "postgres" {
+		return fmt.Errorf(
+			"orenda backup %s: snapshots are sqlite-only (VACUUM INTO / wal_checkpoint) and storage.driver=postgres; run against a sqlite storage or drop --with-snapshots",
+			operation,
+		)
+	}
+	return nil
+}
+
 func runBackupPush(cmd *cobra.Command, _ []string) error {
 	cfgPath, _ := cmd.Flags().GetString("config")
 	withSnapshots, _ := cmd.Flags().GetBool("with-snapshots")
+	cfg, err := loadConfigForCLI(cfgPath)
+	if err != nil {
+		return err
+	}
+	if withSnapshots {
+		if err := backupSqliteOnlyGate(cfg, "push --with-snapshots"); err != nil {
+			return err
+		}
+	}
 	svc, cleanup, err := backupService(cmd.Context(), cfgPath)
 	if err != nil {
 		return err
@@ -121,6 +149,13 @@ func runBackupPush(cmd *cobra.Command, _ []string) error {
 
 func runBackupSnapshot(cmd *cobra.Command, _ []string) error {
 	cfgPath, _ := cmd.Flags().GetString("config")
+	cfg, err := loadConfigForCLI(cfgPath)
+	if err != nil {
+		return err
+	}
+	if err := backupSqliteOnlyGate(cfg, "snapshot"); err != nil {
+		return err
+	}
 	svc, cleanup, err := backupService(cmd.Context(), cfgPath)
 	if err != nil {
 		return err

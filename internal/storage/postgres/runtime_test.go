@@ -118,3 +118,28 @@ func TestEmbeddedConnection(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "postgres://postgres:postgres@127.0.0.1:5433/orenda?sslmode=disable", dsn)
 }
+
+// TestTargetDescription covers the log-safe rendering: parts get
+// defaults filled in; a DSN is reduced to its parsed target (the
+// credential-carrying userinfo must never reach a log line).
+func TestTargetDescription(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  RuntimeConfig
+		want string
+	}{
+		{name: "parts with defaults", cfg: RuntimeConfig{Database: "orenda"}, want: "127.0.0.1:5432/orenda"},
+		{name: "parts explicit", cfg: RuntimeConfig{Host: "db.local", Port: 5433, Database: "orenda"}, want: "db.local:5433/orenda"},
+		{
+			name: "dsn reduced, no credentials",
+			cfg:  RuntimeConfig{DSN: "postgres://user:secret@db.local:5433/orenda?sslmode=disable"},
+			want: "db.local:5433/orenda",
+		},
+		{name: "unparseable dsn", cfg: RuntimeConfig{DSN: "://nope"}, want: "postgres (unparseable dsn)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, TargetDescription(tc.cfg))
+		})
+	}
+}

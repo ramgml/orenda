@@ -1,6 +1,9 @@
-// Package postgres is the PostgreSQL storage adapter's schema home: the
-// baseline DDL (T361, consolidating the sqlite migration chain 001–049)
-// and the migration runner that applies and rolls it back.
+// Package postgres is the PostgreSQL storage adapter: the baseline DDL
+// (T361, consolidating the sqlite migration chain 001–049), the
+// migration runner that applies and rolls it back, the runtime pool
+// builder for the driver-neutral seam (runtime.go — OpenRuntime wraps
+// the pgx stdlib connector in the dialect shim), and the embedded
+// cluster lifecycle (embedded.go, T363).
 //
 // The runner mirrors the sqlite runner's semantics (internal/storage/
 // sqlite/db.go): a schema_migrations bookkeeping table, per-file
@@ -9,9 +12,11 @@
 // without the sqlite runner's foreign_keys=OFF escape hatch, and the
 // `-- orenda:foreign_keys_off` marker therefore has no meaning here.
 //
-// The package is deliberately independent of the driver-neutral storage
-// seam (internal/storage): the seam's postgres rebind lands with T362,
-// and until then `orenda migrate` wires this package directly.
+// Open (this file) dials with the simple query protocol: migration
+// files are multi-statement SQL bodies executed with a single Exec,
+// which the extended protocol rejects. The dialect-aware migrate
+// helpers on the seam's *DB use exactly this opener; the application's
+// runtime pool (OpenRuntime) keeps pgx's default cached-statement mode.
 package postgres
 
 import (

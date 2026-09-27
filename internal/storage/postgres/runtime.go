@@ -74,6 +74,28 @@ func ResolveDSN(cfg RuntimeConfig) (string, error) {
 	return u.String(), nil
 }
 
+// TargetDescription renders the connection target for logs: for the
+// parts form host:port/database with libpq defaults filled in; for a
+// configured DSN the parsed host:port/database — the DSN itself is
+// never echoed, its userinfo carries credentials.
+func TargetDescription(cfg RuntimeConfig) string {
+	host, port, database := cfg.Host, cfg.Port, cfg.Database
+	if cfg.DSN != "" {
+		if pgCfg, err := pgx.ParseConfig(cfg.DSN); err == nil {
+			host, port, database = pgCfg.Host, int(pgCfg.Port), pgCfg.Database
+		} else {
+			return "postgres (unparseable dsn)"
+		}
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	if port == 0 {
+		port = 5432
+	}
+	return fmt.Sprintf("%s:%d/%s", host, port, database)
+}
+
 // OpenRuntime opens the runtime connection pool for the postgres
 // dialect: pgx stdlib connector wrapped in the SQLite→PostgreSQL
 // dialect shim, so the returned *sql.DB drops into every

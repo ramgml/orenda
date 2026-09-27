@@ -156,7 +156,9 @@ func Open(ctx context.Context, cfg Config) (*DB, error) {
 		}
 		// The embedded cluster is dialed through its bootstrap
 		// parameters — the lifecycle wrapper in the cmd layer starts
-		// the cluster before Open and derives the same values.
+		// the cluster before Open and derives the same values. The
+		// busy_timeout mapping applies to it exactly like to an
+		// external server, so it is re-applied after the derivation.
 		if cfg.Postgres.Embedded {
 			opts, err := postgres.BuildEmbeddedOptions(
 				cfg.Postgres.Database,
@@ -168,6 +170,7 @@ func Open(ctx context.Context, cfg Config) (*DB, error) {
 				return nil, fmt.Errorf("storage: %w", err)
 			}
 			pg = opts.Connection()
+			pg.BusyTimeoutMs = cfg.BusyTimeoutMs
 		}
 		dsn, sqldb, err := postgres.OpenRuntime(ctx, pg)
 		if err != nil {
@@ -196,4 +199,22 @@ func MigrateDown(ctx context.Context, db *sql.DB) error {
 // AppliedVersions lists applied migration versions (sqlite dialect).
 func AppliedVersions(ctx context.Context, db *sql.DB) ([]string, error) {
 	return sqlite.AppliedVersions(ctx, db)
+}
+
+// PostgresTarget describes the configured postgres connection target
+// for logs (host:port/database; a configured DSN is reduced to its
+// parsed target — its userinfo carries credentials and is never
+// echoed). The embedded runtime reports its bootstrap cluster.
+func PostgresTarget(p PostgresConfig) string {
+	if p.Embedded {
+		if opts, err := postgres.BuildEmbeddedOptions(p.Database, p.EmbeddedPort, p.User, p.Password); err == nil {
+			return postgres.TargetDescription(opts.Connection())
+		}
+	}
+	return postgres.TargetDescription(postgres.RuntimeConfig{
+		DSN:      p.DSN,
+		Host:     p.Host,
+		Port:     p.Port,
+		Database: p.Database,
+	})
 }

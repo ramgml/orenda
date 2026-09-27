@@ -691,7 +691,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	}
 	defer stopEmbedded()
 
-	db, err := serveOpenDB(cmd.Context(), cfg, logger, absCfg)
+	db, dialect, err := serveOpenDB(cmd.Context(), cfg, logger, absCfg)
 	if err != nil {
 		return err
 	}
@@ -724,7 +724,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	backupSvc, backupScheduler, err := serveBackupIfEnabled(cmd.Context(), ctx, cfg, logger, db)
+	backupSvc, backupScheduler, err := serveBackupIfEnabled(cmd.Context(), ctx, cfg, logger, db, dialect)
 	if err != nil {
 		return err
 	}
@@ -1084,23 +1084,33 @@ func runServe(cmd *cobra.Command, _ []string) error {
 // serveOpenDB opens the database via the driver-neutral storage factory
 // and applies pending migrations before serving traffic. Driver tuning
 // (single-writer cap, SQLite pragmas, postgres pool shape) lives inside
-// the driver's own open path.
-func serveOpenDB(ctx context.Context, cfg *config.Config, logger *zap.Logger, absCfg string) (*sql.DB, error) {
+// the driver's own open path. The dialect rides along: sqlite-only
+// subsystems (backup scheduler) gate on it instead of silently running
+// SQLite SQL against another engine.
+func serveOpenDB(ctx context.Context, cfg *config.Config, logger *zap.Logger, absCfg string) (*sql.DB, storage.Dialect, error) {
 	dbPath := cfg.ResolveDBPath(cwdOr(absCfg, "."))
 	sdb, err := storage.Open(ctx, storageConfigFor(cfg, dbPath))
 	if err != nil {
-		return nil, fmt.Errorf("db: %w", err)
+		return nil, "", fmt.Errorf("db: %w", err)
 	}
-	db := sdb.DB
+	dialect := sdb.Dialect()
 
-	logger.Info("storage opened", zap.String("driver", string(sdb.Dialect())), zap.String("path", dbPath))
+	// The sqlite path is a file, the postgres path a connection
+	// target — logging the db_path against postgres would point at a
+	// file the driver never touches.
+	if dialect == storage.DialectPostgres {
+		logger.Info("storage opened", zap.String("driver", string(dialect)), zap.String("target", storage.PostgresTarget(postgresConfigFor(cfg.Storage.Postgres))))
+	} else {
+		logger.Info("storage opened", zap.String("driver", string(dialect)), zap.String("path", dbPath))
+	}
 
 	// Ensure migrations are up to date before serving traffic.
 	if err := sdb.Migrate(ctx); err != nil {
-		return nil, fmt.Errorf("migrate: %w", err)
+		_ = sdb.Close()
+		return nil, "", fmt.Errorf("migrate: %w", err)
 	}
 	logger.Info("migrations applied")
-	return db, nil
+	return sdb.DB, dialect, nil
 }
 
 // serveBackupIfEnabled constructs the backup service and starts the
@@ -1109,9 +1119,22 @@ func serveOpenDB(ctx context.Context, cfg *config.Config, logger *zap.Logger, ab
 // context (scheduler lifetime). Returns nil service and nil scheduler
 // when backups are disabled; the mirror service is NOT its concern
 // (Task 193 — the mirror must exist regardless of backup.enabled).
-func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, logger *zap.Logger, db *sql.DB) (*backup.Service, *backup.Scheduler, error) {
+//
+// The snapshot/checkpoint machinery is SQLite-only (VACUUM INTO,
+// PRAGMA wal_checkpoint): on other dialects the scheduler is skipped
+// with an explicit warning instead of scheduling statements that can
+// only fail (the API's /backups surface reads deps.Backup == nil as
+// scheduler_disabled). Callers nil-check deps.Backup already.
+func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, logger *zap.Logger, db *sql.DB, dialect storage.Dialect) (*backup.Service, *backup.Scheduler, error) {
 	if !cfg.Backup.Enabled {
 		//nolint:nilnil // documented contract: backups disabled → nil *backup.Service, nil scheduler (callers nil-check deps.Backup).
+		return nil, nil, nil
+	}
+	if dialect != storage.DialectSQLite {
+		logger.Warn("backup subsystem is sqlite-only; scheduled backups disabled for this driver",
+			zap.String("driver", string(dialect)),
+			zap.String("hint", "set storage.driver=sqlite or point backup.enabled=false to silence"))
+		//nolint:nilnil // same nil contract as the disabled branch — handlers nil-check deps.Backup.
 		return nil, nil, nil
 	}
 	// Backup service + scheduler (Phase 7). The mirror service is
