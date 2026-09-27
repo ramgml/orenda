@@ -332,11 +332,13 @@ func theClusterFor(t testing.TB) *cluster {
 // production postgres mode takes (postgres.OpenRuntime: pgx stdlib
 // connector + dialect shim). Cleanup closes the pool and drops the
 // database. The returned *sql.DB drops into every sqlite.New*Repository
-// constructor unchanged.
+// constructor unchanged. Budgets match startCluster's two minutes:
+// under `go test ./...` a dozen matrix binaries start their clusters
+// simultaneously and the first calls queue behind that storm.
 func TemplateDB(t testing.TB) *sql.DB {
 	t.Helper()
 	c := theClusterFor(t)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	name := fmt.Sprintf("orenda_%s_t%d", c.pkg, c.seq.Add(1))
@@ -358,7 +360,7 @@ func TemplateDB(t testing.TB) *sql.DB {
 	}
 	t.Cleanup(func() {
 		_ = pool.Close()
-		dropCtx, dropCancel := context.WithTimeout(context.Background(), time.Minute)
+		dropCtx, dropCancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer dropCancel()
 		_ = c.execAdmin(dropCtx, "DROP DATABASE IF EXISTS "+quoteIdent(name)+" WITH (FORCE)")
 	})

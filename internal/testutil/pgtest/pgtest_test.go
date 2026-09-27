@@ -25,7 +25,7 @@ func TestTemplateDB_CloneAndIsolation(t *testing.T) {
 		t.Skip("postgres leg opted out: ORENDA_TEST_DRIVERS does not include postgres")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	db1 := TemplateDB(t)
