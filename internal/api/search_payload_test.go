@@ -26,14 +26,10 @@ import (
 	searchservice "github.com/ramgml/orenda/internal/service/search"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
-	"github.com/ramgml/orenda/internal/testutil/pgtest"
 )
 
 func TestSearchPayload_PageHitsCarrySlug(t *testing.T) {
 	t.Parallel()
-	if pgtest.ActiveDriver() == pgtest.DriverPostgres {
-		t.Skip("full-text search is sqlite-only by design: the postgres baseline omits the FTS5 tables (001_baseline header, task T365)")
-	}
 	db, _ := copyTemplateDB(t)
 
 	const (
@@ -72,7 +68,7 @@ func TestSearchPayload_PageHitsCarrySlug(t *testing.T) {
 		Users:         users,
 		Tokens:        sqlite.NewAPITokenRepository(db),
 		WikiService:   wikiservice.New(wikis, hub),
-		SearchService: searchservice.New(sqlite.NewSearchRepository(db), hub),
+		SearchService: searchservice.New(newSearchRepository(db), hub),
 		CookieName:    "orenda_session",
 	}
 	router := api.NewRouter(deps)

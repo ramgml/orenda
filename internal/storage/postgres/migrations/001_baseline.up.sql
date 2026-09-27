@@ -7,8 +7,9 @@
 -- a fresh database, translated to PostgreSQL. Data backfills and table
 -- rebuilds from the sqlite chain (012/015/017, the *_numbers backfills)
 -- are state-neutral on a fresh database and are therefore not replayed;
--- the FTS5 tables and their sync triggers (001/008, search_repo) belong
--- to the postgres full-text task (T365) and are intentionally absent.
+-- the FTS5 tables and their sync triggers (001/008, search_repo) have a
+-- dedicated migration here: 002_search adds the postgres full-text
+-- objects (T365, generated tsvector columns + GIN).
 --
 -- Deliberate deviations from the sqlite shapes (D3: mirror sqlite types):
 --   * Types mirrored verbatim: TEXT timestamps (formats 'YYYY-MM-DD

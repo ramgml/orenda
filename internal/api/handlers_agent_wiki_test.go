@@ -37,7 +37,6 @@ import (
 	searchservice "github.com/ramgml/orenda/internal/service/search"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
-	"github.com/ramgml/orenda/internal/testutil/pgtest"
 )
 
 // agentWikiFixture bundles a router wired with agents + wiki + search,
@@ -82,7 +81,7 @@ func newAgentWikiFixture(t *testing.T) *agentWikiFixture {
 		Agents:        agents,
 		AgentService:  agentSvc,
 		WikiService:   wikiservice.New(sqlite.NewWikiRepository(db), hub),
-		SearchService: searchservice.New(sqlite.NewSearchRepository(db), hub),
+		SearchService: searchservice.New(newSearchRepository(db), hub),
 		CookieName:    "orenda_session",
 	}
 	uploadsDir := filepath.Join(t.TempDir(), "uploads")
@@ -234,9 +233,6 @@ func TestAgentWiki_RequiresAgentToken(t *testing.T) {
 
 func TestAgentWiki_SearchFindsAgentContent(t *testing.T) {
 	t.Parallel()
-	if pgtest.ActiveDriver() == pgtest.DriverPostgres {
-		t.Skip("full-text search is sqlite-only by design: the postgres baseline omits the FTS5 tables (001_baseline header, task T365)")
-	}
 	fx := newAgentWikiFixture(t)
 
 	rr := fx.agentReq(http.MethodPut, "/api/v1/agent/pages/zebra-manual", map[string]any{

@@ -18,10 +18,23 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ramgml/orenda/internal/service/search"
+	"github.com/ramgml/orenda/internal/storage/postgres"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 	"github.com/ramgml/orenda/internal/testutil"
 	"github.com/ramgml/orenda/internal/testutil/pgtest"
 )
+
+// newSearchRepository builds the full-text search repository for the
+// active matrix driver (T365): sqlite FTS5 on the sqlite leg, the
+// postgres tsvector repo on the postgres leg — the same dispatch the
+// storage seam performs in production.
+func newSearchRepository(db *sql.DB) search.Repository {
+	if pgtest.ActiveDriver() == pgtest.DriverPostgres {
+		return postgres.NewSearchRepository(db)
+	}
+	return sqlite.NewSearchRepository(db)
+}
 
 // ensureTemplateDB returns the shared template path via the testutil
 // builder (T147: one implementation across packages; the copy step
