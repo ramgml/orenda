@@ -25,6 +25,7 @@ package backup
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"net/url"
 	"os"
@@ -280,24 +281,8 @@ func (s *Service) RestorePostgres(ctx context.Context, dumpPath, keepDatabase st
 	}
 	defer func() { _ = admin.Close() }()
 
-	if kept {
-		var exists bool
-		if err := admin.QueryRowContext(ctx,
-			`SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, scratch,
-		).Scan(&exists); err != nil {
-			return RestorePostgresResult{}, fmt.Errorf("backup restore: check database %q: %w", scratch, err)
-		}
-		if exists {
-			return RestorePostgresResult{}, fmt.Errorf("backup restore: database %q already exists — restore would overwrite it; drop it first or pick another name", scratch)
-		}
-	} else {
-		if _, err := admin.ExecContext(ctx,
-			`DROP DATABASE IF EXISTS `+quoteIdent(scratch)+` WITH (FORCE)`); err != nil {
-			return RestorePostgresResult{}, fmt.Errorf("backup restore: drop stale scratch: %w", err)
-		}
-	}
-	if _, err := admin.ExecContext(ctx, `CREATE DATABASE `+quoteIdent(scratch)); err != nil {
-		return RestorePostgresResult{}, fmt.Errorf("backup restore: create scratch database: %w", err)
+	if err := prepareScratchDatabase(ctx, admin, scratch, kept); err != nil {
+		return RestorePostgresResult{}, err
 	}
 
 	// Anything failing from here on must drop the scratch before
@@ -305,7 +290,7 @@ func (s *Service) RestorePostgres(ctx context.Context, dumpPath, keepDatabase st
 	// failed verify.
 	fail := func(err error) (RestorePostgresResult, error) {
 		if !kept {
-			dctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			dctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
 			_, _ = admin.ExecContext(dctx, `DROP DATABASE IF EXISTS `+quoteIdent(scratch)+` WITH (FORCE)`)
 		}
@@ -318,30 +303,9 @@ func (s *Service) RestorePostgres(ctx context.Context, dumpPath, keepDatabase st
 		return fail(fmt.Errorf("backup restore: pg_restore: %v: %s", err, string(out)))
 	}
 
-	toc, err := pgRestoreList(ctx, restoreBin, dumpPath)
+	entries, err := verifyRestoredScratch(ctx, restoreBin, dumpPath, scratchDSN)
 	if err != nil {
 		return fail(err)
-	}
-	if toc.entries == 0 {
-		return fail(fmt.Errorf("backup restore: pg_restore --list reported an empty table of contents — %s is not a readable dump", dumpPath))
-	}
-
-	// Basic check: an orenda dump always carries applied migrations.
-	scratchDB, err := postgres.Open(ctx, scratchDSN)
-	if err != nil {
-		return fail(fmt.Errorf("backup restore: open scratch: %w", err))
-	}
-	var applied int
-	err = scratchDB.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&applied)
-	closeErr := scratchDB.Close()
-	if err != nil {
-		return fail(fmt.Errorf("backup restore: schema_migrations check: %w — not an orenda dump?", err))
-	}
-	if closeErr != nil {
-		return fail(fmt.Errorf("backup restore: close scratch: %w", closeErr))
-	}
-	if applied == 0 {
-		return fail(fmt.Errorf("backup restore: restored database has no applied migrations — not an orenda dump?"))
 	}
 
 	if !kept {
@@ -349,7 +313,60 @@ func (s *Service) RestorePostgres(ctx context.Context, dumpPath, keepDatabase st
 			return fail(fmt.Errorf("backup restore: drop scratch: %w", err))
 		}
 	}
-	return RestorePostgresResult{Database: scratch, Kept: kept, TOCEntries: toc.entries}, nil
+	return RestorePostgresResult{Database: scratch, Kept: kept, TOCEntries: entries}, nil
+}
+
+// prepareScratchDatabase creates the scratch database on the target
+// server: a kept database must not exist (no silent overwrites of the
+// operator's promotion target), a scratch starts from a forced drop of
+// any stale leftovers.
+func prepareScratchDatabase(ctx context.Context, admin *sql.DB, scratch string, kept bool) error {
+	if kept {
+		var exists bool
+		if err := admin.QueryRowContext(ctx,
+			`SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)`, scratch,
+		).Scan(&exists); err != nil {
+			return fmt.Errorf("backup restore: check database %q: %w", scratch, err)
+		}
+		if exists {
+			return fmt.Errorf("backup restore: database %q already exists — restore would overwrite it; drop it first or pick another name", scratch)
+		}
+	} else if _, err := admin.ExecContext(ctx,
+		`DROP DATABASE IF EXISTS `+quoteIdent(scratch)+` WITH (FORCE)`); err != nil {
+		return fmt.Errorf("backup restore: drop stale scratch: %w", err)
+	}
+	if _, err := admin.ExecContext(ctx, `CREATE DATABASE `+quoteIdent(scratch)); err != nil {
+		return fmt.Errorf("backup restore: create scratch database: %w", err)
+	}
+	return nil
+}
+
+// verifyRestoredScratch runs the post-restore checks: pg_restore --list
+// proves the archive is readable without a server, and the restored
+// database must carry applied migrations — anything else is not an
+// orenda dump and the operator should know immediately. Returns the
+// number of TOC entries.
+func verifyRestoredScratch(ctx context.Context, restoreBin, dumpPath, scratchDSN string) (int, error) {
+	toc, err := pgRestoreList(ctx, restoreBin, dumpPath)
+	if err != nil {
+		return 0, err
+	}
+	if toc.entries == 0 {
+		return 0, fmt.Errorf("backup restore: pg_restore --list reported an empty table of contents — %s is not a readable dump", dumpPath)
+	}
+	scratchDB, err := postgres.Open(ctx, scratchDSN)
+	if err != nil {
+		return 0, fmt.Errorf("backup restore: open scratch: %w", err)
+	}
+	defer func() { _ = scratchDB.Close() }()
+	var applied int
+	if err := scratchDB.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&applied); err != nil {
+		return 0, fmt.Errorf("backup restore: schema_migrations check: %w — not an orenda dump?", err)
+	}
+	if applied == 0 {
+		return 0, fmt.Errorf("backup restore: restored database has no applied migrations — not an orenda dump?")
+	}
+	return toc.entries, nil
 }
 
 // pgRestoreList runs `pg_restore --list` — the readability probe that

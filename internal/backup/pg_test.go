@@ -162,11 +162,14 @@ func TestBackupPG_SnapshotRestoreRoundTrip(t *testing.T) {
 	keptDB, err := postgres.Open(ctx, keptDSN)
 	require.NoError(t, err)
 	defer func() { _ = keptDB.Close() }()
+	// Cleanup runs after the test's contexts are done — a detached
+	// background context is the only correct choice here.
+	cleanupCtx := context.Background()
 	t.Cleanup(func() {
-		admin, err := postgres.Open(ctx, dsn)
+		admin, err := postgres.Open(cleanupCtx, dsn)
 		require.NoError(t, err)
 		defer func() { _ = admin.Close() }()
-		_, err = admin.ExecContext(context.Background(),
+		_, err = admin.ExecContext(cleanupCtx,
 			fmt.Sprintf(`DROP DATABASE IF EXISTS "%s" WITH (FORCE)`, kept))
 		require.NoError(t, err)
 	})

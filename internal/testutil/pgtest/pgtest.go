@@ -358,7 +358,7 @@ func TemplateDB(t testing.TB) *sql.DB {
 // the cloned database — tooling that shells out to the same server the
 // pool dials (T366 backup round-trip: pg_dump/pg_restore) needs the
 // target, not just the handle.
-func TemplateDBNamed(t testing.TB) (*sql.DB, string) {
+func TemplateDBNamed(t testing.TB) (pool *sql.DB, dsn string) {
 	t.Helper()
 	c := theClusterFor(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
