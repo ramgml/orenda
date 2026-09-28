@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -413,23 +414,99 @@ func runBackupRestorePostgres(cmd *cobra.Command, cfg *config.Config, in restore
 	return nil
 }
 
-// runRestoreCheck runs a single-row PRAGMA on db and returns a
-// descriptive error if the result is anything other than "ok" / empty.
+// runRestoreCheck runs a problem-reporting PRAGMA (integrity_check,
+// foreign_key_check) on db, iterating EVERY result row, and returns a
+// descriptive error listing the violations if there are any.
+//
+// Both pragmas are multi-row, just with different shapes:
+//
+//   - integrity_check yields one TEXT column per row — "ok" when the
+//     database is intact, one problem line per row otherwise;
+//   - foreign_key_check yields four columns (table, rowid, parent,
+//     fkid) per violating row and NO rows when clean.
+//
+// The previous QueryRow+Scan implementation only ever looked at the
+// first cell of the first row: on a real foreign_key_check violation
+// it failed with "sql: expected 4 destination arguments in Scan, not
+// 1" instead of naming the offending rows, and a multiline
+// integrity_check report was truncated to its first line. Iterating
+// the rows makes the report complete and Scan-shape errors impossible.
 func runRestoreCheck(ctx context.Context, db *sql.DB, pragma string) error {
-	row := db.QueryRowContext(ctx, "PRAGMA "+pragma)
-	var s string
-	if err := row.Scan(&s); err != nil {
-		// foreign_key_check may surface multiple rows; a Scan error
-		// here means "no rows" which is the success signal.
-		if err == sql.ErrNoRows {
-			return nil
-		}
+	problems, err := pragmaProblems(ctx, db, pragma)
+	if err != nil {
 		return fmt.Errorf("backup restore: %s: %w", pragma, err)
 	}
-	if s != "" && s != "ok" {
-		return fmt.Errorf("backup restore: %s: %s", pragma, s)
+	if len(problems) == 0 {
+		return nil
 	}
-	return nil
+	return fmt.Errorf("backup restore: %s: %d problem(s):\n%s",
+		pragma, len(problems), strings.Join(problems, "\n"))
+}
+
+// pragmaProblems runs pragma and returns one human-readable line per
+// reported problem (empty slice = clean). foreign_key_check rows are
+// rendered in the sqlite3 CLI layout (table/rowid/parent/fkid); any
+// other pragma is expected to report one text cell per row, of which
+// only "ok" means clean.
+func pragmaProblems(ctx context.Context, db *sql.DB, pragma string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, "PRAGMA "+pragma)
+	if err != nil {
+		return nil, fmt.Errorf("query: %w", err)
+	}
+	defer rows.Close()
+
+	var problems []string
+	for rows.Next() {
+		cells, err := scanNullStrings(rows)
+		if err != nil {
+			return nil, err
+		}
+		if pragma == "foreign_key_check" && len(cells) == 4 {
+			problems = append(problems, fmt.Sprintf("table=%s rowid=%s parent=%s fkid=%s",
+				nullString(cells[0]), nullString(cells[1]), nullString(cells[2]), nullString(cells[3])))
+			continue
+		}
+		parts := make([]string, len(cells))
+		for i, c := range cells {
+			parts[i] = nullString(c)
+		}
+		if line := strings.Join(parts, " "); line != "ok" {
+			problems = append(problems, line)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate rows: %w", err)
+	}
+	return problems, nil
+}
+
+// scanNullStrings scans the current row into one sql.NullString per
+// column. The cell count is taken from the result set, so pragmas with
+// any arity scan without "expected N destination arguments" errors.
+func scanNullStrings(rows *sql.Rows) ([]sql.NullString, error) {
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, fmt.Errorf("columns: %w", err)
+	}
+	cells := make([]sql.NullString, len(cols))
+	dest := make([]any, len(cols))
+	for i := range cells {
+		dest[i] = &cells[i]
+	}
+	if err := rows.Scan(dest...); err != nil {
+		return nil, fmt.Errorf("scan: %w", err)
+	}
+	return cells, nil
+}
+
+// nullString renders a scanned cell, preserving NULL as text instead
+// of silently turning it into "" (foreign_key_check reports NULL rowids
+// for WITHOUT ROWID child tables).
+func nullString(ns sql.NullString) string {
+	if ns.Valid {
+		return ns.String
+	}
+	return "NULL"
 }
 
 // copyFile duplicates src to dst (creates dst if needed, truncates if
