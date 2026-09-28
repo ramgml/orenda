@@ -71,6 +71,9 @@ for d in "$TMPD"/orenda-pg-runtime-*; do
 done | sort
 
 # [preview] <path> <pid> — PREVIEW_OWNER markers under known PGDATA roots.
+# The roots below are this machine's known checkout locations (main tree
+# + worktrees under .worktrees/); extend the list for other layouts —
+# e.g. `for base in /work/projects/orenda /work/projects/orenda/.worktrees/* "$@"`.
 for base in /work/projects/orenda /work/projects/orenda/.worktrees/*; do
   m="$base/data/postgres/PREVIEW_OWNER"
   [[ -f "$m" ]] || continue

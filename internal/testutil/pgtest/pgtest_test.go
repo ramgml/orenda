@@ -145,6 +145,18 @@ func TestClassifyStaleCluster(t *testing.T) {
 		assert.Contains(t, reason, "dead PREVIEW_OWNER")
 	})
 
+	t.Run("live postmaster beats a dead PREVIEW_OWNER", func(t *testing.T) {
+		// The T365 signature: the marked owner was SIGKILLed, its
+		// postmaster child kept serving. The dir is protected.
+		dir := writeSweepDir(t, map[string]*string{
+			"postmaster.pid": new(pid + "\n"),
+			"PREVIEW_OWNER":  new(fmt.Sprintf("pid=%d\nowner=pm\n", sweepDeadPID(t))),
+		})
+		_, reason, ok := classifyStaleCluster(dir)
+		assert.False(t, ok, "a live postmaster must win over a stale marker")
+		assert.Contains(t, reason, "live postmaster")
+	})
+
 	t.Run("invalid PREVIEW_OWNER is protected", func(t *testing.T) {
 		dir := writeSweepDir(t, map[string]*string{
 			"postmaster.pid": new(fmt.Sprint(sweepDeadPID(t)) + "\n"),

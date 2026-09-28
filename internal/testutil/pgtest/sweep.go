@@ -26,7 +26,9 @@ import (
 //     (unknown ownership beats convenient cleanup);
 //   - a live postmaster.pid protects the dir — it belongs to a
 //     concurrently running binary, or it is an orphaned postmaster
-//     nobody may auto-kill; the leak snapshot surfaces it and a
+//     nobody may auto-kill; this check wins even over a dead
+//     PREVIEW_OWNER marker (orphaned child of a SIGKILLed owner is
+//     still a live cluster); the leak snapshot surfaces it and a
 //     human/agent stops it deliberately;
 //   - evidence of death (dead postmaster.pid, or a dead PGTEST_OWNER
 //     owner pid) reclaims the dir and the runtime dir paired in the
@@ -112,14 +114,16 @@ func classifyStaleCluster(dir string) (pairedRuntime, reason string, ok bool) {
 			return "", fmt.Sprintf("live PREVIEW_OWNER pid=%d (owner=%s purpose=%s) — protected",
 				owner.PID, owner.Owner, owner.Purpose), false
 		}
-		// Dead preview: fall through to the pid-file evidence; the
-		// dead marker alone justifies reclamation.
-		return runtimeOfDeadCluster(dir), fmt.Sprintf("dead PREVIEW_OWNER pid=%d", owner.PID), true
+		// Dead marker is NOT sufficient on its own: the marked owner
+		// may have been SIGKILLed while its postmaster child kept
+		// serving (the T365 signature). Fall through — the
+		// postmaster.pid liveness check below decides.
 	case postgres.MarkerInvalid:
 		return "", "unparseable PREVIEW_OWNER — unknown ownership, protected", false
 	}
 
-	// 2. postmaster.pid: a live postmaster is never touched.
+	// 2. postmaster.pid: a live postmaster is never touched — not even
+	// under a dead PREVIEW_OWNER marker.
 	state, pid := postgres.ReadPostmasterState(dir)
 	if state == postgres.PostmasterLive {
 		return "", fmt.Sprintf("live postmaster pid=%d — %s", pid, orphanStopHint), false
@@ -132,12 +136,20 @@ func classifyStaleCluster(dir string) (pairedRuntime, reason string, ok bool) {
 		return "", "", false
 	}
 
-	// 4. Death evidence only: a dead postmaster or a dead owner.
+	// 4. Death evidence only: a dead postmaster, a dead owner, or a
+	// dead preview marker (postmaster also gone).
 	if state == postgres.PostmasterDead {
-		return runtime, fmt.Sprintf("dead postmaster pid=%d", pid), true
+		reason := fmt.Sprintf("dead postmaster pid=%d", pid)
+		if ms == postgres.MarkerValid {
+			reason += fmt.Sprintf("; dead PREVIEW_OWNER pid=%d", owner.PID)
+		}
+		return runtime, reason, true
 	}
 	if haveOwner {
 		return runtime, fmt.Sprintf("dead owner pid=%d", ownerPID), true
+	}
+	if ms == postgres.MarkerValid {
+		return runtimeOfDeadCluster(dir), fmt.Sprintf("dead PREVIEW_OWNER pid=%d (no postmaster)", owner.PID), true
 	}
 	// No pid file, no markers: an in-flight start of an older binary
 	// or an unidentifiable leftover — skip, disk loss beats corrupting
