@@ -16,7 +16,7 @@ func countFKViolations(t *testing.T, ctx context.Context, db *sql.DB) int {
 	t.Helper()
 	rows, err := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
 	require.NoError(t, err)
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	n := 0
 	for rows.Next() {
 		n++

@@ -217,7 +217,7 @@ func pragmaProblems(ctx context.Context, db *sql.DB, pragma string) ([]string, e
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var problems []string
 	for rows.Next() {
