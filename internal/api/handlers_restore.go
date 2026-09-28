@@ -12,9 +12,12 @@
 //     already entered maintenance (or is calling this from the
 //     UI's "Restore" button which does it for them). We drain WS
 //     subscribers (they'll reconnect, then pick up the restored
-//     data), do the atomic file swap, run migrations, integrity +
-//     FK check, and exit maintenance. On any failure we exit
-//     maintenance so the operator isn't stuck.
+//     data), restore into a staging copy next to the live database,
+//     run migrations + integrity + FK check on the copy (T374:
+//     verify-before-swap — a failed verify removes the copy and
+//     leaves the live database byte-for-byte intact), and only then
+//     swap it in: safety-copy → atomic rename. On any failure we
+//     exit maintenance so the operator isn't stuck.
 //
 // The split lets the UI wrap this endpoint with a single
 // "POST /maintenance/on → POST /backups/restore → window.reload"
@@ -24,8 +27,10 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/ramgml/orenda/internal/backup"
 )
@@ -101,17 +106,22 @@ func restoreBackupHandler(deps *Dependencies) http.HandlerFunc {
 			// wait — the subscribers see close and reconnect.
 			deps.WSHub.Close()
 		}
-		// We need a fresh Service that writes to the live DB path. The
-		// backup service is stateless beyond its Config, so reusing
-		// the constructor is fine.
+		// T374: same verify-before-swap order as the CLI. The snapshot
+		// lands in a staging copy NEXT TO the live database (same
+		// filesystem, so the promotion is an atomic rename); the live
+		// file itself is only replaced once the copy verifies. A failed
+		// verify removes the staging copy and leaves the live database
+		// byte-for-byte intact.
 		dbPath := deps.DBPath
 		if dbPath == "" {
 			dbPath = "orenda.db"
 		}
+		staging := backup.StagingPath(dbPath, time.Now())
 		if err := backup.New(backup.Config{
 			SnapshotDir: "data/backups",
 			DBPath:      dbPath,
-		}, nil).Restore(r.Context(), in.Path, dbPath); err != nil {
+		}, nil).Restore(r.Context(), in.Path, staging); err != nil {
+			backup.CleanupStaging(staging)
 			// Exit maintenance so the operator isn't stuck.
 			MaintenanceOff()
 			if errors.Is(err, backup.ErrNotSQLite) {
@@ -121,15 +131,49 @@ func restoreBackupHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		// Verify + migrate: open the restored DB and check integrity.
-		// The CLI version already does this end-to-end; the API
-		// version delegates to the same Verify + Migrate flow.
-		if err := runMaintenanceVerify(r.Context(), deps.Backup, dbPath); err != nil {
+		// Verify + migrate the staging copy: open it and check
+		// integrity — the same Verify + Migrate flow the CLI runs
+		// before its swap.
+		if err := runMaintenanceVerify(r.Context(), deps.Backup, staging); err != nil {
+			backup.CleanupStaging(staging)
 			MaintenanceOff()
 			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
 				"error":  "verify_failed",
 				"detail": err.Error(),
 			})
+			return
+		}
+		// Verified — now the destructive moment. Safety-copy the live
+		// database first (rollback parity with the CLI), drop the
+		// destination's stale -wal/-shm sidecars so sqlite starts a
+		// clean journal with the restored file, then rename the staged
+		// copy in. Any failure here removes the staging copy and leaves
+		// the live database untouched.
+		safetyPath := ""
+		if _, statErr := os.Stat(dbPath); statErr == nil {
+			safetyPath = backup.SafetyCopyPath(dbPath, time.Now())
+			if err := backup.CopyFile(dbPath, safetyPath); err != nil {
+				backup.CleanupStaging(staging)
+				MaintenanceOff()
+				writeError(w, fmt.Errorf("backup restore: safety-copy %s: %w", safetyPath, err))
+				return
+			}
+		}
+		for _, side := range []string{dbPath + "-wal", dbPath + "-shm"} {
+			if rmErr := os.Remove(side); rmErr != nil && !os.IsNotExist(rmErr) {
+				backup.CleanupStaging(staging)
+				MaintenanceOff()
+				writeError(w, fmt.Errorf("backup restore: remove sidecar %s: %w", side, rmErr))
+				return
+			}
+		}
+		if err := os.Rename(staging, dbPath); err != nil {
+			backup.CleanupStaging(staging)
+			if safetyPath != "" {
+				_ = os.Remove(safetyPath) // live was never modified; the safety copy would be dead weight
+			}
+			MaintenanceOff()
+			writeError(w, fmt.Errorf("backup restore: swap in restored database: %w", err))
 			return
 		}
 

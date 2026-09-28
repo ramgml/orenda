@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"io"
+	"net"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -50,6 +52,14 @@ func freshInstallFixture(t *testing.T) (cfgPath, dbPath string) {
 	cfg.Storage.DataDir = dir
 	cfg.Storage.DBPath = dbPath
 	cfg.Backup.SnapshotDir = filepath.Join(dir, "snapshots")
+	// Hermetic server-running guard: restore tests must not depend on
+	// host state, and the DEFAULT port may be taken by a dev server
+	// (the guard would refuse the in-place restore). Hand the config a
+	// port the kernel just released.
+	if l, err := net.Listen("tcp", "127.0.0.1:0"); err == nil {
+		cfg.Server.Port = l.Addr().(*net.TCPAddr).Port
+		_ = l.Close()
+	}
 	writeConfig(t, cfgPath, cfg)
 
 	require.NoError(t, runMigrateCLI(t, cfgPath, "up"))
@@ -119,4 +129,145 @@ func TestBackupRestore_TaintedSnapshotVerifyListsViolations(t *testing.T) {
 		"the violation list must name the offending row")
 	assert.NotContains(t, err.Error(), "destination arguments",
 		"Scan-shape errors must be impossible")
+}
+
+// noRestoreArtifacts asserts the T374 "FAIL → артефакт не оставлен"
+// half of the contract: a failed restore leaves no staging copy, no
+// .restore.tmp leftover, no safety copy and no sqlite sidecars next to
+// the destination — the destructive swap never happened, so none of
+// these files had any reason to exist.
+func noRestoreArtifacts(t *testing.T, dest string) {
+	t.Helper()
+	for _, pattern := range []string{
+		dest + ".restore-staging-*",
+		dest + ".restore.tmp*",
+		dest + ".pre-restore-*",
+		dest + "-wal",
+		dest + "-shm",
+	} {
+		matches, err := filepath.Glob(pattern)
+		require.NoError(t, err)
+		assert.Empty(t, matches, "a failed restore must leave no %s artifact", pattern)
+	}
+}
+
+// TestBackupRestore_FailureLeavesLiveDBIntact is the T374 DoD contract
+// on the live path: restoring a tainted snapshot in place FAILS
+// verification and the previous live database file stays byte-for-byte
+// intact — the swap never happened, so there is nothing to roll back
+// and no artifact left behind (no staging copy, no safety copy).
+func TestBackupRestore_FailureLeavesLiveDBIntact(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, dbPath := freshInstallFixture(t)
+	dir := filepath.Dir(dbPath)
+
+	// Park the good snapshot outside the snapshots dir so the tainted
+	// one below is the sole *.db for soleSnapshot.
+	require.NoError(t, runBackupCLI(t, cfgPath, "snapshot"))
+	goodSnap := soleSnapshot(t, filepath.Join(dir, "snapshots"))
+	require.NoError(t, os.Rename(goodSnap, filepath.Join(dir, "good-snapshot.db")))
+
+	seedOrphanBoard(t, ctx, dbPath)
+	require.NoError(t, runBackupCLI(t, cfgPath, "snapshot"))
+	tainted := soleSnapshot(t, filepath.Join(dir, "snapshots"))
+
+	liveBefore, err := os.ReadFile(dbPath)
+	require.NoError(t, err)
+
+	err = runBackupCLI(t, cfgPath, "restore", "--from", tainted, "--yes")
+	require.Error(t, err, "a tainted snapshot must fail restore verify")
+	assert.Contains(t, err.Error(), "foreign_key_check")
+	assert.Contains(t, err.Error(), "table=boards rowid=1 parent=projects fkid=",
+		"the operator-facing error must carry the T369 violation list")
+
+	liveAfter, err := os.ReadFile(dbPath)
+	require.NoError(t, err)
+	assert.Equal(t, string(liveBefore), string(liveAfter),
+		"a failed restore must leave the live database byte-for-byte intact")
+	noRestoreArtifacts(t, dbPath)
+}
+
+// TestBackupRestore_FailureLeavesDestinationIntact pins the T374
+// contract for the CLI --to path: restoring a tainted snapshot onto an
+// EXISTING destination file fails verification, the previous file
+// stays byte-for-byte intact, the error carries the violation list,
+// and no artifact is left behind.
+func TestBackupRestore_FailureLeavesDestinationIntact(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, dbPath := freshInstallFixture(t)
+	dir := filepath.Dir(dbPath)
+
+	dest := filepath.Join(dir, "live.db")
+	liveBefore, err := os.ReadFile(dbPath)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(dest, liveBefore, 0o644),
+		"the --to destination simulates an existing live database")
+
+	seedOrphanBoard(t, ctx, dbPath)
+	require.NoError(t, runBackupCLI(t, cfgPath, "snapshot"))
+	tainted := soleSnapshot(t, filepath.Join(dir, "snapshots"))
+
+	err = runBackupCLI(t, cfgPath, "restore", "--from", tainted, "--to", dest, "--yes")
+	require.Error(t, err, "a tainted snapshot must fail restore verify")
+	assert.Contains(t, err.Error(), "foreign_key_check")
+	assert.Contains(t, err.Error(), "table=boards rowid=1 parent=projects fkid=",
+		"the operator-facing error must carry the T369 violation list")
+
+	liveAfter, err := os.ReadFile(dest)
+	require.NoError(t, err)
+	assert.Equal(t, string(liveBefore), string(liveAfter),
+		"a failed restore must leave the --to destination byte-for-byte intact")
+	noRestoreArtifacts(t, dest)
+}
+
+// TestBackupRestore_InPlaceSwapsOnlyAfterVerify pins the success half
+// of the T374 order on the live path: the swap installs the VERIFIED
+// staging copy (the snapshot's data, not the current live rows), the
+// safety copy created at swap time holds the PRE-restore live data,
+// and no staging artifact survives the rename.
+func TestBackupRestore_InPlaceSwapsOnlyAfterVerify(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, dbPath := freshInstallFixture(t)
+	dir := filepath.Dir(dbPath)
+
+	require.NoError(t, runBackupCLI(t, cfgPath, "snapshot"))
+	snap := soleSnapshot(t, filepath.Join(dir, "snapshots"))
+
+	// Live data created AFTER the snapshot must vanish on restore,
+	// proving the swap installed the staged snapshot copy.
+	require.NoError(t, runUserCreateCLI(t, cfgPath,
+		[]string{"--email=second@fresh.local", "--display-name=Second"},
+		"hunter2!\n"))
+
+	require.NoError(t, runBackupCLI(t, cfgPath, "restore", "--from", snap, "--yes"))
+
+	countUsers := func(t *testing.T, path, email string) int {
+		t.Helper()
+		db, err := sqlite.Open(ctx, path, sqlite.OpenConfig{
+			WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+		})
+		require.NoError(t, err)
+		defer func() { _ = db.Close() }()
+		var n int
+		require.NoError(t, db.QueryRowContext(ctx,
+			`SELECT count(*) FROM users WHERE email = ?`, email).Scan(&n))
+		return n
+	}
+
+	assert.Zero(t, countUsers(t, dbPath, "second@fresh.local"),
+		"the live database must carry the snapshot's data after restore")
+	assert.Equal(t, 1, countUsers(t, dbPath, "owner@fresh.local"),
+		"the snapshot's original user must be present after restore")
+
+	// The safety copy is written at swap time from the pre-restore
+	// live database — it still carries the post-snapshot user.
+	safety, err := filepath.Glob(dbPath + ".pre-restore-*")
+	require.NoError(t, err)
+	require.Len(t, safety, 1, "an in-place restore keeps exactly one safety copy")
+	assert.Equal(t, 1, countUsers(t, safety[0], "second@fresh.local"),
+		"the safety copy must hold the pre-restore live data")
+
+	matches, err := filepath.Glob(dbPath + ".restore-staging-*")
+	require.NoError(t, err)
+	assert.Empty(t, matches, "a successful restore leaves no staging copy behind")
 }

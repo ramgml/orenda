@@ -240,3 +240,52 @@ func TestBackup_ListSnapshots_IncludesDump(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, snaps, 2, "only snapshot artifacts are listed")
 }
+
+// TestBackupPG_RestoreCorruptDumpLeavesNoScratch confirms the T374
+// finding on the postgres leg: restore is verify-before-promote by
+// construction, no reordering needed. A dump pg_restore cannot read
+// fails the restore before anything is promoted, the scratch database
+// is dropped (no artifact left on the server), and the live database
+// the DSN points at keeps its own data — RestorePostgres never writes
+// there.
+func TestBackupPG_RestoreCorruptDumpLeavesNoScratch(t *testing.T) {
+	requirePostgresLeg(t)
+
+	pool, dsn := pgtest.TemplateDBNamed(t)
+	ctx := context.Background()
+
+	// Sentinel data in the live database — the failed restore must
+	// leave it exactly as it was.
+	_, err := pool.ExecContext(ctx, `CREATE TABLE restore_live_sentinel (id TEXT PRIMARY KEY, payload TEXT)`)
+	require.NoError(t, err)
+	_, err = pool.ExecContext(ctx, `INSERT INTO restore_live_sentinel (id, payload) VALUES ('live', 'untouched')`)
+	require.NoError(t, err)
+
+	garbage := filepath.Join(t.TempDir(), "orenda-corrupt.dump")
+	require.NoError(t, os.WriteFile(garbage, []byte("this is not a pg_dump archive"), 0o644))
+
+	svc := backup.New(backup.Config{
+		Dialect:     backup.DialectPostgres,
+		SnapshotDir: t.TempDir(),
+		Postgres:    backup.PostgresConfig{DSN: dsn},
+	}, pool)
+
+	_, err = svc.RestorePostgres(ctx, garbage, "")
+	require.Error(t, err, "a dump pg_restore cannot read must fail the restore")
+	assert.Contains(t, err.Error(), "pg_restore")
+
+	// No scratch left behind: the fail path drops it WITH (FORCE).
+	admin, err := postgres.Open(ctx, dsn)
+	require.NoError(t, err)
+	defer func() { _ = admin.Close() }()
+	var scratches int
+	require.NoError(t, admin.QueryRowContext(ctx,
+		`SELECT count(*) FROM pg_database WHERE datname ~ '^orenda_restore_[0-9]+$'`).Scan(&scratches))
+	assert.Zero(t, scratches, "a failed restore must leave no scratch database behind")
+
+	// The live database was never touched.
+	var payload string
+	require.NoError(t, pool.QueryRowContext(ctx,
+		`SELECT payload FROM restore_live_sentinel WHERE id = 'live'`).Scan(&payload))
+	assert.Equal(t, "untouched", payload)
+}

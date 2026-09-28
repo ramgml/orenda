@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"time"
@@ -266,19 +265,24 @@ func runBackupStatus(cmd *cobra.Command, _ []string) error {
 
 // Phase 22: enhanced restore pipeline.
 //
-// Steps (when restoring in place to the live DB path):
+// Steps (sqlite; the same staging order applies to an ad-hoc --to
+// restore):
 //
 //  1. Server-running guard (above). Refuse if the live server is up.
-//  2. Safety-copy the existing DB to <dest>.pre-restore-<ts>.
-//     This is the operator's "oh no" escape hatch — restore is
-//     destructive and we never want it without a rollback path.
-//  3. Restore overwrites destPath atomically via Restore().
-//  4. Migrations: open the restored DB and run every pending
-//     migration. A snapshot from a previous schema version should
-//     catch up automatically.
-//  5. integrity_check + foreign_key_check on the result.
-//     Abort the install if either fails — better to ship a broken
-//     database than a corrupted one.
+//  2. Restore the snapshot into a staging copy NEXT TO the destination
+//     (<dest>.restore-staging-<ts>, same filesystem). The destination
+//     — the live database file — is not touched yet.
+//  3. Migrations + integrity_check + foreign_key_check run on the
+//     staging copy (T374: verify-before-swap). A snapshot from a
+//     previous schema version catches up automatically. On any failure
+//     the staging copy is removed and the problem list (T369) is
+//     returned as-is: the previous database file stays byte-for-byte
+//     intact and no artifact is left behind.
+//  4. Only after verify ok is the destination replaced: safety-copy
+//     the live DB to <dest>.pre-restore-<ts> (in place — the
+//     operator's "oh no" escape hatch for the swap itself), then
+//     atomically rename the staging copy onto the destination and drop
+//     its stale -wal/-shm sidecars so sqlite starts a clean journal.
 func runBackupRestoreWithVerify(cmd *cobra.Command, in restoreInput) error {
 	if in.From == "" {
 		return fmt.Errorf("backup restore: --from <snapshot.db> is required")
@@ -311,35 +315,68 @@ func runBackupRestoreWithVerify(cmd *cobra.Command, in restoreInput) error {
 		return nil
 	}
 
-	// Step 1: safety-copy. Only when restoring in place — for ad-hoc
-	// restores to a different path there's nothing meaningful to copy
-	// (the dest doesn't exist or is a scratch file).
+	// Step 1: restore into the staging copy, not onto the destination.
+	staging := backup.StagingPath(in.To, time.Now())
+	if err := backup.New(backup.Config{
+		SnapshotDir: cfg.Backup.SnapshotDir,
+		DBPath:      cfg.ResolveDBPath("."),
+	}, nil).Restore(cmd.Context(), in.From, staging); err != nil {
+		return err
+	}
+
+	// Step 2: migrations + integrity/foreign-key checks on the staging
+	// copy. The restore artifact is always a sqlite file (VACUUM INTO
+	// snapshot), so this path pins the sqlite dialect regardless of
+	// storage.driver.
+	if err := verifyStagedRestore(cmd.Context(), staging); err != nil {
+		// T374 contract: a failed verify never touches the destination.
+		// Drop the staging artifact; the T369 problem list passes
+		// through untouched.
+		backup.CleanupStaging(staging)
+		return fmt.Errorf("%w\nrestore stopped: staging copy removed, previous database left untouched", err)
+	}
+	fmt.Println("restore verify: ok (integrity + foreign keys)")
+
+	// Step 3: the destructive moment — now that the staged copy is
+	// verified, keep the operator's rollback path and swap it in.
+	// Safety-copy only when restoring in place: for ad-hoc restores to
+	// a different path there's nothing meaningful to copy (the dest
+	// doesn't exist or is a scratch file).
 	if isInPlace {
 		if _, statErr := os.Stat(in.To); statErr == nil {
 			safetyPath := backup.SafetyCopyPath(in.To, time.Now())
-			if err := copyFile(in.To, safetyPath); err != nil {
+			if err := backup.CopyFile(in.To, safetyPath); err != nil {
+				backup.CleanupStaging(staging)
 				return fmt.Errorf("backup restore: safety-copy %s: %w", safetyPath, err)
 			}
 			fmt.Printf("safety copy: %s\n", safetyPath)
 		}
 	}
-
-	// Step 2: filesystem restore.
-	if err := backup.New(backup.Config{
-		SnapshotDir: cfg.Backup.SnapshotDir,
-		DBPath:      cfg.ResolveDBPath("."),
-	}, nil).Restore(cmd.Context(), in.From, in.To); err != nil {
-		return err
+	if err := os.Rename(staging, in.To); err != nil {
+		backup.CleanupStaging(staging)
+		return fmt.Errorf("backup restore: swap in restored database: %w", err)
+	}
+	// Drop stale -wal/-shm sidecars of the destination so sqlite starts
+	// a clean journal with the restored file — the same guarantee
+	// Service.Restore gave when it wrote the destination itself.
+	for _, side := range []string{in.To + "-wal", in.To + "-shm"} {
+		if rmErr := os.Remove(side); rmErr != nil && !os.IsNotExist(rmErr) {
+			return fmt.Errorf("backup restore: remove sidecar %s: %w", side, rmErr)
+		}
 	}
 	fmt.Printf("restored: %s <- %s\n", in.To, in.From)
+	return nil
+}
 
-	// Step 3: open the restored DB and bring migrations up to current.
-	// The restore artifact is always a sqlite file (VACUUM INTO
-	// snapshot), so this path pins the sqlite dialect regardless of
-	// storage.driver.
-	sdb, err := storage.Open(cmd.Context(), storage.Config{
+// verifyStagedRestore opens the staged copy, brings migrations up to
+// current and runs integrity_check + foreign_key_check on it. Any
+// problem is returned as the operator-facing error (T369 layout);
+// closing the handle and removing the staging copy are the caller's
+// job.
+func verifyStagedRestore(ctx context.Context, path string) error {
+	sdb, err := storage.Open(ctx, storage.Config{
 		Driver:        string(storage.DialectSQLite),
-		Path:          in.To,
+		Path:          path,
 		WALMode:       true,
 		EnableForeign: true,
 		BusyTimeoutMs: 5000,
@@ -349,21 +386,13 @@ func runBackupRestoreWithVerify(cmd *cobra.Command, in restoreInput) error {
 	}
 	db := sdb.DB
 	defer func() { _ = db.Close() }()
-	if err := storage.Migrate(cmd.Context(), db); err != nil {
+	if err := storage.Migrate(ctx, db); err != nil {
 		return fmt.Errorf("backup restore: migrate: %w", err)
 	}
-
-	// Step 4: integrity + foreign-key checks. Both run as PRAGMA
-	// commands; integrity_check returns "ok" when clean, foreign_key_check
-	// returns no rows when clean.
-	if err := runRestoreCheck(cmd.Context(), db, "integrity_check"); err != nil {
+	if err := runRestoreCheck(ctx, db, "integrity_check"); err != nil {
 		return err
 	}
-	if err := runRestoreCheck(cmd.Context(), db, "foreign_key_check"); err != nil {
-		return err
-	}
-	fmt.Println("restore verify: ok (integrity + foreign keys)")
-	return nil
+	return runRestoreCheck(ctx, db, "foreign_key_check")
 }
 
 // runBackupRestorePostgres is the postgres leg of `backup restore`
@@ -374,6 +403,14 @@ func runBackupRestoreWithVerify(cmd *cobra.Command, in restoreInput) error {
 // restore lands in a kept database the operator can promote by
 // pointing the server at it — that's also the smoke path for "the
 // server rises on the restored data".
+//
+// T374: this leg is verify-before-promote by construction and needs no
+// sqlite-style reordering — the dump lands in a scratch/kept database
+// (RestorePostgres), verifyRestoredScratch checks it THERE, the
+// promote instruction is only printed after "restore verify: ok", and
+// a failed verify drops the scratch, so the operator is never left
+// with a half-installed database and the configured app database is
+// never written to.
 //
 // Unlike the sqlite leg there is no server-running guard: the
 // constraint is inverted (the server must be UP — pg_restore needs a
@@ -507,28 +544,4 @@ func nullString(ns sql.NullString) string {
 		return ns.String
 	}
 	return "NULL"
-}
-
-// copyFile duplicates src to dst (creates dst if needed, truncates if
-// existing). Plain io.Copy + fsync; not atomic — used only for the
-// pre-restore safety copy, where atomicity is irrelevant.
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = in.Close() }() // read-side close: copy error, if any, already reported
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return err
-	}
-	if err := out.Sync(); err != nil {
-		_ = out.Close()
-		return err
-	}
-	return out.Close()
 }
