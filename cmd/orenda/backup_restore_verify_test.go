@@ -219,3 +219,55 @@ func TestBackupRestore_FailureLeavesDestinationIntact(t *testing.T) {
 		"a failed restore must leave the --to destination byte-for-byte intact")
 	noRestoreArtifacts(t, dest)
 }
+
+// TestBackupRestore_InPlaceSwapsOnlyAfterVerify pins the success half
+// of the T374 order on the live path: the swap installs the VERIFIED
+// staging copy (the snapshot's data, not the current live rows), the
+// safety copy created at swap time holds the PRE-restore live data,
+// and no staging artifact survives the rename.
+func TestBackupRestore_InPlaceSwapsOnlyAfterVerify(t *testing.T) {
+	ctx := context.Background()
+	cfgPath, dbPath := freshInstallFixture(t)
+	dir := filepath.Dir(dbPath)
+
+	require.NoError(t, runBackupCLI(t, cfgPath, "snapshot"))
+	snap := soleSnapshot(t, filepath.Join(dir, "snapshots"))
+
+	// Live data created AFTER the snapshot must vanish on restore,
+	// proving the swap installed the staged snapshot copy.
+	require.NoError(t, runUserCreateCLI(t, cfgPath,
+		[]string{"--email=second@fresh.local", "--display-name=Second"},
+		"hunter2!\n"))
+
+	require.NoError(t, runBackupCLI(t, cfgPath, "restore", "--from", snap, "--yes"))
+
+	countUsers := func(t *testing.T, path, email string) int {
+		t.Helper()
+		db, err := sqlite.Open(ctx, path, sqlite.OpenConfig{
+			WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
+		})
+		require.NoError(t, err)
+		defer func() { _ = db.Close() }()
+		var n int
+		require.NoError(t, db.QueryRowContext(ctx,
+			`SELECT count(*) FROM users WHERE email = ?`, email).Scan(&n))
+		return n
+	}
+
+	assert.Zero(t, countUsers(t, dbPath, "second@fresh.local"),
+		"the live database must carry the snapshot's data after restore")
+	assert.Equal(t, 1, countUsers(t, dbPath, "owner@fresh.local"),
+		"the snapshot's original user must be present after restore")
+
+	// The safety copy is written at swap time from the pre-restore
+	// live database — it still carries the post-snapshot user.
+	safety, err := filepath.Glob(dbPath + ".pre-restore-*")
+	require.NoError(t, err)
+	require.Len(t, safety, 1, "an in-place restore keeps exactly one safety copy")
+	assert.Equal(t, 1, countUsers(t, safety[0], "second@fresh.local"),
+		"the safety copy must hold the pre-restore live data")
+
+	matches, err := filepath.Glob(dbPath + ".restore-staging-*")
+	require.NoError(t, err)
+	assert.Empty(t, matches, "a successful restore leaves no staging copy behind")
+}
