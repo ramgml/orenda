@@ -152,6 +152,13 @@ func StartEmbedded(opts EmbeddedOptions) (*Embedded, error) {
 	if startTimeout == 0 {
 		startTimeout = DefaultStartTimeout
 	}
+	// Incident-class guard (T370): classify an existing PGDATA before
+	// starting. A live postmaster (preview or orphan) fails loudly
+	// with the owning pid; a stale pid file from a killed previous run
+	// warns and lets postgres clear the lock itself.
+	if err := checkExistingCluster(opts); err != nil {
+		return nil, err
+	}
 	// Fresh-init detection: initdb only runs on an empty data
 	// directory, so only a fresh init may retry (and wipe) after a
 	// failed locale attempt — a reuse path never touches PGDATA.
