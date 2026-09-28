@@ -235,7 +235,7 @@ status: pre-alpha
 
 ### Backend (Go 1.22+)
 - HTTP: `net/http` + `github.com/go-chi/chi/v5`
-- БД: `modernc.org/sqlite` (pure Go, без CGO)
+- БД: `modernc.org/sqlite` (pure Go, без CGO) — драйвер по умолчанию; опционально PostgreSQL (`storage.driver=postgres`: embedded / внешний сервер / Docker, единый бинарь, эпик T360–T367)
 - Миграции: `github.com/golang-migrate/migrate/v4`
 - ORM: `database/sql` + `github.com/jmoiron/sqlx`
 - WebSocket: `github.com/gorilla/websocket`
@@ -298,14 +298,14 @@ status: pre-alpha
 └──────────────────┬──────────────────────────────┘
                    │
 ┌──────────────────▼──────────────────────────────┐
-│  Storage (SQLite + FTS5)                        │
-│  - Repositories                                 │
-│  - Migrations                                    │
-│  - Triggers (FTS sync)                          │
+│  Storage (SQLite + FTS5 — default | PostgreSQL) │
+│  - Repositories (единый seam, шим диалекта)     │
+│  - Migrations (sqlite 001–049; PG baseline)     │
+│  - Triggers (FTS sync, sqlite)                  │
 └──────────────────┬──────────────────────────────┘
                    │
                    ▼
-            data/orenda.db
+     data/orenda.db | PostgreSQL (5432/5433)
 ```
 
 ### Бот-абстракция
@@ -334,11 +334,11 @@ orenda/
 ├── internal/
 │   ├── api/                    # HTTP и WS
 │   ├── domain/                 # интерфейсы и DTO
-│   ├── storage/sqlite/         # репозитории + миграции
+│   ├── storage/                # seam: sqlite (default) | postgres + шим диалекта
 │   ├── service/                # бизнес-логика
 │   ├── bot/                    # pluggable bots
 │   ├── mirror/                 # markdown-зеркало
-│   ├── backup/                 # git push + sqlite snapshot
+│   ├── backup/                 # git push + sqlite/pg_dump snapshots
 │   ├── auth/                   # JWT + opaque tokens
 │   ├── embed/web/              # embed.FS статика
 │   └── config/
