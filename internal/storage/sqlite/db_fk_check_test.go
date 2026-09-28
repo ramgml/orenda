@@ -16,13 +16,16 @@ import (
 // net. The old check ran `PRAGMA foreign_key_check` through ExecContext,
 // which discards result rows, so every violation passed silently (that's
 // how migration 015 shipped orphan boards). The check now reads the rows
-// and diffs them against a BEFORE snapshot taken on the same connection:
+// and diffs them against snapshots:
 //
-//   - a migration that CREATES violations fails loud with the
-//     table/rowid/parent/fkid list (up and down);
-//   - pre-existing violations are logged as warnings, never fatal —
-//     legacy upgrades carry damage that later cleanup migrations
-//     (e.g. 050) remove within the same chain;
+//   - unsafe UP migrations that CREATE violations commit with a
+//     warning; enforcement is deferred to the end of the Migrate chain —
+//     a violation nobody healed fails the whole run with per-row
+//     attribution. This is what lets legacy chains upgrade: 015
+//     orphans the cafe board, 050 (same run) deletes it.
+//   - unsafe DOWN migrations fail immediately — nobody heals below
+//     the last migration;
+//   - pre-existing violations are logged as warnings, never fatal;
 //   - the FK=OFF route on clean databases behaves exactly as before.
 
 const (
@@ -88,44 +91,48 @@ func seedOrphanBoard(t *testing.T, ctx context.Context, db *sql.DB, boardID stri
 	require.NoError(t, err)
 }
 
-// TestApplyMigrationUnsafe_FKViolationFailsLoud pins scenario (a) on the
-// up path: a marker migration that deletes a referenced project must
-// fail with the violation list and roll back completely.
-func TestApplyMigrationUnsafe_FKViolationFailsLoud(t *testing.T) {
+// TestApplyMigrationUnsafe_IntroducedViolationWarnsAndRecords pins the
+// up path: a marker migration that deletes a referenced project commits
+// (record + warn), reporting its introductions to the caller for
+// chain-end enforcement — it must NOT abort or roll back.
+func TestApplyMigrationUnsafe_IntroducedViolationWarnsAndRecords(t *testing.T) {
 	db, ctx := openFKTestDB(t)
 	applyUpTo(t, ctx, db, "003_projects_tasks")
 	seedProjectWithBoard(t, ctx, db, "p-371-live", "b-371-live")
+	logs := captureSlog(t)
 
 	body := fkTestMarker + "\nDELETE FROM projects WHERE id = 'p-371-live';"
-	err := applyMigration(ctx, db, "900_fk_probe", body)
+	introduced, err := applyMigration(ctx, db, "900_fk_probe", body)
 
-	require.Error(t, err, "a migration that orphans a board must fail")
-	assert.Contains(t, err.Error(), "foreign_key_check")
-	assert.Contains(t, err.Error(), "migration 900_fk_probe (up)")
-	assert.Contains(t, err.Error(), "introduced 1 foreign key violation(s)")
-	assert.Contains(t, err.Error(), "table=boards rowid=1 parent=projects fkid=",
+	require.NoError(t, err, "up-migrations commit; enforcement is chain-end")
+	require.Len(t, introduced, 1, "the orphaned board must be reported to the caller")
+	assert.Equal(t, "boards", introduced[0].table)
+	assert.Equal(t, "projects", introduced[0].parent)
+	assert.Equal(t, "table=boards rowid=1 parent=projects fkid=", introduced[0].String()[:len("table=boards rowid=1 parent=projects fkid=")],
 		"the violation line must carry table/rowid/parent/fkid in the T369 layout")
-	assert.NotContains(t, err.Error(), "destination arguments",
+	assert.NotContains(t, introduced[0].String(), "destination arguments",
 		"Scan-shape errors must be impossible now that rows are read")
 
-	// Rollback: the project, the board, and the version record are all
-	// exactly as before the failed migration.
+	// The migration committed: version recorded, the delete is real.
+	versions, err := AppliedVersions(ctx, db)
+	require.NoError(t, err)
+	assert.Contains(t, versions, "900_fk_probe", "up-migration must be recorded")
 	var projects int
 	require.NoError(t, db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM projects WHERE id = 'p-371-live'`).Scan(&projects))
-	assert.Equal(t, 1, projects, "failed migration must roll back")
-	var boards int
-	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM boards`).Scan(&boards))
-	assert.Equal(t, 1, boards)
-	versions, err := AppliedVersions(ctx, db)
-	require.NoError(t, err)
-	assert.NotContains(t, versions, "900_fk_probe", "failed migration must not be recorded")
+	assert.Equal(t, 0, projects, "the body's delete is committed, not rolled back")
+
+	out := logs.String()
+	assert.Contains(t, out, "introduced foreign key violations",
+		"introductions must be surfaced as a warning at commit time")
+	assert.Contains(t, out, "900_fk_probe")
+	assert.Contains(t, out, "table=boards rowid=1 parent=projects")
 }
 
-// TestApplyMigrationUnsafe_PreExistingViolationWarns pins scenario (b):
-// an innocent marker migration on a database that already carries an
-// orphan must succeed — with a warning — instead of stranding the
-// upgrade on damage it did not create.
+// TestApplyMigrationUnsafe_PreExistingViolationWarns pins the up path
+// for pre-existing damage: an innocent marker migration on a database
+// that already carries an orphan must succeed, warn, and report no
+// introductions of its own.
 func TestApplyMigrationUnsafe_PreExistingViolationWarns(t *testing.T) {
 	db, ctx := openFKTestDB(t)
 	applyUpTo(t, ctx, db, "003_projects_tasks")
@@ -133,7 +140,10 @@ func TestApplyMigrationUnsafe_PreExistingViolationWarns(t *testing.T) {
 	logs := captureSlog(t)
 
 	body := fkTestMarker + "\nCREATE TABLE fk_probe_innocent (id TEXT);"
-	require.NoError(t, applyMigration(ctx, db, "901_fk_probe_innocent", body))
+	introduced, err := applyMigration(ctx, db, "901_fk_probe_innocent", body)
+
+	require.NoError(t, err)
+	assert.Empty(t, introduced, "pre-existing damage is not this migration's doing")
 
 	versions, err := AppliedVersions(ctx, db)
 	require.NoError(t, err)
@@ -151,12 +161,15 @@ func TestApplyMigrationUnsafe_PreExistingViolationWarns(t *testing.T) {
 	assert.Contains(t, out, "901_fk_probe_innocent")
 }
 
-// TestMigrate_015ForeignKeysOffViolationFailsLoud pins the headline
-// scenario on the real chain (applyUpTo style): a legacy-shaped database
-// (cafe project with a board) upgraded past 014 used to sail through 015
-// — its blind check discarded the orphan rows it created. The runner must
-// now abort 015 with the violation list and roll the migration back.
-func TestMigrate_015ForeignKeysOffViolationFailsLoud(t *testing.T) {
+// TestMigrate_LegacyChainUpgradeSucceeds pins the headline scenario on
+// the real chain (applyUpTo style): a legacy-shaped database (cafe
+// board, as seeded by 012) upgraded past 014 used to sail through 015
+// because its check was blind. Now 015 sees the orphan it creates —
+// commits with a warning — and 050, later in the SAME run, deletes it,
+// so the chain ends clean and the legacy upgrade passes. This is the
+// deferred-enforcement contract: failing 015 outright would strand
+// pre-Phase-16 installs forever (no 050 without 015).
+func TestMigrate_LegacyChainUpgradeSucceeds(t *testing.T) {
 	db, ctx := openFKTestDB(t)
 	applyUpTo(t, ctx, db, "014_child_tasks_inherit_column")
 
@@ -167,33 +180,71 @@ func TestMigrate_015ForeignKeysOffViolationFailsLoud(t *testing.T) {
 		`INSERT INTO boards (id, project_id, name, position) VALUES ('b-371-cafe', ?, 'Main', 0)`,
 		cafeProject)
 	require.NoError(t, err)
+	logs := captureSlog(t)
 
-	err = Migrate(ctx, db, MigrationsFS, "migrations")
-	require.Error(t, err, "015 must fail loud when it orphans the cafe board")
-	assert.Contains(t, err.Error(), "015_inbox_no_project")
-	assert.Contains(t, err.Error(), "foreign_key_check")
-	assert.Contains(t, err.Error(), "introduced 1 foreign key violation(s)")
-	assert.Contains(t, err.Error(), "table=boards rowid=1 parent=projects fkid=")
-	assert.NotContains(t, err.Error(), "destination arguments")
+	// Sanity: the damage does not exist before the chain runs.
+	require.Equal(t, 0, countFKViolations(t, ctx, db))
 
-	// Rollback: 015 is not recorded, the legacy rows are untouched and
-	// foreign_key_check is clean again (the tx was fully undone).
+	require.NoError(t, Migrate(ctx, db, MigrationsFS, "migrations"),
+		"015's introduction must be healed by 050 within the same chain")
+
+	// The whole chain applied and ended FK-clean.
 	versions, err := AppliedVersions(ctx, db)
 	require.NoError(t, err)
-	assert.NotContains(t, versions, "015_inbox_no_project")
-	var projects, boards int
-	require.NoError(t, db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM projects WHERE id = ?`, cafeProject).Scan(&projects))
+	assert.Contains(t, versions, "015_inbox_no_project")
+	assert.Contains(t, versions, "050_orphan_board_cleanup")
+	var boards int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM boards`).Scan(&boards))
-	assert.Equal(t, 1, projects, "failed 015 must roll back the project delete")
-	assert.Equal(t, 1, boards)
-	require.Equal(t, 0, countFKViolations(t, ctx, db), "rollback must leave no violations")
+	assert.Equal(t, 0, boards, "050 must have healed 015's orphan in the same run")
+	assert.Equal(t, 0, countFKViolations(t, ctx, db), "chain must end FK-clean")
+
+	// The deferral was visible: 015 warned with the row list.
+	out := logs.String()
+	assert.Contains(t, out, "015_inbox_no_project")
+	assert.Contains(t, out, "introduced foreign key violations")
+	assert.Contains(t, out, "table=boards rowid=1 parent=projects")
 }
 
-// TestApplyMigrationDownUnsafe_FKViolationFailsLoud pins scenario (a) on
-// the down path: a marker down-migration that inserts an orphan row must
-// fail with the violation list, roll back the body, and keep the version
-// recorded.
+// TestEnforceChainFKDiff pins the chain-end enforcement unit: a
+// violation that survived the whole chain fails the run with the
+// introducer attributed; healed introductions pass silently.
+func TestEnforceChainFKDiff(t *testing.T) {
+	baseline := []fkViolation{
+		{table: "boards", rowid: "1", parent: "projects", fkid: "0"},
+	}
+	baselineKey := baseline[0].key()
+
+	// Healed: 015 introduced an orphan, 050 deleted it — final ==
+	// baseline minus nothing new → pass.
+	healed := []fkViolation{{table: "boards", rowid: "1", parent: "projects", fkid: "0"}}
+	require.NoError(t, enforceChainFKDiff(baseline, healed, map[string]string{baselineKey: "015_x"}))
+
+	// Unhealed introduction → loud error with attribution.
+	unresolved := append(healed, fkViolation{table: "tasks", rowid: "7", parent: "projects", fkid: "1"})
+	err := enforceChainFKDiff(baseline, unresolved, map[string]string{
+		// baseline row is not an introduction; the tasks row is.
+		(&fkViolation{table: "tasks", rowid: "7", parent: "projects", fkid: "1"}).key(): "016_task_dependencies",
+	})
+	require.Error(t, err, "an unhealed introduction must fail the chain")
+	assert.Contains(t, err.Error(), "migrate chain ended with 1 unresolved foreign key violation(s)")
+	assert.Contains(t, err.Error(), "table=tasks rowid=7 parent=projects fkid=1")
+	assert.Contains(t, err.Error(), "introduced by migration 016_task_dependencies, up")
+	assert.NotContains(t, err.Error(), "table=boards rowid=1",
+		"baseline damage must not be blamed on the chain")
+
+	// Unattributed row renders without an attribution suffix.
+	err = enforceChainFKDiff(nil, []fkViolation{
+		{table: "boards", rowid: "2", parent: "projects", fkid: "0"},
+	}, map[string]string{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "table=boards rowid=2 parent=projects fkid=0")
+	assert.NotContains(t, err.Error(), "introduced by migration")
+}
+
+// TestApplyMigrationDownUnsafe_FKViolationFailsLoud pins the down path:
+// enforcement stays immediate there — a marker down-migration that
+// inserts an orphan fails with the violation list, rolls back the body,
+// and keeps the version recorded.
 func TestApplyMigrationDownUnsafe_FKViolationFailsLoud(t *testing.T) {
 	db, ctx := openFKTestDB(t)
 	applyUpTo(t, ctx, db, "003_projects_tasks")
@@ -225,9 +276,9 @@ func TestApplyMigrationDownUnsafe_FKViolationFailsLoud(t *testing.T) {
 		"failed down must not unrecord the version")
 }
 
-// TestApplyMigrationDownUnsafe_PreExistingViolationWarns pins scenario
-// (b) on the down path: pre-existing orphans are warnings, and a clean
-// down body still unrecords its version.
+// TestApplyMigrationDownUnsafe_PreExistingViolationWarns pins the down
+// path for pre-existing orphans: warnings, and a clean down body still
+// unrecords its version.
 func TestApplyMigrationDownUnsafe_PreExistingViolationWarns(t *testing.T) {
 	db, ctx := openFKTestDB(t)
 	applyUpTo(t, ctx, db, "003_projects_tasks")
@@ -250,8 +301,9 @@ func TestApplyMigrationDownUnsafe_PreExistingViolationWarns(t *testing.T) {
 	assert.Contains(t, out, "903_fk_probe_down_innocent")
 }
 
-// TestFKDiffHelpers pins the diff arithmetic directly: identical
-// snapshots produce nothing new, and a changed rowid counts as new.
+// TestFKDiffHelpers pins the per-migration diff arithmetic directly:
+// identical snapshots produce nothing new, and a changed rowid counts
+// as new.
 func TestFKDiffHelpers(t *testing.T) {
 	before := []fkViolation{
 		{table: "boards", rowid: "1", parent: "projects", fkid: "0"},

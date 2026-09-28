@@ -129,6 +129,15 @@ func itoa(n int) string {
 // migrationsFS is expected to contain *.sql files in the directory dir
 // (typically "migrations"); this allows embed patterns like
 // //go:embed migrations/*.sql.
+//
+// Foreign-key enforcement is chain-scoped (T371): before the loop the
+// runner snapshots `PRAGMA foreign_key_check` (chain baseline), and
+// after the loop re-reads it. A migration may introduce violations —
+// the runner warns and defers — but if the violations survive to the
+// end of the chain (final − baseline ≠ ∅), Migrate fails loud with the
+// offending rows and the migration that introduced each. This is what
+// lets legacy chains upgrade: 015 orphans the cafe board and 050, later
+// in the SAME run, deletes it — final == baseline, upgrade passes.
 func Migrate(ctx context.Context, db *sql.DB, migrationsFS embed.FS, dir string) error {
 	if _, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -149,6 +158,16 @@ func Migrate(ctx context.Context, db *sql.DB, migrationsFS embed.FS, dir string)
 		return err
 	}
 
+	// Collect the pending queue up front: with nothing pending (the
+	// common boot path) we skip the foreign_key_check snapshots
+	// entirely — the pragma is a full-graph scan, too costly for
+	// every server start.
+	type pendingMigration struct {
+		version  string
+		body     string
+		fullPath string
+	}
+	queue := make([]pendingMigration, 0)
 	for _, name := range files {
 		version := pathVersion(name)
 		if _, ok := applied[version]; ok {
@@ -159,9 +178,38 @@ func Migrate(ctx context.Context, db *sql.DB, migrationsFS embed.FS, dir string)
 		if err != nil {
 			return fmt.Errorf("sqlite: read migration %q: %w", fullPath, err)
 		}
-		if err := applyMigration(ctx, db, version, string(body)); err != nil {
-			return fmt.Errorf("sqlite: apply migration %q: %w", fullPath, err)
+		queue = append(queue, pendingMigration{version: version, body: string(body), fullPath: fullPath})
+	}
+	if len(queue) == 0 {
+		return nil
+	}
+
+	baseline, err := fetchFKViolations(ctx, db)
+	if err != nil {
+		return fmt.Errorf("sqlite: fk chain baseline: %w", err)
+	}
+
+	// attribution maps a violation identity to the first migration
+	// that introduced it, for the chain-end error message.
+	attribution := make(map[string]string)
+	for _, m := range queue {
+		introduced, err := applyMigration(ctx, db, m.version, m.body)
+		if err != nil {
+			return fmt.Errorf("sqlite: apply migration %q: %w", m.fullPath, err)
 		}
+		for _, v := range introduced {
+			if _, dup := attribution[v.key()]; !dup {
+				attribution[v.key()] = m.version
+			}
+		}
+	}
+
+	final, err := fetchFKViolations(ctx, db)
+	if err != nil {
+		return fmt.Errorf("sqlite: fk chain final: %w", err)
+	}
+	if err := enforceChainFKDiff(baseline, final, attribution); err != nil {
+		return fmt.Errorf("sqlite: foreign_key_check: %w", err)
 	}
 	return nil
 }
@@ -430,6 +478,11 @@ func applyMigrationDown(ctx context.Context, db *sql.DB, version, body string) e
 // restores FK=ON before returning, and aborts when the down body
 // introduces new orphan rows (BEFORE/AFTER diff of
 // PRAGMA foreign_key_check; see enforceFKDiff).
+//
+// Known limitation (sqlite semantics, unchanged by T371): a down body
+// that DROPs a parent table whose children keep referencing it is
+// invisible here — foreign_key_check reports nothing once the parent
+// table itself is gone.
 func applyMigrationDownUnsafe(ctx context.Context, db *sql.DB, version, body string) error {
 	conn, err := db.Conn(ctx)
 	if err != nil {
@@ -498,12 +551,16 @@ func pathVersion(filename string) string {
 }
 
 // applyMigration executes body in a transaction and records the version.
+// It returns the foreign-key violations the body introduced (nil on the
+// plain FK=ON route — enforcement there aborts the statement anyway, so
+// introductions are impossible). The caller — Migrate — accumulates them
+// for chain-end enforcement; see enforceChainFKDiff.
 //
 // Migrations whose body contains `-- orenda:foreign_keys_off` are routed
 // through applyMigrationUnsafe(), which borrows a single connection
 // from the pool and runs the body under `PRAGMA foreign_keys = OFF`.
 // See the foreignKeysOffMarker doc for why.
-func applyMigration(ctx context.Context, db *sql.DB, version, body string) error {
+func applyMigration(ctx context.Context, db *sql.DB, version, body string) ([]fkViolation, error) {
 	if strings.Contains(body, foreignKeysOffMarker) {
 		// Strip the marker line whole — a mid-line marker would
 		// otherwise leave its trailing prose as bare SQL (T147).
@@ -511,21 +568,21 @@ func applyMigration(ctx context.Context, db *sql.DB, version, body string) error
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	if _, err := tx.ExecContext(ctx, body); err != nil {
-		return fmt.Errorf("exec body: %w", err)
+		return nil, fmt.Errorf("exec body: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO schema_migrations(version) VALUES (?)`, version); err != nil {
-		return fmt.Errorf("record version: %w", err)
+		return nil, fmt.Errorf("record version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit: %w", err)
+		return nil, fmt.Errorf("commit: %w", err)
 	}
-	return nil
+	return nil, nil
 }
 
 // applyMigrationUnsafe runs body under `PRAGMA foreign_keys = OFF` on a
@@ -538,17 +595,21 @@ func applyMigration(ctx context.Context, db *sql.DB, version, body string) error
 //
 // Safety nets:
 //   - `PRAGMA foreign_key_check` is snapshotted before the body (on
-//     the same conn) and re-read inside the tx after it; violations
-//     the body CREATED abort the migration and roll back the
-//     schema_migrations row (T371 diff-based check). Pre-existing
-//     violations are warned about, not fatal — see enforceFKDiff.
+//     the same conn) and re-read inside the tx after it. Violations
+//     the body CREATED are committed with a warning and REPORTED to
+//     the caller (Migrate defers enforcement to the end of the
+//     chain — see enforceChainFKDiff). Aborting here would strand
+//     legacy upgrades: 015 legitimately orphans the cafe board, and
+//     the cleanup migration 050 removes it later in the SAME run.
+//     Pre-existing violations are warned about too — they are not
+//     this migration's doing.
 //   - `PRAGMA foreign_keys = ON` is restored before the conn returns
 //     to the pool so subsequent queries on the same db handle honour
 //     FKs.
-func applyMigrationUnsafe(ctx context.Context, db *sql.DB, version, body string) error {
+func applyMigrationUnsafe(ctx context.Context, db *sql.DB, version, body string) ([]fkViolation, error) {
 	conn, err := db.Conn(ctx)
 	if err != nil {
-		return fmt.Errorf("unsafe borrow conn: %w", err)
+		return nil, fmt.Errorf("unsafe borrow conn: %w", err)
 	}
 	//nolint:contextcheck // runs from defer after ctx may be cancelled; the pragma restore must not depend on it.
 	defer func() {
@@ -559,7 +620,7 @@ func applyMigrationUnsafe(ctx context.Context, db *sql.DB, version, body string)
 		_ = conn.Close()
 	}()
 	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
-		return fmt.Errorf("unsafe pragma off: %w", err)
+		return nil, fmt.Errorf("unsafe pragma off: %w", err)
 	}
 	// BEFORE snapshot on the same borrowed conn the body will run on
 	// (the pool is single-conn, so this is deterministic). Diffing it
@@ -567,18 +628,18 @@ func applyMigrationUnsafe(ctx context.Context, db *sql.DB, version, body string)
 	// the violations this migration creates.
 	before, err := fetchFKViolations(ctx, conn)
 	if err != nil {
-		return fmt.Errorf("unsafe fk snapshot: %w", err)
+		return nil, fmt.Errorf("unsafe fk snapshot: %w", err)
 	}
 	// Run the body in a tx on the same conn — `defer_foreign_keys`
 	// inside the tx is unnecessary; we've already turned enforcement
 	// off for this connection.
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("unsafe begin: %w", err)
+		return nil, fmt.Errorf("unsafe begin: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, body); err != nil {
 		_ = tx.Rollback()
-		return fmt.Errorf("exec body: %w", err)
+		return nil, fmt.Errorf("exec body: %w", err)
 	}
 	// AFTER snapshot of PRAGMA foreign_key_check, inside the tx so it
 	// sees the body's uncommitted changes. This MUST be a Query: Exec
@@ -587,25 +648,25 @@ func applyMigrationUnsafe(ctx context.Context, db *sql.DB, version, body string)
 	after, err := fetchFKViolations(ctx, tx)
 	if err != nil {
 		_ = tx.Rollback()
-		return fmt.Errorf("foreign_key_check: %w", err)
+		return nil, fmt.Errorf("foreign_key_check: %w", err)
 	}
-	// Diff-based safety net: only violations this migration CREATED
-	// abort it. Pre-existing ones are warned about and left alone —
-	// legacy upgrades legitimately carry damage that later cleanup
-	// migrations (e.g. 050) remove within the same chain.
-	if err := enforceFKDiff(ctx, version, "up", before, after); err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("foreign_key_check: %w", err)
+	// Enforcement is deferred to the end of the Migrate chain: commit
+	// with a warning and report the introductions to the caller. Only
+	// errors (body, snapshot) roll back here.
+	introduced := newFKViolations(before, after)
+	if len(introduced) > 0 {
+		warnFKIntroductions(ctx, version, introduced)
 	}
+	warnStaleFKViolations(ctx, version, before, after)
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO schema_migrations(version) VALUES (?)`, version); err != nil {
 		_ = tx.Rollback()
-		return fmt.Errorf("record version: %w", err)
+		return nil, fmt.Errorf("record version: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit: %w", err)
+		return nil, fmt.Errorf("commit: %w", err)
 	}
-	return nil
+	return introduced, nil
 }
 
 // fkViolation is one row of `PRAGMA foreign_key_check` output: the
@@ -697,30 +758,26 @@ func newFKViolations(before, after []fkViolation) []fkViolation {
 	return out
 }
 
-// enforceFKDiff implements the runner's diff-based foreign-key
-// safety net for one migration:
-//
-//   - violations in after but not in before were introduced by this
-//     migration → loud error naming each offending row; the caller
-//     rolls the migration back;
-//   - violations already present in before are NOT this migration's
-//     doing → warning log only. Failing on them would strand legacy
-//     upgrades mid-chain on damage an earlier release shipped and a
-//     later cleanup migration (e.g. 050) removes in the same run.
-//
-// direction is "up" or "down"; it only decorates the messages.
-func enforceFKDiff(ctx context.Context, version, direction string, before, after []fkViolation) error {
-	fresh := newFKViolations(before, after)
-	if len(fresh) > 0 {
-		lines := make([]string, len(fresh))
-		for i, v := range fresh {
-			lines[i] = v.String()
-		}
-		return fmt.Errorf("migration %s (%s) introduced %d foreign key violation(s):\n%s",
-			version, direction, len(fresh), strings.Join(lines, "\n"))
+// warnFKIntroductions logs the violations a committed FK=OFF migration
+// created. Enforcement is deferred to the end of the Migrate chain
+// (enforceChainFKDiff) — aborting here would strand legacy upgrades
+// mid-chain on damage a later cleanup migration (e.g. 050) removes in
+// the same run.
+func warnFKIntroductions(ctx context.Context, version string, introduced []fkViolation) {
+	lines := make([]string, len(introduced))
+	for i, v := range introduced {
+		lines[i] = v.String()
 	}
-	// Report pre-existing violations that survived the migration, so
-	// operators see them in logs without the upgrade being blocked.
+	slog.WarnContext(ctx, "migration introduced foreign key violations; enforcement deferred to the end of the migrate chain",
+		"migration", version, "direction", "up",
+		"count", len(introduced), "violations", strings.Join(lines, "; "))
+}
+
+// warnStaleFKViolations logs pre-existing violations that survived the
+// migration, so operators see them without the run being blocked. They
+// are not the migration's doing — their cleanup belongs to the T369
+// verify pipeline and cleanup migrations like 050.
+func warnStaleFKViolations(ctx context.Context, version string, before, after []fkViolation) {
 	afterKeys := make(map[string]struct{}, len(after))
 	for _, v := range after {
 		afterKeys[v.key()] = struct{}{}
@@ -731,12 +788,61 @@ func enforceFKDiff(ctx context.Context, version, direction string, before, after
 			stale = append(stale, v.String())
 		}
 	}
-	if len(stale) > 0 {
-		slog.WarnContext(ctx, "migration left pre-existing foreign key violations untouched",
-			"migration", version, "direction", direction,
-			"count", len(stale), "violations", strings.Join(stale, "; "))
+	if len(stale) == 0 {
+		return
 	}
+	slog.WarnContext(ctx, "migration left pre-existing foreign key violations untouched",
+		"migration", version, "count", len(stale), "violations", strings.Join(stale, "; "))
+}
+
+// enforceFKDiff implements the down route's immediate foreign-key
+// safety net: the down body must not CREATE violations. Violations in
+// after but not in before → loud error naming each offending row; the
+// caller leaves the tx to roll back via defer. Pre-existing violations
+// are warned about, not fatal (the database may legitimately carry
+// damage from older releases).
+//
+// Down uses immediate enforcement (unlike the deferred up path)
+// because there is no "later in the chain" below the last migration —
+// nobody heals a down migration's damage, and 015/050 downs are
+// irreversible anyway.
+//
+// direction is "down"; it only decorates the messages.
+func enforceFKDiff(ctx context.Context, version, direction string, before, after []fkViolation) error {
+	fresh := newFKViolations(before, after)
+	if len(fresh) > 0 {
+		lines := make([]string, len(fresh))
+		for i, v := range fresh {
+			lines[i] = v.String()
+		}
+		return fmt.Errorf("migration %s (%s) introduced %d foreign key violation(s):\n%s",
+			version, direction, len(fresh), strings.Join(lines, "\n"))
+	}
+	warnStaleFKViolations(ctx, version, before, after)
 	return nil
+}
+
+// enforceChainFKDiff is the deferred up-route enforcement at the end of
+// a Migrate run: any violation present in final but not in the chain
+// baseline survived the whole chain — nobody healed it — so the run
+// fails loud. Each offending row is attributed to the migration that
+// introduced it when that migration reported the introduction;
+// unattributed rows (e.g. damage created by a plain FK=ON migration is
+// impossible, so this is defensive) render without attribution.
+func enforceChainFKDiff(baseline, final []fkViolation, attribution map[string]string) error {
+	fresh := newFKViolations(baseline, final)
+	if len(fresh) == 0 {
+		return nil
+	}
+	lines := make([]string, len(fresh))
+	for i, v := range fresh {
+		lines[i] = v.String()
+		if by, ok := attribution[v.key()]; ok {
+			lines[i] += fmt.Sprintf(" (introduced by migration %s, up)", by)
+		}
+	}
+	return fmt.Errorf("migrate chain ended with %d unresolved foreign key violation(s):\n%s",
+		len(fresh), strings.Join(lines, "\n"))
 }
 
 // AppliedVersions returns the sorted list of migration versions currently
