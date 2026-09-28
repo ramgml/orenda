@@ -216,7 +216,8 @@ func TestEnforceChainFKDiff(t *testing.T) {
 
 	// Healed: 015 introduced an orphan, 050 deleted it — final ==
 	// baseline minus nothing new → pass.
-	healed := []fkViolation{{table: "boards", rowid: "1", parent: "projects", fkid: "0"}}
+	healed := make([]fkViolation, 0, 2)
+	healed = append(healed, fkViolation{table: "boards", rowid: "1", parent: "projects", fkid: "0"})
 	require.NoError(t, enforceChainFKDiff(baseline, healed, map[string]string{baselineKey: "015_x"}))
 
 	// Unhealed introduction → loud error with attribution.
