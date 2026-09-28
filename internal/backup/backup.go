@@ -729,6 +729,52 @@ func SafetyCopyPath(destPath string, t time.Time) string {
 	return fmt.Sprintf("%s.pre-restore-%d", destPath, t.Unix())
 }
 
+// StagingPath returns the path a snapshot is restored into for
+// verification: next to the destination, on the same filesystem, so
+// the final promotion is an atomic rename (T374). Timestamped like
+// SafetyCopyPath — concurrent restores don't clobber each other's
+// staging copies. Shared by the CLI and the HTTP restore handler.
+func StagingPath(destPath string, t time.Time) string {
+	if destPath == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s.restore-staging-%d", destPath, t.Unix())
+}
+
+// CleanupStaging deletes the staging copy plus any sqlite sidecars
+// verification may have left next to it. Best-effort: the contract
+// that matters (the previous database was never touched) holds
+// regardless of cleanup errors.
+func CleanupStaging(path string) {
+	for _, side := range []string{path, path + "-wal", path + "-shm"} {
+		_ = os.Remove(side)
+	}
+}
+
+// CopyFile duplicates src to dst (creates dst if needed, truncates if
+// existing). Plain io.Copy + fsync; not atomic — used for the
+// pre-restore safety copy, where atomicity is irrelevant.
+func CopyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }() // read-side close: copy error, if any, already reported
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
 // IsServerRunning returns true when the orenda server is listening on
 // host:port. Used by the CLI to refuse in-place restore while the live
 // database is open.

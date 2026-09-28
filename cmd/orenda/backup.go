@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"time"
@@ -317,7 +316,7 @@ func runBackupRestoreWithVerify(cmd *cobra.Command, in restoreInput) error {
 	}
 
 	// Step 1: restore into the staging copy, not onto the destination.
-	staging := restoreStagingPath(in.To, time.Now())
+	staging := backup.StagingPath(in.To, time.Now())
 	if err := backup.New(backup.Config{
 		SnapshotDir: cfg.Backup.SnapshotDir,
 		DBPath:      cfg.ResolveDBPath("."),
@@ -333,7 +332,7 @@ func runBackupRestoreWithVerify(cmd *cobra.Command, in restoreInput) error {
 		// T374 contract: a failed verify never touches the destination.
 		// Drop the staging artifact; the T369 problem list passes
 		// through untouched.
-		removeRestoreStaging(staging)
+		backup.CleanupStaging(staging)
 		return fmt.Errorf("%w\nrestore stopped: staging copy removed, previous database left untouched", err)
 	}
 	fmt.Println("restore verify: ok (integrity + foreign keys)")
@@ -346,15 +345,15 @@ func runBackupRestoreWithVerify(cmd *cobra.Command, in restoreInput) error {
 	if isInPlace {
 		if _, statErr := os.Stat(in.To); statErr == nil {
 			safetyPath := backup.SafetyCopyPath(in.To, time.Now())
-			if err := copyFile(in.To, safetyPath); err != nil {
-				removeRestoreStaging(staging)
+			if err := backup.CopyFile(in.To, safetyPath); err != nil {
+				backup.CleanupStaging(staging)
 				return fmt.Errorf("backup restore: safety-copy %s: %w", safetyPath, err)
 			}
 			fmt.Printf("safety copy: %s\n", safetyPath)
 		}
 	}
 	if err := os.Rename(staging, in.To); err != nil {
-		removeRestoreStaging(staging)
+		backup.CleanupStaging(staging)
 		return fmt.Errorf("backup restore: swap in restored database: %w", err)
 	}
 	// Drop stale -wal/-shm sidecars of the destination so sqlite starts
@@ -367,28 +366,6 @@ func runBackupRestoreWithVerify(cmd *cobra.Command, in restoreInput) error {
 	}
 	fmt.Printf("restored: %s <- %s\n", in.To, in.From)
 	return nil
-}
-
-// restoreStagingPath returns the staging path a snapshot is restored
-// into for verification: next to the destination, on the same
-// filesystem, so the final promotion is an atomic rename (T374).
-// Timestamped like SafetyCopyPath — concurrent restores don't clobber
-// each other's staging copies.
-func restoreStagingPath(destPath string, t time.Time) string {
-	if destPath == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s.restore-staging-%d", destPath, t.Unix())
-}
-
-// removeRestoreStaging deletes the staging copy plus any sqlite
-// sidecars verification may have left next to it. Best-effort: the
-// contract that matters (the previous database was never touched)
-// holds regardless of cleanup errors.
-func removeRestoreStaging(path string) {
-	for _, side := range []string{path, path + "-wal", path + "-shm"} {
-		_ = os.Remove(side)
-	}
 }
 
 // verifyStagedRestore opens the staged copy, brings migrations up to
@@ -567,28 +544,4 @@ func nullString(ns sql.NullString) string {
 		return ns.String
 	}
 	return "NULL"
-}
-
-// copyFile duplicates src to dst (creates dst if needed, truncates if
-// existing). Plain io.Copy + fsync; not atomic — used only for the
-// pre-restore safety copy, where atomicity is irrelevant.
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = in.Close() }() // read-side close: copy error, if any, already reported
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		return err
-	}
-	if err := out.Sync(); err != nil {
-		_ = out.Close()
-		return err
-	}
-	return out.Close()
 }
