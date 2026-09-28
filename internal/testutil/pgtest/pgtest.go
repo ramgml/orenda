@@ -230,6 +230,10 @@ func startCluster(t testing.TB) (c *cluster, err error) {
 		}
 		c.admin = admin
 	} else {
+		// Stale sweep first (T370): reclaim temp clusters a killed
+		// predecessor left behind, never touching live or
+		// PREVIEW_OWNER-protected dirs (see sweep.go).
+		sweepStaleTestClusters(t)
 		// Embedded cluster: unique data dir and port per binary run, so
 		// a crashed predecessor can never wedge the next run.
 		port := freePort(t)
@@ -273,6 +277,10 @@ func startCluster(t testing.TB) (c *cluster, err error) {
 		c.embedded = emb
 		c.dataPath = dataPath
 		c.runtimePath = runtimePath
+		// Ownership marker (T370): lets the next binary's sweep tell
+		// this cluster's leftovers (dead owner) from in-flight starts,
+		// and pairs the runtime scratch for reclamation.
+		writeTestOwnerMarker(dataPath, port, runtimePath)
 		c.open = opts.Connection()
 		adminDSN, err := postgres.ResolveDSN(c.open)
 		if err != nil {

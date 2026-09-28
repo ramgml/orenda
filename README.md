@@ -286,7 +286,10 @@ server to be up — it owns the postmaster.
 `PGDATA` (embedded mode on a QA box) drops a `PREVIEW_OWNER` marker file
 into the data directory naming the instance/branch that owns the cluster —
 before wiping or re-initializing shared postgres data, check the marker
-first (after the T365 QA preview incident).
+first (after the T365 QA preview incident). Marker format, cleaner rules
+and the pgtest stale-sweep are specified in `docs/context/DOGFOOD.md`
+(QA-gate section); `scripts/pg-leak-snapshot.sh` snapshots the embedded
+cluster state for leak audits (T370).
 
 ### Run in Docker
 
