@@ -1,0 +1,10 @@
+-- ============================================================================
+-- 050_orphan_board_cleanup.down.sql — irreversible
+-- ============================================================================
+-- The up migration deletes boards (and their columns) whose project row
+-- is gone — rows orphaned by the FK-off run of 015. Reverting would
+-- require re-inserting board rows whose parent projects no longer
+-- exist, which either violates the boards→projects foreign key or
+-- reintroduces exactly the violation this migration exists to remove.
+--
+-- orenda:irreversible: re-inserting orphan boards would recreate the FK violation the up migration fixes
