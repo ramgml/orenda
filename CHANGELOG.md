@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Task 378:** release-gate lint больше не валит релизы на принятом долге dev — базлайн шага перенесён с `origin/main` на предыдущий релизный тег (`git describe --tags --abbrev=0 HEAD^`, resolve в merge-base с HEAD; при отсутствии достижимого тега — fallback на `origin/main` с warning, прежнее поведение), и шаг вычитает стоящий Phase 30.16 lint-инвентарь dev (полный прогон golangci-lint во временной worktree `origin/dev`): блокируют только issues, новые с прошлого релиза И отсутствующие на dev. Скрипт `scripts/ci/lint-release.sh` — один и тот же в CI (`workflow_dispatch`/PR-push main/теги `v*`) и локально. Триггер: релизный гейт v0.25.0 лёг на 3 `contextcheck`-issues, легитимно живущих на dev (run 36521959026). `make lint`/`make lint-new` не изменились.
+
 ## [0.25.0] — 2026-09-29
 
 ### Added

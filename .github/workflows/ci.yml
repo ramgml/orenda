@@ -11,8 +11,9 @@
 #   - `workflow_dispatch` runs the full pipeline on demand
 #
 # Jobs (release gate only — push-to-dev backstop runs `web-typecheck` + `test-full`):
-#   lint     — golangci-lint (new-vs-main on release-gate runs; full lint
-#              stays local as `make lint` debt inventory, Phase 30.16)
+#   lint     — golangci-lint (new-vs-previous-release-tag, minus the standing
+#              dev debt inventory — `scripts/ci/lint-release.sh`, Task 378;
+#              full lint stays local as `make lint` debt inventory, Phase 30.16)
 #   test     — web-typecheck + go test -race + vitest
 #   build    — make build (binary with embedded SPA)
 #   e2e      — Playwright against the built binary
@@ -21,7 +22,10 @@
 # when a PR gets force-pushed or amended.
 #
 # Pre-existing lint debt (≈71 issues on dev) is gated locally by `make lint-new`
-# (--new-from-rev, base ref origin/dev) — not blocked here. See Phase 30.16.
+# (--new-from-rev, base ref origin/dev) — not blocked here. The release gate
+# (Task 378) lints new-vs-previous-release-tag and additionally subtracts the
+# standing dev inventory, so accepted Phase 30.16 debt never fails a release;
+# issues dev does not carry yet do fail. See scripts/ci/lint-release.sh.
 name: ci
 
 on:
@@ -65,8 +69,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          # golangci-lint runs incremental vs origin/main — needs the
-          # base commit in the local history.
+          # Lint baseline needs full history: release tags (previous-release
+          # `git describe`) and origin/dev (standing debt inventory worktree).
           fetch-depth: 0
 
       - name: Setup Go
@@ -90,13 +94,17 @@ jobs:
         # via `go install` always matches the setup-go toolchain.
         run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 
-      - name: golangci-lint run (new vs main)
-        # Release gate — incremental against origin/main. golangci-lint v2
-        # removed --new-from-merge-base; resolve the merge-base ref to a SHA
-        # ourselves with --new-from-rev, mirroring `make lint-new` (Task 187).
-        run: |
-          git fetch --no-tags origin main
-          "$(go env GOPATH)/bin/golangci-lint" run --new-from-rev="$(git rev-parse origin/main)" ./...
+      - name: golangci-lint run (new vs previous release, minus dev debt)
+        # Release gate (Task 378): "what's new since the previous release
+        # tag" — baseline is `git describe --tags --abbrev=0 HEAD^`
+        # (merge-base with HEAD), NOT origin/main: a minor release's delta
+        # vs main is the whole epic plus churned dev debt, which made this
+        # job guaranteed red (v0.25.0, run 36521959026). The script also
+        # subtracts the standing Phase 30.16 dev lint inventory (full lint
+        # of a temporary origin/dev worktree), so accepted debt never
+        # blocks a release; issues dev does not carry yet fail the job.
+        # Same commands run locally: `scripts/ci/lint-release.sh`.
+        run: scripts/ci/lint-release.sh
 
       - name: npm ci
         working-directory: web
