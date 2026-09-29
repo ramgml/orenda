@@ -4,7 +4,7 @@
 # Installed by `make hooks` (sets core.hooksPath = scripts/git-hooks).
 # Runs on `git commit` in any worktree of this repo.
 #
-# Scope: cheap, deterministic formatting checks on STAGED content only.
+# Scope: cheap, deterministic checks on STAGED content only.
 # Goal: <2s on a typical commit. Heavy gates (lint v2 --new-from-rev,
 # go test -race, vitest) live in pre-push.
 #
@@ -15,6 +15,10 @@
 #   staged *.ts/*.tsx/*.css → prettier --check  (skip with warning if
 #                              web/node_modules is missing — fresh clone
 #                              before `npm install`)
+#   staged *.ts/*.tsx     → eslint --max-warnings=0 via `make
+#                              web-lint-staged` (Task 382; warning=block,
+#                              same fresh-clone skip policy as prettier,
+#                              broken eslint install = hard fail)
 #   staged *.go          → gofmt -l  (non-empty output = blocks commit)
 #
 # Exits non-zero to block the commit. Set SKIP_ORENDA_HOOKS=1 to bypass
@@ -107,6 +111,20 @@ if (( ${#WEB_FILES[@]} > 0 )); then
       echo "  fix: (cd web && npm run format), or SKIP_ORENDA_HOOKS=1 to bypass" >&2
       block=1
     fi
+  fi
+fi
+
+# --- eslint --max-warnings=0 on staged web *.ts/*.tsx (Task 382) ----------
+# Thin call: all three states live in `make web-lint-staged` — no staged
+# web .ts/.tsx → instant skip; web/node_modules missing → loud skip
+# (same fresh-clone policy as prettier above); node_modules present but
+# the eslint binary missing (broken npm install) → hard failure.
+if (( ${#WEB_FILES[@]} > 0 )); then
+  if ! make web-lint-staged; then
+    echo "pre-commit: eslint failed on staged web files — commit blocked." >&2
+    echo "  fix: resolve the reported issues (warnings count — the gate is --max-warnings=0)," >&2
+    echo "       or SKIP_ORENDA_HOOKS=1 to bypass" >&2
+    block=1
   fi
 fi
 
