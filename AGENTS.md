@@ -77,10 +77,18 @@ Hook contract:
 
 | Hook        | Runs on        | Checks                                                            | Cost       |
 |-------------|----------------|-------------------------------------------------------------------|------------|
-| `pre-commit`| `git commit`   | `gofmt -l` on staged `.go` + `prettier --check` on staged web     | <2 s       |
+| `pre-commit`| `git commit`   | `gofmt -l` on staged `.go` + `prettier --check` + `eslint --max-warnings=0` (`make web-lint-staged`) on staged web | <2 s       |
 | `pre-push`  | `git push`     | `make lint-new` + `make web-typecheck` + `make web-knip` + `make test` | ~1 min cold, seconds warm |
   `make lint` / `make lint-new` require **golangci-lint ≥ v2** (`.golangci.yml` carries `version: "2"` — the v1 binary fails the config schema). Install:
   `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`
+
+`make web-lint-staged` (Task 382) is the pre-commit eslint gate: `eslint
+--max-warnings=0` on staged `web/*.ts/*.tsx` only, so a warning in new
+code blocks the commit while pre-existing debt outside the staging area
+never does. No staged web sources → instant skip; missing
+`web/node_modules` → loud skip (fresh clone — run `make web-install`);
+node_modules present but the eslint binary gone (broken install) → hard
+failure.
 
 Deletion-only pushes (e.g. `git push origin --delete <branch>`) skip
 the gates entirely — no code crosses the wire, so there is nothing to
@@ -239,7 +247,7 @@ Full version: [[docs/context/GITFLOW.md]]. The short form:
 
 - **Isolation:** worktree per task (next section) = parallel agents don't see each other; each has its own checkout, its own preview port from `21400–21499` (`:2137` usage, `:2138` dev, `:21371` E2E are taken), its own `data/orenda.db`.
 - **Small batches:** commit early/often; a branch lives hours, not weeks — a big long-lived diff collides with every other agent's work.
-- **Local gates, not CI:** `pre-commit` (gofmt + prettier) and `pre-push` (`make lint-new` + `make web-typecheck` + `make test`) are the per-PR gate — see «Local gates» above. Agent does not wait on CI; `--no-verify` is forbidden; CI silence on PR-to-dev is intentional.
+- **Local gates, not CI:** `pre-commit` (gofmt + prettier + eslint) and `pre-push` (`make lint-new` + `make web-typecheck` + `make test`) are the per-PR gate — see «Local gates» above. Agent does not wait on CI; `--no-verify` is forbidden; CI silence on PR-to-dev is intentional.
 - **Sync review:** open the PR as soon as the branch is ready; PM reviews immediately, the owner merges. Don't stack unreviewed PRs.
 - **Cleanup:** after merge — `git worktree remove` + `git worktree prune`; remove your remote branch if it survived. An abandoned branch is garbage (example: `fix-tag-v0.15.0`, a leftover of the old hotfix practice, since cleaned up). PM watches tree hygiene.
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   api,
@@ -67,11 +67,18 @@ export function BackupsSettingsPage(): JSX.Element {
 
   // We only want the form to mirror the server state on the *initial*
   // load — once the operator starts typing, the form state is theirs
-  // until they hit Save (or refresh the page). We track this with a
-  // `formInitialized` flag.
-  const [formInitialized, setFormInitialized] = useState(false);
+  // until they hit Save (or refresh the page). We track this with an
+  // initialized flag. T380: a ref, not state — the only reader is
+  // `load` below, and a ref lets `load` be a stable useCallback
+  // (exhaustive-deps) without re-running the initial-fetch effect or
+  // double-fetching on mount.
+  const formInitializedRef = useRef(false);
 
-  async function load(): Promise<void> {
+  // T380: useCallback so the initial-fetch effect can list `load` in
+  // its deps (react-hooks/exhaustive-deps) without the effect re-firing
+  // on every render. Deps are empty on purpose: everything referenced
+  // is a state setter (stable) or the ref above.
+  const load = useCallback(async (): Promise<void> => {
     try {
       const [s, snaps, l, status] = await Promise.all([
         api.getBackupSettings(),
@@ -84,7 +91,7 @@ export function BackupsSettingsPage(): JSX.Element {
       setLog(l.log ?? []);
       setStatus(status);
       setError(null);
-      if (!formInitialized) {
+      if (!formInitializedRef.current) {
         setFormEnabled(s.enabled);
         setFormRemoteUrl(s.remote_url);
         // Don't pre-fill the auth field — it's a secret, the
@@ -96,16 +103,16 @@ export function BackupsSettingsPage(): JSX.Element {
         // hard-coded default so the form has something visible.
         setFormSnapshotCron(s.snapshot_cron || '0 3 * * *');
         setFormRotationDays(s.snapshot_rotation_days);
-        setFormInitialized(true);
+        formInitializedRef.current = true;
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }
+  }, []);
 
   useEffect(() => {
-    load();
-  }, []);
+    void load();
+  }, [load]);
 
   async function onTestPush(): Promise<void> {
     setBusy('push');
