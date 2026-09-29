@@ -125,10 +125,14 @@ components:
         status:
           type: string
           description: |
-            Canonical status (`backlog|todo|in_progress|review|done|blocked`)
-            or a project-defined column machine key. `blocked` (Task 115)
+            Canonical status (`backlog|todo|in_progress|review|done|rejected|blocked`)
+            or a project-defined column machine key. `rejected` (Task 376,
+            PRD F-T-3) is the human-only parking column for declined work:
+            entering it clears awaiting to `none`, never stamps
+            `completed_at`, and the rejected → todo drag revives the card.
+            `blocked` (Task 115)
             is set automatically when an unfinished blocker is added and
-            the task is not already done/blocked; it is restored when the
+            the task is not already done/rejected/blocked; it is restored when the
             last unfinished blocker goes away, or overridden by a manual
             move (which clears `blocked_prev_status`).
         blocked_prev_status:
@@ -2410,11 +2414,17 @@ paths:
   /api/v1/backups/restore:
     post:
       tags: [backups]
-      summary: Restore from snapshot (server must be stopped; returns CLI hint otherwise).
+      summary: >-
+        Restore/verify from snapshot. sqlite (maintenance + force): swap the live
+        file, verify, report "restored". postgres: restore the pg_dump archive
+        into a scratch database and verify it, report "verified" — the live
+        database is untouched; promote via `orenda backup restore --to <database>`.
       security: [{ bearerAuth-cookie: [] }]
       responses:
-        '200': { description: ok }
+        '200':
+          description: ok (status=restored on sqlite, status=verified on postgres)
         '409': { description: server_running (returns hint) }
+        '422': { description: verify_failed }
 
   /api/v1/backups/log:
     get:

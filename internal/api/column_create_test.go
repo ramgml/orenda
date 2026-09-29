@@ -40,16 +40,16 @@ func TestCreateColumn_Success(t *testing.T) {
 	assert.Equal(t, "#0ea5e9", out.Color)
 	assert.NotZero(t, out.Position, "repo should assign a non-zero position")
 
-	// Board now has the default 5 + new "QA" = 6.
+	// Board now has the default 6 (T376 added rejected) + new "QA" = 7.
 	rr = authedBoardReq(f.router, f.cookie, f.projectID)
 	require.Equal(t, http.StatusOK, rr.Code)
 	var board struct {
 		Columns []project.Column `json:"columns"`
 	}
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&board))
-	require.Len(t, board.Columns, 6)
-	assert.Equal(t, "QA", board.Columns[5].Name)
-	assert.Greater(t, board.Columns[5].Position, board.Columns[4].Position,
+	require.Len(t, board.Columns, len(project.DefaultColumns)+1)
+	assert.Equal(t, "QA", board.Columns[len(board.Columns)-1].Name)
+	assert.Greater(t, board.Columns[len(board.Columns)-1].Position, board.Columns[len(board.Columns)-2].Position,
 		"new column should land after existing ones")
 }
 

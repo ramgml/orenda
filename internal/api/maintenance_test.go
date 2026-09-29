@@ -90,6 +90,38 @@ func TestMaintenance_AllowsToggleDuringMaintenance(t *testing.T) {
 	assert.False(t, IsMaintenanceOn())
 }
 
+// TestMaintenance_AllowsRestoreDuringMaintenance pins the T366
+// middleware exemption: POST /api/v1/backups/restore reaches its
+// handler under maintenance — it is the one write designed to run
+// there (it self-gates on force=true + maintenance-on). Before the
+// exemption the middleware 503'd it first, making the documented
+// maintenance/on → restore flow unreachable over HTTP.
+func TestMaintenance_AllowsRestoreDuringMaintenance(t *testing.T) {
+	t.Cleanup(func() { MaintenanceOff() })
+
+	mux := chi.NewRouter()
+	mux.Use(maintenanceMiddleware)
+	mux.Post("/api/v1/maintenance/on", maintenanceToggleHandler("on"))
+	mux.Post("/api/v1/backups/restore", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot) // handler-reached marker
+	})
+	mux.Post("/api/v1/backups/snapshot", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	})
+
+	// MaintenanceOn reports the PREVIOUS state: false = freshly flipped.
+	assert.False(t, MaintenanceOn())
+	assert.True(t, IsMaintenanceOn())
+
+	// The restore POST passes the middleware (418 = the stub ran).
+	rr := doReqMaint(mux, "/api/v1/backups/restore", "")
+	assert.Equal(t, http.StatusTeapot, rr.Code)
+
+	// Every other backup write stays blocked.
+	rr = doReqMaint(mux, "/api/v1/backups/snapshot", "")
+	assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
+}
+
 // doReqMaint is a tiny helper for the maintenance tests — no
 // cookie, no body, just a path.
 func doReqMaint(router http.Handler, path, _ string) *httptest.ResponseRecorder {

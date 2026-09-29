@@ -1,0 +1,20 @@
+services:
+  app:
+    build: .
+    image: orenda:local
+    ports:
+      - "${ORENDA_PORT:-2137}:2137"
+    environment:
+      # The container must listen on all interfaces or the port mapping
+      # never reaches the server (image defaults to 127.0.0.1).
+      ORENDA_SERVER__HOST: 0.0.0.0
+      ORENDA_SERVER__PORT: "2137"
+      # `orenda serve` refuses to start without a JWT secret — no unsafe
+      # default here on purpose. Generate one: openssl rand -hex 32
+      ORENDA_AUTH__JWT_SECRET: ${ORENDA_AUTH__JWT_SECRET:?set ORENDA_AUTH__JWT_SECRET, e.g. openssl rand -hex 32}
+    volumes:
+      - orenda-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  orenda-data:

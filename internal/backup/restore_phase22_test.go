@@ -30,6 +30,19 @@ func TestSafetyCopyPath(t *testing.T) {
 	assert.Equal(t, "", backup.SafetyCopyPath("", ts))
 }
 
+// TestStagingPath pins the T374 staging-copy naming shared by the CLI
+// and the HTTP restore handler: next to the destination (same
+// filesystem → atomic rename), timestamped so concurrent restores
+// don't clobber each other's staging copies.
+func TestStagingPath(t *testing.T) {
+	ts := time.Unix(1717000000, 0)
+	got := backup.StagingPath("/var/lib/orenda/orenda.db", ts)
+	assert.Equal(t, "/var/lib/orenda/orenda.db.restore-staging-1717000000", got)
+
+	// Empty path → empty result (same guard as SafetyCopyPath).
+	assert.Equal(t, "", backup.StagingPath("", ts))
+}
+
 // TestRestoreWithVerify_SnapshotToDataRoundtrip: end-to-end happy
 // path. Write some data, snapshot it, modify the live DB, restore
 // the snapshot back, verify the snapshot's data is on disk AND the

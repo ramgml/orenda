@@ -18,9 +18,23 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ramgml/orenda/internal/service/search"
+	"github.com/ramgml/orenda/internal/storage/postgres"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 	"github.com/ramgml/orenda/internal/testutil"
+	"github.com/ramgml/orenda/internal/testutil/pgtest"
 )
+
+// newSearchRepository builds the full-text search repository for the
+// active matrix driver (T365): sqlite FTS5 on the sqlite leg, the
+// postgres tsvector repo on the postgres leg — the same dispatch the
+// storage seam performs in production.
+func newSearchRepository(db *sql.DB) search.Repository {
+	if pgtest.ActiveDriver() == pgtest.DriverPostgres {
+		return postgres.NewSearchRepository(db)
+	}
+	return sqlite.NewSearchRepository(db)
+}
 
 // ensureTemplateDB returns the shared template path via the testutil
 // builder (T147: one implementation across packages; the copy step
@@ -30,11 +44,15 @@ func ensureTemplateDB(t *testing.T) string {
 	return testutil.TemplateDBPath(t)
 }
 
-// copyTemplateDB copies the pre-migrated template to a fresh temp
-// directory and returns (*sql.DB, tempDir).  The caller must close
-// the DB via t.Cleanup.
+// copyTemplateDB returns the fixture database for the active matrix
+// driver (sqlite template copy or postgres template clone — T364)
+// plus a scratch directory for file-based fixtures. Cleanup is
+// registered for the DB.
 func copyTemplateDB(t *testing.T) (*sql.DB, string) {
 	t.Helper()
+	if pgtest.ActiveDriver() == pgtest.DriverPostgres {
+		return testutil.MatrixDB(t), t.TempDir()
+	}
 	src := ensureTemplateDB(t)
 	dir := t.TempDir()
 	dst := filepath.Join(dir, "orenda.db")

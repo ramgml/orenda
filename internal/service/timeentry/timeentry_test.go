@@ -49,7 +49,7 @@ func setupTimeSvc(t *testing.T) (*timeentrysvc.Service, string, string, task.Rep
 
 func setupTimeSvcFull(t *testing.T) (*timeentrysvc.Service, string, string, task.Repository, *sql.DB) {
 	t.Helper()
-	db, _ := testutil.TemplateDBOpen(t)
+	db := testutil.MatrixDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	owner := &user.User{

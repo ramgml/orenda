@@ -68,7 +68,7 @@ func TestSearchPayload_PageHitsCarrySlug(t *testing.T) {
 		Users:         users,
 		Tokens:        sqlite.NewAPITokenRepository(db),
 		WikiService:   wikiservice.New(wikis, hub),
-		SearchService: searchservice.New(sqlite.NewSearchRepository(db), hub),
+		SearchService: searchservice.New(newSearchRepository(db), hub),
 		CookieName:    "orenda_session",
 	}
 	router := api.NewRouter(deps)

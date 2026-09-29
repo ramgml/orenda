@@ -1031,7 +1031,11 @@ func (r *taskRepo) CreateTag(ctx context.Context, t *task.Tag) error {
 		`INSERT INTO tags (id, name, color) VALUES (?, ?, ?)`,
 		t.ID, t.Name, nullString(t.Color))
 	if err != nil {
-		// UNIQUE(name) violation surfaces here; callers translate to 409.
+		// UNIQUE(name) violation → neutral sentinel; the API layer
+		// errors.Is against storage.ErrUniqueViolation for its 409.
+		if IsUniqueViolation(err) {
+			return ErrUniqueViolation
+		}
 		return fmt.Errorf("task.CreateTag: %w", err)
 	}
 	return nil
@@ -1045,6 +1049,9 @@ func (r *taskRepo) UpdateTag(ctx context.Context, t *task.Tag) error {
 		`UPDATE tags SET name = ?, color = ? WHERE id = ?`,
 		t.Name, nullString(t.Color), t.ID)
 	if err != nil {
+		if IsUniqueViolation(err) {
+			return ErrUniqueViolation
+		}
 		return fmt.Errorf("task.UpdateTag: %w", err)
 	}
 	n, err := res.RowsAffected()
@@ -1260,7 +1267,7 @@ func (r *taskRepo) AddDependency(ctx context.Context, taskID, dependsOnID string
 		// Idempotent: a duplicate INSERT fails with UNIQUE constraint.
 		// Detect that case and report ErrDependencyExists so the
 		// service can stay quiet about it.
-		if isUniqueViolation(err) {
+		if IsUniqueViolation(err) {
 			return task.ErrDependencyExists
 		}
 		return fmt.Errorf("task.AddDependency: %w", err)
@@ -1419,7 +1426,7 @@ func (r *taskRepo) Dependents(ctx context.Context, taskID string) ([]string, err
 	return out, rows.Err()
 }
 
-// (isUniqueViolation lives in helpers.go — modernc doesn't expose a
+// (IsUniqueViolation lives in helpers.go — modernc doesn't expose a
 // typed error for UNIQUE failures, so the helper just does a substring
 // match. We reuse it from the AddDependency dedupe path.)
 

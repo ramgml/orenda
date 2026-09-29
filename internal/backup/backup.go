@@ -39,6 +39,18 @@ var (
 	ErrNotSQLite     = errors.New("backup: source is not a valid sqlite database")
 )
 
+// Dialect names the snapshot strategy the service runs. It mirrors the
+// storage seam's dialects by name ("sqlite", "postgres") but is
+// declared locally — backup deliberately does not import the seam.
+type Dialect string
+
+// Supported snapshot dialects. The zero value behaves as sqlite (the
+// historic default; every pre-T366 Config literal keeps its meaning).
+const (
+	DialectSQLite   Dialect = "sqlite"
+	DialectPostgres Dialect = "postgres"
+)
+
 // Config drives the backup behaviour.
 type Config struct {
 	// MirrorDir is the directory with the markdown mirror (data/mirror).
@@ -66,6 +78,15 @@ type Config struct {
 	// DefaultSchedule ("0 3 * * *"). Hot-reloadable via
 	// UpdateConfig — Phase 32.7.
 	SnapshotCron string
+
+	// Dialect selects the snapshot strategy: sqlite (default when
+	// empty) snapshots via VACUUM INTO; postgres shells out to
+	// pg_dump --format=custom (T366, wiki:storage-adapters D8).
+	Dialect Dialect
+
+	// Postgres carries the pg_dump/pg_restore connection target and
+	// binary override. Only read on the postgres dialect.
+	Postgres PostgresConfig
 }
 
 // Service bundles the dependencies.
@@ -118,6 +139,15 @@ func (s *Service) UpdateConfig(cfg Config) {
 // "in-memory default" against which DB overrides are merged.
 func (s *Service) Config() Config {
 	return s.getCfg()
+}
+
+// Dialect reports the snapshot strategy the service is wired for.
+// Empty config means sqlite — the historic default.
+func (s *Service) Dialect() Dialect {
+	if d := s.getCfg().Dialect; d != "" {
+		return d
+	}
+	return DialectSQLite
 }
 
 // ----------------------------------------------------------------------------
@@ -244,12 +274,17 @@ func (s *Service) PushWithSnapshot(ctx context.Context) error {
 	}
 
 	// Stage the snapshot in the mirror. The mirror's snapshots/
-	// directory is created on first use and is git-tracked.
+	// directory is created on first use and is git-tracked. The
+	// LATEST name carries the dialect's extension so a mirror can
+	// hold both kinds without one shadowing the other.
 	snapshotsDir := filepath.Join(cfg.MirrorDir, "snapshots")
 	if err := os.MkdirAll(snapshotsDir, 0o755); err != nil {
 		return fmt.Errorf("backup push --with-snapshots: mkdir mirror/snapshots: %w", err)
 	}
 	dstName := "orenda-LATEST.db"
+	if s.Dialect() == DialectPostgres {
+		dstName = "orenda-LATEST.dump"
+	}
 	dstPath := filepath.Join(snapshotsDir, dstName)
 	if err := copyFile(snapPath, dstPath); err != nil {
 		return fmt.Errorf("backup push --with-snapshots: copy to mirror: %w", err)
@@ -389,10 +424,22 @@ func (s *Service) schemaVersion(ctx context.Context) int {
 // SQLite snapshot (7.4)
 // ----------------------------------------------------------------------------
 
-// Snapshot creates a SQLite backup file at
-// SnapshotDir/orenda-YYYYMMDD-HHMMSS.db and rotates old snapshots per
-// cfg.SnapshotRotationDays. Returns the path written.
+// Snapshot creates a database snapshot at
+// SnapshotDir/orenda-YYYYMMDD-HHMMSS.{db,dump} and rotates old
+// snapshots per cfg.SnapshotRotationDays. The strategy dispatches on
+// the configured dialect: sqlite uses VACUUM INTO (snapshotSQLite),
+// postgres shells out to pg_dump --format=custom (snapshotPostgres) —
+// both share the naming and mtime-rotation convention (D8).
 func (s *Service) Snapshot(ctx context.Context) (string, error) {
+	if s.Dialect() == DialectPostgres {
+		return s.snapshotPostgres(ctx)
+	}
+	return s.snapshotSQLite(ctx)
+}
+
+// snapshotSQLite is the sqlite leg: VACUUM INTO produces a consistent
+// online snapshot of the live database.
+func (s *Service) snapshotSQLite(ctx context.Context) (string, error) {
 	if s.getCfg().DBPath == "" {
 		return "", ErrInvalidInput
 	}
@@ -419,24 +466,32 @@ func (s *Service) Snapshot(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("backup snapshot: %w", err)
 	}
 
-	// Rotate.
-	if s.getCfg().SnapshotRotationDays > 0 {
-		cutoff := time.Now().AddDate(0, 0, -s.getCfg().SnapshotRotationDays)
-		entries, err := os.ReadDir(s.getCfg().SnapshotDir)
-		if err == nil {
-			for _, e := range entries {
-				info, err := e.Info()
-				if err != nil {
-					continue
-				}
-				if info.ModTime().Before(cutoff) {
-					_ = os.Remove(filepath.Join(s.getCfg().SnapshotDir, e.Name()))
-				}
-			}
-		}
-	}
+	rotateSnapshots(s.getCfg().SnapshotDir, s.getCfg().SnapshotRotationDays)
 
 	return dst, nil
+}
+
+// rotateSnapshots removes files in dir whose mtime is older than days.
+// Both snapshot dialects share this convention (same SnapshotDir, same
+// names) — D8. No-op when days <= 0.
+func rotateSnapshots(dir string, days int) {
+	if days <= 0 {
+		return
+	}
+	cutoff := time.Now().AddDate(0, 0, -days)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }
 
 // ListSnapshots returns snapshot files ordered newest-first.
@@ -450,7 +505,9 @@ func (s *Service) ListSnapshots(ctx context.Context) ([]SnapshotInfo, error) {
 	}
 	out := make([]SnapshotInfo, 0, len(entries))
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".db") {
+		// ".db" — sqlite VACUUM INTO snapshots; ".dump" — pg_dump
+		// custom-format archives (T366). Both live in SnapshotDir.
+		if e.IsDir() || (!strings.HasSuffix(e.Name(), ".db") && !strings.HasSuffix(e.Name(), ".dump")) {
 			continue
 		}
 		info, err := e.Info()
@@ -672,6 +729,52 @@ func SafetyCopyPath(destPath string, t time.Time) string {
 	return fmt.Sprintf("%s.pre-restore-%d", destPath, t.Unix())
 }
 
+// StagingPath returns the path a snapshot is restored into for
+// verification: next to the destination, on the same filesystem, so
+// the final promotion is an atomic rename (T374). Timestamped like
+// SafetyCopyPath — concurrent restores don't clobber each other's
+// staging copies. Shared by the CLI and the HTTP restore handler.
+func StagingPath(destPath string, t time.Time) string {
+	if destPath == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s.restore-staging-%d", destPath, t.Unix())
+}
+
+// CleanupStaging deletes the staging copy plus any sqlite sidecars
+// verification may have left next to it. Best-effort: the contract
+// that matters (the previous database was never touched) holds
+// regardless of cleanup errors.
+func CleanupStaging(path string) {
+	for _, side := range []string{path, path + "-wal", path + "-shm"} {
+		_ = os.Remove(side)
+	}
+}
+
+// CopyFile duplicates src to dst (creates dst if needed, truncates if
+// existing). Plain io.Copy + fsync; not atomic — used for the
+// pre-restore safety copy, where atomicity is irrelevant.
+func CopyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }() // read-side close: copy error, if any, already reported
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
 // IsServerRunning returns true when the orenda server is listening on
 // host:port. Used by the CLI to refuse in-place restore while the live
 // database is open.
@@ -699,7 +802,7 @@ func IsServerRunning(ctx context.Context, host string, port int) bool {
 // helpers
 // ----------------------------------------------------------------------------
 
-// parseTime is a copy of the shared helper from internal/storage/sqlite.
+// parseTime is a copy of the shared helper from the storage driver.
 // We duplicate it here so backup doesn't import storage.
 func parseTime(s string) time.Time {
 	if s == "" {

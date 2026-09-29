@@ -46,7 +46,9 @@ import (
 	coursedomain "github.com/ramgml/orenda/internal/domain/course"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
+	"github.com/ramgml/orenda/internal/domain/timeentry"
 	"github.com/ramgml/orenda/internal/domain/user"
+	"github.com/ramgml/orenda/internal/llm"
 	"github.com/ramgml/orenda/internal/mirror"
 	activityservice "github.com/ramgml/orenda/internal/service/activity"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
@@ -65,7 +67,7 @@ import (
 	timeentryservice "github.com/ramgml/orenda/internal/service/timeentry"
 	tutorsvc "github.com/ramgml/orenda/internal/service/tutor"
 	wikiservice "github.com/ramgml/orenda/internal/service/wiki"
-	"github.com/ramgml/orenda/internal/storage/sqlite"
+	"github.com/ramgml/orenda/internal/storage"
 
 	activitydomain "github.com/ramgml/orenda/internal/domain/activity"
 	attachmentdomain "github.com/ramgml/orenda/internal/domain/attachment"
@@ -77,15 +79,15 @@ import (
 type apiAttachmentResult = api.AttachmentResult
 type apiAttachment = api.AttachmentService
 
-// tokenMinterFor adapts the concrete sqlite.APITokenRepo to the agent
+// tokenMinterFor adapts the concrete APITokenRepo (sqlite driver) to the agent
 // service's TokenMinter interface by projecting the StoredToken row
 // to (id, name, err).
-func tokenMinterFor(repo *sqlite.APITokenRepo) agentservice.TokenMinter {
+func tokenMinterFor(repo *storage.APITokenRepo) agentservice.TokenMinter {
 	return sqliteTokenMinterAdapter{repo: repo}
 }
 
 type sqliteTokenMinterAdapter struct {
-	repo *sqlite.APITokenRepo
+	repo *storage.APITokenRepo
 }
 
 func (a sqliteTokenMinterAdapter) MintToken(ctx context.Context, userID, name, hash, scopesJSON string, expiresAt *time.Time) (tokenID, tokenName string, err error) {
@@ -604,7 +606,7 @@ func applyStartupBackupSettings(ctx context.Context, svc *backup.Service, db *sq
 	if svc == nil || db == nil {
 		return
 	}
-	repo := sqlite.NewBackupSettingsRepository(db)
+	repo := storage.NewBackupSettingsRepository(db)
 	cfg := svc.Config()
 	updated := cfg
 
@@ -680,7 +682,16 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		zap.String("addr", net.JoinHostPort(cfg.Server.Host, strconv.Itoa(cfg.Server.Port))),
 	)
 
-	db, err := serveOpenDB(cmd.Context(), cfg, logger, absCfg)
+	// Embedded postgres runtime: the cluster must be up before the
+	// database opens, and stops with the server (same shutdown path —
+	// runServe returns after the HTTP listener drained).
+	stopEmbedded, err := startEmbeddedIfConfigured(cfg, logger, cwdOr(absCfg, "."))
+	if err != nil {
+		return err
+	}
+	defer stopEmbedded()
+
+	db, dialect, err := serveOpenDB(cmd.Context(), cfg, logger, absCfg)
 	if err != nil {
 		return err
 	}
@@ -690,7 +701,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// actor (study_proposals.created_by_agent FK). Runtime ensure,
 	// by the ensureOwner precedent — migrations must not create
 	// users (015 invariant).
-	if err := sqlite.EnsureChatActor(cmd.Context(), db); err != nil {
+	if err := storage.EnsureChatActor(cmd.Context(), db); err != nil {
 		return err
 	}
 
@@ -701,10 +712,10 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// and user, so there's nothing to bootstrap here.
 
 	// Build repositories.
-	users := sqlite.NewUserRepository(db)
-	projects := sqlite.NewProjectRepository(db)
-	tasksRepo := sqlite.NewTaskRepository(db)
-	tokens := sqlite.NewAPITokenRepository(db)
+	users := storage.NewUserRepository(db)
+	projects := storage.NewProjectRepository(db)
+	tasksRepo := storage.NewTaskRepository(db)
+	tokens := storage.NewAPITokenRepository(db)
 	usersRaw := users // *userRepo for FirstID; api takes the domain interface
 
 	// Signal-aware ctx created early so the backup scheduler
@@ -713,7 +724,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	backupSvc, backupScheduler, err := serveBackupIfEnabled(cmd.Context(), ctx, cfg, logger, db)
+	backupSvc, backupScheduler, err := serveBackupIfEnabled(cmd.Context(), ctx, cfg, logger, db, dialect)
 	if err != nil {
 		return err
 	}
@@ -731,9 +742,9 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Claim/Release/Submit/Review — wired with locks repo, Recorder/Comments
 	// land in 3.7/3.9).
 	hub := ws.NewHub()
-	taskLocks := sqlite.NewTaskLockRepository(db)
-	commentSvc := commentservice.New(sqlite.NewCommentRepository(db), hub, nil)
-	activityRepo := sqlite.NewActivityRepository(db)
+	taskLocks := storage.NewTaskLockRepository(db)
+	commentSvc := commentservice.New(storage.NewCommentRepository(db), hub, nil)
+	activityRepo := storage.NewActivityRepository(db)
 	activityRecorder := activityservice.New(activityRepo)
 	// Phase 31.4: study service — proposal materialisation (Accept)
 	// reads/writes task rows through tasksRepo, so we pass the same
@@ -741,22 +752,22 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// the WS fan-out so accept/dismiss events reach the Dashboard
 	// tray in real time.
 	studySvc := studyservice.New(
-		sqlite.NewStudyProposalRepository(db),
-		sqlite.NewTaskRepository(db),
+		storage.NewStudyProposalRepository(db),
+		storage.NewTaskRepository(db),
 		hub,
 		nil, // task_service.Recorder would be a circular adapter; accept/dismiss don't audit-row
 	)
 	// Task 87: the raw time-entry repo is shared — the timeentry
 	// service wraps it for the timer API, the task service uses it
 	// directly for the status-driven auto-timer.
-	timeEntryRepo := sqlite.NewTimeEntryRepository(db)
+	timeEntryRepo := storage.NewTimeEntryRepository(db)
 	taskSvc := taskservice.New(tasksRepo, taskLocks, taskRecorderFor(activityRecorder), commentAdderFor(commentSvc), hub)
 	taskSvc.Logger = logger
 	taskSvc.Time = timeEntryRepo // Task 87: status-driven auto-timer
 	// T356: spent fallback on the task read surface — derived
 	// time_spent_s for entry-less legacy tasks (virtual stamp).
 	taskSvc.Spent = taskservice.SpentFallbackAdapter{
-		Statuses: activityRepo.(*sqlite.ActivityRepo),
+		Statuses: activityRepo.(timeentry.StatusSpentSource),
 		Gate:     timeEntryRepo,
 	}
 	taskSvc.Mirror = mirrorSvc
@@ -772,7 +783,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// project_activity rows (kind=description_changed + before/after
 	// diff). IdentitySource reads from api.Identity (the same key the
 	// auth middleware uses) so the row carries actor_type=agent.
-	projectActivityRepo := sqlite.NewProjectActivityRepository(db)
+	projectActivityRepo := storage.NewProjectActivityRepository(db)
 	projectActivityRecorder := projectservice.NewActivityRecorder(projectActivityRepo)
 	projectActivityRecorder.IdentitySource = projectIdentitySourceFromAPI
 
@@ -781,7 +792,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// since Phase 3; the AgentService dep is wired into the router
 	// further down.
 	agentSvc := agentservice.New(
-		sqlite.NewAgentRepository(db),
+		storage.NewAgentRepository(db),
 		users,
 		tokenMinterFor(tokens),
 		hub,
@@ -797,19 +808,19 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Phase 11: events are stored as tasks with start_at/end_at. The
 	// eventService facade still exists for API compatibility, but it
 	// reads and writes the tasks table now.
-	eventSvc := eventservice.New(sqlite.NewTaskRepository(db), hub, nil)
+	eventSvc := eventservice.New(storage.NewTaskRepository(db), hub, nil)
 	timeSvc := timeentryservice.New(timeEntryRepo, hub, nil).
-		WithInfos(sqlite.NewTaskRepository(db)).
-		WithSpentFallback(activityRepo.(*sqlite.ActivityRepo), timeEntryRepo)
+		WithInfos(storage.NewTaskRepository(db)).
+		WithSpentFallback(activityRepo.(timeentry.StatusSpentSource), timeEntryRepo)
 
 	// Wiki + Search services (Phase 5).
-	wikiSvc := wikiservice.New(sqlite.NewWikiRepository(db), hub)
+	wikiSvc := wikiservice.New(storage.NewWikiRepository(db), hub)
 	wikiSvc.Mirror = mirrorSvc
-	searchSvc := searchservice.New(sqlite.NewSearchRepository(db), hub)
+	searchSvc := searchservice.New(storage.NewSearchRepository(dialect, db), hub)
 
 	// Phase 18: courses (LMS).
-	courseRepo := sqlite.NewCourseRepository(db)
-	courseActivityRepo := sqlite.NewCourseActivityRepository(db)
+	courseRepo := storage.NewCourseRepository(db)
+	courseActivityRepo := storage.NewCourseActivityRepository(db)
 	courseSvc := courseservice.New(courseRepo)
 	// Phase 27.4: wire the TaskCreator so CreateWithIntent actually
 	// spawns a "build the curriculum" task and AnswerQuiz (open)
@@ -837,9 +848,22 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// and the queue; the course service gets it through the nil-safe
 	// ReviewScheduler seam so CompleteLesson seeds a step-0 review
 	// (due completed_at + 1d) on every flip to done.
-	reviewRepo := sqlite.NewLessonReviewRepository(db)
+	reviewRepo := storage.NewLessonReviewRepository(db)
 	reviewSvc := reviewservice.New(reviewRepo)
 	courseSvc = courseSvc.WithReviews(reviewSvc)
+
+	// Quiz grading: wire the LLM grader when [llm] is configured.
+	// Unset config keeps the service without a grader — AnswerQuiz
+	// then fails with a dedicated error instead of guessing.
+	if cfg.LLM.Enabled() {
+		apiKey, err := cfg.LLM.ResolveAPIKey()
+		if err != nil {
+			return err
+		}
+		gradeClient := llm.NewClient(cfg.LLM.BaseURL, apiKey, cfg.LLM.Model, cfg.LLM.Timeout)
+		courseSvc = courseSvc.WithGrader(llm.NewGrader(gradeClient))
+		logger.Info("llm quiz grading enabled", zap.String("base_url", cfg.LLM.BaseURL), zap.String("model", cfg.LLM.Model))
+	}
 
 	botRegistry, err := serveBots(cmd.Context(), cfg, logger)
 	if err != nil {
@@ -849,8 +873,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	botCallback := serveWireBotHooks(db, tasksRepo, usersRaw, botRegistry, taskSvc)
 
 	notifierSvc := notifierservice.New(
-		sqlite.NewNotificationRepository(db),
-		sqlite.NewBotSubscriptionRepository(db),
+		storage.NewNotificationRepository(db),
+		storage.NewBotSubscriptionRepository(db),
 		botRegistry,
 		hub,
 	)
@@ -909,9 +933,9 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		// T330: dedicated per-project agent provisioning (project-
 		// <number>-<slug> + grant row) for POST /projects.
 		ProjectAgentProvisioner: projectAgentSvc,
-		Agents:                  sqlite.NewAgentRepository(db),
+		Agents:                  storage.NewAgentRepository(db),
 		Comments:                commentSvc,
-		Attachments: attachmentServiceFor(attachmentsvc.New(sqlite.NewAttachmentRepository(db), attachmentsvc.Config{
+		Attachments: attachmentServiceFor(attachmentsvc.New(storage.NewAttachmentRepository(db), attachmentsvc.Config{
 			UploadDir:    cfg.ResolveUploadsDir(cwdOr(absCfg, ".")),
 			MaxSizeBytes: int64(cfg.Uploads.MaxSizeMB) * 1024 * 1024,
 			AllowedMimes: cfg.Uploads.AllowedMimes,
@@ -938,27 +962,27 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		// can compute target_velocity (count of accepted proposals in
 		// the pace window). nil-safe — handler falls back to target=0
 		// when not wired, which ClassifyDrift translates to on_track.
-		StudyProposals: sqlite.NewStudyProposalRepository(db),
+		StudyProposals: storage.NewStudyProposalRepository(db),
 		// Phase 31: study service wires the user-side accept/dismiss
 		// + the agent-side propose. nil-safe in handlers (they check
 		// before calling) but the production binary must wire it
 		// here or every study endpoint returns 503.
 		StudyService: studySvc,
 		// Phase 32.11: dashboard chat thread persistence.
-		ChatMessages: sqlite.NewChatMessageRepository(db),
+		ChatMessages: storage.NewChatMessageRepository(db),
 		// T9: per-user chat thread ownership + the agent dialog
 		// loop over the same repo. usersRepo backs the display
 		// names in the agent's pending queue.
-		ChatThreads: sqlite.NewChatThreadRepository(db),
+		ChatThreads: storage.NewChatThreadRepository(db),
 		ChatDialog: chatdialog.New(
-			sqlite.NewChatMessageRepository(db),
+			storage.NewChatMessageRepository(db),
 			users,
 		),
 		// T16: dialog tutor — lesson-scoped student/agent threads
 		// over tutor_messages; activity rows via the course
 		// recorder wired above.
 		Tutor: tutorsvc.New(
-			sqlite.NewTutorMessageRepository(db),
+			storage.NewTutorMessageRepository(db),
 			courseRepo,
 		),
 		CourseActivityRecorder: courseActivityRecorder,
@@ -969,8 +993,8 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		// the in-memory cfg (see handlers_backup.go). Settings take
 		// effect on the next process restart — `*backup.Service`
 		// is wired from cfg above and stays immutable.
-		BackupSettings: sqlite.NewBackupSettingsRepository(db),
-		SyncOps:        sqlite.NewSyncOpsRepository(db),
+		BackupSettings: storage.NewBackupSettingsRepository(db),
+		SyncOps:        storage.NewSyncOpsRepository(db),
 		BotCallback:    botCallback,
 		BotBindCodes:   bindCodes,
 		// Phase 10 Test send UI: the live bot registry is what the
@@ -1057,28 +1081,36 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// serveOpenDB opens the SQLite database at the configured path and
-// applies pending migrations before serving traffic.
-func serveOpenDB(ctx context.Context, cfg *config.Config, logger *zap.Logger, absCfg string) (*sql.DB, error) {
-	// Open SQLite database.
+// serveOpenDB opens the database via the driver-neutral storage factory
+// and applies pending migrations before serving traffic. Driver tuning
+// (single-writer cap, SQLite pragmas, postgres pool shape) lives inside
+// the driver's own open path. The dialect rides along: sqlite-only
+// subsystems (backup scheduler) gate on it instead of silently running
+// SQLite SQL against another engine.
+func serveOpenDB(ctx context.Context, cfg *config.Config, logger *zap.Logger, absCfg string) (*sql.DB, storage.Dialect, error) {
 	dbPath := cfg.ResolveDBPath(cwdOr(absCfg, "."))
-	db, err := sqlite.Open(ctx, dbPath, sqlite.OpenConfig{
-		WALMode:       cfg.Storage.WALMode,
-		EnableForeign: cfg.Storage.EnableForeign,
-		BusyTimeoutMs: cfg.Storage.BusyTimeoutMs,
-	})
+	sdb, err := storage.Open(ctx, storageConfigFor(cfg, dbPath))
 	if err != nil {
-		return nil, fmt.Errorf("db: %w", err)
+		return nil, "", fmt.Errorf("db: %w", err)
 	}
+	dialect := sdb.Dialect()
 
-	logger.Info("sqlite opened", zap.String("path", dbPath))
+	// The sqlite path is a file, the postgres path a connection
+	// target — logging the db_path against postgres would point at a
+	// file the driver never touches.
+	if dialect == storage.DialectPostgres {
+		logger.Info("storage opened", zap.String("driver", string(dialect)), zap.String("target", storage.PostgresTarget(postgresConfigFor(cfg.Storage.Postgres))))
+	} else {
+		logger.Info("storage opened", zap.String("driver", string(dialect)), zap.String("path", dbPath))
+	}
 
 	// Ensure migrations are up to date before serving traffic.
-	if err := sqlite.Migrate(ctx, db, sqlite.MigrationsFS, "migrations"); err != nil {
-		return nil, fmt.Errorf("migrate: %w", err)
+	if err := sdb.Migrate(ctx); err != nil {
+		_ = sdb.Close()
+		return nil, "", fmt.Errorf("migrate: %w", err)
 	}
 	logger.Info("migrations applied")
-	return db, nil
+	return sdb.DB, dialect, nil
 }
 
 // serveBackupIfEnabled constructs the backup service and starts the
@@ -1087,7 +1119,15 @@ func serveOpenDB(ctx context.Context, cfg *config.Config, logger *zap.Logger, ab
 // context (scheduler lifetime). Returns nil service and nil scheduler
 // when backups are disabled; the mirror service is NOT its concern
 // (Task 193 — the mirror must exist regardless of backup.enabled).
-func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, logger *zap.Logger, db *sql.DB) (*backup.Service, *backup.Scheduler, error) {
+//
+// T366: the machinery is dialect-aware — sqlite snapshots via VACUUM
+// INTO, postgres via pg_dump --format=custom (the WAL checkpoint job
+// no-ops on postgres). A missing pg_dump surfaces at snapshot time as
+// a failed backup_log row + notifier event, not as a silently skipped
+// schedule. The API's /backups surface still reads deps.Backup == nil
+// as scheduler_disabled (backup.enabled=false); callers nil-check
+// deps.Backup already.
+func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, logger *zap.Logger, db *sql.DB, dialect storage.Dialect) (*backup.Service, *backup.Scheduler, error) {
 	if !cfg.Backup.Enabled {
 		//nolint:nilnil // documented contract: backups disabled → nil *backup.Service, nil scheduler (callers nil-check deps.Backup).
 		return nil, nil, nil
@@ -1122,6 +1162,10 @@ func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, l
 		RemoteAuth:           cfg.Backup.RemoteAuth,
 		SnapshotRotationDays: cfg.Backup.SnapshotRotationDays,
 		SnapshotCron:         cfg.Backup.SQLiteSnapshotCron,
+		// T366: the snapshot strategy follows the storage dialect;
+		// the pg target/binary ride along from storage.postgres.
+		Dialect:  backup.Dialect(dialect),
+		Postgres: backupPostgresConfig(cfg.Storage.Postgres),
 	}, db)
 	// Phase 32.7: merge persisted DB overrides into the
 	// live config BEFORE the scheduler goroutine starts so
@@ -1144,6 +1188,24 @@ func serveBackupIfEnabled(baseCtx, runCtx context.Context, cfg *config.Config, l
 		zap.String("snapshot_dir", cfg.Backup.SnapshotDir),
 	)
 	return backupSvc, scheduler, nil
+}
+
+// backupPostgresConfig maps the config's postgres section into the
+// backup Service's pg target (1:1 — the adapter owns defaults, and the
+// embedded variant is resolved there from the bootstrap cluster).
+func backupPostgresConfig(p config.PostgresConfig) backup.PostgresConfig {
+	return backup.PostgresConfig{
+		DSN:          p.DSN,
+		Host:         p.Host,
+		Port:         p.Port,
+		User:         p.User,
+		Password:     p.Password,
+		Database:     p.Database,
+		SSLMode:      p.SSLMode,
+		Embedded:     p.Embedded,
+		EmbeddedPort: p.EmbeddedPort,
+		DumpBin:      p.DumpBin,
+	}
 }
 
 // serveBots builds the bot registry (console bot always available,
@@ -1246,7 +1308,7 @@ func serveWireBotHooks(db *sql.DB, tasks task.Repository, users firstIDer, regis
 // owner. PRD F-C-4.
 func serveEventReminder(db *sql.DB, eventSvc *eventservice.Service, projects project.Repository, notifierSvc *notifierservice.Service) *eventservice.Reminder {
 	return &eventservice.Reminder{
-		Repo:   sqlite.NewTaskRepository(db),
+		Repo:   storage.NewTaskRepository(db),
 		Notify: notifierSvc.Notify,
 		NotifyProjectOwner: func(ctx context.Context, eventID string) (ownerID, title, link string, err error) {
 			ev, err := eventSvc.Get(ctx, eventID)
@@ -1293,7 +1355,7 @@ func serveDigestScheduler(ctx context.Context, cfg *config.Config, logger *zap.L
 		interval: cfg.Notifier.DigestInterval,
 		logger:   logger,
 		db:       db,
-		users:    userListerAdapter{repo: sqlite.NewUserRepository(db)},
+		users:    userListerAdapter{repo: storage.NewUserRepository(db)},
 		notifier: notifierDigestAdapter{svc: notifierSvc},
 	}
 	go digest.Run(ctx)
@@ -1452,6 +1514,13 @@ func runMigrate(cmd *cobra.Command, action migrateAction) error {
 	}
 	defer func() { _ = logger.Sync() }()
 
+	// Postgres dialect: routed through the driver-neutral seam
+	// (storage.Open + the dialect-aware migrate helpers), with the
+	// embedded lifecycle owned for the duration when requested.
+	if cfg.Storage.Driver == "postgres" {
+		return runMigratePostgres(cmd.Context(), cfg, logger, action)
+	}
+
 	// T154: `migrate down` must see the DB exactly as it is on
 	// disk. The migrating opener (openCLIDB) ran a hidden
 	// Migrate(UP) first — re-applying whatever a previous `down`
@@ -1471,10 +1540,10 @@ func runMigrate(cmd *cobra.Command, action migrateAction) error {
 
 	switch action {
 	case migrateUp:
-		if err := sqlite.Migrate(cmd.Context(), db, sqlite.MigrationsFS, "migrations"); err != nil {
+		if err := storage.Migrate(cmd.Context(), db); err != nil {
 			return fmt.Errorf("migrate up: %w", err)
 		}
-		versions, _ := sqlite.AppliedVersions(cmd.Context(), db)
+		versions, _ := storage.AppliedVersions(cmd.Context(), db)
 		logger.Info("migrate up complete", zap.Strings("applied", versions))
 		fmt.Println("applied:", versions)
 	case migrateDown:
@@ -1482,10 +1551,10 @@ func runMigrate(cmd *cobra.Command, action migrateAction) error {
 		// the most recent migration via its .down.sql companion.
 		// The runner handles the irreversible marker — those
 		// migrations surface ErrMigrationIrreversible instead.
-		if err := sqlite.MigrateDown(cmd.Context(), db, sqlite.MigrationsFS, "migrations"); err != nil {
-			if errors.Is(err, sqlite.ErrMigrationIrreversible) {
+		if err := storage.MigrateDown(cmd.Context(), db); err != nil {
+			if errors.Is(err, storage.ErrMigrationIrreversible) {
 				logger.Warn("migrate down refused", zap.String("reason", err.Error()))
-			} else if errors.Is(err, sqlite.ErrNoDownFile) {
+			} else if errors.Is(err, storage.ErrNoDownFile) {
 				logger.Warn("migrate down: no .down.sql written yet", zap.String("hint", err.Error()))
 			}
 			return fmt.Errorf("migrate down: %w", err)
@@ -1496,7 +1565,7 @@ func runMigrate(cmd *cobra.Command, action migrateAction) error {
 		if _, err := db.ExecContext(cmd.Context(), `CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))`); err != nil {
 			return err
 		}
-		versions, err := sqlite.AppliedVersions(cmd.Context(), db)
+		versions, err := storage.AppliedVersions(cmd.Context(), db)
 		if err != nil {
 			return err
 		}
@@ -1577,7 +1646,7 @@ func buildLogger(cfg *config.Config) (*zap.Logger, error) {
 // (the only "deactivation" path is Delete, which removes the row
 // entirely), so we treat every row as Active=true.
 type userListerAdapter struct {
-	repo *sqlite.UserRepo
+	repo *storage.UserRepo
 }
 
 func (a userListerAdapter) ListAll(ctx context.Context) ([]ownerRecord, error) {
@@ -1626,7 +1695,7 @@ var _ = time.Second
 //
 // Lives outside runServe as a free function so both bot hooks share
 // the same code path. Dependencies are passed explicitly rather than
-// captured as closures (Go closures over *sql.DB / *sqlite.TaskRepo
+// captured as closures (Go closures over *sql.DB / the task repo
 // work but are harder to test in isolation).
 func captureToInbox(
 	ctx context.Context,
@@ -1635,7 +1704,7 @@ func captureToInbox(
 	botType, targetAddress, text string,
 	reply func(string) error,
 ) error {
-	subRepo := sqlite.NewBotSubscriptionRepository(db)
+	subRepo := storage.NewBotSubscriptionRepository(db)
 	subs, err := subRepo.ListByBotType(ctx, botType)
 	var owner string
 	if err == nil {

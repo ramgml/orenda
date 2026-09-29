@@ -166,3 +166,49 @@ func newCheckpointTestService(t *testing.T) (*Service, *Scheduler, *sql.DB, func
 	sched := &Scheduler{svc: svc}
 	return svc, sched, db, func() { _ = db.Close() }
 }
+
+// TestScheduler_RunCheckpoint_PostgresNoop pins the T366 dialect hook:
+// on postgres the checkpoint job is a no-op that records nothing — a
+// scheduled job that never ran must not leave a "success" row in
+// backup_log, and the (nil, on this path) DB handle is never touched.
+func TestScheduler_RunCheckpoint_PostgresNoop(t *testing.T) {
+	svc := &Service{db: nil}
+	pgCfg := Config{Dialect: DialectPostgres}
+	svc.cfg.Store(&pgCfg)
+	sched := &Scheduler{svc: svc}
+	notif := &fakeFailureNotifier{}
+	sched.WithNotifier(notif)
+
+	assert.NotPanics(t, func() { sched.runCheckpoint(context.Background()) })
+
+	// Skipped jobs fan out nothing.
+	assert.Empty(t, notif.calls, "a skipped checkpoint must not fire backup.failed")
+}
+
+// TestScheduler_RunSnapshot_PostgresLogsPgType pins the snapshot log
+// type on the postgres dialect: failures land as "pg_snapshot" (never
+// "sqlite_snapshot") so backup_log stays unambiguous about which
+// strategy produced each row. The dump binary override can't resolve,
+// which fails the job before any server or client tool is touched.
+func TestScheduler_RunSnapshot_PostgresLogsPgType(t *testing.T) {
+	_, sched, _, cleanup := newCheckpointTestService(t)
+	defer cleanup()
+	svc := sched.svc
+	pgCfg := Config{
+		Dialect:     DialectPostgres,
+		SnapshotDir: svc.getCfg().SnapshotDir,
+		Postgres: PostgresConfig{
+			DumpBin: filepath.Join(t.TempDir(), "definitely-not-pg_dump"),
+		},
+	}
+	svc.UpdateConfig(pgCfg)
+
+	sched.runSnapshot(context.Background())
+
+	after, err := svc.ListLog(context.Background(), 100)
+	require.NoError(t, err)
+	require.Len(t, after, 1)
+	assert.Equal(t, "pg_snapshot", after[0].Type)
+	assert.Equal(t, "failed", after[0].Status)
+	assert.Contains(t, after[0].Message, "pg_dump")
+}

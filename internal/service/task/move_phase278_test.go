@@ -35,7 +35,7 @@ type p278Fixture struct {
 
 func setupPhase278Project(t *testing.T) *p278Fixture {
 	t.Helper()
-	db, _ := testutil.TemplateDBOpen(t)
+	db := testutil.MatrixDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	owner := &user.User{

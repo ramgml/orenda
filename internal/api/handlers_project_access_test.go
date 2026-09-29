@@ -171,10 +171,17 @@ func (f *accessFixture) seedInboxTask(t *testing.T, title string) *task.Task {
 
 // setAgentsAllowed flips projects.agents_allowed directly in SQL —
 // the tests exercise the API flag path separately (subtest k).
+// The column is an INTEGER 0/1 on both dialects (D3), so the flag is
+// bound as an int — postgres would reject a Go bool for an int4
+// parameter.
 func (f *accessFixture) setAgentsAllowed(t *testing.T, projectID string, v bool) {
 	t.Helper()
+	enabled := 0
+	if v {
+		enabled = 1
+	}
 	_, err := f.db.ExecContext(context.Background(),
-		`UPDATE projects SET agents_allowed = ? WHERE id = ?`, v, projectID)
+		`UPDATE projects SET agents_allowed = ? WHERE id = ?`, enabled, projectID)
 	require.NoError(t, err)
 }
 

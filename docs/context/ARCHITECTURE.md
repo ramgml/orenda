@@ -12,7 +12,7 @@ audience: contributors + AI agents extending the system
 ## 0. One-sentence summary
 
 Orenda is a single Go binary that embeds a React SPA, talks to a
-local SQLite database, and exposes a REST API plus WebSocket hub for
+local SQLite database (or PostgreSQL — see §7.5), and exposes a REST API plus WebSocket hub for
 external AI-agents. Everything that needs a separate process lives
 inside the binary: backup scheduler, bot registry, mirror writer,
 Markdown FTS5 search, MCP server.
@@ -80,11 +80,14 @@ the drop-on-full policy documented in §5.
 | Tool | Why | When installed |
 |---|---|---|
 | `git` CLI (via `os/exec`) | push to backup remote | required by Phase 7 |
+| `pg_dump` / `pg_restore` (via `os/exec`) | postgres backup snapshots + verified restore (§7.5) | only with `storage.driver=postgres` — install `postgresql-client` or set `storage.postgres.dump_bin`; **not** bundled with the embedded runtime |
 | `govulncheck` (Go tool) | security scan of `go.mod` graph | only for `make govulncheck` (Phase 28.6) |
 | `systemd --user` | install target | optional, only `scripts/install.sh --systemd` |
 
-No CGo. SQLite is pure-Go (`modernc.org/sqlite`). The binary is
-fully static.
+No CGo. SQLite is pure-Go (`modernc.org/sqlite`) and so is the PostgreSQL
+path (`jackc/pgx` v5); the optional embedded postgres runtime shells out to
+prebuilt server binaries (fetched on first start from Maven, §7.5). The
+binary is fully static and `CGO_ENABLED=0` everywhere (Dockerfile included).
 
 ## 2. Directory map and module ownership
 
@@ -102,7 +105,10 @@ orenda/
 │   ├── mcp/                         # MCP stdio+HTTP server (Phase 25)
 │   ├── mirror/                      # markdown mirror writer
 │   ├── service/                     # business logic
-│   └── storage/sqlite/              # repos + migrations (the only DB driver)
+│   └── storage/                     # driver seam
+│       ├── sqlite/                  # repos + migrations (default driver)
+│       ├── postgres/                # pg driver: baseline migrations, embedded runtime, search repo
+│       └── shim/                    # SQLite→PostgreSQL SQL dialect shim
 ├── web/                             # React 18 + TS + Vite + Tailwind
 ├── data/                            # runtime (gitignored)
 ├── docs/
@@ -143,8 +149,8 @@ internal/domain
   contracts
    △
    │ implements
-internal/storage/sqlite
-  migrations + repos
+internal/storage
+  migrations + repos (sqlite | postgres via the dialect shim)
 ```
 
 What this means in practice:
@@ -373,6 +379,45 @@ Three virtual tables: `tasks_fts`, `pages_fts`, `comments_fts`.
 Backed by `content_rowid='rowid'` so an `INSERT INTO … ('rebuild')`
 syncs after table-rebuild migrations. Search results return both
 the IDs and the highlighted snippet; ranking uses BM25.
+
+### 7.5. PostgreSQL storage driver (T360–T367)
+
+A second dialect behind the same repository seam; full user-facing
+reference: [README → Database backends](../README.md#database-backends-sqlite-or-postgresql),
+schema/migration details: [DB.md → PostgreSQL storage driver](DB.md#postgresql-storage-driver).
+Architecture notes:
+
+- **Seam** (`internal/storage`): `storage.Open` returns a `*DB` that embeds
+  `*sql.DB` plus the dialect; `Migrate/MigrateDown/AppliedVersions` dispatch
+  on it. Repositories are the sqlite constructors — postgres reuses them
+  through the dialect shim (rebind `?`→`$n`, `datetime('now')` and
+  `INSERT OR IGNORE` rewrites) rather than a copied tree (D1).
+- **Postgres baseline** (`internal/storage/postgres/migrations/001_baseline`):
+  consolidated final state of the sqlite chain — sqlite migrations never run
+  on postgres; `002_search` carries the FTS objects (generated tsvector +
+  GIN, no sync triggers). The postgres migration runner applies each file
+  in a transaction and keeps its own `schema_migrations`.
+- **Connection** (D4): `storage.postgres.dsn` wins over the parts
+  (`host/port/user/password/database/ssl_mode`, libpq defaults); `busy_timeout_ms`
+  maps to a session `lock_timeout`; the pool has no single-writer cap
+  (MVCC makes the sqlite `SetMaxOpenConns(1)` counterproductive).
+  Migrations dial a dedicated simple-protocol handle (multi-statement
+  bodies can't use prepared statements).
+- **Embedded runtime** (D7): when `storage.postgres.embedded=true`, the
+  binary starts/stops a local PostgreSQL 16 cluster (zonky binaries from
+  Maven, cached under `~/.embedded-postgres-go`) around `serve`/`migrate`/
+  `user` commands. `PGDATA = <data_dir>/postgres`, port 5433, locale pinned
+  `C.UTF-8` with a fail-fast ctype assert; external and Docker deployments
+  are the same code path with `embedded=false`.
+- **Backup/verify** (D8): snapshots become `pg_dump -Fc` archives; restore
+  verifies via a scratch database; `wal_checkpoint` is a sqlite-only
+  Service hook (postgres: no-op — no fake backup_log row). Client tools
+  resolve `storage.postgres.dump_bin` → `PATH`; the embedded bundle ships
+  server binaries only and says so in the error.
+- **Errors** (D5): driver-neutral sentinels in `internal/storage`
+  (`ErrUniqueViolation`, `ErrFKViolation`, `ErrTokenNotFound`,
+  `ErrLock*`); postgres classifies by SQLSTATE (23505/23503), sqlite keeps
+  its text classifiers inside its adapter.
 
 ## 8. Frontend layout
 

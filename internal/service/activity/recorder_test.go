@@ -27,7 +27,7 @@ type fixture struct {
 
 func setupActivityTest(t *testing.T) (*activitysvc.Recorder, *fixture) {
 	t.Helper()
-	db, _ := testutil.TemplateDBOpen(t)
+	db := testutil.MatrixDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	owner := &user.User{

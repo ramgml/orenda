@@ -72,6 +72,7 @@ func TestMigrateDown_Irreversible(t *testing.T) {
 		"001_init",
 		"013_subtasks_to_children",
 		"015_inbox_no_project",
+		"050_orphan_board_cleanup",
 	}
 	for _, v := range irreversible {
 		t.Run(v, func(t *testing.T) {

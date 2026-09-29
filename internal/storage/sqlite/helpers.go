@@ -2,10 +2,12 @@
 package sqlite
 
 import (
+	"errors"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // sqliteTimeLayout is the format produced by SQLite's datetime('now')
@@ -69,22 +71,53 @@ func newUUID() string {
 	return id.String()
 }
 
-// isUniqueViolation reports whether err is a SQLite UNIQUE constraint failure.
-//
-// The modernc driver returns errors prefixed with "constraint failed: UNIQUE
-// constraint failed:". We detect this with a string match — there is no
-// dedicated error code in modernc (no equivalent of pq.Error.Code).
-func isUniqueViolation(err error) bool {
+// ErrUniqueViolation is the driver-level sentinel for a UNIQUE
+// constraint failure. Repositories translate raw driver errors into it
+// (via IsUniqueViolation) so callers above the storage layer can
+// errors.Is against the driver-neutral storage.ErrUniqueViolation.
+var ErrUniqueViolation = errors.New("unique constraint violated")
+
+// ErrFKViolation is the driver-level sentinel for a foreign-key
+// constraint failure, the FK counterpart of ErrUniqueViolation.
+var ErrFKViolation = errors.New("foreign key constraint violated")
+
+// SQLSTATE class codes for constraint violations. The repository layer
+// is shared between dialects (wiki:storage-adapters D1): the same files
+// run on PostgreSQL through the dialect shim, where the pgx driver
+// surfaces constraint failures as *pgconn.PgError instead of the
+// modernc message text. Classifying both representations here keeps
+// every repository boundary translating on both dialects.
+const (
+	pgSQLStateUniqueViolation = "23505" // unique_violation
+	pgSQLStateFKViolation     = "23503" // foreign_key_violation
+)
+
+// IsUniqueViolation reports whether err is a UNIQUE constraint failure
+// on either dialect: a PostgreSQL unique_violation (SQLSTATE 23505) via
+// errors.As on *pgconn.PgError, or a SQLite UNIQUE failure via the
+// modernc driver's message text ("constraint failed: UNIQUE constraint
+// failed:") — modernc has no dedicated error code to match.
+func IsUniqueViolation(err error) bool {
 	if err == nil {
 		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == pgSQLStateUniqueViolation
 	}
 	return strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
-// isFKViolation reports whether err is a SQLite foreign-key violation.
-func isFKViolation(err error) bool {
+// IsFKViolation reports whether err is a foreign-key constraint failure
+// on either dialect: PostgreSQL SQLSTATE 23503, or the SQLite message
+// text "FOREIGN KEY constraint failed".
+func IsFKViolation(err error) bool {
 	if err == nil {
 		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == pgSQLStateFKViolation
 	}
 	return strings.Contains(err.Error(), "FOREIGN KEY constraint failed")
 }

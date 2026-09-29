@@ -52,6 +52,9 @@ type Config struct {
 	// Phase 30.5: weekly digest scheduler config. DigestInterval
 	// <= 0 disables the scheduler entirely.
 	Notifier NotifierConfig `yaml:"notifier"`
+	// LLM configures the OpenAI-compatible client used for
+	// semantic quiz grading. Unset = feature off.
+	LLM LLMConfig `yaml:"llm"`
 }
 
 // ServerConfig controls the HTTP listener.
@@ -74,13 +77,46 @@ type ServerConfig struct {
 	PProfAddr  string `yaml:"pprof_addr"`
 }
 
-// StorageConfig controls the SQLite database.
+// StorageConfig controls the storage layer.
+//
+// Driver selects the backend: "sqlite" (default) or "postgres"
+// (storage.Open dials through the pgx stdlib connector and the dialect
+// shim; storage.postgres carries the connection target).
 type StorageConfig struct {
-	DataDir       string `yaml:"data_dir"`
-	DBPath        string `yaml:"db_path"`
-	WALMode       bool   `yaml:"wal_mode"`
-	BusyTimeoutMs int    `yaml:"busy_timeout_ms"`
-	EnableForeign bool   `yaml:"enable_foreign_keys"`
+	Driver        string         `yaml:"driver"`
+	DataDir       string         `yaml:"data_dir"`
+	DBPath        string         `yaml:"db_path"`
+	WALMode       bool           `yaml:"wal_mode"`
+	BusyTimeoutMs int            `yaml:"busy_timeout_ms"`
+	EnableForeign bool           `yaml:"enable_foreign_keys"`
+	Postgres      PostgresConfig `yaml:"postgres"`
+}
+
+// PostgresConfig holds connection parameters for the postgres driver.
+//
+// DSN (a libpq connection string) takes priority over the individual
+// parts: when set, host/port/user/password/database/ssl_mode are
+// ignored. Embedded runs a local cluster instead of dialing an
+// external server (see the storage-adapters design, D4/D7).
+type PostgresConfig struct {
+	DSN          string `yaml:"dsn"`
+	Host         string `yaml:"host"`
+	Port         int    `yaml:"port"`
+	User         string `yaml:"user"`
+	Password     string `yaml:"password"`
+	Database     string `yaml:"database"`
+	SSLMode      string `yaml:"ssl_mode"`
+	Embedded     bool   `yaml:"embedded"`
+	EmbeddedPort int    `yaml:"embedded_port"`
+	// BinariesURL overrides the Maven repository the embedded runtime
+	// downloads postgres binaries from (offline mirrors); empty uses
+	// the embedded-postgres default.
+	BinariesURL string `yaml:"binaries_url"`
+	// DumpBin overrides the pg_dump binary the backup subsystem uses
+	// (T366): a bare name resolves via PATH, a path is used as-is.
+	// The embedded bundle ships server binaries only, so without an
+	// override the backup subsystem falls back to the system PATH.
+	DumpBin string `yaml:"dump_bin"`
 }
 
 // AuthConfig controls authentication parameters.
@@ -169,6 +205,54 @@ type UploadsConfig struct {
 	AllowedMimes []string `yaml:"allowed_mimes"`
 }
 
+// LLMConfig configures the OpenAI-compatible chat-completions client
+// used for semantic quiz grading (AnswerQuiz). Empty BaseURL means
+// the feature is off — quiz answers then fail with llm_not_configured.
+//
+// APIKey follows the same file-indirection pattern as auth.jwt_secret:
+// a direct api_key value or api_key_file pointing at a file holding
+// the secret (trimmed) so the key stays out of /proc/*/environ.
+type LLMConfig struct {
+	// BaseURL is the OpenAI-compatible API root, e.g.
+	// "https://api.openai.com/v1" or a local ollama/vLLM endpoint.
+	// Must include the version prefix; the client appends
+	// /chat/completions. Empty disables LLM grading.
+	BaseURL string `yaml:"base_url"`
+	// APIKey is the bearer token sent as Authorization. Optional —
+	// local runtimes (ollama) often need none.
+	APIKey string `yaml:"api_key"`
+	// APIKeyFile names a file holding the API key (trimmed). A
+	// direct api_key value wins over the file.
+	APIKeyFile string `yaml:"api_key_file"`
+	// Model is the chat model id, e.g. "gpt-4o-mini".
+	Model string `yaml:"model"`
+	// Timeout bounds one grading request. Default 30s.
+	Timeout time.Duration `yaml:"timeout"`
+}
+
+// Enabled reports whether LLM grading is configured.
+func (c LLMConfig) Enabled() bool { return c.BaseURL != "" }
+
+// ResolveAPIKey returns the effective API key: the direct value when
+// set, otherwise the trimmed contents of APIKeyFile.
+func (c LLMConfig) ResolveAPIKey() (string, error) {
+	if c.APIKey != "" {
+		return c.APIKey, nil
+	}
+	if c.APIKeyFile != "" {
+		raw, err := os.ReadFile(c.APIKeyFile)
+		if err != nil {
+			return "", fmt.Errorf("config: llm.api_key_file %q: %w", c.APIKeyFile, err)
+		}
+		key := strings.TrimSpace(string(raw))
+		if key == "" {
+			return "", fmt.Errorf("config: llm.api_key_file %q is empty", c.APIKeyFile)
+		}
+		return key, nil
+	}
+	return "", nil
+}
+
 // DefaultConfig returns safe built-in defaults.
 //
 // Tests and tooling that don't need a real config file can call this directly.
@@ -188,6 +272,7 @@ func DefaultConfig() *Config {
 			PProfAddr:  "127.0.0.1:6060",
 		},
 		Storage: StorageConfig{
+			Driver:        "sqlite",
 			DataDir:       "data",
 			DBPath:        "data/orenda.db",
 			WALMode:       true,
@@ -241,6 +326,12 @@ func DefaultConfig() *Config {
 			AnonPerSec: 20.0,
 			AuthBurst:  300,
 			AuthPerSec: 100.0,
+		},
+		// LLM grading defaults: off (empty BaseURL). Timeout has a
+		// sane value so an operator who only sets base_url+model
+		// gets a working client.
+		LLM: LLMConfig{
+			Timeout: 30 * time.Second,
 		},
 	}
 }
@@ -369,6 +460,32 @@ func overrideField(cfg *Config, path, value string) {
 	// of the commit message and in PLAN.md.
 	case "ratelimit":
 		overrideRateLimit(&cfg.RateLimit, parts[1:], value)
+	case "llm":
+		overrideLLM(&cfg.LLM, parts[1:], value)
+	}
+}
+
+// overrideLLM assigns one ORENDA_LLM__* env override. Sub-keys use
+// the `__` tokenisation like every other section, re-joined to the
+// YAML key shape.
+func overrideLLM(c *LLMConfig, p []string, v string) {
+	if len(p) == 0 {
+		return
+	}
+	key := strings.Join(p, "_")
+	switch key {
+	case "base_url":
+		c.BaseURL = v
+	case "api_key":
+		c.APIKey = v
+	case "api_key_file":
+		c.APIKeyFile = v
+	case "model":
+		c.Model = v
+	case "timeout":
+		if d, err := time.ParseDuration(v); err == nil {
+			c.Timeout = d
+		}
 	}
 }
 
@@ -438,6 +555,8 @@ func overrideStorage(c *StorageConfig, p []string, v string) {
 		return
 	}
 	switch p[0] {
+	case "driver":
+		c.Driver = v
 	case "data_dir":
 		c.DataDir = v
 	case "db_path":
@@ -454,6 +573,46 @@ func overrideStorage(c *StorageConfig, p []string, v string) {
 		if b, err := strconv.ParseBool(v); err == nil {
 			c.EnableForeign = b
 		}
+	case "postgres":
+		overridePostgres(&c.Postgres, p[1:], v)
+	}
+}
+
+// overridePostgres assigns one ORENDA_STORAGE__POSTGRES__* env override.
+// Sub-keys use the `__` tokenisation like every other section.
+func overridePostgres(c *PostgresConfig, p []string, v string) {
+	if len(p) == 0 {
+		return
+	}
+	switch p[0] {
+	case "dsn":
+		c.DSN = v
+	case "host":
+		c.Host = v
+	case "port":
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Port = n
+		}
+	case "user":
+		c.User = v
+	case "password":
+		c.Password = v
+	case "database":
+		c.Database = v
+	case "ssl_mode":
+		c.SSLMode = v
+	case "embedded":
+		if b, err := strconv.ParseBool(v); err == nil {
+			c.Embedded = b
+		}
+	case "embedded_port":
+		if n, err := strconv.Atoi(v); err == nil {
+			c.EmbeddedPort = n
+		}
+	case "binaries_url":
+		c.BinariesURL = v
+	case "dump_bin":
+		c.DumpBin = v
 	}
 }
 
@@ -556,11 +715,34 @@ func (c *Config) Validate() error {
 	if c.Server.Port <= 0 || c.Server.Port > 65535 {
 		errs = append(errs, fmt.Sprintf("server.port out of range: %d", c.Server.Port))
 	}
+	switch c.Storage.Driver {
+	case "sqlite", "postgres":
+	default:
+		errs = append(errs, fmt.Sprintf("storage.driver invalid: %q (must be sqlite or postgres)", c.Storage.Driver))
+	}
 	if c.Storage.DBPath == "" {
 		errs = append(errs, "storage.db_path is required")
 	}
 	if c.Storage.BusyTimeoutMs < 0 {
 		errs = append(errs, "storage.busy_timeout_ms must be >= 0")
+	}
+	if p := c.Storage.Postgres; p.Port != 0 && (p.Port < 1 || p.Port > 65535) {
+		errs = append(errs, fmt.Sprintf("storage.postgres.port out of range: %d", p.Port))
+	}
+	if p := c.Storage.Postgres; p.EmbeddedPort != 0 && (p.EmbeddedPort < 1 || p.EmbeddedPort > 65535) {
+		errs = append(errs, fmt.Sprintf("storage.postgres.embedded_port out of range: %d", p.EmbeddedPort))
+	}
+	// driver=postgres must name a concrete target: either a libpq DSN
+	// or, at minimum, the database name (host/port/user/password carry
+	// libpq defaults). The embedded runtime bootstraps its cluster for
+	// the configured database, so a DSN alone can never drive it.
+	if c.Storage.Driver == "postgres" {
+		switch {
+		case c.Storage.Postgres.Embedded && c.Storage.Postgres.Database == "":
+			errs = append(errs, "storage.postgres.database is required when storage.postgres.embedded is true")
+		case !c.Storage.Postgres.Embedded && c.Storage.Postgres.DSN == "" && c.Storage.Postgres.Database == "":
+			errs = append(errs, "storage.postgres.dsn or storage.postgres.database is required when storage.driver is postgres")
+		}
 	}
 	if c.Auth.BcryptCost < 4 || c.Auth.BcryptCost > 31 {
 		errs = append(errs, fmt.Sprintf("auth.bcrypt_cost out of range: %d", c.Auth.BcryptCost))

@@ -46,7 +46,7 @@ All JSON. Errors are `{"error": "<code>"}` with a 4xx/5xx status.
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/api/v1/tasks/{id}` | |
-| PATCH/PUT | `/api/v1/tasks/{id}` | partial update (PUT = alias). Mutable: title, description, status, priority, assignee_type/assignee_id, project_id, column_id, parent_task_id, context_md, agent_notes, color, tags, due_at, time_estimate_s, position… Status/column moves follow the 27.8 single-axis rule: PATCHing one syncs the other; `status=done` stamps `completed_at` |
+| PATCH/PUT | `/api/v1/tasks/{id}` | partial update (PUT = alias). Mutable: title, description, status, priority, assignee_type/assignee_id, project_id, column_id, parent_task_id, context_md, agent_notes, color, tags, due_at, time_estimate_s, position… Status/column moves follow the 27.8 single-axis rule: PATCHing one syncs the other; `status=done` stamps `completed_at`. `status=rejected` (T376, PRD F-T-3) parks the card: awaiting→none, `completed_at` untouched; human-only — agents never PATCH it |
 | DELETE | `/api/v1/tasks/{id}` | |
 | POST | `/api/v1/tasks/{id}/move` | `{column_id, position?}` |
 | POST | `/api/v1/tasks/{id}/claim` | `{agent_id}` — 409 on lock_taken |

@@ -16,18 +16,18 @@ import (
 )
 
 // ErrLockTaken is returned when another agent already holds the lock.
-// Exported so the service layer can errors.Is against it without
-// re-declaring the sentinel.
-var ErrLockTaken = errors.New("sqlite: task lock already taken")
+// The value is re-exported driver-neutrally as storage.ErrLockTaken;
+// the service layer matches against that name.
+var ErrLockTaken = errors.New("task lock already taken")
 
 // ErrLockNotHeld is returned when an agent tries to release/submit a lock
 // it doesn't hold.
-var ErrLockNotHeld = errors.New("sqlite: task lock not held by this agent")
+var ErrLockNotHeld = errors.New("task lock not held by this agent")
 
 // ErrLockNotFound is returned by Acquire when the target task (or agent)
 // doesn't exist. Distinct from ErrLockNotHeld (release) and
 // ErrLockTaken (already held).
-var ErrLockNotFound = errors.New("sqlite: task lock target not found")
+var ErrLockNotFound = errors.New("task lock target not found")
 
 // taskLockRepo is the small layer for the task_locks table.
 type taskLockRepo struct {
@@ -54,9 +54,9 @@ func (r *taskLockRepo) Acquire(ctx context.Context, taskID, agentID string) erro
 	_, err := r.db.ExecContext(ctx, q, taskID, agentID)
 	if err != nil {
 		switch {
-		case isUniqueViolation(err):
+		case IsUniqueViolation(err):
 			return ErrLockTaken
-		case isFKViolation(err):
+		case IsFKViolation(err):
 			// The Acquire FK can fail for either task_id (very common
 			// in tests) or agent_id. We can't distinguish from the error
 			// message alone, so we treat all FK failures as "lock target

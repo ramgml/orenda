@@ -3,47 +3,6 @@ import type { Task } from './taskDetails';
 import type { ReviewQueueItem, AgentStarvedItem } from './taskDetails';
 
 /**
- * T9: one turn in the Dashboard user/agent chat. Mirrors the
- * server's chat.Message (internal/domain/chat).
- */
-export interface ChatMessage {
-  id: string;
-  thread_id: string;
-  sender_type: 'user' | 'agent';
-  body_md: string;
-  /** Set when the user message starts with "/" (e.g. "/plan day"). */
-  command?: string;
-  /** Id of the side-effect a command produced (a study_proposal id for "/plan"). */
-  result_ref?: string;
-  created_at: string;
-}
-
-/**
- * POST /api/v1/dashboard/chat response. agent_message is null and
- * pending=true for plain text: the dashboard agent answers later via
- * /api/v1/agent/chat, and the reply rides in on WS "dashboard-chat".
- */
-export interface ChatSendResponse {
-  user_message: ChatMessage;
-  agent_message: ChatMessage | null;
-  result_ref: string;
-  pending: boolean;
-}
-
-/**
- * WS "dashboard-chat" event body: user_id routes the event through
- * the hub's per-user filter, thread_id lets the panel ignore other
- * threads, sender_type tells the UI when to drop the typing
- * indicator.
- */
-export interface ChatEventBody {
-  user_id: string;
-  thread_id: string;
-  sender_type: 'user' | 'agent';
-  message: ChatMessage;
-}
-
-/**
  * Agent entity (Phase 3 + Phase 28.19 labels).
  */
 export interface Agent {
@@ -362,29 +321,6 @@ export const agentsEndpoints = {
   dismissStudyProposal(id: string): Promise<{ proposal: StudyProposalFull }> {
     return this.http
       .post<{ proposal: StudyProposalFull }>(`/api/v1/study-proposals/${id}/dismiss`)
-      .then((r) => r.data);
-  },
-
-  // ---- Dashboard chat (T9) ----
-  //
-  // A thread is (user_id, thread name); the server scopes every read
-  // and write to the session user, so a thread another user opened
-  // replays as an empty list. The panel polls nothing: it loads the
-  // history once and merges live turns from WS "dashboard-chat".
-
-  // Replay one thread for the signed-in user, oldest-first.
-  chatHistory(thread: string): Promise<{ messages: ChatMessage[] }> {
-    return this.http
-      .get<{ messages: ChatMessage[] }>(`/api/v1/dashboard/chat/${thread}`)
-      .then((r) => r.data);
-  },
-
-  // Send one message. Commands ("/plan day", "/help") answer
-  // synchronously; plain text persists as a pending question and the
-  // agent reply arrives over WS "dashboard-chat" later.
-  sendChatMessage(thread: string, message: string): Promise<ChatSendResponse> {
-    return this.http
-      .post<ChatSendResponse>('/api/v1/dashboard/chat', { thread_id: thread, message })
       .then((r) => r.data);
   },
 } satisfies ThisType<ApiClient>;

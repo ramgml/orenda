@@ -64,7 +64,7 @@ func (m *sqliteTokenMinter) UpdateHash(ctx context.Context, tokenID, hash string
 
 func setupAgentSvc(t *testing.T) (*agentsvc.Service, *recordingHub) {
 	t.Helper()
-	db, _ := testutil.TemplateDBOpen(t)
+	db := testutil.MatrixDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	agents := sqlite.NewAgentRepository(db)
@@ -81,7 +81,7 @@ func setupAgentSvc(t *testing.T) (*agentsvc.Service, *recordingHub) {
 // DB handle (e.g. asserting on the users table directly).
 func setupAgentSvcWithDB(t *testing.T) (*agentsvc.Service, *sql.DB) {
 	t.Helper()
-	db, _ := testutil.TemplateDBOpen(t)
+	db := testutil.MatrixDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	agents := sqlite.NewAgentRepository(db)
@@ -231,8 +231,13 @@ func TestService_RotateToken_RefreshesExpiresAt(t *testing.T) {
 	require.NoError(t, err)
 
 	// Simulate a token minted long ago: expires_at two hours in the past.
+	// The timestamp is bound from Go in the repo's storage layout —
+	// datetime('now','-2 hours') is sqlite-only and has no shim
+	// translation (the shim rewrites only the strict single-argument
+	// datetime('now')).
 	_, err = db.ExecContext(ctx,
-		`UPDATE api_tokens SET expires_at = datetime('now', '-2 hours') WHERE id = ?`,
+		`UPDATE api_tokens SET expires_at = ? WHERE id = ?`,
+		time.Now().UTC().Add(-2*time.Hour).Format("2006-01-02 15:04:05"),
 		reg.Agent.TokenID)
 	require.NoError(t, err)
 	before := tokenRowByTokenID(t, db, reg.Agent.TokenID)
@@ -261,9 +266,12 @@ func TestService_RotateToken_ClearsExpiresAtWhenTTLZero(t *testing.T) {
 	reg, err := svc.Register(ctx, "rot-clear", []string{"qwen"}, "", nil)
 	require.NoError(t, err)
 
-	// Pre-set a FUTURE deadline so clearing is observable.
+	// Pre-set a FUTURE deadline so clearing is observable (bound from
+	// Go in the storage layout — two-argument datetime('now',…) is
+	// sqlite-only).
 	_, err = db.ExecContext(ctx,
-		`UPDATE api_tokens SET expires_at = datetime('now', '+2 hours') WHERE id = ?`,
+		`UPDATE api_tokens SET expires_at = ? WHERE id = ?`,
+		time.Now().UTC().Add(2*time.Hour).Format("2006-01-02 15:04:05"),
 		reg.Agent.TokenID)
 	require.NoError(t, err)
 	before := tokenRowByTokenID(t, db, reg.Agent.TokenID)
@@ -316,7 +324,7 @@ func TestService_Register_ExpiresAtPolicy(t *testing.T) {
 // (transactionality of the credential swap).
 func TestService_RotateToken_UpdateHashErrorLeavesOldHash(t *testing.T) {
 	ctx := context.Background()
-	db, _ := testutil.TemplateDBOpen(t)
+	db := testutil.MatrixDB(t)
 
 	users := sqlite.NewUserRepository(db)
 	agentsRepo := sqlite.NewAgentRepository(db)

@@ -24,6 +24,14 @@ const (
 	StatusInProgress Status = "in_progress"
 	StatusReview     Status = "review"
 	StatusDone       Status = "done"
+	// StatusRejected is the parking lot for declined work
+	// (Task 376, PRD F-T-3). Only a human moves a card here — agents
+	// never self-reject (their request-changes path is
+	// Service.Review(reject), a separate mechanism that stays in
+	// review→in_progress). Entering rejected clears awaiting to none
+	// and never stamps completed_at (rejection is not completion);
+	// the rejected → todo drag is the documented revival loop.
+	StatusRejected Status = "rejected"
 	// Task 115: set automatically (never chosen by a user) when an
 	// unfinished blocker edge appears on a task whose status was not
 	// already `blocked` or `done`. The status the task had before the
@@ -34,12 +42,19 @@ const (
 )
 
 // AllStatuses is the ordered list of statuses (matches DefaultColumns order).
+// `rejected` (Task 376, PRD F-T-3) sits AFTER `done`: both are terminal
+// parking — done is the completion archive, rejected the declined-work
+// archive — and keeping it right of `done` leaves the active pipeline
+// (backlog → todo → in_progress → review) contiguous on the board and let
+// the 051/003 migrations append the column without shifting any existing
+// position. Revival is the explicit rejected → todo drag.
+//
 // `blocked` is intentionally not part of DefaultColumns order — no default
 // column carries it (auto-blocked tasks keep their column until moved);
 // it is listed so status-validation and label sites treat it first-class.
 var AllStatuses = []Status{
 	StatusBacklog, StatusTodo, StatusInProgress, StatusReview, StatusDone,
-	StatusBlocked,
+	StatusRejected, StatusBlocked,
 }
 
 // StatusMachineKeyPattern is the regex that a machine key (column.status,
@@ -50,7 +65,7 @@ var AllStatuses = []Status{
 var StatusMachineKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // IsValid reports whether s is a usable status. Phase 27.8.4: the
-// canonical five (AllStatuses) are still accepted — agents that hard-
+// canonical statuses (AllStatuses) are still accepted — agents that hard-
 // code them keep working — but a project may also define its own
 // status machine keys via column.status. As long as the value is a
 // well-formed machine key we trust the column invariant `task.status
@@ -68,7 +83,8 @@ func (s Status) IsValid() bool {
 	return StatusMachineKeyPattern.MatchString(string(s))
 }
 
-// IsCanonical reports whether s is one of the five default statuses.
+// IsCanonical reports whether s is one of the default statuses
+// (AllStatuses minus the auto-only `blocked`).
 // Code that needs to render an enum-style dropdown (instead of the
 // project board's columns) uses this; everywhere else IsValid is the
 // right choice.
@@ -83,7 +99,7 @@ func (s Status) IsCanonical() bool {
 func CanonicalStatus(v string) (Status, bool) {
 	switch Status(v) {
 	case StatusBacklog, StatusTodo, StatusInProgress, StatusReview, StatusDone,
-		StatusBlocked:
+		StatusRejected, StatusBlocked:
 		return Status(v), true
 	default:
 		return "", false

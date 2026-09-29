@@ -683,6 +683,10 @@ func answerQuizHandler(deps *Dependencies) http.HandlerFunc {
 				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_input"})
 				return
 			}
+			if errors.Is(err, coursesvc.ErrGraderNotWired) {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "llm_not_configured"})
+				return
+			}
 			writeError(w, err)
 			return
 		}

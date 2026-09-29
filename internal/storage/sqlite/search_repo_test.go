@@ -3,7 +3,6 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,18 +16,27 @@ import (
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
 	"github.com/ramgml/orenda/internal/domain/wiki"
+	"github.com/ramgml/orenda/internal/service/search"
+	"github.com/ramgml/orenda/internal/storage/postgres"
+	"github.com/ramgml/orenda/internal/testutil/pgtest"
 )
 
+// setupSearchDB opens a fixture database for the active matrix driver
+// (sqlite or postgres — see matrix_test.go).
 func setupSearchDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := Open(context.Background(), filepath.Join(dir+"/s.db"), OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, Migrate(context.Background(), db, MigrationsFS, "migrations"))
-	return db
+	return matrixDB(t)
+}
+
+// newSearchRepo builds the search repository for the active matrix
+// driver (T365): the sqlite FTS5 repo on the sqlite leg, the postgres
+// tsvector repo (internal/storage/postgres, migration 002_search) on
+// the postgres leg. Both satisfy service/search.Repository.
+func newSearchRepo(db *sql.DB) search.Repository {
+	if pgtest.ActiveDriver() == pgtest.DriverPostgres {
+		return postgres.NewSearchRepository(db)
+	}
+	return NewSearchRepository(db)
 }
 
 // seedSearchData inserts a task, a wiki page, and a comment so FTS5 has
@@ -63,6 +71,10 @@ func seedSearchData(t *testing.T, db *sql.DB) {
 	_, err = wikis.Create(context.Background(), page)
 	require.NoError(t, err)
 
+	ru := &wiki.Page{Slug: "ru-page", Title: "Русская страница", ContentMD: "Кириллическая страница для полнотекстового поиска"}
+	_, err = wikis.Create(context.Background(), ru)
+	require.NoError(t, err)
+
 	comments := NewCommentRepository(db)
 	c := &comment.Comment{
 		TargetID: tr.ID, AuthorID: owner.ID,
@@ -77,7 +89,7 @@ func seedSearchData(t *testing.T, db *sql.DB) {
 func TestSearchRepo_Pages(t *testing.T) {
 	db := setupSearchDB(t)
 	seedSearchData(t, db)
-	repo := NewSearchRepository(db)
+	repo := newSearchRepo(db)
 
 	hits, err := repo.SearchPages(context.Background(), "wiki", 10)
 	require.NoError(t, err)
@@ -93,7 +105,7 @@ func TestSearchRepo_Pages(t *testing.T) {
 func TestSearchRepo_PagesCarrySlug(t *testing.T) {
 	db := setupSearchDB(t)
 	seedSearchData(t, db)
-	repo := NewSearchRepository(db)
+	repo := newSearchRepo(db)
 
 	hits, err := repo.SearchPages(context.Background(), "wiki", 10)
 	require.NoError(t, err)
@@ -110,7 +122,7 @@ func TestSearchRepo_PagesCarrySlug(t *testing.T) {
 func TestSearchRepo_Tasks(t *testing.T) {
 	db := setupSearchDB(t)
 	seedSearchData(t, db)
-	repo := NewSearchRepository(db)
+	repo := newSearchRepo(db)
 
 	hits, err := repo.SearchTasks(context.Background(), "wiki", 10)
 	require.NoError(t, err)
@@ -120,7 +132,7 @@ func TestSearchRepo_Tasks(t *testing.T) {
 func TestSearchRepo_Comments(t *testing.T) {
 	db := setupSearchDB(t)
 	seedSearchData(t, db)
-	repo := NewSearchRepository(db)
+	repo := newSearchRepo(db)
 
 	hits, err := repo.SearchComments(context.Background(), "searchable", 10)
 	require.NoError(t, err)
@@ -130,21 +142,39 @@ func TestSearchRepo_Comments(t *testing.T) {
 func TestSearchRepo_Cyrillic(t *testing.T) {
 	db := setupSearchDB(t)
 	seedSearchData(t, db)
-	repo := NewSearchRepository(db)
+	repo := newSearchRepo(db)
 
-	hits, err := repo.SearchPages(context.Background(), "wiki", 10)
+	// Cyrillic term in the body: both engines index and fold Cyrillic
+	// case (T365 — this is exactly what a C-ctype cluster breaks).
+	hits, err := repo.SearchPages(context.Background(), "полнотекстового", 10)
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(hits), 1)
-	// The unicode61 + remove_diacritics 2 tokenizer handles non-ASCII.
-	hits2, err := repo.SearchPages(context.Background(), "wiki", 10)
+	require.Len(t, hits, 1)
+	assert.Equal(t, "ru-page", hits[0].Slug)
+
+	// UPPER-case query against the lowercase body token — the query
+	// side must fold too.
+	hits, err = repo.SearchPages(context.Background(), "ПОИСКА", 10)
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(hits2), 1)
+	require.Len(t, hits, 1)
+	assert.Equal(t, "ru-page", hits[0].Slug)
+
+	// Different word form ("поиск" vs indexed "поиска") must NOT match
+	// — no stemming, no prefix matching on either driver.
+	hits, err = repo.SearchPages(context.Background(), "поиск", 10)
+	require.NoError(t, err)
+	assert.Empty(t, hits)
+
+	hits, err = repo.SearchPages(context.Background(), "кириллическая", 10)
+	require.NoError(t, err)
+	require.Len(t, hits, 1)
+	assert.Equal(t, "ru-page", hits[0].Slug)
+	assert.Contains(t, hits[0].Snippet, "<mark>")
 }
 
 func TestSearchRepo_EmptyReturnsEmpty(t *testing.T) {
 	db := setupSearchDB(t)
 	seedSearchData(t, db)
-	repo := NewSearchRepository(db)
+	repo := newSearchRepo(db)
 
 	hits, err := repo.SearchPages(context.Background(), "no-such-term", 10)
 	require.NoError(t, err)
@@ -170,7 +200,7 @@ func TestSearchRepo_SnippetMarkersWithHTMLContent(t *testing.T) {
 	_, err := wikis.Create(context.Background(), page)
 	require.NoError(t, err)
 
-	repo := NewSearchRepository(db)
+	repo := newSearchRepo(db)
 	hits, err := repo.SearchPages(context.Background(), "gadget", 10)
 	require.NoError(t, err)
 	require.Len(t, hits, 1)

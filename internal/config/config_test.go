@@ -174,6 +174,65 @@ ratelimit:
 	assert.Equal(t, 1.5, c.RateLimit.AnonPerSec)
 }
 
+// LLM section: yaml + env override + api_key file resolution. The
+// quiz grader is off unless base_url is set.
+func TestLoad_LLMFromYAMLAndEnv(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yaml := `
+llm:
+  base_url: http://from-yaml:8080/v1
+  model: yaml-model
+`
+	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o600))
+
+	c, err := Load(path)
+	require.NoError(t, err)
+	assert.True(t, c.LLM.Enabled())
+	assert.Equal(t, "http://from-yaml:8080/v1", c.LLM.BaseURL)
+	assert.Equal(t, "yaml-model", c.LLM.Model)
+	assert.Equal(t, 30*time.Second, c.LLM.Timeout, "default timeout applies without yaml/env")
+
+	t.Setenv("ORENDA_LLM__BASE_URL", "http://from-env:9000/v1")
+	t.Setenv("ORENDA_LLM__API_KEY", "k-env")
+	t.Setenv("ORENDA_LLM__TIMEOUT", "5s")
+
+	c, err = Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "http://from-env:9000/v1", c.LLM.BaseURL, "env wins over yaml")
+	assert.Equal(t, "k-env", c.LLM.APIKey)
+	assert.Equal(t, 5*time.Second, c.LLM.Timeout)
+}
+
+func TestLoad_LLMDisabledByDefault(t *testing.T) {
+	clearORENDAEnv(t)
+	c := DefaultConfig()
+	assert.False(t, c.LLM.Enabled(), "no [llm] config = grading off")
+}
+
+func TestLoad_LLMAPIKeyFile(t *testing.T) {
+	clearORENDAEnv(t)
+	dir := t.TempDir()
+	keyFile := filepath.Join(dir, "llm.key")
+	require.NoError(t, os.WriteFile(keyFile, []byte("sk-file-key\n"), 0o600))
+
+	c := LLMConfig{APIKeyFile: keyFile}
+	key, err := c.ResolveAPIKey()
+	require.NoError(t, err)
+	assert.Equal(t, "sk-file-key", key, "file contents are trimmed")
+
+	// Direct value wins over the file.
+	c = LLMConfig{APIKey: "sk-direct", APIKeyFile: keyFile}
+	key, err = c.ResolveAPIKey()
+	require.NoError(t, err)
+	assert.Equal(t, "sk-direct", key)
+
+	// Missing file errors.
+	c = LLMConfig{APIKeyFile: filepath.Join(dir, "nope.key")}
+	_, err = c.ResolveAPIKey()
+	require.Error(t, err)
+}
+
 func TestLoad_MalformedYAML_ReturnsError(t *testing.T) {
 	clearORENDAEnv(t)
 	dir := t.TempDir()
@@ -218,6 +277,69 @@ func TestLoad_EnvOnly_NoFile(t *testing.T) {
 	c, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
 	require.NoError(t, err)
 	assert.Equal(t, 4321, c.Server.Port)
+}
+
+// TestLoad_StorageDriverAndPostgres covers the T360 storage seam config
+// surface: the driver selector defaults to sqlite, ORENDA_STORAGE__DRIVER
+// overrides it, the postgres section is readable via YAML/env, and a
+// bogus driver fails config validation naming the allowed values.
+func TestLoad_StorageDriverAndPostgres(t *testing.T) {
+	t.Run("default driver is sqlite", func(t *testing.T) {
+		c, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
+		require.NoError(t, err)
+		assert.Equal(t, "sqlite", c.Storage.Driver)
+	})
+
+	t.Run("env override postgres + section", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		require.NoError(t, os.WriteFile(path, []byte(
+			"storage:\n  postgres:\n    host: yaml-host\n"), 0o600))
+		t.Setenv("ORENDA_STORAGE__DRIVER", "postgres")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__HOST", "db.local")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__PORT", "5433")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__EMBEDDED", "true")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__EMBEDDED_PORT", "5433")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__DATABASE", "orenda")
+
+		c, err := Load(path)
+		require.NoError(t, err)
+		assert.Equal(t, "postgres", c.Storage.Driver)
+		assert.Equal(t, "db.local", c.Storage.Postgres.Host)
+		assert.Equal(t, 5433, c.Storage.Postgres.Port)
+		assert.True(t, c.Storage.Postgres.Embedded)
+		assert.Equal(t, 5433, c.Storage.Postgres.EmbeddedPort)
+		assert.Equal(t, "orenda", c.Storage.Postgres.Database)
+		require.NoError(t, c.Validate())
+	})
+
+	t.Run("env override dsn, ssl_mode, binaries_url", func(t *testing.T) {
+		t.Setenv("ORENDA_STORAGE__DRIVER", "postgres")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__DSN", "postgres://u:p@db.local:5433/orenda")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__SSL_MODE", "require")
+		t.Setenv("ORENDA_STORAGE__POSTGRES__BINARIES_URL", "https://mirror.example/maven2")
+
+		c, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
+		require.NoError(t, err)
+		assert.Equal(t, "postgres://u:p@db.local:5433/orenda", c.Storage.Postgres.DSN)
+		assert.Equal(t, "require", c.Storage.Postgres.SSLMode)
+		assert.Equal(t, "https://mirror.example/maven2", c.Storage.Postgres.BinariesURL)
+		require.NoError(t, c.Validate())
+	})
+
+	t.Run("driver postgres without dsn and database fails validation", func(t *testing.T) {
+		t.Setenv("ORENDA_STORAGE__DRIVER", "postgres")
+		_, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "storage.postgres.dsn or storage.postgres.database is required")
+	})
+
+	t.Run("bogus driver fails validation", func(t *testing.T) {
+		t.Setenv("ORENDA_STORAGE__DRIVER", "bogus")
+		_, err := Load(filepath.Join(t.TempDir(), "missing.yaml"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "sqlite or postgres")
+	})
 }
 
 // TestLoad_JWTSecretFile covers the Task 138 credential-file path: the
@@ -382,6 +504,64 @@ func TestValidate(t *testing.T) {
 			name:    "invalid log level",
 			mutate:  func(c *Config) { c.Logging.Level = "verbose" },
 			wantErr: "logging.level invalid",
+		},
+		{
+			name:    "driver sqlite valid",
+			mutate:  func(c *Config) { c.Storage.Driver = "sqlite" },
+			wantErr: "",
+		},
+		{
+			name:    "driver postgres valid with database",
+			mutate:  func(c *Config) { c.Storage.Driver = "postgres"; c.Storage.Postgres.Database = "orenda" },
+			wantErr: "",
+		},
+		{
+			name:    "driver postgres valid with dsn",
+			mutate:  func(c *Config) { c.Storage.Driver = "postgres"; c.Storage.Postgres.DSN = "postgres://localhost/orenda" },
+			wantErr: "",
+		},
+		{
+			name:    "driver postgres without dsn and database rejected",
+			mutate:  func(c *Config) { c.Storage.Driver = "postgres" },
+			wantErr: "storage.postgres.dsn or storage.postgres.database is required",
+		},
+		{
+			name: "driver postgres embedded requires database",
+			mutate: func(c *Config) {
+				c.Storage.Driver = "postgres"
+				c.Storage.Postgres.Embedded = true
+				c.Storage.Postgres.DSN = "postgres://localhost/orenda"
+			},
+			wantErr: "storage.postgres.database is required when storage.postgres.embedded is true",
+		},
+		{
+			name: "driver postgres embedded with database valid",
+			mutate: func(c *Config) {
+				c.Storage.Driver = "postgres"
+				c.Storage.Postgres.Embedded = true
+				c.Storage.Postgres.Database = "orenda"
+			},
+			wantErr: "",
+		},
+		{
+			name:    "driver bogus rejected",
+			mutate:  func(c *Config) { c.Storage.Driver = "bogus" },
+			wantErr: `storage.driver invalid: "bogus" (must be sqlite or postgres)`,
+		},
+		{
+			name:    "driver empty rejected",
+			mutate:  func(c *Config) { c.Storage.Driver = "" },
+			wantErr: "storage.driver invalid",
+		},
+		{
+			name:    "postgres port out of range",
+			mutate:  func(c *Config) { c.Storage.Postgres.Port = 70_000 },
+			wantErr: "storage.postgres.port out of range",
+		},
+		{
+			name:    "postgres embedded_port out of range",
+			mutate:  func(c *Config) { c.Storage.Postgres.EmbeddedPort = -1 },
+			wantErr: "storage.postgres.embedded_port out of range",
 		},
 	}
 

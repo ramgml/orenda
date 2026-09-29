@@ -41,7 +41,7 @@ func (r *userRepo) Create(ctx context.Context, u *user.User) error {
 		u.ID, strings.ToLower(u.Email), u.PasswordHash, u.DisplayName, string(u.Role),
 	)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if IsUniqueViolation(err) {
 			return user.ErrEmailTaken
 		}
 		return fmt.Errorf("user.Create: %w", err)
@@ -85,7 +85,7 @@ func (r *userRepo) Update(ctx context.Context, u *user.User) error {
 		strings.ToLower(u.Email), u.PasswordHash, u.DisplayName, string(u.Role), u.ID,
 	)
 	if err != nil {
-		if isUniqueViolation(err) {
+		if IsUniqueViolation(err) {
 			return user.ErrEmailTaken
 		}
 		return fmt.Errorf("user.Update: %w", err)

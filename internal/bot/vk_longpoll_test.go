@@ -88,6 +88,44 @@ func hostOf(s string) string {
 	return s
 }
 
+// errSink collects errors reported via OnError so the test can log
+// them from the testing goroutine. OnError fires on the bot's poll
+// goroutine, which Stop does not join — it can still be running when
+// the test function returns, and t.Logf after test completion is a
+// data race on testing.common (flake: intermittent -race failure at
+// the old `v.OnError = func(err error) { t.Logf(...) }` closures,
+// e.g. "Read ... testing.(*common).destination" vs "tRunner.func1").
+// The mutex keeps concurrent appends race-free; flush runs on the
+// testing goroutine (via defer/t.Cleanup, which completes before the
+// test is marked finished), so t.Logf is only ever called from the
+// testing thread.
+type errSink struct {
+	mu   sync.Mutex
+	errs []error
+}
+
+func newErrSink(v *VK) *errSink {
+	s := &errSink{}
+	v.OnError = func(err error) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.errs = append(s.errs, err)
+	}
+	return s
+}
+
+// flush logs the collected errors. Call it from the testing goroutine
+// only (defer in the test body or t.Cleanup).
+func (s *errSink) flush(t *testing.T) {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, err := range s.errs {
+		t.Logf("vk poll err: %v", err)
+	}
+	s.errs = nil
+}
+
 // TestVKLongPoll_DispatchesMessageNewHappyPath is the smoke test:
 // Start → bot fetches server → a_check returns a message_new tuple
 // → OnMessage fires with the parsed payload.
@@ -113,9 +151,8 @@ func TestVKLongPoll_DispatchesMessageNewHappyPath(t *testing.T) {
 		got.Store(&m)
 		return nil
 	}
-	v.OnError = func(err error) {
-		t.Logf("vk poll err: %v", err)
-	}
+	pollErrs := newErrSink(v)
+	defer pollErrs.flush(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -170,9 +207,8 @@ func TestVKLongPoll_ReconnectsOnFailed1(t *testing.T) {
 
 	v := NewVK("token", 42).WithBaseURL(apiSrv.URL).WithLongPollScheme("http://")
 	v.PollTimeout = 50 * time.Millisecond
-	v.OnError = func(err error) {
-		t.Logf("vk poll err: %v", err)
-	}
+	pollErrs := newErrSink(v)
+	defer pollErrs.flush(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

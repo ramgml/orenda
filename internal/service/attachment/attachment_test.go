@@ -35,7 +35,7 @@ func (m *memHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscribe) {
 func setupAttach(t *testing.T) (*attachmentsvc.Service, *memHub, string) {
 	t.Helper()
 	dir := t.TempDir()
-	db, _ := testutil.TemplateDBOpen(t)
+	db := testutil.MatrixDB(t)
 
 	uploads := filepath.Join(dir, "uploads")
 	require.NoError(t, os.MkdirAll(uploads, 0o755))
@@ -198,7 +198,7 @@ func TestAttachmentService_MimeAllowed_Wildcard(t *testing.T) {
 // it lazily instead of failing with "create tmp: no such file or directory".
 func TestAttachmentService_Store_MissingUploadDirCreated(t *testing.T) {
 	dir := t.TempDir()
-	db, _ := testutil.TemplateDBOpen(t)
+	db := testutil.MatrixDB(t)
 
 	// NOT created: the service must create it on first store.
 	uploads := filepath.Join(dir, "uploads")

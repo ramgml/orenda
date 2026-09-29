@@ -9,7 +9,21 @@
  * `undefined`), while several components persist UI state there (kanban
  * card density, timer state, …). Install a minimal in-memory stand-in
  * that satisfies the Storage contract those components use.
+ *
+ * jsdom also lacks the scrolling API on elements (`scrollTo`,
+ * `scrollIntoView`). Production components scroll the chat thread
+ * from a requestAnimationFrame callback (TutorChatPanel): the frame
+ * fires on a real jsdom timer while the node is still mounted,
+ * `scrollTo` is not a function, and the throw escapes the component
+ * as an unhandled post-test error that fails an otherwise green run
+ * (T357). Install a no-op stub ONLY when the API is genuinely
+ * missing, so a real bug in scroll-call wiring still surfaces
+ * instead of being swallowed.
  */
+if (typeof Element !== 'undefined' && typeof Element.prototype.scrollTo !== 'function') {
+  Element.prototype.scrollTo = () => {};
+}
+
 if (typeof localStorage === 'undefined') {
   const store = new Map<string, string>();
 

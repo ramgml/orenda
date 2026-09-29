@@ -13,16 +13,11 @@ import (
 	"github.com/ramgml/orenda/internal/domain/user"
 )
 
+// setupAgentDB opens a fixture database for the active matrix driver
+// (sqlite or postgres — see matrix_test.go).
 func setupAgentDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dir := t.TempDir()
-	db, err := Open(context.Background(), dir+"/a.db", OpenConfig{
-		WALMode: true, EnableForeign: true, BusyTimeoutMs: 5000,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, Migrate(context.Background(), db, MigrationsFS, "migrations"))
-	return db
+	return matrixDB(t)
 }
 
 // seedToken inserts a real user + api_tokens row and returns the token id.

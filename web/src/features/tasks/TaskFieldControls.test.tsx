@@ -72,14 +72,16 @@ vi.mock('@/features/auth/AuthContext', () => ({
   useAuth: () => ({ user: { user_id: 'u-me', email: 'me@x.io', display_name: 'Me' } }),
 }));
 
-// Default board used by project-aware tests. Five canonical columns
-// — order matters (sorted by position by the component).
+// Default board used by project-aware tests. Six canonical columns
+// (T376 added the rejected parking column after done) — order matters
+// (sorted by position by the component).
 const defaultBoardColumns: BoardColumn[] = [
   { id: 'c-bl', board_id: 'b1', name: 'Backlog', position: 0, status: 'backlog' },
   { id: 'c-td', board_id: 'b1', name: 'Todo', position: 1024, status: 'todo' },
   { id: 'c-ip', board_id: 'b1', name: 'In progress', position: 2048, status: 'in_progress' },
   { id: 'c-rv', board_id: 'b1', name: 'Review', position: 3072, status: 'review' },
   { id: 'c-dn', board_id: 'b1', name: 'Done', position: 4096, status: 'done' },
+  { id: 'c-rj', board_id: 'b1', name: 'Rejected', position: 5120, status: 'rejected' },
 ];
 
 const defaultBoard: ProjectBoard = {
@@ -156,6 +158,34 @@ describe('TaskFieldControls', () => {
     const names = (await screen.findAllByRole('option')).map((o) => o.textContent);
     // Position-ordered: backlog, todo, done, qa.
     expect(names).toEqual(['Backlog', 'Todo', 'Done', 'QA']);
+  });
+
+  it('T376: Status select offers the rejected parking column after Done', async () => {
+    vi.spyOn(api, 'listAgents').mockResolvedValue([]);
+    mockBoard();
+    const { getByTestId } = renderControls();
+    await waitFor(() => expect(getByTestId('task-status')).toBeTruthy());
+    openSelect(getByTestId, 'task-status');
+    const names = (await screen.findAllByRole('option')).map((o) => o.textContent);
+    expect(names).toEqual(['Backlog', 'Todo', 'In progress', 'Review', 'Done', 'Rejected']);
+  });
+
+  it('T376: fallback status options (getBoard failed) include Rejected', async () => {
+    vi.spyOn(api, 'listAgents').mockResolvedValue([]);
+    vi.spyOn(api, 'getBoard').mockRejectedValue(new Error('offline'));
+    const { getByTestId } = renderControls();
+    await waitFor(() => expect(getByTestId('task-status')).toBeTruthy());
+    openSelect(getByTestId, 'task-status');
+    const names = (await screen.findAllByRole('option')).map((o) => o.textContent);
+    expect(names).toEqual([
+      'Backlog',
+      'Todo',
+      'In progress',
+      'Blocked',
+      'Review',
+      'Done',
+      'Rejected',
+    ]);
   });
 
   it('Patches the task when status changes', async () => {

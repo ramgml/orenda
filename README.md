@@ -14,8 +14,8 @@ In standard task managers AI is an external tool bolted on through integrations.
 
 - **Backend:** Go 1.22+ (chi, modernc.org/sqlite, JWT, gorilla/websocket, cobra)
 - **Frontend:** React 18 + TypeScript + Vite + Tailwind + shadcn/ui
-- **DB:** SQLite (WAL, FTS5, pure-Go via modernc.org/sqlite, no CGO)
-- **Backup:** git mirror + sqlite snapshots (configurable remote; hot-reloadable since 28.9)
+- **DB:** SQLite (WAL, FTS5, pure-Go via modernc.org/sqlite, no CGO) — default; PostgreSQL via the same binary (`storage.driver=postgres`: embedded / external / Docker, wiki T360–T367)
+- **Backup:** git mirror + dialect-aware snapshots (sqlite `VACUUM INTO` / `pg_dump -Fc`; configurable remote; hot-reloadable since 28.9)
 - **Notifications:** Pluggable bots (VK, Telegram, Email, Webhook, Console)
 - **Realtime:** WebSocket hub (cookie-auth, 8 topics) + long-poll fallback for agents
 - **Agent DX:** REST + MCP server (Streamable HTTP) + `orenda agent` cobra CLI
@@ -146,6 +146,183 @@ forbidden; use `SKIP_ORENDA_HOOKS=1` only for explicit, named
 exceptions. See [AGENTS.md](AGENTS.md#local-gates--git-hooks-phase-326)
 and the [ci-local-gates-hooks](http://localhost:2137/wiki/ci-local-gates-hooks)
 wiki page.
+
+### Database backends: SQLite or PostgreSQL
+
+Orenda ships two storage drivers behind one repository seam
+([wiki:storage-adapters](http://localhost:2137/wiki/storage-adapters), T360–T367):
+**SQLite** (default — behaviour unchanged) and **PostgreSQL** (opt-in via
+config). The schema, migrations, backup and full-text search follow the
+driver automatically; the same single static binary serves both and stays
+`CGO_ENABLED=0` (SQLite via pure-Go `modernc.org/sqlite`, PostgreSQL via
+pure-Go `jackc/pgx`).
+
+```yaml
+storage:
+  driver: sqlite          # "sqlite" (default) | "postgres"
+  data_dir: data
+  db_path: data/orenda.db
+  wal_mode: true
+  busy_timeout_ms: 5000   # sqlite: busy_timeout; postgres: session lock_timeout
+  enable_foreign_keys: true
+  postgres:
+    dsn: ""               # libpq DSN — wins over all parts below (T363)
+    host: 127.0.0.1       # used when dsn is empty
+    port: 5432
+    user: ""
+    password: ""
+    database: ""          # required for driver=postgres (both modes)
+    ssl_mode: ""          # libpq default "prefer"; embedded pins "disable"
+    embedded: false       # true → run a local cluster (zero-setup mode)
+    embedded_port: 5433
+    binaries_url: ""      # Maven mirror for embedded binaries (offline setups)
+    dump_bin: ""          # pg_dump override for backup (bare name → PATH)
+```
+
+Every key has an env override (`__` separates sections, lowercase —
+[`ORENDA_STORAGE__*`](docs/context/DB.md#configuration-reference)):
+
+| Env | Default | Meaning |
+|---|---|---|
+| `ORENDA_STORAGE__DRIVER` | `sqlite` | `sqlite` or `postgres` |
+| `ORENDA_STORAGE__DATA_DIR` | `data` | runtime dir root (embedded PGDATA lives in `<data_dir>/postgres`) |
+| `ORENDA_STORAGE__DB_PATH` | `data/orenda.db` | sqlite file path |
+| `ORENDA_STORAGE__WAL_MODE` | `true` | sqlite WAL journal |
+| `ORENDA_STORAGE__BUSY_TIMEOUT_MS` | `5000` | sqlite `busy_timeout` / postgres `lock_timeout` |
+| `ORENDA_STORAGE__ENABLE_FOREIGN_KEYS` | `true` | sqlite `foreign_keys` pragma |
+| `ORENDA_STORAGE__POSTGRES__DSN` | — | libpq DSN; **overrides all parts below** |
+| `ORENDA_STORAGE__POSTGRES__HOST` | `127.0.0.1` | part form only |
+| `ORENDA_STORAGE__POSTGRES__PORT` | `5432` | part form only |
+| `ORENDA_STORAGE__POSTGRES__USER` | — | embedded default: `postgres` |
+| `ORENDA_STORAGE__POSTGRES__PASSWORD` | — | embedded default: `postgres` |
+| `ORENDA_STORAGE__POSTGRES__DATABASE` | — | required when driver=postgres (embedded included) |
+| `ORENDA_STORAGE__POSTGRES__SSL_MODE` | `prefer` | libpq `sslmode`; embedded cluster pins `disable` |
+| `ORENDA_STORAGE__POSTGRES__EMBEDDED` | `false` | run the local embedded cluster |
+| `ORENDA_STORAGE__POSTGRES__EMBEDDED_PORT` | `5433` | embedded cluster port |
+| `ORENDA_STORAGE__POSTGRES__BINARIES_URL` | Maven Central | mirror repo for the embedded runtime's postgres binaries |
+| `ORENDA_STORAGE__POSTGRES__DUMP_BIN` | PATH lookup | `pg_dump` for backup/restore (T366) |
+
+**Three ways to run PostgreSQL** (embedded and external share one code path — D4/D7):
+
+1. **Embedded** — zero-setup local mode:
+
+   ```bash
+   ORENDA_STORAGE__DRIVER=postgres \
+   ORENDA_STORAGE__POSTGRES__EMBEDDED=true \
+   ORENDA_STORAGE__POSTGRES__DATABASE=orenda \
+   ORENDA_AUTH__JWT_SECRET=$(openssl rand -hex 32) ./bin/orenda serve
+   ```
+
+   The binary owns a throwaway PostgreSQL 16 cluster (`fergusstrange/embedded-postgres`,
+   zonky binaries): `serve`, `migrate` and `user` commands start it, shutdown stops it.
+   Data lives in `data/postgres/` (PGDATA, survives restarts; the runtime scratch
+   dir is outside and wiped per start), the postmaster listens on `127.0.0.1:5433`,
+   logs go into the structured zap log. On first start the binaries (~15 MB
+   compressed) are downloaded from Maven Central and cached in
+   `~/.embedded-postgres-go` — offline hosts can point `binaries_url` at an
+   internal Maven mirror or pre-warm the cache.
+   The cluster locale is pinned to `C.UTF-8` (fallback `en_US.UTF-8`) so
+   case-folding search works regardless of the host `LANG`; a C-locale cluster is
+   rejected loudly at startup, not silently.
+
+2. **External server** — point at an existing PostgreSQL (LAN, VPS, managed):
+
+   ```bash
+   ORENDA_STORAGE__DRIVER=postgres \
+   ORENDA_STORAGE__POSTGRES__DSN="postgres://orenda:secret@db.lan:5432/orenda?sslmode=require" \
+   ./bin/orenda migrate up
+   ```
+
+   `dsn` wins over the individual parts; without it, `host/port/user/password/database/ssl_mode`
+   are assembled (defaults `127.0.0.1:5432`, `sslmode=prefer`). **sslmode note:** for
+   remote servers set `ssl_mode=require` (or `verify-full` with a CA bundle for the
+   public internet) — the libpq default `prefer` encrypts but does not authenticate
+   the server; the embedded cluster runs loopback-only with `sslmode=disable`.
+
+3. **Docker** — a stock `postgres:16` next to the app (the shipped `docker-compose.yml`
+   keeps the app on SQLite; add the database container yourself):
+
+   ```bash
+   docker run -d --name orenda-pg -e POSTGRES_USER=orenda -e POSTGRES_PASSWORD=secret \
+     -e POSTGRES_DB=orenda -p 5432:5432 -v orenda-pgdata:/var/lib/postgresql/data postgres:16-alpine
+   # then start orenda with ORENDA_STORAGE__POSTGRES__DSN=postgres://orenda:secret@127.0.0.1:5432/orenda?sslmode=disable
+   ```
+
+   (Inside a compose network dial the service name, not `127.0.0.1`, and keep
+   `sslmode=disable` on the private network.)
+
+**Port map:** `2137` usage server · `2138` dev server · `21371` E2E ·
+`21400–21499` QA preview instances · `5432` default PostgreSQL · `5433`
+embedded cluster (chosen to clear a developer's `5432`).
+
+**Backup and maintenance follow the driver** (T366): snapshots on postgres are
+`pg_dump --format=custom` archives in the same `data/snapshots/` directory with
+the same naming and rotation; `orenda backup restore` restores into a scratch
+database, verifies (`pg_restore --list` + applied-migration check) and drops it —
+`--to <database>` promotes instead. The maintenance "verify" step is per-dialect:
+sqlite runs `integrity_check` + `foreign_key_check`, postgres runs the scratch
+restore. **Honest tooling contract:** `pg_dump`/`pg_restore` are client tools and
+are *not* part of the embedded bundle (it ships server binaries only) — the
+backup resolves them via `storage.postgres.dump_bin` → extracted
+embedded-runtime dirs (usually nothing there) → `PATH`; in practice install
+`postgresql-client` so `pg_dump` is on `PATH`, or point `dump_bin` at a
+concrete binary. The backup error names both options when the tool is
+missing, and CLI backup commands against an embedded cluster require the
+server to be up — it owns the postmaster.
+
+**Known limitations (2026-09):**
+
+- Ranking **numbers** differ between engines (sqlite FTS5 `bm25` vs postgres
+  `ts_rank` — term frequency, no IDF); hit sets and sanity ordering match
+  (PR #266). Neither engine stems — «поиск» does not match «поиска».
+- Embedded-locale policy is pinned to `C.UTF-8`/`en_US.UTF-8`; a
+  cross-platform locale matrix is tracked as T368.
+- Embedded dump tooling relies on `PATH`/`dump_bin` (see contract above).
+- There is **no automatic sqlite → postgres data migration** — switching an
+  existing install's driver (e.g. the dogfood `:2137` instance) is an open
+  owner decision, not part of this epic.
+
+**QA preview convention:** a preview instance that points at a shared
+`PGDATA` (embedded mode on a QA box) drops a `PREVIEW_OWNER` marker file
+into the data directory naming the instance/branch that owns the cluster —
+before wiping or re-initializing shared postgres data, check the marker
+first (after the T365 QA preview incident). Marker format, cleaner rules
+and the pgtest stale-sweep are specified in `docs/context/DOGFOOD.md`
+(QA-gate section); `scripts/pg-leak-snapshot.sh` snapshots the embedded
+cluster state for leak audits (T370).
+
+### Run in Docker
+
+Docker is an additional delivery channel; the canonical path is systemd
+(`scripts/install.sh --systemd`, see above).
+
+```bash
+# Build the image (multi-stage: node SPA → Go binary with the SPA embedded → alpine runtime)
+docker build -t orenda:local .
+
+# Run: the host port is set via ORENDA_PORT; the secret is required (compose
+# refuses to start without it — the error message says so; the variable is
+# needed for `docker compose exec`/`logs` too)
+ORENDA_PORT=8080 ORENDA_AUTH__JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build
+# → http://127.0.0.1:8080
+```
+
+- **Data:** named volume `orenda-data` → `/app/data` (SQLite + WAL);
+  `docker compose down` keeps it, the next `up` picks the database up.
+- **First user:**
+
+  ```bash
+  echo "your-password" | docker compose exec -T app orenda user create \
+      --email you@example.com --display-name You --password-stdin
+  ```
+
+- **Backup:** `docker compose exec app orenda backup snapshot` writes a
+  sqlite snapshot into the volume (`/app/data/snapshots/`). `orenda backup
+  push` (git) works too — git ships in the image, but the remote and its
+  credentials must be configured from inside the container yourself.
+- **Upgrade:** `docker compose down`, then `ORENDA_PORT=…
+  ORENDA_AUTH__JWT_SECRET=… docker compose up -d --build` again — data in
+  the volume survives the container recreation.
 
 ## Features
 

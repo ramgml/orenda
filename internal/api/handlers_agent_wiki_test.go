@@ -81,7 +81,7 @@ func newAgentWikiFixture(t *testing.T) *agentWikiFixture {
 		Agents:        agents,
 		AgentService:  agentSvc,
 		WikiService:   wikiservice.New(sqlite.NewWikiRepository(db), hub),
-		SearchService: searchservice.New(sqlite.NewSearchRepository(db), hub),
+		SearchService: searchservice.New(newSearchRepository(db), hub),
 		CookieName:    "orenda_session",
 	}
 	uploadsDir := filepath.Join(t.TempDir(), "uploads")

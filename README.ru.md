@@ -14,8 +14,8 @@
 
 - **Backend:** Go 1.22+ (chi, modernc.org/sqlite, JWT, gorilla/websocket, cobra)
 - **Frontend:** React 18 + TypeScript + Vite + Tailwind + shadcn/ui
-- **БД:** SQLite (WAL, FTS5, pure-Go через modernc.org/sqlite, без CGO)
-- **Backup:** git-зеркало + sqlite-снапшоты (настраиваемый remote; hot-reload с 28.9)
+- **БД:** SQLite (WAL, FTS5, pure-Go через modernc.org/sqlite, без CGO) — по умолчанию; PostgreSQL тем же бинарем (`storage.driver=postgres`: embedded / внешний / Docker)
+- **Backup:** git-зеркало + снапшоты по драйверу (sqlite `VACUUM INTO` / `pg_dump -Fc`; настраиваемый remote; hot-reload с 28.9)
 - **Уведомления:** подключаемые боты (VK, Telegram, Email, Webhook, Console)
 - **Realtime:** WebSocket-хаб (cookie-auth, 8 топиков) + long-poll fallback для агентов
 - **Agent DX:** REST + MCP-сервер (Streamable HTTP) + `orenda agent` cobra CLI
@@ -147,6 +147,116 @@ make hooks   # выставляет core.hooksPath = scripts/git-hooks (общи
 `SKIP_ORENDA_HOOKS=1` только для явных, названных исключений. См.
 [AGENTS.md](AGENTS.md#local-gates--git-hooks-phase-326) и wiki-страницу
 [ci-local-gates-hooks](http://localhost:2137/wiki/ci-local-gates-hooks).
+
+### Базы данных: SQLite или PostgreSQL
+
+Два storage-драйвера за одним seam-слоем (wiki:storage-adapters, T360–T367):
+**SQLite** (по умолчанию — поведение не меняется) и **PostgreSQL** (по
+конфигу). Схема, миграции, бэкапы и поиск следуют за драйвером
+автоматически; бинарь тот же, статический, `CGO_ENABLED=0`
+(sqlite — pure-Go `modernc.org/sqlite`, postgres — pure-Go `jackc/pgx`).
+
+```yaml
+storage:
+  driver: sqlite          # "sqlite" (по умолчанию) | "postgres"
+  postgres:
+    dsn: ""               # libpq DSN — приоритетнее отдельных частей (T363)
+    host: 127.0.0.1
+    port: 5432
+    database: ""          # обязателен для driver=postgres
+    ssl_mode: ""          # libpq-дефолт "prefer"; embedded пинит "disable"
+    embedded: false       # true → локальный кластер (режим «из коробки»)
+    embedded_port: 5433
+    binaries_url: ""      # Maven-зеркало бинарей embedded (оффлайн)
+    dump_bin: ""          # pg_dump для бэкапов (голое имя → PATH)
+```
+
+У каждого ключа есть env-оверрайд (`__` разделяет секции, строчные буквы):
+`ORENDA_STORAGE__DRIVER`, `ORENDA_STORAGE__DB_PATH`,
+`ORENDA_STORAGE__BUSY_TIMEOUT_MS`, `ORENDA_STORAGE__POSTGRES__DSN`,
+`ORENDA_STORAGE__POSTGRES__HOST/PORT/USER/PASSWORD/DATABASE/SSL_MODE`,
+`ORENDA_STORAGE__POSTGRES__EMBEDDED/EMBEDDED_PORT`,
+`ORENDA_STORAGE__POSTGRES__BINARIES_URL`, `ORENDA_STORAGE__POSTGRES__DUMP_BIN`
+и др. — полная таблица с дефолтами в
+[README.md → Database backends](README.md#database-backends-sqlite-or-postgresql).
+
+**Три режима PostgreSQL:**
+
+1. **Embedded** — локальный кластер без настройки: `ORENDA_STORAGE__DRIVER=postgres`,
+   `ORENDA_STORAGE__POSTGRES__EMBEDDED=true`,
+   `ORENDA_STORAGE__POSTGRES__DATABASE=orenda`. Бинарь сам стартует/останавливает
+   PostgreSQL 16 (zonky-бинари с Maven Central, кэш `~/.embedded-postgres-go`;
+   первый старт скачивает ~15 МБ); данные в `data/postgres/`, порт `127.0.0.1:5433`,
+   логи постмастера — в структурированном zap-логе. Локаль кластера пинится в
+   `C.UTF-8` (фоллбек `en_US.UTF-8`), C-локаль громко отвергается на старте.
+2. **Внешний сервер** — `dsn` (приоритет) либо части
+   `host/port/user/password/database/ssl_mode`. Для удалённых серверов ставьте
+   `ssl_mode=require` (для интернета — `verify-full` + CA): libpq-дефолт `prefer`
+   шифрует, но не аутентифицирует сервер.
+3. **Docker** — стоковый `postgres:16` рядом с приложением (штатный
+   `docker-compose.yml` держит приложение на SQLite):
+
+   ```bash
+   docker run -d --name orenda-pg -e POSTGRES_USER=orenda -e POSTGRES_PASSWORD=secret \
+     -e POSTGRES_DB=orenda -p 5432:5432 -v orenda-pgdata:/var/lib/postgresql/data postgres:16-alpine
+   # затем ORENDA_STORAGE__POSTGRES__DSN=postgres://orenda:secret@127.0.0.1:5432/orenda?sslmode=disable
+   ```
+
+Порты: `2137` usage · `2138` dev · `21371` E2E · `21400–21499` QA-preview ·
+`5432` внешний PostgreSQL · `5433` embedded-кластер.
+
+**Бэкапы и обслуживание следуют драйверу (T366):** снапшоты на postgres —
+`pg_dump --format=custom` в тот же `data/snapshots/` с той же нумерацией и
+ротацией; `orenda backup restore` восстанавливает в scratch-базу, проверяет
+(`pg_restore --list` + применённые миграции) и удаляет её, `--to <база>` —
+сохранить для промоушена. **Честный контракт тулзов:** в embedded-комплект
+входят только серверные бинари — `pg_dump`/`pg_restore` берутся из `PATH`
+(поставьте `postgresql-client`) или из `storage.postgres.dump_bin`; ошибка
+бэкапа называет оба варианта.
+
+**Известные ограничения:** числа ранжирования bm25 (sqlite) и ts_rank (PG)
+не сравнимы между движками — хит-сеты и порядок совпадают (PR #266);
+стемминга нет ни там, ни там; кросс-платформенная политика локалей
+embedded — T368; автоматического переноса данных sqlite→postgres нет —
+переключение действующего инстанса — отдельное решение владельца.
+QA-конвенция: preview-инстанс на общем PGDATA кладёт в каталог маркер
+`PREVIEW_OWNER` с именем владельца-инстанса — проверяйте его перед сносом.
+Формат маркера, правила уборщиков и pgtest-свип описаны в
+`docs/context/DOGFOOD.md` (раздел QA-гейта); `scripts/pg-leak-snapshot.sh`
+снимает состояние embedded-кластеров для аудита утечек (T370).
+
+### Запуск в Docker
+
+Docker — дополнительный канал поставки; основной путь — systemd
+(`scripts/install.sh --systemd`, см. выше).
+
+```bash
+# Сборка образа (multi-stage: SPA на node → Go-бинарь со встроенным SPA → alpine runtime)
+docker build -t orenda:local .
+
+# Запуск: порт хоста задаётся ORENDA_PORT, секрет обязателен (compose
+# откажется стартовать без него — в сообщении будет подсказка; переменная
+# нужна и для `docker compose exec`/`logs`)
+ORENDA_PORT=8080 ORENDA_AUTH__JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build
+# → http://127.0.0.1:8080
+```
+
+- **Данные:** named volume `orenda-data` → `/app/data` (SQLite + WAL);
+  `docker compose down` их сохраняет, при следующем `up` база подхватывается.
+- **Первый пользователь:**
+
+  ```bash
+  echo "ваш-пароль" | docker compose exec -T app orenda user create \
+      --email you@example.com --display-name You --password-stdin
+  ```
+
+- **Бэкап:** `docker compose exec app orenda backup snapshot` — sqlite-снапшот
+  пишется в volume (`/app/data/snapshots/`). `orenda backup push` (git) тоже
+  доступен — git в образе есть, но remote/учётные данные нужно настроить
+  изнутри контейнера самостоятельно.
+- **Обновление:** `docker compose down`, затем снова `ORENDA_PORT=…
+  ORENDA_AUTH__JWT_SECRET=… docker compose up -d --build` — данные в volume
+  переживают пересоздание контейнера.
 
 ## Возможности
 
