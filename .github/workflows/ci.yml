@@ -26,6 +26,16 @@
 # (Task 378) lints new-vs-previous-release-tag and additionally subtracts the
 # standing dev inventory, so accepted Phase 30.16 debt never fails a release;
 # issues dev does not carry yet do fail. See scripts/ci/lint-release.sh.
+#
+# Runner image (Task 381): `ubuntu-latest` migrates to Ubuntu 26.04 from
+# 2026-10-19 (actions-runner-images#14748). Migration accepted — no pin to
+# ubuntu-24.04: the full gate was rehearsed on `ubuntu-26.04` ahead of the
+# rollout (run 36559379916 caught the one breakage — pg client 18 vs the
+# pinned embedded server 16, fixed in internal/backup; run 36564773364 is
+# green end-to-end with the fix) and A/B-verified on ubuntu-latest (run
+# 36566278079). To rehearse a future image change: a temporary branch with
+# a workflow_dispatch runs-on input, dispatched via
+# `gh workflow run ci.yml --ref <branch> -f runner=<label>` (recipe: T381).
 name: ci
 
 on:
