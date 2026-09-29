@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Task 381:** backup-тулчейн PostgreSQL больше не ломается на клиентах новее сервера — ubuntu-latest в CI 19.10.2026 молча переезжает на Ubuntu 26.04 (actions-runner-images#14748), чей образ несёт клиент 18 против запиненного embedded-сервера 16, и round-trip `TestBackupPG_SnapshotRestoreRoundTrip` падал на `pg_restore: unrecognized configuration parameter "transaction_timeout"` (pg_dump ≥17 пишет в архив `SET transaction_timeout = 0;`, который сервер 16 не знает). Резолвер `pg_dump`/`pg_restore` теперь предпочитает версию-совпадающий клиент из multi-version корней Debian/Ubuntu (`/usr/lib/postgresql/<server-major>/bin`), snapshot целится им в сервер (best-effort probe `server_version_num`), а restore жёстко охраняет направление: клиент новее таргета — громкий отказ с рецептом (`postgresql-client-<major>` из PGDG или `storage.postgres.dump_bin`) ДО создания scratch; тестовая джоба CI дотягивает `postgresql-client-16` из PGDG на образах с более новым системным клиентом (24.04 — no-op).
+
 ## [0.25.1] — 2026-09-29
 
 ### Fixed
