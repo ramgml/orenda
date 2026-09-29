@@ -883,6 +883,78 @@ describe('KanbanBoard — T150 cross-column card-over-card drop', () => {
 });
 
 /**
+ * T376 (PRD F-T-3) — the rejected parking loop. The board renders the
+ * rejected column like any other (columns are data-driven), so the two
+ * directions worth pinning are the drags: parking a card in rejected
+ * and reviving it back into todo. Same real dnd-kit pointer pipeline
+ * as the T150 suite above.
+ */
+describe('KanbanBoard — T376 rejected parking drags', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    stubRects({});
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('drags a todo card into the rejected column (human parks declined work)', async () => {
+    stubRects({
+      'col-1': { left: 0, top: 0, width: 240, height: 400 },
+      'col-2': { left: 260, top: 0, width: 240, height: 400 },
+      t1: { left: 10, top: 60, width: 220, height: 56 },
+    });
+    mountTwoColBoard(
+      [makeTask({ id: 't1', number: 1, column_id: 'col-1', title: 'Card One', position: 1024 })],
+      [
+        makeColumn({ id: 'col-1', name: 'Todo', position: 1, status: 'todo' }),
+        makeColumn({ id: 'col-2', name: 'Rejected', position: 2, status: 'rejected' }),
+      ],
+    );
+    await screen.findByText('Card One');
+    tagBoardGeometry();
+
+    const c2 = rectOfT('col-2');
+    await dragCard(cardHandle(document.body, 'Card One'), centerOf(rectOfT('t1')), {
+      x: c2.left + c2.width / 2,
+      y: c2.top + 200,
+    });
+
+    const calls = movesFor('t1');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].columnId).toBe('col-2');
+  });
+
+  it('drags a rejected card back into todo (the revival loop)', async () => {
+    stubRects({
+      'col-1': { left: 0, top: 0, width: 240, height: 400 },
+      'col-2': { left: 260, top: 0, width: 240, height: 400 },
+      t1: { left: 270, top: 60, width: 220, height: 56 },
+    });
+    mountTwoColBoard(
+      [makeTask({ id: 't1', number: 1, column_id: 'col-2', title: 'Card One', position: 1024 })],
+      [
+        makeColumn({ id: 'col-1', name: 'Todo', position: 1, status: 'todo' }),
+        makeColumn({ id: 'col-2', name: 'Rejected', position: 2, status: 'rejected' }),
+      ],
+    );
+    await screen.findByText('Card One');
+    tagBoardGeometry();
+
+    const c1 = rectOfT('col-1');
+    await dragCard(cardHandle(document.body, 'Card One'), centerOf(rectOfT('t1')), {
+      x: c1.left + c1.width / 2,
+      y: c1.top + 200,
+    });
+
+    const calls = movesFor('t1');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].columnId).toBe('col-1');
+  });
+});
+
+/**
  * T164 — drag fan-out eliminated.
  *
  * A suffix rebalance used to fire one POST /api/v1/tasks/:id/move per

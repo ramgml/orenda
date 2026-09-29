@@ -191,6 +191,7 @@ text-classifies.
 |---|---|
 | `001_baseline` | consolidated final state of the sqlite chain `001_init`…`049_chat_messages_user_idx` (018 does not exist upstream). Data backfills/table rebuilds from the sqlite chain are state-neutral on a fresh database and are not replayed. |
 | `002_search` | full-text objects: generated `tsvector` columns + GIN (no sync triggers — `GENERATED ALWAYS … STORED` maintains itself; sqlite needs the 9 FTS5 triggers) |
+| `003_rejected_column` | canonical `rejected` parking column on every existing board (Task 376, PRD F-T-3) — the postgres counterpart of sqlite `051_rejected_column`; idempotent (boards with a Phase 27.8 custom `rejected` machine key are skipped), no task backfill |
 
 `orenda migrate up/down/status` work identically on both drivers — the
 postgres runner applies each file inside a transaction (transactional DDL)

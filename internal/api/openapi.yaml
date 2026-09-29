@@ -125,10 +125,14 @@ components:
         status:
           type: string
           description: |
-            Canonical status (`backlog|todo|in_progress|review|done|blocked`)
-            or a project-defined column machine key. `blocked` (Task 115)
+            Canonical status (`backlog|todo|in_progress|review|done|rejected|blocked`)
+            or a project-defined column machine key. `rejected` (Task 376,
+            PRD F-T-3) is the human-only parking column for declined work:
+            entering it clears awaiting to `none`, never stamps
+            `completed_at`, and the rejected → todo drag revives the card.
+            `blocked` (Task 115)
             is set automatically when an unfinished blocker is added and
-            the task is not already done/blocked; it is restored when the
+            the task is not already done/rejected/blocked; it is restored when the
             last unfinished blocker goes away, or overridden by a manual
             move (which clears `blocked_prev_status`).
         blocked_prev_status:

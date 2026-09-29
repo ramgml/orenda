@@ -90,7 +90,10 @@ func TestMigrate_050OrphanBoardCleanup(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM boards`).Scan(&boards))
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM columns`).Scan(&columns))
 	assert.Equal(t, 1, boards, "only the live project's board must remain")
-	assert.Equal(t, 1, columns, "only the live board's column must remain")
+	// T376: the chain now ends with 051, which appends the canonical
+	// `rejected` parking column to the surviving board — so the live
+	// board keeps its own column plus exactly one seeded parking column.
+	assert.Equal(t, 2, columns, "live board's column + the 051 rejected parking column")
 
 	var name string
 	require.NoError(t, db.QueryRowContext(ctx,

@@ -108,10 +108,10 @@ func listTables(t *testing.T, db *sql.DB) map[string]struct{} {
 }
 
 // TestMigrateUpDownUpCycle walks the full lifecycle on a real server:
-// up → every migration applied (001_baseline + 002_search) and version
-// recorded; repeated up → no-op; down → the most recent migration's
-// objects rolled back and its version unrecorded while the baseline
-// stays; up again → clean reapply.
+// up → every migration applied (001_baseline + 002_search +
+// 003_rejected_column) and version recorded; repeated up → no-op; down →
+// the most recent migration's objects rolled back and its version
+// unrecorded while the baseline stays; up again → clean reapply.
 func TestMigrateUpDownUpCycle(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)
@@ -121,7 +121,8 @@ func TestMigrateUpDownUpCycle(t *testing.T) {
 
 	versions, err := AppliedVersions(ctx, db)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"001_baseline", "002_search"}, versions, "every migration applied once, in order")
+	assert.Equal(t, []string{"001_baseline", "002_search", "003_rejected_column"}, versions,
+		"every migration applied once, in order")
 
 	tables := listTables(t, db)
 	for _, want := range baselineTables {
@@ -135,13 +136,27 @@ func TestMigrateUpDownUpCycle(t *testing.T) {
 	assert.Equal(t, versions, versionsAfter, "repeated up must not reapply or duplicate versions")
 
 	// -- down: most recent migration rolled back --------------------------
-	// One MigrateDown steps back exactly one migration: 002_search's
-	// objects disappear, the baseline stays intact.
+	// One MigrateDown steps back exactly one migration. With the chain
+	// at 003, the first down rolls 003_rejected_column back; a second
+	// down rolls 002_search back, leaving the bare baseline.
 	require.NoError(t, MigrateDown(ctx, db, MigrationsFS, "migrations"))
 
 	versionsDown, err := AppliedVersions(ctx, db)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"001_baseline"}, versionsDown, "only the head version unrecorded after down")
+	assert.Equal(t, []string{"001_baseline", "002_search"}, versionsDown,
+		"only the head version unrecorded after down")
+
+	var rejectedColumns int
+	require.NoError(t, db.QueryRow(
+		`SELECT count(*) FROM columns WHERE status = 'rejected'`,
+	).Scan(&rejectedColumns))
+	assert.Zero(t, rejectedColumns, "003_rejected_column parking columns dropped by down")
+
+	require.NoError(t, MigrateDown(ctx, db, MigrationsFS, "migrations"))
+	versionsDown2, err := AppliedVersions(ctx, db)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"001_baseline"}, versionsDown2,
+		"second down unrecords 002_search")
 
 	var searchColumns int
 	require.NoError(t, db.QueryRow(

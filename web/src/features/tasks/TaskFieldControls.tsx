@@ -97,7 +97,7 @@ export function TaskFieldControls(props: {
       })
       .catch(() => {
         // Defensive: a backend hiccup shouldn't brick the sidebar.
-        // Fall back to the canonical five options so the user can
+        // Fall back to the default status options so the user can
         // still edit status. (The backend will still lift the
         // column onto the new status via SyncStatusAndColumn.)
         if (!cancelled) setStatusOptions(FALLBACK_STATUS_OPTIONS);
@@ -224,10 +224,11 @@ function assigneeKey(type: string, id: string, ownerID: string): string {
   return 'unassigned';
 }
 
-// Fallback used only when getBoard fails (network/500/etc). The
-// canonical five are always valid statuses; the backend accepts
-// them and SyncStatusAndColumn will move the card to the matching
-// column.
+// Fallback used only when getBoard fails (network/500/etc). The default
+// statuses are always valid; the backend accepts them and
+// SyncStatusAndColumn will move the card to the matching column.
+// `rejected` (T376, PRD F-T-3) is the human-only parking column for
+// declined work.
 const FALLBACK_STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'backlog', label: 'Backlog' },
   { value: 'todo', label: 'Todo' },
@@ -235,6 +236,7 @@ const FALLBACK_STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'blocked', label: 'Blocked' },
   { value: 'review', label: 'Review' },
   { value: 'done', label: 'Done' },
+  { value: 'rejected', label: 'Rejected' },
 ];
 
 const PRIORITY_OPTIONS: { value: string; label: string }[] = [

@@ -83,13 +83,20 @@ func (r *projectRepo) CreateProject(ctx context.Context, p *project.Project) (*p
 	// column names are already valid status keys (lowercase form).
 	columns := make([]*project.Column, 0, len(project.DefaultColumns))
 	const insColumn = `
-		INSERT INTO columns (id, board_id, name, position, status)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO columns (id, board_id, name, position, color, status)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`
 	for i, name := range project.DefaultColumns {
 		colID := newUUID()
 		position := float64(i) * 1024
-		if _, err := tx.ExecContext(ctx, insColumn, colID, boardID, name, position, name); err != nil {
+		// Task 376: the rejected parking column carries its signature
+		// red from birth so new boards match the 051/003 migration
+		// backfill for existing ones.
+		color := ""
+		if name == "rejected" {
+			color = project.RejectedColumnColor
+		}
+		if _, err := tx.ExecContext(ctx, insColumn, colID, boardID, name, position, color, name); err != nil {
 			return nil, nil, nil, fmt.Errorf("project.CreateProject: insert column %q: %w", name, err)
 		}
 		columns = append(columns, &project.Column{
@@ -98,6 +105,7 @@ func (r *projectRepo) CreateProject(ctx context.Context, p *project.Project) (*p
 			Name:     name,
 			Position: position,
 			Status:   name, // Phase 27.8: default columns share name+status.
+			Color:    color,
 		})
 	}
 
