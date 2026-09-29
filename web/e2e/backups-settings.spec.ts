@@ -20,7 +20,10 @@ import { expect, test } from '@playwright/test';
 import { E2E_PASSWORD, loginAsUser } from './helpers';
 
 test.describe('Backups settings (Phase 28.1 + 28.9 hot-reload)', () => {
-  test('PUT saves settings; reload reflects them; no restart needed', async ({ page, request }) => {
+  test('PUT saves settings; reload reflects them; no restart needed', async ({
+    page,
+    request: _request,
+  }) => {
     const ctx = await loginAsUser();
 
     // Sign in and open the settings page.

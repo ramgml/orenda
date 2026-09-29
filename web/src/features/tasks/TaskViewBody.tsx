@@ -627,7 +627,9 @@ export function DescriptionEditor({
             components={{
               // A click on a link inside the description must follow
               // the link, not flip the editor into edit mode.
-              a: ({ node, ...props }) => <a {...props} onClick={(e) => e.stopPropagation()} />,
+              a: ({ node: _node, ...props }) => (
+                <a {...props} onClick={(e) => e.stopPropagation()} />
+              ),
             }}
           >
             {value}

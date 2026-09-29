@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Task 380:** шесть eslint-варнингов из релизного CI-прогона v0.25.1 закрыты по коду, без подавления правил: `web/src/features/calendar/CalendarPage.tsx` — фоллбеки `eventsQ.data ?? []` / `tasksByDueQ.data?.tasks ?? []` (свежий массив на каждом рендере, лишние перерасчёты rbEvents-мемо и перерендеры react-big-calendar) обёрнуты в собственные `useMemo` — идентичность стабильна до реального изменения данных запроса (вариант, который предлагает сам exhaustive-deps); `web/src/features/settings/Backups.tsx` — `load` стал стабильным `useCallback` с guard-флагом на ref (единственный читатель), initial-fetch эффект честно перечисляет `load` в deps и, как раньше, срабатывает ровно один раз за маунт — ни двойного фетча, ни шторма перезапусков; неиспользуемые аргументы переименованы в `_`-префикс: `node` в ReactMarkdown-оверрайдах `TaskViewBody.tsx`/`CommentsList.tsx` (деструктуризация по-прежнему отсекает проп от DOM), `request` в e2e-фикстуре `backups-settings.spec.ts`. `eslint --max-warnings=0` по всем пяти затронутым файлам — 0 warnings; tsc и prettier чистые; drag/restore-поведение не тронуто.
+
 ## [0.25.1] — 2026-09-29
 
 ### Fixed
