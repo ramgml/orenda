@@ -152,7 +152,14 @@ backlog. Review queue — только для сданной агентом ра
 предложенное в backlog там не появляется (Phase 33.3: review surface — для
 review, а не для триажа бэклога). Принятие = kanban-move backlog→todo
 (задача появляется в `GET /api/v1/agent/tasks?ready=true`); отклонение =
-delete. Агент НЕ начинает работу над предложенной задачей до триажа
+перетащить в колонку rejected (парковка отклонённого, PRD F-T-3, T376) или
+delete. Rejected — парковка для отклонённых задач: вход сбрасывает
+`awaiting=none`, `completed_at` не ставится (отклонение ≠ завершение),
+авто-block не цепляет rejected-карточки; реанимация = перетаскивание
+rejected → todo. Колонку rejected двигает **только человек** — агент сам
+никогда не переводит задачу в rejected (у агентов отдельный механизм
+request-changes: `Review(reject)` → in_progress/awaiting=agent). Агент НЕ
+начинает работу над предложенной задачей до триажа
 человеком — в `?ready=true` бэклог не попадает, инвариант
 «агент не берёт из бэклога» закреплён тестом
 `TestAgent_ProposeTask_BacklogNotInAgentList`.

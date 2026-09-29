@@ -148,14 +148,19 @@ func (s *Service) blockerEdgeAdded(ctx context.Context, taskID, blockerID string
 	}
 
 	changed := false
-	if tr.Status != task.StatusDone && tr.Status != task.StatusBlocked {
+	// Task 376 (PRD F-T-3): rejected joins done on the never-auto-block
+	// list — a parked (declined) card owes nobody anything, so a new
+	// blocker edge must not yank it back into the active flow. The
+	// edge itself is still recorded; reviving the card (rejected →
+	// todo) is the owner's explicit drag.
+	if tr.Status != task.StatusDone && tr.Status != task.StatusRejected && tr.Status != task.StatusBlocked {
 		// Auto-block: remember where the task was, flip to blocked.
 		tr.BlockedPrevStatus = tr.Status
 		tr.Status = task.StatusBlocked
 		changed = true
 	}
 	// An already-blocked task keeps its existing prev value (first
-	// blocker wins); done tasks are never auto-blocked.
+	// blocker wins); done and rejected tasks are never auto-blocked.
 
 	if changed {
 		s.syncColumnToStatus(ctx, tr)

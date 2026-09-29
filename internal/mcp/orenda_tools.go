@@ -103,7 +103,7 @@ func registerCoreTaskTools(s *Server, httpc *http.Client, cfg ServerConfig) {
 
 	s.Register(Tool{
 		Name:        "orenda_task_propose",
-		Description: "Propose a new task. Lands in status=backlog with awaiting=none — the owner triages it on the kanban board (drag to todo / in_progress / done; dismiss = delete). The task is NOT added to the review queue (which is reserved for agent-submitted work). The task becomes claimable via /api/v1/agent/tasks?ready=true only after the owner drags it out of backlog.",
+		Description: "Propose a new task. Lands in status=backlog with awaiting=none — the owner triages it on the kanban board (drag to todo / in_progress / done; dismiss = drag to the rejected parking column or delete). The task is NOT added to the review queue (which is reserved for agent-submitted work). The task becomes claimable via /api/v1/agent/tasks?ready=true only after the owner drags it out of backlog. rejected is human-only territory: agents never move a task to rejected themselves.",
 		InputSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"project_id", "title", "description_md"},

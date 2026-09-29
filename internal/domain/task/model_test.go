@@ -29,6 +29,27 @@ func TestStatus_IsValid(t *testing.T) {
 	assert.False(t, task.Status("").IsCanonical())
 }
 
+// T376 (PRD F-T-3): `rejected` is a first-class canonical status —
+// canonical-validation sites (PATCH, bulk, CLI, MCP, mirror labels) all
+// read AllStatuses/CanonicalStatus, and the parking column's position
+// is pinned AFTER done (before the auto-only blocked) so every render
+// and migration site agrees on the order.
+func TestStatus_RejectedIsCanonicalAfterDone(t *testing.T) {
+	assert.Contains(t, task.AllStatuses, task.StatusRejected)
+
+	gotCanonical, ok := task.CanonicalStatus("rejected")
+	require.True(t, ok, "rejected must resolve via CanonicalStatus")
+	assert.Equal(t, task.StatusRejected, gotCanonical)
+	assert.True(t, task.StatusRejected.IsCanonical())
+	assert.True(t, task.StatusRejected.IsValid())
+
+	// Order contract: … done, rejected, blocked.
+	require.GreaterOrEqual(t, len(task.AllStatuses), 3)
+	assert.Equal(t, task.StatusDone, task.AllStatuses[len(task.AllStatuses)-3])
+	assert.Equal(t, task.StatusRejected, task.AllStatuses[len(task.AllStatuses)-2])
+	assert.Equal(t, task.StatusBlocked, task.AllStatuses[len(task.AllStatuses)-1])
+}
+
 func TestTask_Validate_Defaults(t *testing.T) {
 	tr := &task.Task{
 		Title:     "Implement X",

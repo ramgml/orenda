@@ -112,9 +112,22 @@ type Column struct {
 	Status string `json:"status"`
 }
 
-// DefaultColumns lists the four columns every new project starts with.
+// DefaultColumns lists the columns every new project starts with.
 //
 // Phase 2 will switch this to a configurable list owned by the user; for
 // Phase 1 we ship a fixed sequence that matches the kanban workflow from
 // docs/context/PRD.md (S4).
-var DefaultColumns = []string{"backlog", "todo", "in_progress", "review", "done"}
+//
+// Task 376 (PRD F-T-3): `rejected` appends after `done` — the declined-work
+// parking lot sits right of the completion archive so the active pipeline
+// (backlog → todo → in_progress → review) stays contiguous, and appending
+// let the 051 (sqlite) / 003 (postgres) migrations backfill existing
+// projects without shifting a single position. Rejected → todo is the
+// documented revival drag.
+var DefaultColumns = []string{"backlog", "todo", "in_progress", "review", "done", "rejected"}
+
+// RejectedColumnColor is the signature red of the canonical `rejected`
+// column (Task 376). Both seed paths use it: CreateProject for new
+// boards and migrations 051/003 for existing ones, so every board
+// renders the parking column identically.
+const RejectedColumnColor = "#ef4444"

@@ -343,6 +343,17 @@ func (s *Service) Move(ctx context.Context, taskID string, opts MoveOptions) (*t
 		tr.Awaiting = task.AwaitingNone
 	}
 
+	// Task 376 (PRD F-T-3): entering the canonical `rejected` parking
+	// column clears ANY pending awaiting flag. A parked card owes
+	// nobody anything — the review is withdrawn (no human turn) and
+	// the work is declined (no agent turn) — unlike a todo-drag,
+	// which keeps awaiting=agent. completed_at stays untouched:
+	// rejection is not completion (only Review approve / status=done
+	// stamp it).
+	if tr.Status == task.StatusRejected {
+		tr.Awaiting = task.AwaitingNone
+	}
+
 	if err := s.Tasks.Update(ctx, tr); err != nil {
 		return nil, fmt.Errorf("task service: update: %w", err)
 	}

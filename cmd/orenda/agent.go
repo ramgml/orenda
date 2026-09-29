@@ -982,7 +982,9 @@ type agentTaskNode struct {
 // The DOGFOOD rule "new work = a task in the instance" is now
 // executable by agents: propose creates a real task that lands as
 // status=backlog + awaiting=human — the owner triages it from the
-// review queue (accept = kanban-move to todo, dismiss = delete).
+// review queue (accept = kanban-move to todo; dismiss = drag to the
+// rejected parking column or delete; rejected is human-only — agents
+// never move a task there themselves).
 func newAgentProposeCmd() *cobra.Command {
 	var (
 		projectID   string

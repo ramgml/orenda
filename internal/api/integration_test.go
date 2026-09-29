@@ -129,7 +129,8 @@ func TestIntegration_Login_Me_Project_Task(t *testing.T) {
 		Columns []*project.Column `json:"columns"`
 	}
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &board))
-	require.Len(t, board.Columns, 5)
+	// T376: DefaultColumns gained the rejected parking column.
+	require.Len(t, board.Columns, len(project.DefaultColumns))
 
 	// Create a task in the first column.
 	rr = authedJSON(t, router, http.MethodPost,
