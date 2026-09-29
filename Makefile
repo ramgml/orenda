@@ -31,7 +31,7 @@ LDFLAGS    := -ldflags "-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT
         backup backup-push backup-snapshot backup-status \
         web-install web-dev web-build web-test web-typecheck test-e2e \
         embed-dists openapi-sync run version help govulncheck hooks \
-        web-format web-format-check web-knip
+        web-format web-format-check web-knip web-lint-staged
 
 all: build
 
@@ -167,6 +167,48 @@ web-knip:
 	cd $(WEB_DIR) && $(NPM) run knip
 
 
+## web-lint-staged: eslint --max-warnings=0 on STAGED web/*.ts/*.tsx.
+## Task 382 — the pre-commit eslint gate (thin hook, all logic here).
+## "New code is clean" for free: only the staging area is linted, so
+## pre-existing warnings outside it never block a commit. warning=block:
+## --max-warnings=0 turns @typescript-eslint/no-unused-vars ("warn" in
+## web/.eslintrc.cjs) into a hard gate, matching the CI Lint job.
+##
+## Three explicit states (used by scripts/git-hooks/pre-commit):
+##   no staged web .ts/.tsx        → instant skip
+##   web/node_modules missing      → loud skip (fresh clone; same policy
+##                                    as prettier in pre-commit — run
+##                                    \`make web-install\` to enable)
+##   node_modules present, eslint
+##   binary missing (broken npm)   → hard failure
+web-lint-staged:
+	@mapfile -d '' STAGED < <(git diff --cached --name-only --diff-filter=ACMR -z -- web/ || true); \
+	files=(); \
+	for f in "$${STAGED[@]}"; do \
+		case $$f in \
+			*.ts|*.tsx) files+=("$${f#web/}") ;; \
+		esac; \
+	done; \
+	if (( $${#files[@]} == 0 )); then \
+		echo "web-lint-staged: no staged web *.ts/*.tsx — skip"; \
+		exit 0; \
+	fi; \
+	cd $(WEB_DIR) || exit 1; \
+	if [[ ! -d node_modules ]]; then \
+		echo "web-lint-staged: web/node_modules missing — eslint SKIPPED, commit not linted." >&2; \
+		echo "  run \`make web-install\` to enable the gate (same policy as prettier in pre-commit)." >&2; \
+		exit 0; \
+	fi; \
+	if [[ ! -x node_modules/.bin/eslint ]]; then \
+		echo "web-lint-staged: eslint binary not found at web/node_modules/.bin/eslint — FAILING." >&2; \
+		echo "  node_modules exists but the install is broken; fix:" >&2; \
+		echo "    rm -rf web/node_modules && make web-install" >&2; \
+		exit 1; \
+	fi; \
+	echo "web-lint-staged: eslint --max-warnings=0 on $${#files[@]} staged web file(s)…"; \
+	./node_modules/.bin/eslint --max-warnings=0 "$${files[@]}"
+
+
 ## hooks: Install tracked git hooks (scripts/git-hooks/) into core.hooksPath.
 ## wiki:ci-local-gates-hooks. Idempotent — safe to re-run. Writes
 ## core.hooksPath into the SHARED git config (the main checkout's .git/),
@@ -184,7 +226,7 @@ hooks:
 		echo "hooks: setting core.hooksPath = $$hooks in $$main_git/config"; \
 		GIT_DIR="$$main_git" git config core.hooksPath "$$hooks"; \
 	fi
-	@echo "hooks: active — pre-commit (gofmt + prettier --check) and pre-push (make lint-new + make web-typecheck + make test)"
+	@echo "hooks: active — pre-commit (gofmt + prettier --check + eslint --max-warnings=0) and pre-push (make lint-new + make web-typecheck + make test)"
 	@echo "hooks: bypass with SKIP_ORENDA_HOOKS=1 (avoid --no-verify — see AGENTS.md)"
 
 ## web-format: Format web/ sources with Prettier (writes in-place).

@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Task 382:** eslint подключён к локальному pre-commit гейту — `make web-lint-staged` гоняет `eslint --max-warnings=0` по staged `web/*.ts/*.tsx` (коллекция через `git diff --cached --name-only --diff-filter=ACMR`, NUL-разделение, безопасно для путей с пробелами), а pre-commit хук зовёт таргет тонким вызовом после prettier. warning=block: `@typescript-eslint/no-unused-vars` (`warn` в `web/.eslintrc.cjs`) теперь блокирует коммит, как CI Lint job; политика «новое — чистое» получается сама — легаси вне staging area не линтуется. Три явных состояния: нет staged web-файлов → мгновенный skip; нет `web/node_modules` → громкий skip по образцу prettier (свежий клон, `make web-install` включает гейт); node_modules есть, а бинарника eslint нет (сломанная установка) → loud fail. Бюджет ~1–2 с на типовой коммит; pre-push не тронут. Контракт хуков обновлён в AGENTS.md и wiki:ci-local-gates-hooks (pre-commit = gofmt + prettier + eslint).
+
 ## [0.25.1] — 2026-09-29
 
 ### Fixed
