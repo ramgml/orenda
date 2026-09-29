@@ -228,6 +228,11 @@ type LLMConfig struct {
 	Model string `yaml:"model"`
 	// Timeout bounds one grading request. Default 30s.
 	Timeout time.Duration `yaml:"timeout"`
+	// Stub swaps the LLM for a deterministic normalised string
+	// compare (llm.StubGrader): quiz answers grade without any
+	// model endpoint. Test fixtures (E2E) only — never enable in
+	// production. Takes precedence over base_url.
+	Stub bool `yaml:"stub"`
 }
 
 // Enabled reports whether LLM grading is configured.
@@ -485,6 +490,10 @@ func overrideLLM(c *LLMConfig, p []string, v string) {
 	case "timeout":
 		if d, err := time.ParseDuration(v); err == nil {
 			c.Timeout = d
+		}
+	case "stub":
+		if b, err := strconv.ParseBool(v); err == nil {
+			c.Stub = b
 		}
 	}
 }

@@ -208,6 +208,30 @@ func TestLoad_LLMDisabledByDefault(t *testing.T) {
 	clearORENDAEnv(t)
 	c := DefaultConfig()
 	assert.False(t, c.LLM.Enabled(), "no [llm] config = grading off")
+	assert.False(t, c.LLM.Stub, "stub grader off by default — production keeps the real model")
+}
+
+// T379: ORENDA_LLM__STUB selects the deterministic stub grader for
+// test environments (the E2E server boots without an LLM endpoint).
+func TestLoad_LLMStubFromEnv(t *testing.T) {
+	clearORENDAEnv(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("# empty\n"), 0o600))
+
+	c, err := Load(path)
+	require.NoError(t, err)
+	assert.False(t, c.LLM.Stub)
+
+	t.Setenv("ORENDA_LLM__STUB", "true")
+	c, err = Load(path)
+	require.NoError(t, err)
+	assert.True(t, c.LLM.Stub)
+
+	t.Setenv("ORENDA_LLM__STUB", "false")
+	c, err = Load(path)
+	require.NoError(t, err)
+	assert.False(t, c.LLM.Stub)
 }
 
 func TestLoad_LLMAPIKeyFile(t *testing.T) {
