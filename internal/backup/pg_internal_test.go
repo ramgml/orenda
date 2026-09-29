@@ -158,6 +158,26 @@ func TestRestorePostgresRefusesNewerRestoreClient(t *testing.T) {
 	assert.Zero(t, leaks, "a refused restore must not leave a scratch database behind")
 }
 
+// TestPGRestoreList_SurfacesStderr pins the T366 review fix (restored in
+// T381: the merge with dev initially dropped it together with the old
+// file): a failing pg_restore --list must carry the tool's stderr (e.g.
+// the "did not find magic string" parser complaint), not an empty "exit
+// status 1:" reason — that's what the CLI prints and the HTTP 422 detail
+// shows. Self-sufficient: no matrix leg, no server — just a garbage file.
+func TestPGRestoreList_SurfacesStderr(t *testing.T) {
+	if _, err := exec.LookPath("pg_restore"); err != nil {
+		t.Skipf("pg_restore not on PATH (embedded bundle ships server binaries only): %v", err)
+	}
+	bad := filepath.Join(t.TempDir(), "garbage.dump")
+	require.NoError(t, os.WriteFile(bad, []byte("definitely not a pg_dump archive"), 0o644))
+
+	_, err := pgRestoreList(context.Background(), "pg_restore", bad)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pg_restore --list")
+	assert.Contains(t, err.Error(), "valid archive",
+		"stderr must be surfaced so the operator sees WHY the archive is unreadable")
+}
+
 // TestSnapshotRestoreRoundTripVersionMatched pins the fix end to end in
 // the exact ubuntu-26.04 CI shape: system client NEWER than the server
 // + an installed matching-major client. The resolver must pick the
