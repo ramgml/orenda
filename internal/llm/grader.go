@@ -79,3 +79,39 @@ func stripFences(s string) string {
 	}
 	return strings.TrimSpace(s)
 }
+
+// StubGrader is a deterministic, model-free QuizGrader for test
+// environments (E2E, smoke). It grades by normalised string compare:
+// case-insensitive, whitespace-trimmed and -collapsed. A quiz without
+// an expected answer (open kind) passes any non-empty answer; an
+// empty answer never passes. Grade never errors and never touches the
+// network, so suites that boot without an LLM endpoint stay
+// deterministic end-to-end.
+//
+// Enable with llm.stub: true (env ORENDA_LLM__STUB). It exists for
+// test fixtures only — production deployments keep the real grader.
+type StubGrader struct{}
+
+// NewStubGrader returns the deterministic stub grader.
+func NewStubGrader() *StubGrader { return &StubGrader{} }
+
+// Grade compares the student answer against the expected answer
+// without a model round-trip.
+func (g *StubGrader) Grade(_ context.Context, _, expected, answer string) (Verdict, error) {
+	if normaliseAnswer(answer) == "" {
+		return Verdict{Passed: false, Feedback: "stub grader: empty answer"}, nil
+	}
+	if normaliseAnswer(expected) == "" {
+		return Verdict{Passed: true, Feedback: "stub grader: open quiz, non-empty answer accepted"}, nil
+	}
+	if normaliseAnswer(answer) == normaliseAnswer(expected) {
+		return Verdict{Passed: true, Feedback: "stub grader: exact match"}, nil
+	}
+	return Verdict{Passed: false, Feedback: "stub grader: answer does not match the expected answer"}, nil
+}
+
+// normaliseAnswer lowercases and collapses whitespace so "Esc ",
+// " esc " and "esc" compare equal.
+func normaliseAnswer(s string) string {
+	return strings.Join(strings.Fields(strings.ToLower(s)), " ")
+}

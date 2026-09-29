@@ -64,6 +64,10 @@ export default defineConfig({
       // auth'd GETs that fire on every page mount.
       ORENDA_RATELIMIT_AUTH_BURST: '5000',
       ORENDA_RATELIMIT_AUTH_PER_SEC: '1000',
+      // T379: quiz answers grade through the deterministic llm stub
+      // (normalised string compare) — the suite runs without an LLM
+      // endpoint, and the unwired grader would 503 every answer.
+      ORENDA_LLM__STUB: 'true',
     },
     stdout: 'pipe',
     stderr: 'pipe',

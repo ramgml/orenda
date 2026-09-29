@@ -127,3 +127,48 @@ func TestGrader_MalformedVerdictIsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not valid JSON")
 }
+
+// T379 regression pin: the E2E environment boots without an LLM
+// endpoint, so the stub grader must grade deterministically — exact
+// match passes (case/whitespace-insensitive), a wrong answer fails
+// with feedback, an open quiz (no expected answer) passes any
+// non-empty answer, and an empty answer never passes. Grade never
+// errors and never touches the network.
+func TestStubGrader_DeterministicVerdicts(t *testing.T) {
+	g := NewStubGrader()
+	ctx := context.Background()
+
+	t.Run("exact match passes", func(t *testing.T) {
+		v, err := g.Grade(ctx, "Which key enters Normal mode?", "esc", "esc")
+		require.NoError(t, err)
+		assert.True(t, v.Passed)
+	})
+	t.Run("match ignores case and surrounding whitespace", func(t *testing.T) {
+		v, err := g.Grade(ctx, "q", "Esc", "  ESC ")
+		require.NoError(t, err)
+		assert.True(t, v.Passed)
+	})
+	t.Run("match collapses inner whitespace", func(t *testing.T) {
+		v, err := g.Grade(ctx, "q", "New York", "new   york")
+		require.NoError(t, err)
+		assert.True(t, v.Passed)
+	})
+	t.Run("wrong answer fails with feedback", func(t *testing.T) {
+		v, err := g.Grade(ctx, "q", "esc", "ctrl")
+		require.NoError(t, err)
+		assert.False(t, v.Passed)
+		assert.NotEmpty(t, v.Feedback)
+	})
+	t.Run("open quiz passes non-empty answer", func(t *testing.T) {
+		v, err := g.Grade(ctx, "Why?", "", "because reasons")
+		require.NoError(t, err)
+		assert.True(t, v.Passed)
+	})
+	t.Run("empty answer never passes", func(t *testing.T) {
+		for _, expected := range []string{"esc", ""} {
+			v, err := g.Grade(ctx, "q", expected, "   ")
+			require.NoError(t, err)
+			assert.False(t, v.Passed)
+		}
+	})
+}

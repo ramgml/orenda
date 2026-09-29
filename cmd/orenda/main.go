@@ -855,7 +855,14 @@ func runServe(cmd *cobra.Command, _ []string) error {
 	// Quiz grading: wire the LLM grader when [llm] is configured.
 	// Unset config keeps the service without a grader — AnswerQuiz
 	// then fails with a dedicated error instead of guessing.
-	if cfg.LLM.Enabled() {
+	// llm.stub (T379) trades the model for a deterministic
+	// normalised string compare so test environments grade quiz
+	// answers without an LLM endpoint; it wins over base_url.
+	switch {
+	case cfg.LLM.Stub:
+		courseSvc = courseSvc.WithGrader(llm.NewStubGrader())
+		logger.Info("llm quiz grading stub enabled (deterministic, no model)")
+	case cfg.LLM.Enabled():
 		apiKey, err := cfg.LLM.ResolveAPIKey()
 		if err != nil {
 			return err
