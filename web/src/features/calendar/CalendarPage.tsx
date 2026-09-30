@@ -217,8 +217,13 @@ export function CalendarPage(): JSX.Element {
         : projectsQ.error instanceof Error
           ? projectsQ.error.message
           : null;
-  const events = eventsQ.data ?? [];
-  const tasksByDue = tasksByDueQ.data?.tasks ?? [];
+  // T380: the raw `?? []` fallbacks allocated a fresh array on every
+  // render while the queries were pending, so the rbEvents useMemo
+  // below (and react-big-calendar with it) recomputed spuriously.
+  // Memoize the fallbacks — identities stay stable until the query
+  // data itself changes (exhaustive-deps' own suggested alternative).
+  const events = useMemo(() => eventsQ.data ?? [], [eventsQ.data]);
+  const tasksByDue = useMemo(() => tasksByDueQ.data?.tasks ?? [], [tasksByDueQ.data]);
   const projects = projectsQ.data ?? [];
 
   const rbEvents: RBCEvent[] = useMemo(

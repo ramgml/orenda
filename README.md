@@ -83,7 +83,7 @@ Orenda builds and runs natively on Windows. SQLite is pure-Go
 ```powershell
 git clone https://github.com/ramgml/orenda ~/opt/orenda
 cd ~/opt/orenda
-git checkout v0.14.0            # latest release tag
+git checkout v0.25.1            # latest release tag
 make web-install                # Node.js >= 24.11 required
 make build                      # produces bin\orenda.exe
 .\bin\orenda.exe migrate up
@@ -127,7 +127,7 @@ make test              # Go + vitest (cached, fast)
 make test-full         # Full uncached run (CI backstop / release gate)
 make lint-new          # golangci-lint on NEW code only (what pre-push gates)
 make lint              # full lint (golangci-lint + eslint) — surfaces pre-existing debt
-make test-e2e          # Playwright against a fresh embedded build on :21371 (18 tests / 13 specs)
+make test-e2e          # Playwright against a fresh embedded build on :21371 (20 tests / 14 specs)
 make govulncheck       # Go vulnerability DB scan
 ```
 
@@ -140,8 +140,9 @@ make hooks   # sets core.hooksPath = scripts/git-hooks (shared git config;
 ```
 
 After that, every `git commit` runs `pre-commit` (`gofmt -l` +
-`prettier --check` on staged files, <2 s) and every `git push` runs
-`pre-push` (`make lint-new` + `make test`, ~1 min). `--no-verify` is
+`prettier --check` + `eslint --max-warnings=0` on staged files, <2 s) and
+every `git push` runs `pre-push` (`make lint-new` + `make web-typecheck` +
+`make web-knip` + `make test`, ~1 min cold, seconds warm). `--no-verify` is
 forbidden; use `SKIP_ORENDA_HOOKS=1` only for explicit, named
 exceptions. See [AGENTS.md](AGENTS.md#local-gates--git-hooks-phase-326)
 and the [ci-local-gates-hooks](http://localhost:2137/wiki/ci-local-gates-hooks)
@@ -263,10 +264,15 @@ database, verifies (`pg_restore --list` + applied-migration check) and drops it 
 sqlite runs `integrity_check` + `foreign_key_check`, postgres runs the scratch
 restore. **Honest tooling contract:** `pg_dump`/`pg_restore` are client tools and
 are *not* part of the embedded bundle (it ships server binaries only) — the
-backup resolves them via `storage.postgres.dump_bin` → extracted
-embedded-runtime dirs (usually nothing there) → `PATH`; in practice install
-`postgresql-client` so `pg_dump` is on `PATH`, or point `dump_bin` at a
-concrete binary. The backup error names both options when the tool is
+backup resolves them down a four-step chain: `storage.postgres.dump_bin`
+override → a version-matched client under `/usr/lib/postgresql/<server-major>/bin`
+(a client newer than the server writes archives the server rejects at restore)
+→ extracted embedded-runtime dirs (usually nothing there) → `PATH`; in
+practice install `postgresql-client` so `pg_dump` is on `PATH`, or point
+`dump_bin` at a concrete binary. Restore additionally refuses a client newer
+than the target server when no version-matched `pg_restore` is installed —
+the error names the fix (`postgresql-client-<major>` from the PGDG repo, or
+`dump_bin`). The backup error names both options when the tool is
 missing, and CLI backup commands against an embedded cluster require the
 server to be up — it owns the postmaster.
 
@@ -327,7 +333,7 @@ ORENDA_PORT=8080 ORENDA_AUTH__JWT_SECRET=$(openssl rand -hex 32) docker compose 
 ## Features
 
 - 📋 Projects, boards, kanban with drag-and-drop, columns-as-statuses (Phase 27.8)
-- ✅ Tasks with statuses (backlog → todo → in_progress → review → done)
+- ✅ Tasks with statuses (backlog → todo → in_progress → review → done, + rejected parking with a rejected → todo loop, + auto `blocked`)
 - 🤖 AI-agents with API tokens, atomic claim, heartbeat, blocked-by-graph
 - 💬 Comments, attachments, mentions between user and agents, agent-author audit
 - 📅 Calendar (events + tasks with due dates, RRULE expansion, WIP limits)

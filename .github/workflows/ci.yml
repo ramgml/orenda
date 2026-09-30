@@ -26,6 +26,16 @@
 # (Task 378) lints new-vs-previous-release-tag and additionally subtracts the
 # standing dev inventory, so accepted Phase 30.16 debt never fails a release;
 # issues dev does not carry yet do fail. See scripts/ci/lint-release.sh.
+#
+# Runner image (Task 381): `ubuntu-latest` migrates to Ubuntu 26.04 from
+# 2026-10-19 (actions-runner-images#14748). Migration accepted — no pin to
+# ubuntu-24.04: the full gate was rehearsed on `ubuntu-26.04` ahead of the
+# rollout (run 36559379916 caught the one breakage — pg client 18 vs the
+# pinned embedded server 16, fixed in internal/backup; run 36564773364 is
+# green end-to-end with the fix) and A/B-verified on ubuntu-latest (run
+# 36566278079). To rehearse a future image change: a temporary branch with
+# a workflow_dispatch runs-on input, dispatched via
+# `gh workflow run ci.yml --ref <branch> -f runner=<label>` (recipe: T381).
 name: ci
 
 on:
@@ -158,6 +168,32 @@ jobs:
       - name: npm ci
         working-directory: web
         run: npm ci
+
+      - name: Ensure a server-major pg client for backup tests (Task 381)
+        # The embedded runtime pins PostgreSQL 16 (V16), and backup
+        # round-trips need pg_dump/pg_restore of the SAME major: a newer
+        # client writes archives the 16-server itself rejects at restore
+        # (pg_dump 18 emits `SET transaction_timeout = 0;` — caught on
+        # the ubuntu-26.04 runner image, actions-runner-images#14748).
+        # The 24.04 image ships client 16 → no-op; images with a newer
+        # client install 16 from PGDG, where the backup resolver picks
+        # it up (/usr/lib/postgresql/16/bin).
+        run: |
+          if [ -x /usr/lib/postgresql/16/bin/pg_dump ]; then
+            echo "pg client 16 already installed"; exit 0
+          fi
+          if pg_dump --version 2>/dev/null | grep -q ' 16\.'; then
+            echo "PATH pg_dump is major 16"; exit 0
+          fi
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail -sSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+          /usr/lib/postgresql/16/bin/pg_dump --version
 
       - name: "make web-typecheck (tsc --noEmit — catch TS errors before build)"
         # Task 44: the dev backstop catches the incident class where tsc

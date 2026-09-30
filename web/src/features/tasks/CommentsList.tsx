@@ -183,7 +183,7 @@ export function CommentsList({ comments }: { comments: Comment[] }): JSX.Element
                     // pill highlight (Task 114: replace the manual
                     // split-render with a component override).
                     p: MentionP,
-                    a: ({ node, ...props }) => (
+                    a: ({ node: _node, ...props }) => (
                       <a
                         {...props}
                         target="_blank"
