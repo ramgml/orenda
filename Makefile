@@ -226,7 +226,7 @@ hooks:
 		echo "hooks: setting core.hooksPath = $$hooks in $$main_git/config"; \
 		GIT_DIR="$$main_git" git config core.hooksPath "$$hooks"; \
 	fi
-	@echo "hooks: active — pre-commit (gofmt + prettier --check + eslint --max-warnings=0) and pre-push (make lint-new + make web-typecheck + make test)"
+	@echo "hooks: active — pre-commit (gofmt + prettier --check + eslint --max-warnings=0) and pre-push (make lint-new + make web-typecheck + make web-knip + make test)"
 	@echo "hooks: bypass with SKIP_ORENDA_HOOKS=1 (avoid --no-verify — see AGENTS.md)"
 
 ## web-format: Format web/ sources with Prettier (writes in-place).

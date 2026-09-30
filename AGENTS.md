@@ -4,7 +4,7 @@
 
 ## What is Orenda?
 
-Local-first productivity suite (tasks, calendar, wiki) where **AI-agents are first-class citizens**. Single Go binary + React SPA, SQLite, port **2137** (usage/dogfood instance) / **2138** (`make dev`). Backup via git + sqlite snapshots.
+Local-first productivity suite (tasks, calendar, wiki) where **AI-agents are first-class citizens**. Single Go binary + React SPA, SQLite by default (opt-in PostgreSQL driver — baseline migrations in `internal/storage/postgres`), port **2137** (usage/dogfood instance) / **2138** (`make dev`). Backup via git + sqlite snapshots.
 
 ## Stack
 
@@ -12,8 +12,8 @@ Local-first productivity suite (tasks, calendar, wiki) where **AI-agents are fir
 |-------|------|
 | Backend | Go 1.22+ (chi, modernc.org/sqlite, jwt, gorilla/websocket, cobra) |
 | Frontend | React 18 + TS + Vite + Tailwind + shadcn/ui (`@radix-ui/react-dialog` ^1.1.23, `class-variance-authority` ^0.7.1, `clsx` ^2.1.1, `tailwind-merge` ^3.6.0) |
-| DB | SQLite (WAL mode) |
-| Migrations | custom runner `sqlite.Migrate`/`MigrateDown` (sequential `NNN_*.sql` / `NNN_*.down.sql`) |
+| DB | SQLite (WAL mode, default) · PostgreSQL (opt-in, `internal/storage/postgres`) |
+| Migrations | custom runner `sqlite.Migrate`/`MigrateDown` (sequential `NNN_*.sql` / `NNN_*.down.sql`) · postgres baseline (`internal/storage/postgres/migrations`) |
 
 ## Directory map
 
@@ -247,7 +247,7 @@ Full version: [[docs/context/GITFLOW.md]]. The short form:
 
 - **Isolation:** worktree per task (next section) = parallel agents don't see each other; each has its own checkout, its own preview port from `21400–21499` (`:2137` usage, `:2138` dev, `:21371` E2E are taken), its own `data/orenda.db`.
 - **Small batches:** commit early/often; a branch lives hours, not weeks — a big long-lived diff collides with every other agent's work.
-- **Local gates, not CI:** `pre-commit` (gofmt + prettier + eslint) and `pre-push` (`make lint-new` + `make web-typecheck` + `make test`) are the per-PR gate — see «Local gates» above. Agent does not wait on CI; `--no-verify` is forbidden; CI silence on PR-to-dev is intentional.
+- **Local gates, not CI:** `pre-commit` (gofmt + prettier + eslint) and `pre-push` (`make lint-new` + `make web-typecheck` + `make web-knip` + `make test`) are the per-PR gate — see «Local gates» above. Agent does not wait on CI; `--no-verify` is forbidden; CI silence on PR-to-dev is intentional.
 - **Sync review:** open the PR as soon as the branch is ready; PM reviews immediately, the owner merges. Don't stack unreviewed PRs.
 - **Cleanup:** after merge — `git worktree remove` + `git worktree prune`; remove your remote branch if it survived. An abandoned branch is garbage (example: `fix-tag-v0.15.0`, a leftover of the old hotfix practice, since cleaned up). PM watches tree hygiene.
 

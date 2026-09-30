@@ -10,7 +10,8 @@ the README; this document describes what each driver actually runs.
 ## SQLite
 
 Migrations in `internal/storage/sqlite/migrations/`.
-Current version: **021_agent_type_labels** (020 up files; номер 018 не занят).
+Current version: **051_rejected_column** (45 up files; нумерация не сплошная —
+018 и 026–031 не заняты, 024 носит два файла — см. таблицу миграций).
 
 ## Core
 
@@ -155,8 +156,35 @@ when the table is missing. Header markers change runner behaviour:
 | 020_columns_status.sql | columns.status machine key (backfill from name, slug for customs) + UNIQUE(board_id, status) |
 | 021_agent_type_labels.sql | agents.type backfill (scalar → JSON-array); idempotent on re-run; down is lossy on multi-label rows |
 | 022_study_planning.sql | courses.pace_notes_md (default '') · tasks.study_course_id (FK SET NULL) + partial idx · study_proposals |
+| 023_course_activity.sql | course_activity audit feed + course/actor indexes |
+| 024_project_activity.sql | project_activity audit feed + project/actor indexes |
+| 024_task_created_by.sql | tasks.created_by_type/created_by_id — task authorship (Phase 33.2) + idx_tasks_created_by |
+| 025_task_retracted.sql | task_retracted tombstones — agent-retracted tasks leave a snapshot (snapshot_json, no FK) for audit (Phase 33.2.1) |
+| 032_chat_messages.sql | chat_messages — persistent user↔agent chat history per thread_id + thread index |
+| 033_task_numbers.sql | tasks.number (human-readable `#42`) + task_number_seq |
+| 034_project_wiki_slug.sql | projects.wiki_slug — project ↔ wiki page link + index |
+| 035_lesson_completed_at.sql | course_lessons.completed_at + partial index (LMS pace metrics) |
+| 036_project_numbers.sql | projects.number (`P7`) + project_number_seq |
+| 037_wiki_page_numbers.sql | wiki_pages.number (`W42`) + wiki_page_number_seq |
+| 038_course_numbers.sql | courses.number (`C7`) + course_number_seq |
+| 039_lesson_numbers.sql | course_lessons.number (`L10`, global) + lesson_number_seq |
+| 040_wiki_blocks.sql | wiki_pages.content_format ('markdown' default) + wiki_blocks (block-based wiki) |
+| 041_comment_edited_at.sql | comments.edited_at (Task 112) |
+| 042_task_blocked_status.sql | tasks.blocked_prev_status — previous-status memory for the `blocked` state (Task 115; status value itself is app-level) |
+| 043_project_agent_access.sql | per-project agent access scope (task 140): grant table + projects flag |
+| 044_agent_owner_system_role.sql | synthetic agent-owner user role 'owner' → 'system' (task 171) |
+| 045_tutor_messages.sql | tutor_messages — lesson-scoped dialog tutor thread (T16) |
+| 046_lesson_reviews.sql | lesson_reviews — spaced-repetition review ladder (task 18) |
+| 047_chat_threads.sql | chat_threads — per-user dashboard chat thread ownership (task 9) |
+| 048_chat_messages_user_id.sql | chat_messages.user_id — chat authorship scope (task 9) |
+| 049_chat_messages_user_idx.sql | idx_chat_messages_user (user_id, created_at DESC) for the per-user replay (task 9) |
+| 050_orphan_board_cleanup.sql | deletes boards (and columns) orphaned by the FK-off run of 015 (T369); irreversible |
+| 051_rejected_column.sql | canonical `rejected` column on every board (Task 376, PRD F-T-3); idempotent, no task backfill |
 
-*(номер 018 пропущен — зарезервированная нумерация съехала от текста фаз; не используется)*
+*(нумерация не сплошная — зарезервированные номера съехали от текстов фаз:
+018 не существует, 026–031 не заняты; 024 носит два файла — `024_project_activity`
+и `024_task_created_by`; версией считается полное имя файла без расширения
+(`db.go::pathVersion`), поэтому обе применяются по порядку имён)*
 
 ## Configuration reference
 
@@ -250,11 +278,20 @@ the connection), verifies `pg_restore --list` + applied migrations, drops
 the scratch; `--to <database>` keeps it for promotion. Maintenance "verify"
 is per-dialect (sqlite pragmas vs scratch restore). **Honest tooling
 contract:** the embedded bundle ships *server* binaries only — `pg_dump`/
-`pg_restore` resolve via `storage.postgres.dump_bin` (bare name → `PATH`,
-path → as-is; `pg_restore` prefers the resolved `pg_dump`'s directory) →
-extracted embedded-runtime dirs → `PATH` (install `postgresql-client` in
-practice). The error says exactly this when a tool is missing — it never
-promises an embedded dump.
+`pg_restore` resolve down a four-step chain (`internal/backup/pg.go::resolvePGToolForServer`):
+`storage.postgres.dump_bin` override (bare name → `PATH`, path → as-is;
+`pg_restore` prefers the resolved `pg_dump`'s directory) → a version-matched
+client under `/usr/lib/postgresql/<server-major>/bin` (T381: a client newer
+than the server writes archives the server itself rejects at restore; the
+snapshot side probes `server_version_num` best-effort) → extracted
+embedded-runtime dirs under `~/.embedded-postgres-go` → the system `PATH`
+(install `postgresql-client` in practice). Restore adds a hard direction
+guard: a `pg_restore` reporting a major newer than the target server is
+swapped for the version-matched client when one is installed, otherwise the
+restore refuses loudly — the error names the fix (`postgresql-client-<major>`
+from the PGDG repo on Debian/Ubuntu, or point `storage.postgres.dump_bin`
+at a version-matched install). The error says exactly this when a tool is
+missing — it never promises an embedded dump.
 
 ### Known limitations
 
