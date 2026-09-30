@@ -412,8 +412,12 @@ Architecture notes:
 - **Backup/verify** (D8): snapshots become `pg_dump -Fc` archives; restore
   verifies via a scratch database; `wal_checkpoint` is a sqlite-only
   Service hook (postgres: no-op — no fake backup_log row). Client tools
-  resolve `storage.postgres.dump_bin` → `PATH`; the embedded bundle ships
-  server binaries only and says so in the error.
+  resolve down a four-step chain — `storage.postgres.dump_bin` →
+  version-matched `/usr/lib/postgresql/<server-major>/bin` (T381) →
+  extracted embedded-runtime dirs → `PATH`; restore refuses a client
+  newer than the target server (same-or-newer major only — the error
+  names `postgresql-client-<major>` / `dump_bin`). The embedded bundle
+  ships server binaries only and says so in the error.
 - **Errors** (D5): driver-neutral sentinels in `internal/storage`
   (`ErrUniqueViolation`, `ErrFKViolation`, `ErrTokenNotFound`,
   `ErrLock*`); postgres classifies by SQLSTATE (23505/23503), sqlite keeps

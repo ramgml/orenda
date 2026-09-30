@@ -113,9 +113,13 @@ type PostgresConfig struct {
 	// the embedded-postgres default.
 	BinariesURL string `yaml:"binaries_url"`
 	// DumpBin overrides the pg_dump binary the backup subsystem uses
-	// (T366): a bare name resolves via PATH, a path is used as-is.
-	// The embedded bundle ships server binaries only, so without an
-	// override the backup subsystem falls back to the system PATH.
+	// (T366): a bare name resolves via PATH, a path is used as-is
+	// (pg_restore is then looked up next to it). The embedded bundle
+	// ships server binaries only, so without an override the lookup
+	// continues down the chain: a version-matched client under
+	// /usr/lib/postgresql/<server-major>/bin (T381), then extracted
+	// embedded-runtime dirs under ~/.embedded-postgres-go, then the
+	// system PATH.
 	DumpBin string `yaml:"dump_bin"`
 }
 
