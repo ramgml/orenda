@@ -14,12 +14,15 @@
 // Binary sourcing: pg_dump/pg_restore are client tools and are NOT part
 // of the stock embedded-postgres bundle (fergusstrange ships server
 // binaries only — initdb/pg_ctl/postgres). The lookup therefore tries
-// the operator override (storage.postgres.dump_bin) first, then any
-// extracted runtime directories under ~/.embedded-postgres-go (a future
-// bundle or an in-flight cluster extraction would be the exact version
-// match for the running server), then the system PATH — the normal hit
-// in practice. When nothing resolves, the error says so explicitly
-// instead of promising an embedded dump.
+// the operator override (storage.postgres.dump_bin) first, then a
+// version-matched install under the Debian/Ubuntu multi-version roots
+// (/usr/lib/postgresql/<server-major>/bin — T381: a client newer than
+// the server writes archives the server itself rejects at restore),
+// then any extracted runtime directories under ~/.embedded-postgres-go
+// (a future bundle or an in-flight cluster extraction would be the
+// exact version match for the running server), then the system PATH —
+// the normal hit in practice. When nothing resolves, the error says so
+// explicitly instead of promising an embedded dump.
 package backup
 
 import (
@@ -32,6 +35,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -99,6 +103,18 @@ func (s *Service) pgTarget() (string, error) {
 // (newest first — the stock bundle is server-only, so this usually
 // finds nothing), then PATH.
 func ResolvePGTool(tool, override string) (string, error) {
+	return resolvePGToolForServer(tool, override, 0)
+}
+
+// resolvePGToolForServer extends the ResolvePGTool chain with a
+// version-matched preference: when the target server's major is known
+// and a client of that same major is installed under a multi-version
+// root (Debian/Ubuntu layout: /usr/lib/postgresql/16/bin), it wins —
+// archives written by a newer client can carry preamble the server
+// itself refuses at restore (Task 381: pg_dump 18 on the ubuntu-26.04
+// runner image emits `SET transaction_timeout = 0;` which the pinned
+// embedded 16-server rejects). serverMajor 0 (unknown) skips the step.
+func resolvePGToolForServer(tool, override string, serverMajor int) (string, error) {
 	if override != "" {
 		if !strings.ContainsRune(override, os.PathSeparator) {
 			p, err := exec.LookPath(override)
@@ -116,6 +132,9 @@ func ResolvePGTool(tool, override string) (string, error) {
 		}
 		return override, nil
 	}
+	if p := versionMatchedPGTool(tool, serverMajor); p != "" {
+		return p, nil
+	}
 	if p := embeddedPGTool(tool); p != "" {
 		return p, nil
 	}
@@ -123,6 +142,58 @@ func ResolvePGTool(tool, override string) (string, error) {
 		return p, nil
 	}
 	return "", fmt.Errorf("backup: %s not found: the embedded postgres bundle ships server binaries only — install postgresql-client so %s is on PATH, or set storage.postgres.dump_bin", tool, tool)
+}
+
+// pgMultiVersionRoots is where Debian-family installs expose one
+// directory per client major (/usr/lib/postgresql/<major>/bin). A var
+// only so tests can point it at a fixture tree.
+var pgMultiVersionRoots = []string{"/usr/lib/postgresql"}
+
+// versionMatchedPGTool returns the client binary of exactly the wanted
+// major from a multi-version root, or "" when none is installed there.
+func versionMatchedPGTool(tool string, wantMajor int) string {
+	if wantMajor <= 0 {
+		return ""
+	}
+	for _, root := range pgMultiVersionRoots {
+		p := filepath.Join(root, strconv.Itoa(wantMajor), "bin", tool)
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			return p
+		}
+	}
+	return ""
+}
+
+// pgToolMajor reports the client tool's major ("pg_dump (PostgreSQL)
+// 18.6 …" → 18). Callers treat a parse failure as unknown and let the
+// tool's own behavior speak.
+func pgToolMajor(bin string) (int, error) {
+	out, err := exec.Command(bin, "--version").CombinedOutput()
+	if err != nil {
+		return 0, fmt.Errorf("backup: %s --version: %w", filepath.Base(bin), err)
+	}
+	fields := strings.Fields(string(out))
+	for i, part := range fields {
+		if part == "(PostgreSQL)" && i+1 < len(fields) {
+			majorStr, _, _ := strings.Cut(fields[i+1], ".")
+			major, convErr := strconv.Atoi(majorStr)
+			if convErr == nil {
+				return major, nil
+			}
+			break
+		}
+	}
+	return 0, fmt.Errorf("backup: cannot parse %s --version output: %s", filepath.Base(bin), strings.TrimSpace(string(out)))
+}
+
+// pgServerMajor reports the major of the server the handle dials
+// (server_version_num 160008 → 16).
+func pgServerMajor(ctx context.Context, db *sql.DB) (int, error) {
+	var num int
+	if err := db.QueryRowContext(ctx, `SELECT current_setting('server_version_num')::int / 10000`).Scan(&num); err != nil {
+		return 0, fmt.Errorf("backup: probe server version: %w", err)
+	}
+	return num, nil
 }
 
 // resolvePGRestoreTool locates pg_restore, preferring the directory of
@@ -179,7 +250,20 @@ func fileModTime(path string) time.Time {
 // uses (wiki:storage-adapters D8).
 func (s *Service) snapshotPostgres(ctx context.Context) (string, error) {
 	cfg := s.getCfg()
-	dumpBin, err := ResolvePGTool("pg_dump", cfg.Postgres.DumpBin)
+	// Best-effort server-major probe: dump with the client matching the
+	// server's major when one is installed (an archive written by a
+	// newer client can carry preamble the server itself rejects at
+	// restore, Task 381). Any probe failure (unresolvable DSN, dial,
+	// query) is swallowed — the strict dumpBin/target resolution below
+	// keeps the original error contract, and pg_dump owns its dial.
+	serverMajor := 0
+	if dsn, dsnErr := s.pgTarget(); dsnErr == nil {
+		if db, openErr := postgres.Open(ctx, dsn); openErr == nil {
+			serverMajor, _ = pgServerMajor(ctx, db)
+			_ = db.Close()
+		}
+	}
+	dumpBin, err := resolvePGToolForServer("pg_dump", cfg.Postgres.DumpBin, serverMajor)
 	if err != nil {
 		return "", err
 	}
@@ -304,6 +388,28 @@ func (s *Service) RestorePostgres(ctx context.Context, dumpPath, keepDatabase st
 			_, _ = admin.ExecContext(teardownCtx, `DROP DATABASE IF EXISTS `+quoteIdent(scratch)+` WITH (FORCE)`)
 		}
 		return RestorePostgresResult{}, err
+	}
+
+	// Hard guard on the restore direction: a client newer than the
+	// target server replays preamble the server rejects — upstream
+	// blesses restores only into the same or a newer major (Task 381
+	// catch on the ubuntu-26.04 runner image: system client 18 vs the
+	// pinned embedded 16 → `unrecognized configuration parameter
+	// "transaction_timeout"`). The resolver already preferred an
+	// installed version-matched client; when none exists, refuse
+	// loudly instead of half-restoring into a foreign server.
+	serverMajor, err := pgServerMajor(ctx, admin)
+	if err != nil {
+		return fail(err)
+	}
+	if restoreMajor, parseErr := pgToolMajor(restoreBin); parseErr == nil && restoreMajor > serverMajor {
+		if matched := versionMatchedPGTool("pg_restore", serverMajor); matched != "" {
+			restoreBin = matched
+		} else {
+			return fail(fmt.Errorf(
+				"backup restore: %s reports major %d, target server is major %d — archives written by newer clients restore only into the same or a newer server; install postgresql-client-%d (PGDG repo on Debian/Ubuntu) or point storage.postgres.dump_bin at a version-matched install",
+				restoreBin, restoreMajor, serverMajor, serverMajor))
+		}
 	}
 
 	scratchDSN := swapDatabaseInDSN(target, scratch)
