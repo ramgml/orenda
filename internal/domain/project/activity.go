@@ -30,12 +30,17 @@ const (
 	// PATCH writes the same row too — both surfaces are read by the
 	// same audit feed and the diff is symmetric.
 	ActivityWikiSlugChanged ActivityKind = "wiki_slug_changed"
+)
 
-	// master-agent-role plan (step 4): the user-namespace mutations
-	// (POST /projects, PATCH /projects/{id}) write the same audit feed
-	// the agent namespace does, so a master agent creating or patching
-	// a project lands here with actor_type=agent (RecordProjectAuto
-	// resolves the actor from the request identity).
+// The user-namespace mutation kinds (master-agent-role plan, step 4):
+// POST /api/v1/projects and PATCH /api/v1/projects/{id} write the same
+// audit feed the agent namespace does — ActivityCreated is the first
+// row (payload {"name": ...}); ActivityNameChanged,
+// ActivityColorChanged, ActivityArchivedChanged land per changed
+// field, so a master agent's project edits appear with
+// actor_type=agent (RecordProjectAuto resolves the actor from the
+// request identity).
+const (
 	ActivityCreated         ActivityKind = "created"
 	ActivityNameChanged     ActivityKind = "name_changed"
 	ActivityColorChanged    ActivityKind = "color_changed"

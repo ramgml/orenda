@@ -38,8 +38,11 @@ const (
 type Role string
 
 const (
+	// RoleProject is the default (and pre-052) scope: agent-namespace
+	// work inside granted projects.
 	RoleProject Role = "project"
-	RoleMaster  Role = "master"
+	// RoleMaster is the owner-equivalent scope on the user namespace.
+	RoleMaster Role = "master"
 )
 
 // Sentinel errors returned by Repository.

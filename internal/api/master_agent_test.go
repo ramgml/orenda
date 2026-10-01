@@ -219,8 +219,8 @@ func (r *fakeAgentRepo) Delete(context.Context, string) error {
 	panic("not implemented in this test")
 }
 
-func (r *fakeAgentRepo) TouchLastSeen(_ context.Context, id string) (*agentdomain.Agent, error) {
-	return r.GetByID(context.Background(), id)
+func (r *fakeAgentRepo) TouchLastSeen(ctx context.Context, id string) (*agentdomain.Agent, error) {
+	return r.GetByID(ctx, id)
 }
 
 func (r *fakeAgentRepo) SweepOffline(context.Context, time.Duration) (int64, error) {
