@@ -466,3 +466,82 @@ func TestMasterAgent_ProjectActivityAttribution(t *testing.T) {
 	assert.Equal(t, "user", last.actorType, "cookie session stays user-attributed")
 	assert.Equal(t, owner.ID, last.actorID)
 }
+
+// master-agent-role plan (step 5): the master agent bypasses the Task
+// 140 access filter — GET /api/v1/agent/projects lists a closed,
+// ungranted project for the master and stays silent for a project
+// agent; the agent-namespace PATCH grant keys stay owner-only even
+// for the master.
+func TestMasterAgent_Task140Bypass(t *testing.T) {
+	t.Parallel()
+	fx := newAgentFixture(t)
+	cookie := loginOwnerCookie(t, fx)
+	suffix := randLite()[:6]
+
+	_, masterToken, _ := mintAgentViaAPI(t, fx, cookie, "maestro-"+suffix, "master")
+	_, projectToken, _ := mintAgentViaAPI(t, fx, cookie, "worker-"+suffix, "")
+
+	// Master creates a project (201) and closes it to agents — the
+	// project agent gets no grant, agents_allowed=false.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects",
+		bytes.NewReader([]byte(`{"name":"Закрытая"}`)))
+	req.Header.Set("Authorization", "Bearer "+masterToken)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusCreated, rr.Code, "body=%s", rr.Body.String())
+	var proj struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proj))
+
+	patchBody, _ := json.Marshal(map[string]any{"agents_allowed": false})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/projects/"+proj.ID, bytes.NewReader(patchBody))
+	for _, c := range cookie {
+		req.AddCookie(c)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+
+	listProjects := func(token string) []map[string]any {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/agent/projects", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		fx.router.ServeHTTP(rec, r)
+		require.Equal(t, http.StatusOK, rec.Code, "body=%s", rec.Body.String())
+		var out struct {
+			Projects []map[string]any `json:"projects"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		return out.Projects
+	}
+
+	// Master sees the closed project; the project agent does not.
+	masterProjects := listProjects(masterToken)
+	found := false
+	for _, p := range masterProjects {
+		if p["id"] == proj.ID {
+			found = true
+		}
+	}
+	assert.True(t, found, "master must see the closed ungranted project")
+
+	workerProjects := listProjects(projectToken)
+	for _, p := range workerProjects {
+		assert.NotEqual(t, proj.ID, p["id"],
+			"project agent must not see the closed ungranted project (Task 140)")
+	}
+
+	// The grant surface stays owner-only even for the master.
+	grantBody, _ := json.Marshal(map[string]any{"agent_ids": []string{"self"}})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/agent/projects/"+proj.ID, bytes.NewReader(grantBody))
+	req.Header.Set("Authorization", "Bearer "+masterToken)
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	fx.router.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusUnprocessableEntity, rr.Code, "body=%s", rr.Body.String())
+	assert.Contains(t, rr.Body.String(), "owner_only_field")
+}
