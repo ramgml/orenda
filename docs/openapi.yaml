@@ -2713,7 +2713,7 @@ paths:
                 minutes: { type: number, description: 'minutes spent (>= 0; 0 = trivial)' }
       responses:
         '201': { description: created }
-        '400': { description: 'invalid_json | minutes_must_be_non_negative' }
+        '400': { description: 'invalid_json | unknown_field (any key other than minutes is rejected, e.g. start_at/end_at — the user-side range fields) | invalid_minutes | minutes_must_be_non_negative' }
         '404': { description: 'not_found — includes task #N not found for numeric refs' }
 
   /api/v1/agent/tasks/{id}/context:
