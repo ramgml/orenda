@@ -22,7 +22,10 @@
 //     actor_type=agent and a before/after diff payload.
 //   - Namespace split is symmetric: cookie sessions 401 on agent
 //     routes (RequireAgent only accepts bearer API tokens), agent
-//     tokens 401 on user routes (RequireUser only accepts JWTs).
+//     tokens 401 on user routes (RequireUser only accepts JWTs) —
+//     except a role=master agent, whose bearer token is the
+//     owner-equivalent on user routes (identity carries both AgentID
+//     for attribution and the owner's UserID for visibility).
 //   - name / color / archived stay user-only — see the wiki
 //     постановка for the rationale.
 //   - Task 140 (agent-project-scope): the project access surface —
