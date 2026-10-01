@@ -183,8 +183,19 @@ func TestMigrate_051UpDownCycle(t *testing.T) {
 	}
 	assert.Equal(t, 1, rejected, "CreateProject seeds exactly one rejected column")
 
-	// MigrateDown steps back one version (051): the seeded column drops.
-	require.NoError(t, MigrateDown(ctx, db, MigrationsFS, "migrations"))
+	// MigrateDown steps back to BELOW 051 so the 051 down itself runs.
+	// Since master-agent-role added 052 (agents.role), one step only
+	// drops that column — walk down while the last applied version is
+	// >= 051 (zero-padded NNN_ names make the TEXT compare exact).
+	for {
+		require.NoError(t, MigrateDown(ctx, db, MigrationsFS, "migrations"))
+		var last string
+		require.NoError(t, db.QueryRowContext(ctx,
+			`SELECT COALESCE(MAX(version), '') FROM schema_migrations`).Scan(&last))
+		if last < "051" {
+			break
+		}
+	}
 	assert.Equal(t, rejected-1, countRejected(t),
 		"051 down removes the migration-added rejected columns")
 

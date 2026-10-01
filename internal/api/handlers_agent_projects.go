@@ -44,7 +44,6 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"go.uber.org/zap"
 
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/project"
@@ -252,44 +251,17 @@ func applyAgentProjectPatch(w http.ResponseWriter, r *http.Request, deps *Depend
 }
 
 // recordAgentProjectPatchActivity writes one audit row per changed
-// field (Task 140 agent namespace variant). Log-and-continue on
-// recorder failure — an audit gap must not fail the user-visible
-// mutation (same convention as ActivityRecorder callers).
+// field (Task 140 agent namespace variant) — a thin translation onto
+// the shared recordProjectActivity helper (same recorder, same
+// log-and-continue contract; no duplicate write path).
 func recordAgentProjectPatchActivity(r *http.Request, deps *Dependencies, p *project.Project, beforeDesc, beforeSlug string, descChanged, slugChanged bool) {
-	if deps.ProjectActivityRecorder == nil {
-		return
-	}
 	if descChanged {
-		payload, _ := json.Marshal(map[string]string{
-			"before": beforeDesc,
-			"after":  p.Description,
-		})
-		if rerr := deps.ProjectActivityRecorder.RecordProjectAuto(
-			r.Context(), p.ID,
-			project.ActivityDescriptionChanged, string(payload),
-		); rerr != nil && deps.Logger != nil {
-			deps.Logger.Warn("project activity record failed",
-				zap.String("project_id", p.ID),
-				zap.String("kind", "description_changed"),
-				zap.Error(rerr),
-			)
-		}
+		recordProjectActivity(r.Context(), deps, p.ID, project.ActivityDescriptionChanged,
+			map[string]string{"before": beforeDesc, "after": p.Description})
 	}
 	if slugChanged {
-		payload, _ := json.Marshal(map[string]string{
-			"before": beforeSlug,
-			"after":  p.WikiSlug,
-		})
-		if rerr := deps.ProjectActivityRecorder.RecordProjectAuto(
-			r.Context(), p.ID,
-			project.ActivityWikiSlugChanged, string(payload),
-		); rerr != nil && deps.Logger != nil {
-			deps.Logger.Warn("project activity record failed",
-				zap.String("project_id", p.ID),
-				zap.String("kind", "wiki_slug_changed"),
-				zap.Error(rerr),
-			)
-		}
+		recordProjectActivity(r.Context(), deps, p.ID, project.ActivityWikiSlugChanged,
+			map[string]string{"before": beforeSlug, "after": p.WikiSlug})
 	}
 }
 

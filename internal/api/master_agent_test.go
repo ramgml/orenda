@@ -15,6 +15,7 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -23,11 +24,16 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	"github.com/ramgml/orenda/internal/api"
+	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
 	agentdomain "github.com/ramgml/orenda/internal/domain/agent"
+	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/user"
+	agentservice "github.com/ramgml/orenda/internal/service/agent"
+	projectservice "github.com/ramgml/orenda/internal/service/project"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
 )
 
@@ -299,4 +305,164 @@ func newBearerReq(path, token string) *http.Request {
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	return req
+}
+
+// projectActivityRows reads the audit feed straight from storage.
+type projectActivityRow struct {
+	kind      string
+	actorType string
+	actorID   string
+}
+
+func projectActivityRows(t *testing.T, db *sql.DB, projectID string) []projectActivityRow {
+	t.Helper()
+	rows, err := db.Query(
+		`SELECT kind, actor_type, actor_id FROM project_activity WHERE project_id = ? ORDER BY created_at, id`,
+		projectID)
+	require.NoError(t, err)
+	defer func() { _ = rows.Close() }()
+	var out []projectActivityRow
+	for rows.Next() {
+		var r projectActivityRow
+		require.NoError(t, rows.Scan(&r.kind, &r.actorType, &r.actorID))
+		out = append(out, r)
+	}
+	require.NoError(t, rows.Err())
+	return out
+}
+
+// master-agent-role plan (step 4): user-namespace project mutations write
+// project_activity rows, and the actor comes from the identity — a
+// master agent creating / patching a project lands as actor_type=agent,
+// an owner cookie session as actor_type=user.
+func TestMasterAgent_ProjectActivityAttribution(t *testing.T) {
+	t.Parallel()
+	db, _ := copyTemplateDB(t)
+
+	users := sqlite.NewUserRepository(db)
+	require.NoError(t, users.Create(context.Background(), &user.User{
+		Email:        "act-owner-" + randLite()[:8] + "@x.com",
+		PasswordHash: mustHashFast(t),
+		DisplayName:  "Owner",
+	}))
+
+	hub := ws.NewHub()
+	t.Cleanup(func() {
+		if c, ok := hub.(interface{ Close() }); ok {
+			c.Close()
+		}
+	})
+	signer := auth.NewSigner("test-secret-32-bytes-long-xxxxx", time.Hour, "orenda")
+	tokens := sqlite.NewAPITokenRepository(db)
+	agents := sqlite.NewAgentRepository(db)
+	agentSvc := agentservice.New(agents, users, &agentFixtureTMinter{tokens: tokens}, hub, nil)
+
+	projects := sqlite.NewProjectRepository(db)
+	projActRecorder := projectservice.NewActivityRecorder(sqlite.NewProjectActivityRepository(db))
+	projActRecorder.IdentitySource = func(ctx context.Context) (project.ActorType, string, bool) {
+		id, ok := api.IdentityFrom(ctx)
+		if !ok || id == nil {
+			return "", "", false
+		}
+		if id.AgentID != "" {
+			return project.ActorAgent, id.AgentID, true
+		}
+		if id.UserID != "" {
+			return project.ActorUser, id.UserID, true
+		}
+		return "", "", false
+	}
+
+	deps := api.Dependencies{
+		Logger:                  zap.NewNop(),
+		Signer:                  signer,
+		Users:                   users,
+		Projects:                projects,
+		Tasks:                   sqlite.NewTaskRepository(db),
+		Tokens:                  tokens,
+		Agents:                  agents,
+		AgentService:            agentSvc,
+		ProjectActivityRecorder: projActRecorder,
+		WSHub:                   hub,
+		CookieName:              "orenda_session",
+	}
+	router := api.NewRouter(&deps)
+	t.Cleanup(deps.RateLimitClose)
+
+	owner := firstNonSystemUser(t, &agentFixture{db: db})
+	loginBody, _ := json.Marshal(map[string]string{"email": owner.Email, "password": "hunter2!"})
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginBody))
+	loginRR := httptest.NewRecorder()
+	router.ServeHTTP(loginRR, loginReq)
+	require.Equal(t, http.StatusOK, loginRR.Code, "login body=%s", loginRR.Body.String())
+	cookie := loginRR.Result().Cookies()
+
+	// Master agent through the API (also re-pins the create contract).
+	masterBody, _ := json.Marshal(map[string]string{"name": "maestro-act-" + randLite()[:6], "role": "master"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", bytes.NewReader(masterBody))
+	for _, c := range cookie {
+		req.AddCookie(c)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusCreated, rr.Code, "body=%s", rr.Body.String())
+	var created struct {
+		Agent struct {
+			ID string `json:"id"`
+		} `json:"agent"`
+		PlainToken string `json:"plain_token"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created))
+
+	// Master creates a project.
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/projects",
+		bytes.NewReader([]byte(`{"name":"Инициатива"}`)))
+	req.Header.Set("Authorization", "Bearer "+created.PlainToken)
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusCreated, rr.Code, "body=%s", rr.Body.String())
+	var proj struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &proj))
+	require.NotEmpty(t, proj.ID)
+
+	// Master patches name + color.
+	patchBody, _ := json.Marshal(map[string]any{"name": "Переименована", "color": "#ff0000"})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/projects/"+proj.ID, bytes.NewReader(patchBody))
+	req.Header.Set("Authorization", "Bearer "+created.PlainToken)
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+
+	// The audit feed: created + name_changed + color_changed, all
+	// agent-attributed.
+	rows := projectActivityRows(t, db, proj.ID)
+	kinds := map[string]string{}
+	for _, row := range rows {
+		kinds[row.kind] = row.actorType
+	}
+	assert.Equal(t, "agent", kinds["created"], "creation attributed to the master agent")
+	assert.Equal(t, "agent", kinds["name_changed"])
+	assert.Equal(t, "agent", kinds["color_changed"])
+	assert.NotContains(t, kinds, "archived_changed", "only changed fields get rows")
+
+	// Owner cookie PATCH: same rows, user-attributed (regression).
+	patchBody, _ = json.Marshal(map[string]any{"description": "by owner"})
+	req = httptest.NewRequest(http.MethodPatch, "/api/v1/projects/"+proj.ID, bytes.NewReader(patchBody))
+	for _, c := range cookie {
+		req.AddCookie(c)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+	rows = projectActivityRows(t, db, proj.ID)
+	last := rows[len(rows)-1]
+	assert.Equal(t, "description_changed", last.kind)
+	assert.Equal(t, "user", last.actorType, "cookie session stays user-attributed")
+	assert.Equal(t, owner.ID, last.actorID)
 }
