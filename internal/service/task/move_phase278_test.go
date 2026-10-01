@@ -181,7 +181,7 @@ func TestService_ReviewApprove_MovesCardToDone(t *testing.T) {
 	}
 	require.NoError(t, f.taskRepo.Create(context.Background(), tr))
 
-	_, err := svc.Review(context.Background(), tr.ID, "u-owner", taskservice.ReviewApprove, "")
+	_, err := svc.Review(context.Background(), tr.ID, "", "u-owner", taskservice.ReviewApprove, "")
 	require.NoError(t, err)
 	got := mustGetByID(t, f.taskRepo, tr.ID)
 	assert.Equal(t, task.StatusDone, got.Status)
@@ -201,7 +201,7 @@ func TestService_ReviewReject_MovesCardBackToInProgress(t *testing.T) {
 	}
 	require.NoError(t, f.taskRepo.Create(context.Background(), tr))
 
-	_, err := svc.Review(context.Background(), tr.ID, "u-owner", taskservice.ReviewReject, "needs work")
+	_, err := svc.Review(context.Background(), tr.ID, "", "u-owner", taskservice.ReviewReject, "needs work")
 	require.NoError(t, err)
 	got := mustGetByID(t, f.taskRepo, tr.ID)
 	assert.Equal(t, task.StatusInProgress, got.Status)
@@ -328,7 +328,7 @@ func TestService_Review_RecordsActivity(t *testing.T) {
 	}
 	require.NoError(t, f.taskRepo.Create(context.Background(), tr))
 
-	_, err := svc.Review(context.Background(), tr.ID, "u-owner", taskservice.ReviewApprove, "")
+	_, err := svc.Review(context.Background(), tr.ID, "", "u-owner", taskservice.ReviewApprove, "")
 	require.NoError(t, err)
 
 	found := false

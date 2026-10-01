@@ -16,6 +16,12 @@ export interface Agent {
    */
   type: string[];
   description?: string;
+  /**
+   * master-agent-role: authority scope, fixed at creation.
+   * 'master' = owner-equivalent on the user namespace; every action
+   * it performs is attributed to the agent, never to the owner.
+   */
+  role: 'project' | 'master';
   token_id: string;
   last_seen_at?: string;
   status: 'online' | 'offline' | 'disabled';
@@ -147,6 +153,11 @@ export const agentsEndpoints = {
      */
     type?: string[];
     description?: string;
+    /**
+     * master-agent-role: 'project' (default) or 'master'
+     * (owner-equivalent). Immutable after creation.
+     */
+    role?: 'project' | 'master';
   }): Promise<{ agent: Agent; plain_token: string }> {
     return this.http
       .post<{ agent: Agent; plain_token: string }>('/api/v1/agents', input)

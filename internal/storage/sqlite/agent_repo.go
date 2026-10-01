@@ -35,11 +35,11 @@ func (r *agentRepo) Create(ctx context.Context, a *agent.Agent) error {
 		return fmt.Errorf("agent.Create: marshal type: %w", err)
 	}
 	const q = `
-		INSERT INTO agents (id, name, type, description, token_id, status, max_concurrent, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		INSERT INTO agents (id, name, type, description, role, token_id, status, max_concurrent, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 	`
 	_, err = r.db.ExecContext(ctx, q,
-		a.ID, a.Name, typeJSON, a.Description, a.TokenID,
+		a.ID, a.Name, typeJSON, a.Description, string(a.Role), a.TokenID,
 		string(a.Status), a.MaxConcurrent,
 	)
 	if err != nil {
@@ -96,11 +96,11 @@ func (r *agentRepo) Update(ctx context.Context, a *agent.Agent) error {
 	}
 	const q = `
 		UPDATE agents
-		SET name = ?, type = ?, description = ?, status = ?, max_concurrent = ?
+		SET name = ?, type = ?, description = ?, role = ?, status = ?, max_concurrent = ?
 		WHERE id = ?
 	`
 	res, err := r.db.ExecContext(ctx, q,
-		a.Name, typeJSON, a.Description, string(a.Status), a.MaxConcurrent, a.ID,
+		a.Name, typeJSON, a.Description, string(a.Role), string(a.Status), a.MaxConcurrent, a.ID,
 	)
 	if err != nil {
 		if IsUniqueViolation(err) {
@@ -188,7 +188,7 @@ func (r *agentRepo) ListStaleOnlineAgents(ctx context.Context, ttl time.Duration
 
 // SQL constants — kept here so all agent queries are in one place.
 const agentSelectColumns = `
-SELECT id, name, type, description, token_id, last_seen_at, status, max_concurrent, created_at
+SELECT id, name, type, description, role, token_id, last_seen_at, status, max_concurrent, created_at
 FROM agents
 `
 
@@ -203,11 +203,12 @@ func scanAgent(row *sql.Row) (*agent.Agent, error) {
 	var (
 		a        agent.Agent
 		typ      string
+		role     string
 		status   string
 		lastSeen sql.NullString
 		cAt      string
 	)
-	err := row.Scan(&a.ID, &a.Name, &typ, &a.Description, &a.TokenID, &lastSeen, &status, &a.MaxConcurrent, &cAt)
+	err := row.Scan(&a.ID, &a.Name, &typ, &a.Description, &role, &a.TokenID, &lastSeen, &status, &a.MaxConcurrent, &cAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, agent.ErrNotFound
 	}
@@ -217,6 +218,7 @@ func scanAgent(row *sql.Row) (*agent.Agent, error) {
 	if err := unmarshalAgentType(typ, &a.Type); err != nil {
 		return nil, fmt.Errorf("agent.Scan: type column: %w", err)
 	}
+	a.Role = agent.Role(role)
 	a.Status = agent.Status(status)
 	if lastSeen.Valid {
 		t := parseTime(lastSeen.String)
@@ -230,16 +232,18 @@ func scanAgentRow(rows *sql.Rows) (*agent.Agent, error) {
 	var (
 		a        agent.Agent
 		typ      string
+		role     string
 		status   string
 		lastSeen sql.NullString
 		cAt      string
 	)
-	if err := rows.Scan(&a.ID, &a.Name, &typ, &a.Description, &a.TokenID, &lastSeen, &status, &a.MaxConcurrent, &cAt); err != nil {
+	if err := rows.Scan(&a.ID, &a.Name, &typ, &a.Description, &role, &a.TokenID, &lastSeen, &status, &a.MaxConcurrent, &cAt); err != nil {
 		return nil, fmt.Errorf("agent.ScanRow: %w", err)
 	}
 	if err := unmarshalAgentType(typ, &a.Type); err != nil {
 		return nil, fmt.Errorf("agent.ScanRow: type column: %w", err)
 	}
+	a.Role = agent.Role(role)
 	a.Status = agent.Status(status)
 	if lastSeen.Valid {
 		t := parseTime(lastSeen.String)

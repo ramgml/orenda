@@ -239,7 +239,7 @@ func TestT330_CreateProject_NameCollisionGetsSuffix(t *testing.T) {
 		fx.tminter,
 		nil, nil,
 	)
-	_, err := squatter.Register(context.Background(), nextBase, []string{"custom"}, "blocks the next project agent name", nil)
+	_, err := squatter.Register(context.Background(), nextBase, []string{"custom"}, "blocks the next project agent name", nil, agent.RoleProject)
 	require.NoError(t, err, "pre-registered squatter: %s", nextBase)
 
 	rr2 := fx.create(t, "Collide")

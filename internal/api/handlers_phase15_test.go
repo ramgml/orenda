@@ -102,10 +102,10 @@ func newPhase15Fixture(t *testing.T) *phase15Fixture {
 	// agent registration flow so we have valid bcrypt-hashed tokens
 	// the API will accept on the agent namespace.
 	holderReg, err := agentSvc.Register(context.Background(),
-		"p15-holder-"+randLite()[:6], []string{"qwen"}, "holder", nil)
+		"p15-holder-"+randLite()[:6], []string{"qwen"}, "holder", nil, agent.RoleProject)
 	require.NoError(t, err)
 	rivalReg, err := agentSvc.Register(context.Background(),
-		"p15-rival-"+randLite()[:6], []string{"qwen"}, "rival", nil)
+		"p15-rival-"+randLite()[:6], []string{"qwen"}, "rival", nil, agent.RoleProject)
 	require.NoError(t, err)
 
 	deps := api.Dependencies{
