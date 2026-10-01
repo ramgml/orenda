@@ -232,7 +232,7 @@ func TestService_Review_Approve(t *testing.T) {
 	_, err := svc.Submit(context.Background(), tr.ID, seedAgent(t, db, "agent1"), "")
 	require.NoError(t, err)
 
-	reviewed, err := svc.Review(context.Background(), tr.ID, owner.ID, taskservice.ReviewApprove, "")
+	reviewed, err := svc.Review(context.Background(), tr.ID, "", owner.ID, taskservice.ReviewApprove, "")
 	require.NoError(t, err)
 	assert.Equal(t, task.StatusDone, reviewed.Status)
 	assert.Equal(t, task.AwaitingNone, reviewed.Awaiting)
@@ -252,7 +252,7 @@ func TestService_Review_Reject(t *testing.T) {
 	_, err := svc.Submit(context.Background(), tr.ID, seedAgent(t, db, "agent1"), "")
 	require.NoError(t, err)
 
-	rejected, err := svc.Review(context.Background(), tr.ID, owner.ID, taskservice.ReviewReject, "fix tests")
+	rejected, err := svc.Review(context.Background(), tr.ID, "", owner.ID, taskservice.ReviewReject, "fix tests")
 	require.NoError(t, err)
 	assert.Equal(t, task.StatusInProgress, rejected.Status)
 	assert.Equal(t, task.AwaitingAgent, rejected.Awaiting)
@@ -260,7 +260,7 @@ func TestService_Review_Reject(t *testing.T) {
 
 func TestService_Review_InvalidDecision(t *testing.T) {
 	_, svc, _, _, _ := setupClaimDB(t)
-	_, err := svc.Review(context.Background(), "x", "u", taskservice.ReviewDecision("bogus"), "")
+	_, err := svc.Review(context.Background(), "x", "", "u", taskservice.ReviewDecision("bogus"), "")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, taskservice.ErrInvalidInput)
 }
@@ -283,15 +283,15 @@ func TestService_Review_RejectsWithoutComment(t *testing.T) {
 	require.NoError(t, err)
 
 	// Empty comment is rejected as invalid input.
-	_, err = svc.Review(context.Background(), tr.ID, owner.ID, taskservice.ReviewReject, "")
+	_, err = svc.Review(context.Background(), tr.ID, "", owner.ID, taskservice.ReviewReject, "")
 	assert.ErrorIs(t, err, taskservice.ErrInvalidInput)
 
 	// Whitespace-only is also rejected (no reason = no reason).
-	_, err = svc.Review(context.Background(), tr.ID, owner.ID, taskservice.ReviewReject, "   \n  ")
+	_, err = svc.Review(context.Background(), tr.ID, "", owner.ID, taskservice.ReviewReject, "   \n  ")
 	assert.ErrorIs(t, err, taskservice.ErrInvalidInput)
 
 	// Approve with empty comment is still allowed (silent ack).
-	approved, err := svc.Review(context.Background(), tr.ID, owner.ID, taskservice.ReviewApprove, "")
+	approved, err := svc.Review(context.Background(), tr.ID, "", owner.ID, taskservice.ReviewApprove, "")
 	require.NoError(t, err)
 	assert.Equal(t, task.StatusDone, approved.Status)
 }

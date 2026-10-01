@@ -64,7 +64,9 @@ func fanOutColumnStatus(ctx context.Context, deps *Dependencies, col *project.Co
 }
 
 // emitTaskStatusChangedActivity writes a `task.status_changed` audit row
-// mirroring single-PATCH behaviour (handlers_tasks.go).
+// mirroring single-PATCH behaviour (handlers_tasks.go). The actor comes
+// from the ctx Identity when present (master agent → agent); no identity
+// keeps the empty actor, which the service defaults to user.
 func emitTaskStatusChangedActivity(ctx context.Context, deps *Dependencies, taskID, from, to string) {
 	if deps.TaskService == nil {
 		return
@@ -73,7 +75,13 @@ func emitTaskStatusChangedActivity(ctx context.Context, deps *Dependencies, task
 	if err != nil {
 		return
 	}
-	deps.TaskService.RecordActivity(ctx, taskID, "", activity.ActionStatusChanged, string(payload))
+	var actorType activity.ActorType
+	var actorID string
+	if id, ok := IdentityFrom(ctx); ok && id != nil {
+		t, aid := actorOf(id)
+		actorType, actorID = activity.ActorType(t), aid
+	}
+	deps.TaskService.RecordActivity(ctx, taskID, actorType, actorID, activity.ActionStatusChanged, string(payload))
 }
 
 // emitTaskUpdatedWS broadcasts a `task.updated` event on the

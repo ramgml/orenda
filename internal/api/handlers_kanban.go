@@ -48,9 +48,9 @@ func moveTaskHandler(deps *Dependencies) http.HandlerFunc {
 		// Task 117: identify the mover for the task.moved activity
 		// row — Activity.Validate rejects empty actor ids, and without
 		// this the audit row was silently dropped by the recorder.
-		if id, ok := IdentityFrom(r.Context()); ok {
-			opts.ActorID = id.UserID
-		}
+		// AgentID-first: a master agent dragging a card stays
+		// agent-authored in the timeline.
+		opts.ActorType, opts.ActorID = apiActor(r)
 
 		if in.BeforeTaskID != "" {
 			t, err := deps.Tasks.GetByID(r.Context(), in.BeforeTaskID)

@@ -118,7 +118,8 @@ func createTaskHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 		projectID = resolved.ID
-		tr := buildTaskFromInput(in, projectID)
+		actorType, actorID := apiActor(r)
+		tr := buildTaskFromInput(in, projectID, actorType, actorID)
 		resolveCreateTaskColumn(r, deps, tr)
 		syncColumnStatusOnCreate(r, deps, tr)
 
@@ -147,11 +148,18 @@ func createTaskHandler(deps *Dependencies) http.HandlerFunc {
 	}
 }
 
-// buildTaskFromInput maps the decoded taskInput onto a new task row
-// (creator = user). Task 120: `time_estimate_s: 0` clears the
-// estimate — an estimate of zero seconds is meaningless, so the
-// sentinel follows the due_at empty-string convention.
-func buildTaskFromInput(in taskInput, projectID string) *task.Task {
+// buildTaskFromInput maps the decoded taskInput onto a new task row.
+// actorType/actorID stamp the creator: a master agent creating a task
+// through the user namespace must land in tasks.created_by_type as
+// 'agent' (created_by_id = the agent), a user session as 'user'.
+// Task 120: `time_estimate_s: 0` clears the estimate — an estimate of
+// zero seconds is meaningless, so the sentinel follows the due_at
+// empty-string convention.
+func buildTaskFromInput(in taskInput, projectID string, actorType activity.ActorType, actorID string) *task.Task {
+	createdBy := task.CreatorUser
+	if actorType != "" {
+		createdBy = task.CreatorType(actorType)
+	}
 	tr := &task.Task{
 		ProjectID:     projectID,
 		ColumnID:      in.ColumnID,
@@ -164,7 +172,8 @@ func buildTaskFromInput(in taskInput, projectID string) *task.Task {
 		AssigneeID:    in.AssigneeID,
 		ContextMD:     in.ContextMD,
 		AgentNotes:    in.AgentNotes,
-		CreatedByType: task.CreatorUser,
+		CreatedByType: createdBy,
+		CreatedByID:   actorID,
 	}
 	if in.DueAt != nil {
 		tr.DueAt = parseOptionalTime(*in.DueAt)
@@ -242,12 +251,9 @@ func recordCreateTaskEffects(r *http.Request, deps *Dependencies, tr *task.Task)
 	if tr.ParentTaskID == "" || deps.TaskService == nil {
 		return
 	}
-	actorID := ""
-	if id, ok := IdentityFrom(r.Context()); ok && id != nil {
-		actorID = id.UserID
-	}
+	actorType, actorID := apiActor(r)
 	deps.TaskService.RecordActivity(
-		r.Context(), tr.ParentTaskID, actorID,
+		r.Context(), tr.ParentTaskID, actorType, actorID,
 		activity.ActionChildAdded,
 		fmt.Sprintf(`{"child_id":%q,"title":%q}`, tr.ID, tr.Title),
 	)
@@ -306,11 +312,8 @@ func patchTaskHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		actorID := ""
-		if id, ok := IdentityFrom(r.Context()); ok && id != nil {
-			actorID = id.UserID
-		}
-		if err := applyTaskPatchAndEffects(r.Context(), deps, tr, in, actorID); err != nil {
+		actorType, actorID := apiActor(r)
+		if err := applyTaskPatchAndEffects(r.Context(), deps, tr, in, actorType, actorID); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -338,7 +341,8 @@ func patchTaskHandler(deps *Dependencies) http.HandlerFunc {
 
 // applyTaskPatchAndEffects is the shared mutation path for single and bulk
 // task edits. Keeping side effects here prevents bulk updates from silently
-func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput, actorID string) error {
+// drifting. actorType/actorID attribute the edit (master agent → agent).
+func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput, actorType activity.ActorType, actorID string) error {
 	prevColor := tr.Color
 	prevStatus := tr.Status
 	prevPriority := tr.Priority
@@ -359,7 +363,7 @@ func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.
 	// T46: centralize status↔column sync + persist + mirror + activity
 	// in SyncAndSave instead of direct Tasks.Update.
 	if deps.TaskService != nil {
-		if err := deps.TaskService.SyncAndSave(ctx, tr, actorID, activity.ActorUser, prevStatus); err != nil {
+		if err := deps.TaskService.SyncAndSave(ctx, tr, actorID, actorType, prevStatus); err != nil {
 			return err
 		}
 	} else {
@@ -368,7 +372,7 @@ func applyTaskPatchAndEffects(ctx context.Context, deps *Dependencies, tr *task.
 			return err
 		}
 	}
-	recordPatchActivity(ctx, deps, tr, in, actorID, prevColor, prevPriority, prevAssigneeType, prevAssigneeID)
+	recordPatchActivity(ctx, deps, tr, in, actorType, actorID, prevColor, prevPriority, prevAssigneeType, prevAssigneeID)
 	return nil
 }
 
@@ -403,9 +407,9 @@ func normalizePatchEffects(tr *task.Task, in taskInput, statusChanged bool, prev
 // recordPatchActivity writes the color/priority/assignee change
 // activity rows and applies the tag diff after a successful patch
 // persist. Status change activity is recorded by SyncAndSave.
-func recordPatchActivity(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput, actorID, prevColor string, prevPriority task.Priority, prevAssigneeType task.AssigneeType, prevAssigneeID string) {
+func recordPatchActivity(ctx context.Context, deps *Dependencies, tr *task.Task, in taskInput, actorType activity.ActorType, actorID, prevColor string, prevPriority task.Priority, prevAssigneeType task.AssigneeType, prevAssigneeID string) {
 	if in.Color != nil && prevColor != tr.Color && deps.TaskService != nil {
-		deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionColorChanged,
+		deps.TaskService.RecordActivity(ctx, tr.ID, actorType, actorID, activity.ActionColorChanged,
 			fmt.Sprintf(`{"from":%q,"to":%q}`, prevColor, tr.Color))
 	}
 	if in.Tags != nil {
@@ -415,12 +419,12 @@ func recordPatchActivity(ctx context.Context, deps *Dependencies, tr *task.Task,
 		return
 	}
 	if in.Priority != "" && tr.Priority != prevPriority {
-		deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionPriorityChanged,
+		deps.TaskService.RecordActivity(ctx, tr.ID, actorType, actorID, activity.ActionPriorityChanged,
 			fmt.Sprintf(`{"from":%q,"to":%q}`, prevPriority, tr.Priority))
 	}
 	if (in.AssigneeType != "" || in.AssigneeID != "") &&
 		(tr.AssigneeType != prevAssigneeType || tr.AssigneeID != prevAssigneeID) {
-		deps.TaskService.RecordActivity(ctx, tr.ID, actorID, activity.ActionAssigned,
+		deps.TaskService.RecordActivity(ctx, tr.ID, actorType, actorID, activity.ActionAssigned,
 			fmt.Sprintf(`{"from":{"type":%q,"id":%q},"to":{"type":%q,"id":%q}}`,
 				prevAssigneeType, prevAssigneeID, tr.AssigneeType, tr.AssigneeID))
 	}
@@ -465,10 +469,7 @@ func bulkPatchTasksHandler(deps *Dependencies) http.HandlerFunc {
 			seen[id] = struct{}{}
 		}
 
-		actorID := ""
-		if id, ok := IdentityFrom(r.Context()); ok && id != nil {
-			actorID = id.UserID
-		}
+		actorType, actorID := apiActor(r)
 		out := bulkTaskPatchResponse{Tasks: make([]*task.Task, 0, len(in.TaskIDs)), Errors: make(map[string]string)}
 		for _, id := range in.TaskIDs {
 			tr, err := deps.Tasks.GetByID(r.Context(), id)
@@ -476,7 +477,7 @@ func bulkPatchTasksHandler(deps *Dependencies) http.HandlerFunc {
 				out.Errors[id] = err.Error()
 				continue
 			}
-			if err := applyTaskPatchAndEffects(r.Context(), deps, tr, in.Patch, actorID); err != nil {
+			if err := applyTaskPatchAndEffects(r.Context(), deps, tr, in.Patch, actorType, actorID); err != nil {
 				out.Errors[id] = err.Error()
 				continue
 			}
@@ -726,12 +727,9 @@ func addChecklistHandler(deps *Dependencies) http.HandlerFunc {
 		// Phase 14: log checklist creation on the parent task's activity
 		// stream so the timeline is informative without polling.
 		if deps.TaskService != nil {
-			actorID := ""
-			if id, ok := IdentityFrom(r.Context()); ok && id != nil {
-				actorID = id.UserID
-			}
+			actorType, actorID := apiActor(r)
 			deps.TaskService.RecordActivity(
-				r.Context(), taskID, actorID,
+				r.Context(), taskID, actorType, actorID,
 				activity.ActionChecklistAdded,
 				fmt.Sprintf(`{"checklist_id":%q,"title":%q}`, row.ID, row.Title),
 			)
@@ -786,12 +784,9 @@ func addChecklistItemHandler(deps *Dependencies) http.HandlerFunc {
 		// Phase 14: emit item_added against the parent task so the
 		// activity log shows checklist work without per-row polling.
 		if deps.TaskService != nil {
-			actorID := ""
-			if id, ok := IdentityFrom(r.Context()); ok && id != nil {
-				actorID = id.UserID
-			}
+			actorType, actorID := apiActor(r)
 			deps.TaskService.RecordActivity(
-				r.Context(), taskID, actorID,
+				r.Context(), taskID, actorType, actorID,
 				activity.ActionChecklistItemAdded,
 				fmt.Sprintf(`{"checklist_id":%q,"item_id":%q,"title":%q}`, listID, row.ID, row.Title),
 			)
@@ -822,12 +817,9 @@ func updateChecklistItemHandler(deps *Dependencies) http.HandlerFunc {
 		// (not on title-only edits). The activity stream then doubles
 		// as a lightweight "what got checked off" feed.
 		if body.Done != nil && *body.Done && deps.TaskService != nil {
-			actorID := ""
-			if id, ok := IdentityFrom(r.Context()); ok && id != nil {
-				actorID = id.UserID
-			}
+			actorType, actorID := apiActor(r)
 			deps.TaskService.RecordActivity(
-				r.Context(), taskID, actorID,
+				r.Context(), taskID, actorType, actorID,
 				activity.ActionChecklistItemDone,
 				fmt.Sprintf(`{"item_id":%q,"done":true}`, itemID),
 			)

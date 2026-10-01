@@ -76,6 +76,11 @@ func createInboxTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_title"})
 			return
 		}
+		inboxActorType, inboxActorID := apiActor(r)
+		createdBy := task.CreatorUser
+		if inboxActorType != "" {
+			createdBy = task.CreatorType(inboxActorType)
+		}
 		tr := &task.Task{
 			ProjectID:     "", // explicit: inbox
 			ColumnID:      "", // no column in inbox
@@ -88,7 +93,8 @@ func createInboxTaskHandler(deps *Dependencies) http.HandlerFunc {
 			AssigneeID:    in.AssigneeID,
 			ContextMD:     in.ContextMD,
 			AgentNotes:    in.AgentNotes,
-			CreatedByType: task.CreatorUser,
+			CreatedByType: createdBy,
+			CreatedByID:   inboxActorID,
 		}
 		// Phase 30.10: quick capture accepts an optional due date —
 		// same parsing contract as the project create endpoint.

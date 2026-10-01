@@ -121,9 +121,10 @@ func addProjectAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		uploaderID := ""
-		if id, ok := IdentityFrom(r.Context()); ok {
-			uploaderID = id.UserID
+		upActorType, uploaderID := apiActor(r)
+		uploaderType := attachment.UploaderUser
+		if upActorType != "" {
+			uploaderType = attachment.UploaderType(upActorType)
 		}
 
 		res, err := deps.Attachments.StoreFromBytes(
@@ -131,7 +132,7 @@ func addProjectAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 			attachment.TargetProject,
 			projectID,
 			filename, mimeType,
-			attachment.UploaderUser, uploaderID,
+			uploaderType, uploaderID,
 			file,
 		)
 		if err != nil {
