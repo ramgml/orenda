@@ -27,6 +27,10 @@ export function AgentsPage(): JSX.Element {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  // master-agent-role: checked → role 'master' (owner-equivalent,
+  // global); unchecked → role 'project' (classic scoped agent).
+  // Immutable after creation — no edit affordance.
+  const [master, setMaster] = useState(false);
   const [createdToken, setCreatedToken] = useState<string | null>(null);
   // Task 165: copy feedback for the one-time token banner ("Copied"
   // flips back to "Copy" after 2s). regeneratingId tracks which row's
@@ -65,11 +69,13 @@ export function AgentsPage(): JSX.Element {
         name: name.trim(),
         type: pendingLabels,
         description: description.trim() || undefined,
+        role: master ? 'master' : 'project',
       });
       setCreatedToken(plain_token);
       setAgents((prev) => (prev ? [agent, ...prev] : [agent]));
       setName('');
       setDescription('');
+      setMaster(false);
       setPendingLabels([]);
       setLabelDraft('');
       setCreating(false);
@@ -228,6 +234,15 @@ export function AgentsPage(): JSX.Element {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
+          <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={master}
+              onChange={(e) => setMaster(e.target.checked)}
+              data-testid="master-checkbox"
+            />
+            Master (global) — full user-namespace access, actions attributed to the agent
+          </label>
           <Button type="submit" variant="default" size="sm">
             Create
           </Button>
@@ -271,7 +286,18 @@ export function AgentsPage(): JSX.Element {
           <tbody>
             {agents.map((a) => (
               <tr key={a.id} className="border-b border-border">
-                <td className="py-2 font-mono">{a.name}</td>
+                <td className="py-2 font-mono">
+                  {a.name}
+                  {a.role === 'master' && (
+                    <span
+                      data-testid="master-chip"
+                      title="Master agent — owner-equivalent on the user namespace"
+                      className="ml-2 inline-block px-1.5 py-0.5 rounded bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200 text-xs"
+                    >
+                      master
+                    </span>
+                  )}
+                </td>
                 <td>
                   {(a.type ?? []).length === 0 ? (
                     <span className="text-slate-400">—</span>
