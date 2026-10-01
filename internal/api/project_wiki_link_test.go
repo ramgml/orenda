@@ -27,6 +27,7 @@ import (
 	"github.com/ramgml/orenda/internal/api"
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
+	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/user"
 	"github.com/ramgml/orenda/internal/domain/wiki"
@@ -73,7 +74,7 @@ func newProjectWikiFixture(t *testing.T) *projectWikiFixture {
 	tokens := sqlite.NewAPITokenRepository(db)
 	agents := sqlite.NewAgentRepository(db)
 	agentSvc := agentservice.New(agents, users, &agentFixtureTMinter{tokens: tokens}, hub, nil)
-	reg, err := agentSvc.Register(context.Background(), "pwl-agent", []string{"global"}, "test", nil)
+	reg, err := agentSvc.Register(context.Background(), "pwl-agent", []string{"global"}, "test", nil, agent.RoleProject)
 	require.NoError(t, err)
 
 	projects := sqlite.NewProjectRepository(db)

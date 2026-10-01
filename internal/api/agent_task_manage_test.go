@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ramgml/orenda/internal/domain/activity"
+	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/task"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
@@ -511,7 +512,7 @@ func newAgentServiceForFixture(f *proposeFixture) *agentservice.Service {
 func registerSecondAgent(t *testing.T, f *proposeFixture, label string) *secondAgent {
 	t.Helper()
 	svc := newAgentServiceForFixture(f)
-	got, err := svc.Register(context.Background(), label, []string{"test"}, "test", nil)
+	got, err := svc.Register(context.Background(), label, []string{"test"}, "test", nil, agent.RoleProject)
 	require.NoError(t, err)
 	return &secondAgent{ID: got.Agent.ID, PlainToken: got.PlainToken}
 }

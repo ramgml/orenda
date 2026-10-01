@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ramgml/orenda/internal/api"
+	agentdomain "github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/service/agent"
@@ -42,7 +43,7 @@ func registerThirdAgent(t *testing.T, fx *agentFixture, name string) (agentID, p
 	tokens := sqlite.NewAPITokenRepository(fx.db)
 	agents := sqlite.NewAgentRepository(fx.db)
 	svc := agent.New(agents, users, &agentFixtureTMinter{tokens: tokens}, nil, nil)
-	got, err := svc.Register(context.Background(), name, []string{"test"}, "test", nil)
+	got, err := svc.Register(context.Background(), name, []string{"test"}, "test", nil, agentdomain.RoleProject)
 	require.NoError(t, err)
 	return got.Agent.ID, got.PlainToken
 }

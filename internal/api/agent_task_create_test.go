@@ -30,6 +30,7 @@ import (
 	"github.com/ramgml/orenda/internal/api"
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
+	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
@@ -96,7 +97,7 @@ func newProposeFixture(t *testing.T) *proposeFixture {
 	agents := sqlite.NewAgentRepository(db)
 	tm := &agentFixtureTMinter{tokens: tokens}
 	agentSvc := agentservice.New(agents, users, tm, hub, nil)
-	got, err := agentSvc.Register(context.Background(), "proposer-test", []string{"test"}, "test", nil)
+	got, err := agentSvc.Register(context.Background(), "proposer-test", []string{"test"}, "test", nil, agent.RoleProject)
 	require.NoError(t, err)
 
 	deps := api.Dependencies{

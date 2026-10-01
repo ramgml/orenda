@@ -26,6 +26,7 @@ type createAgentRequest struct {
 	Type        []string `json:"type"`
 	Description string   `json:"description"`
 	Scopes      []string `json:"scopes"`
+	Role        string   `json:"role"`
 }
 
 // listAgentsHandler returns every registered agent, optionally filtered
@@ -100,7 +101,17 @@ func createAgentHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_name"})
 			return
 		}
-		out, err := callAgentServiceRegister(r.Context(), deps, req.Name, req.Type, req.Description, req.Scopes)
+		// Role is fixed at creation ("project" default, "master" for
+		// owner-equivalent agents); anything else is a client error.
+		role := agent.Role(req.Role)
+		if req.Role == "" {
+			role = agent.RoleProject
+		}
+		if role != agent.RoleProject && role != agent.RoleMaster {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_role"})
+			return
+		}
+		out, err := callAgentServiceRegister(r.Context(), deps, req.Name, req.Type, req.Description, req.Scopes, role)
 		if err != nil {
 			if errors.Is(err, agentsvc.ErrNameTaken) {
 				writeJSON(w, http.StatusConflict, map[string]string{"error": "name_taken"})
@@ -183,9 +194,9 @@ func heartbeatHandler(deps *Dependencies) http.HandlerFunc {
 
 // callAgentServiceRegister centralises the agent-creation path so it can
 // be overridden in tests. Production wires deps.AgentService directly.
-func callAgentServiceRegister(ctx context.Context, deps *Dependencies, name string, labels []string, desc string, scopes []string) (*agentsvc.Registered, error) {
+func callAgentServiceRegister(ctx context.Context, deps *Dependencies, name string, labels []string, desc string, scopes []string, role agent.Role) (*agentsvc.Registered, error) {
 	if deps.AgentService != nil {
-		return deps.AgentService.Register(ctx, name, labels, desc, scopes)
+		return deps.AgentService.Register(ctx, name, labels, desc, scopes, role)
 	}
 	return nil, errors.New("agent service not wired")
 }

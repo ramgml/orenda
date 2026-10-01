@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/project"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 )
@@ -78,8 +79,9 @@ func (s *Service) EnsureProjectAgent(ctx context.Context, p *project.Project, ow
 		}
 		// T330 decisions: type ["custom"] (no built-in backend
 		// semantics), empty scopes (access is grant-based, task 140),
+		// role project (dedicated per-project agent, never master),
 		// Register's default MaxConcurrent 3.
-		reg, err = s.Agents.Register(ctx, name, []string{"custom"}, description, nil)
+		reg, err = s.Agents.Register(ctx, name, []string{"custom"}, description, nil, agent.RoleProject)
 		if err == nil {
 			break
 		}
