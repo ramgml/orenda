@@ -45,7 +45,7 @@ type Identity struct {
 // site with activity.ActorType / comment.AuthorType / task.CreatorType.
 // An empty Identity (legacy service callers) yields empty strings; the
 // service layer defaults those to the user actor.
-func actorOf(id *Identity) (actorType string, actorID string) {
+func actorOf(id *Identity) (actorType, actorID string) {
 	if id == nil {
 		return "", ""
 	}
@@ -59,7 +59,7 @@ func actorOf(id *Identity) (actorType string, actorID string) {
 // handlers: the typed actor for activity/comment/creator stamps plus
 // the id. No identity (unauthenticated code path) yields empty strings
 // — the service layer then applies its historical user default.
-func apiActor(r *http.Request) (activity.ActorType, string) {
+func apiActor(r *http.Request) (actorType activity.ActorType, actorID string) {
 	id, _ := IdentityFrom(r.Context())
 	t, actorID := actorOf(id)
 	return activity.ActorType(t), actorID

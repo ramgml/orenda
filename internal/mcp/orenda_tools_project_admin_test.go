@@ -7,7 +7,6 @@ package mcp
 // agent receives.
 
 import (
-	"fmt"
 	"net/http"
 	"testing"
 
@@ -113,9 +112,7 @@ func TestOrendaTools_ProjectAdminSurfaces401(t *testing.T) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`unauthorized`))
 	})
-	raw := fmt.Sprintf(
-		`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"orenda_project_create","arguments":{"name":"x"}}}`,
-	)
+	raw := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"orenda_project_create","arguments":{"name":"x"}}}`
 	resp := call(t, srv, raw)
 	errObj, ok := resp["error"].(map[string]any)
 	require.True(t, ok, "401 must surface as tool error, got %v", resp)
