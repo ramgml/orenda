@@ -238,16 +238,13 @@ func reviewTaskHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		userID := ""
-		if id, ok := IdentityFrom(r.Context()); ok {
-			userID = id.UserID
-		}
+		actorType, actorID := apiActor(r)
 		taskID, rerr := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
 		if rerr != nil {
 			writeResolveError(w, rerr)
 			return
 		}
-		tr, err := deps.TaskService.Review(r.Context(), taskID, userID,
+		tr, err := deps.TaskService.Review(r.Context(), taskID, actorType, actorID,
 			taskservice.ReviewDecision(req.Decision), req.Comment)
 		if err != nil {
 			writeError(w, err)
@@ -288,15 +285,16 @@ func createTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		userID := ""
-		if id, ok := IdentityFrom(r.Context()); ok {
-			userID = id.UserID
-		}
+		cActorType, cActorID := apiActor(r)
 		taskID := chi.URLParam(r, "id")
+		authorType := comment.AuthorUser
+		if cActorType != "" {
+			authorType = comment.AuthorType(cActorType)
+		}
 		c := &comment.Comment{
 			TargetID:   taskID,
-			AuthorType: comment.AuthorUser,
-			AuthorID:   userID,
+			AuthorType: authorType,
+			AuthorID:   cActorID,
 			BodyMD:     in.BodyMD,
 		}
 		got, err := deps.Comments.Add(r.Context(), c)
@@ -304,21 +302,25 @@ func createTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		recordUserCommentActivity(r, deps, taskID, got.ID, userID, len(in.BodyMD))
-		notifyUserCommentMentions(r, deps, taskID, got.ID, in.BodyMD, userID)
+		recordUserCommentActivity(r, deps, taskID, got.ID, cActorType, cActorID, len(in.BodyMD))
+		notifyUserCommentMentions(r, deps, taskID, got.ID, in.BodyMD, cActorID)
 		writeJSON(w, http.StatusCreated, got)
 	}
 }
 
 // recordUserCommentActivity emits the task.commented activity row
-// for the user-side comment create (Phase 28.5). The edit path
-// (updateTaskCommentHandler) keeps writing its own row inline, with
-// `edited: true` in the payload. We log on failure and keep the
-// response going: the comment landed; an audit gap is recoverable,
-// a failed user-visible request isn't.
-func recordUserCommentActivity(r *http.Request, deps *Dependencies, taskID, commentID, userID string, bodyLen int) {
+// for the user-side comment create (Phase 28.5). actorType carries
+// the acting party (master agent → agent); empty keeps the user
+// default. The edit path (updateTaskCommentHandler) keeps writing its
+// own row inline, with `edited: true` in the payload. We log on
+// failure and keep the response going: the comment landed; an audit
+// gap is recoverable, a failed user-visible request isn't.
+func recordUserCommentActivity(r *http.Request, deps *Dependencies, taskID, commentID string, actorType activity.ActorType, actorID string, bodyLen int) {
 	if deps.ActivityRecorder == nil {
 		return
+	}
+	if actorType == "" {
+		actorType = activity.ActorUser
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"comment_id": commentID,
@@ -326,7 +328,7 @@ func recordUserCommentActivity(r *http.Request, deps *Dependencies, taskID, comm
 	})
 	if rerr := deps.ActivityRecorder.RecordTask(
 		r.Context(), taskID,
-		activity.ActorUser, userID,
+		actorType, actorID,
 		activity.ActionCommented, string(payload),
 	); rerr != nil && deps.Logger != nil {
 		deps.Logger.Warn("activity record failed",
@@ -387,10 +389,7 @@ func updateTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
-		userID := ""
-		if id, ok := IdentityFrom(r.Context()); ok {
-			userID = id.UserID
-		}
+		eActorType, eActorID := apiActor(r)
 		// The route carries both refs: the task scopes the
 		// activity record, the comment id names the edit target.
 		taskID, err := resolveTaskRef(r.Context(), deps, chi.URLParam(r, "id"))
@@ -398,12 +397,20 @@ func updateTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
 			writeResolveError(w, err)
 			return
 		}
-		got, err := deps.Comments.Update(r.Context(), chi.URLParam(r, "commentId"), in.BodyMD, comment.AuthorUser, userID)
+		editorType := comment.AuthorUser
+		if eActorType != "" {
+			editorType = comment.AuthorType(eActorType)
+		}
+		got, err := deps.Comments.Update(r.Context(), chi.URLParam(r, "commentId"), in.BodyMD, editorType, eActorID)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
 		if deps.ActivityRecorder != nil {
+			editActor := activity.ActorUser
+			if eActorType != "" {
+				editActor = eActorType
+			}
 			payload, _ := json.Marshal(map[string]any{
 				"comment_id": got.ID,
 				"length":     len(in.BodyMD),
@@ -411,7 +418,7 @@ func updateTaskCommentHandler(deps *Dependencies) http.HandlerFunc {
 			})
 			if rerr := deps.ActivityRecorder.RecordTask(
 				r.Context(), taskID,
-				activity.ActorUser, userID,
+				editActor, eActorID,
 				activity.ActionCommented, string(payload),
 			); rerr != nil && deps.Logger != nil {
 				deps.Logger.Warn("activity record failed",
@@ -525,9 +532,10 @@ func addTaskAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 			return
 		}
 
-		uploaderID := ""
-		if id, ok := IdentityFrom(r.Context()); ok {
-			uploaderID = id.UserID
+		upActorType, uploaderID := apiActor(r)
+		uploaderType := attachment.UploaderUser
+		if upActorType != "" {
+			uploaderType = attachment.UploaderType(upActorType)
 		}
 
 		res, err := deps.Attachments.StoreFromBytes(
@@ -535,7 +543,7 @@ func addTaskAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 			attachment.TargetTask,
 			chi.URLParam(r, "id"),
 			filename, mimeType,
-			attachment.UploaderUser, uploaderID,
+			uploaderType, uploaderID,
 			file,
 		)
 		if err != nil {
@@ -561,6 +569,10 @@ func addTaskAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 		// same row would mislead the timeline.
 		if !res.Duplicate && deps.ActivityRecorder != nil {
 			taskID := chi.URLParam(r, "id")
+			attActor := activity.ActorUser
+			if upActorType != "" {
+				attActor = upActorType
+			}
 			payload, _ := json.Marshal(map[string]any{
 				"attachment_id": res.Attachment.ID,
 				"filename":      filename,
@@ -569,7 +581,7 @@ func addTaskAttachmentHandler(deps *Dependencies) http.HandlerFunc {
 			})
 			if rerr := deps.ActivityRecorder.RecordTask(
 				r.Context(), taskID,
-				activity.ActorUser, uploaderID,
+				attActor, uploaderID,
 				activity.ActionAttachmentAdd, string(payload),
 			); rerr != nil && deps.Logger != nil {
 				deps.Logger.Warn("activity record failed",

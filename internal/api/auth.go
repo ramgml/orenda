@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ramgml/orenda/internal/auth"
+	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/user"
 )
@@ -52,6 +53,16 @@ func actorOf(id *Identity) (actorType string, actorID string) {
 		return "agent", id.AgentID
 	}
 	return "user", id.UserID
+}
+
+// apiActor is the request-level form of actorOf for user-namespace
+// handlers: the typed actor for activity/comment/creator stamps plus
+// the id. No identity (unauthenticated code path) yields empty strings
+// — the service layer then applies its historical user default.
+func apiActor(r *http.Request) (activity.ActorType, string) {
+	id, _ := IdentityFrom(r.Context())
+	t, actorID := actorOf(id)
+	return activity.ActorType(t), actorID
 }
 
 // HasScope reports whether the identity carries the requested scope.

@@ -74,12 +74,18 @@ func (e *BlockedError) Is(target error) bool {
 // Activity.Validate (which requires a non-empty ActorID). It only
 // feeds the audit row; the empty value keeps the historical
 // (silently-dropped-row) behaviour for callers without an identity.
+//
+// ActorType names the kind of actor (user|agent): a master agent
+// moving a card through the user namespace must land in the timeline
+// as agent-authored. Empty keeps the historical user default (sync
+// and legacy callers).
 type MoveOptions struct {
 	TargetColumnID string
 	Position       float64 // explicit fractional; 0 = derive from Before/After
 	Before         *task.Task
 	After          *task.Task
 	ActorID        string
+	ActorType      activity.ActorType
 }
 
 // Recorder is the audit hook for Claim/Release/Submit/Review. Phase 3.9
@@ -445,7 +451,13 @@ func (s *Service) recordMoveEffects(ctx context.Context, tr *task.Task, opts Mov
 			payload["column_name"] = columnName
 		}
 		raw, _ := json.Marshal(payload) // map[string]any of basic values cannot fail
-		_ = s.Recorder.Record(ctx, tr.ID, activity.ActorUser, opts.ActorID, activity.ActionMoved,
+		// Empty ActorType keeps the historical user default — sync and
+		// legacy callers don't know the actor kind.
+		actorType := opts.ActorType
+		if actorType == "" {
+			actorType = activity.ActorUser
+		}
+		_ = s.Recorder.Record(ctx, tr.ID, actorType, opts.ActorID, activity.ActionMoved,
 			string(raw))
 	}
 	if s.Hub != nil {
@@ -933,15 +945,23 @@ const (
 
 // Review approves or rejects a task in review.
 //
+// actorType/actorID identify who reviewed: the user-namespace handler
+// passes the session user, a master agent passes ("agent", agentID) so
+// the review lands in the timeline as agent-authored. An empty
+// actorType keeps the historical user default.
+//
 //	approve → status=done, completed_at=now, awaiting=none.
 //	reject  → status=in_progress, awaiting=agent (back to the agent).
 //
 // If comment is non-empty, a comment row is added via the CommentRepo
 // (Phase 3.7 wires the full CommentRepo; Phase 3.11 hands the service
 // one as an optional dependency).
-func (s *Service) Review(ctx context.Context, taskID, userID string, decision ReviewDecision, comment string) (*task.Task, error) {
+func (s *Service) Review(ctx context.Context, taskID string, actorType activity.ActorType, actorID string, decision ReviewDecision, comment string) (*task.Task, error) {
 	if decision != ReviewApprove && decision != ReviewReject {
 		return nil, ErrInvalidInput
+	}
+	if actorType == "" {
+		actorType = activity.ActorUser
 	}
 	// Phase 30.7: reject without a comment is a reject without a
 	// reason — the agent doesn't know what to fix. Approve is
@@ -971,8 +991,8 @@ func (s *Service) Review(ctx context.Context, taskID, userID string, decision Re
 		if _, cerr := s.Comments.Add(ctx, &CommentInput{
 			TargetType: commentTargetTask,
 			TargetID:   taskID,
-			AuthorType: commentAuthorUser,
-			AuthorID:   userID,
+			AuthorType: string(actorType),
+			AuthorID:   actorID,
 			BodyMD:     comment,
 		}); cerr != nil {
 			return nil, fmt.Errorf("task service: Review: comment: %w", cerr)
@@ -983,7 +1003,7 @@ func (s *Service) Review(ctx context.Context, taskID, userID string, decision Re
 	}
 	s.mirrorSave(ctx, tr)
 	if s.Recorder != nil {
-		_ = s.Recorder.Record(ctx, taskID, activity.ActorUser, userID, activity.ActionReviewed,
+		_ = s.Recorder.Record(ctx, taskID, actorType, actorID, activity.ActionReviewed,
 			fmt.Sprintf(`{"decision":%q}`, decision))
 	}
 	// Task 87: the review decision flips the status both ways —
@@ -997,7 +1017,7 @@ func (s *Service) Review(ctx context.Context, taskID, userID string, decision Re
 	if decision == ReviewApprove {
 		s.OnCloseUnblockDependents(ctx, taskID)
 	}
-	s.publishTask(ctx, "task.reviewed", tr, userID, map[string]any{
+	s.publishTask(ctx, "task.reviewed", tr, actorID, map[string]any{
 		"decision": string(decision),
 		"comment":  comment,
 	})
@@ -1082,13 +1102,18 @@ func (s *Service) MirrorDelete(id string) {
 // RecordActivity writes a single task_activity row. Phase 14 entry
 // point so handlers can emit child-task / checklist events through
 // the service without needing the activity repo injected directly.
-// Best-effort: errors are swallowed so audit glitches never block
-// the user-facing write.
-func (s *Service) RecordActivity(ctx context.Context, taskID, actorID string, action activity.Action, payload string) {
+// actorType names the acting party (user|agent) — a master agent
+// mutating through the user namespace must land as agent-authored;
+// empty keeps the historical user default. Best-effort: errors are
+// swallowed so audit glitches never block the user-facing write.
+func (s *Service) RecordActivity(ctx context.Context, taskID string, actorType activity.ActorType, actorID string, action activity.Action, payload string) {
 	if s.Recorder == nil || taskID == "" {
 		return
 	}
-	_ = s.Recorder.Record(ctx, taskID, activity.ActorUser, actorID, action, payload)
+	if actorType == "" {
+		actorType = activity.ActorUser
+	}
+	_ = s.Recorder.Record(ctx, taskID, actorType, actorID, action, payload)
 }
 
 // ----------------------------------------------------------------------------
@@ -1106,7 +1131,6 @@ type CommentInput struct {
 
 const (
 	commentTargetTask = "task"
-	commentAuthorUser = "user"
 )
 
 // CommentAdder is the tiny surface Review needs to attach a rejection

@@ -42,13 +42,18 @@ func (h *recordingHub) Subscribe(string, string) (<-chan ws.Event, ws.Unsubscrib
 }
 
 type recordingRecorder struct {
-	calls []string
+	calls      []string
+	actorTypes []activity.ActorType
 }
 
-func (r *recordingRecorder) Record(_ context.Context, taskID string, _ activity.ActorType, actorID string, action activity.Action, payload string) error {
+func (r *recordingRecorder) Record(_ context.Context, taskID string, actorType activity.ActorType, actorID string, action activity.Action, payload string) error {
 	// Task 117: actorID is captured so tests can pin the audit
 	// actor (Activity.Validate rejects empty actor ids in prod).
+	// actorTypes is captured in lockstep for the master-agent
+	// attribution contract (user-namespace actions by a master
+	// agent must land as actor_type=agent).
 	r.calls = append(r.calls, taskID+":"+actorID+":"+string(action)+":"+payload)
+	r.actorTypes = append(r.actorTypes, actorType)
 	return nil
 }
 

@@ -275,14 +275,16 @@ func applySyncMoveTask(ctx context.Context, deps *Dependencies, id *Identity, op
 		res.Error = "service_not_wired"
 		return res
 	}
-	opts := taskservice.MoveOptions{TargetColumnID: in.ColumnID, ActorID: id.UserID}
-	if in.Position != nil {
-		opts.Position = *in.Position
-	}
 	// Task 121: identify the mover for the task.moved activity
 	// row — Activity.Validate rejects an empty actor id, and
 	// without this the recorder silently dropped the audit row
-	// (same fix as the HTTP path, handlers_kanban.go).
+	// (same fix as the HTTP path, handlers_kanban.go). ActorID-first:
+	// a master agent replaying its own offline ops stays agent-authored.
+	actorType, actorID := actorOf(id)
+	opts := taskservice.MoveOptions{TargetColumnID: in.ColumnID, ActorID: actorID, ActorType: activity.ActorType(actorType)}
+	if in.Position != nil {
+		opts.Position = *in.Position
+	}
 	tr, err := deps.TaskService.Move(ctx, op.Target, opts)
 	if err != nil {
 		res.Error = err.Error()
@@ -308,10 +310,11 @@ func applySyncCreateComment(ctx context.Context, deps *Dependencies, id *Identit
 		res.Error = "service_not_wired"
 		return res
 	}
+	cActorType, cActorID := actorOf(id)
 	c := &comment.Comment{
 		TargetID:   op.Target,
-		AuthorType: comment.AuthorUser,
-		AuthorID:   id.UserID,
+		AuthorType: comment.AuthorType(cActorType),
+		AuthorID:   cActorID,
 		BodyMD:     in.BodyMD,
 	}
 	got, err := deps.Comments.Add(ctx, c)

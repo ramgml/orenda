@@ -231,9 +231,11 @@ func applyTaskTagsChange(ctx context.Context, deps *Dependencies, taskID string,
 	}
 
 	if deps.TaskService != nil {
-		actorID := ""
+		var actorType activity.ActorType
+		var actorID string
 		if id, ok := IdentityFrom(ctx); ok && id != nil {
-			actorID = id.UserID
+			act, aid := actorOf(id)
+			actorType, actorID = activity.ActorType(act), aid
 		}
 		// We capture the display names of both sides — the activity
 		// row stays human-readable without a second join. If a tag
@@ -242,7 +244,7 @@ func applyTaskTagsChange(ctx context.Context, deps *Dependencies, taskID string,
 		before := tagNamesByIDs(ctx, deps, currentIDs)
 		after := tagNamesByIDs(ctx, deps, clean)
 		deps.TaskService.RecordActivity(
-			ctx, taskID, actorID,
+			ctx, taskID, actorType, actorID,
 			activity.ActionTagsReplaced,
 			fmt.Sprintf(`{"before":%s,"after":%s}`, jsonStringArray(before), jsonStringArray(after)),
 		)

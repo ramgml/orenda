@@ -289,10 +289,10 @@ func startTimerHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "no_identity"})
 			return
 		}
-		actorID := id.UserID
-		if actorID == "" {
-			actorID = id.AgentID
-		}
+		// AgentID-first: a master agent's timer entries attribute to
+		// the agent (time_entries.user_id + the zap actor_id line),
+		// never to the owner it stands in for.
+		_, actorID := actorOf(id)
 		got, err := deps.TimeService.Start(r.Context(), chi.URLParam(r, "id"), actorID)
 		if err != nil {
 			if err == timeentry.ErrAlreadyOpen {
@@ -318,10 +318,8 @@ func stopTimerHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "no_identity"})
 			return
 		}
-		actorID := id.UserID
-		if actorID == "" {
-			actorID = id.AgentID
-		}
+		// AgentID-first: same contract as startTimerHandler.
+		_, actorID := actorOf(id)
 		got, err := deps.TimeService.Stop(r.Context(), actorID)
 		if err != nil {
 			if err == timeentry.ErrNotFound {
@@ -363,7 +361,10 @@ func addManualTimeHandler(deps *Dependencies) http.HandlerFunc {
 		actorID := in.AgentID
 		if actorID == "" {
 			if id, ok := IdentityFrom(r.Context()); ok {
-				actorID = id.UserID
+				// AgentID-first: a master agent logging manual time
+				// without an explicit agent_id attributes to itself,
+				// not to the owner it stands in for.
+				_, actorID = actorOf(id)
 			}
 		}
 		if actorID == "" {
