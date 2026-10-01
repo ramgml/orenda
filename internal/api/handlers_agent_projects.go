@@ -35,7 +35,9 @@
 //     access would defeat the scope model; grants travel only
 //     through PUT /api/v1/projects/{id}/agents (user namespace).
 //     The agent-facing LIST is also filtered to accessible
-//     projects, so a closed ungranted project is fully invisible.
+//     projects, so a closed ungranted project is fully invisible —
+//     except for a role=master agent, which is global by design and
+//     skips the filter (master-agent-role plan, step 5).
 package api
 
 import (
@@ -79,9 +81,10 @@ func agentGetProjectHandler(deps *Dependencies) http.HandlerFunc {
 // Task 140 (agent-project-scope): the list carries only projects
 // open to all agents (agents_allowed = 1) or explicitly granted to
 // the caller — a closed, ungranted project is invisible, so an
-// agent can never discover a project it must not touch. Unlike the
-// user route this lives under RequireAgent, so a cookie session
-// 401s.
+// agent can never discover a project it must not touch. A role=master
+// agent skips the filter entirely (it is global; master-agent-role
+// plan, step 5). Unlike the user route this lives under RequireAgent,
+// so a cookie session 401s.
 func agentListProjectsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
@@ -94,19 +97,25 @@ func agentListProjectsHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		// Task 140: keep open projects + explicitly granted ones.
-		accessSet, aerr := deps.Projects.AgentAccessibleProjectIDs(r.Context(), id.AgentID)
-		if aerr != nil {
-			writeError(w, aerr)
-			return
-		}
-		visible := make([]*project.Project, 0, len(projects))
-		for _, p := range projects {
-			if accessSet[p.ID] {
-				visible = append(visible, p)
+		// master-agent-role plan (step 5): a master agent is global —
+		// the Task 140 access filter is meaningless for it, so it sees
+		// every project (closed ones included). Project agents keep
+		// the filtered list.
+		if !id.IsMaster {
+			accessSet, aerr := deps.Projects.AgentAccessibleProjectIDs(r.Context(), id.AgentID)
+			if aerr != nil {
+				writeError(w, aerr)
+				return
 			}
+			visible := make([]*project.Project, 0, len(projects))
+			for _, p := range projects {
+				if accessSet[p.ID] {
+					visible = append(visible, p)
+				}
+			}
+			projects = visible
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"projects": visible})
+		writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
 	}
 }
 
@@ -143,7 +152,9 @@ type agentPatchProjectRequest struct {
 // PATCH carrying those keys is rejected with 422 owner_only_field
 // (granting itself access would defeat the whole scope model). The
 // raw body is inspected for those keys because the typed struct
-// would silently ignore them.
+// would silently ignore them. Master agents are NOT exempt: they
+// manage access through the user namespace
+// (PUT /api/v1/projects/{id}/agents), never through this surface.
 func agentPatchProjectHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
