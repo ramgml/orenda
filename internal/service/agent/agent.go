@@ -176,7 +176,11 @@ type Registered struct {
 // labels is a free-form set of normalised tags (Phase 28.19) — any
 // combination of operator-curated strings such as "qwen" or "installer".
 // An empty/nil slice is valid; the agent will simply have no labels.
-func (s *Service) Register(ctx context.Context, name string, labels []string, description string, scopes []string) (*Registered, error) {
+//
+// role fixes the agent's authority scope: agent.RoleProject (the default
+// for an empty role) or agent.RoleMaster (owner-equivalent on the user
+// namespace). The role is immutable after registration.
+func (s *Service) Register(ctx context.Context, name string, labels []string, description string, scopes []string, role agent.Role) (*Registered, error) {
 	if name = strings.TrimSpace(name); name == "" {
 		return nil, errors.New("agent service: name required")
 	}
@@ -216,6 +220,7 @@ func (s *Service) Register(ctx context.Context, name string, labels []string, de
 		Name:          name,
 		Type:          agent.NormalizeLabels(labels),
 		Description:   description,
+		Role:          role,
 		TokenID:       tokID,
 		Status:        agent.StatusOffline,
 		MaxConcurrent: 3,

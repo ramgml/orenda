@@ -97,10 +97,10 @@ func newAccessFixture(t *testing.T) *accessFixture {
 	agentSvc := agentservice.New(agentRepo, users, tm, hub, nil)
 
 	regA, err := agentSvc.Register(context.Background(),
-		"t140-agenta-"+randLite()[:6], []string{"qwen"}, "worker", nil)
+		"t140-agenta-"+randLite()[:6], []string{"qwen"}, "worker", nil, agent.RoleProject)
 	require.NoError(t, err)
 	regB, err := agentSvc.Register(context.Background(),
-		"t140-agentb-"+randLite()[:6], []string{"qwen"}, "rival", nil)
+		"t140-agentb-"+randLite()[:6], []string{"qwen"}, "rival", nil, agent.RoleProject)
 	require.NoError(t, err)
 
 	deps := api.Dependencies{

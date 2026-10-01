@@ -8,6 +8,7 @@ package agent
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +24,22 @@ const (
 	StatusOnline   Status = "online"
 	StatusOffline  Status = "offline"
 	StatusDisabled Status = "disabled"
+)
+
+// Role is the authority scope of an agent.
+//
+// RoleProject (the default) is the classic agent: it works inside the
+// agent namespace and the projects it is granted (Task 140). RoleMaster
+// is the owner-equivalent: its bearer token is accepted on the user
+// namespace (internal/api RequireUser) and every action it performs is
+// attributed to the agent, never to the owner user. The role is fixed at
+// registration — there is no agent PATCH, changing it means recreating
+// the agent.
+type Role string
+
+const (
+	RoleProject Role = "project"
+	RoleMaster  Role = "master"
 )
 
 // Sentinel errors returned by Repository.
@@ -45,6 +62,7 @@ type Agent struct {
 	Name          string     `json:"name"`
 	Type          []string   `json:"type"`
 	Description   string     `json:"description,omitempty"`
+	Role          Role       `json:"role"`
 	TokenID       string     `json:"token_id"`
 	LastSeenAt    *time.Time `json:"last_seen_at,omitempty"`
 	Status        Status     `json:"status"`
@@ -65,6 +83,13 @@ func (a *Agent) Validate() error {
 	}
 	if a.Status == "" {
 		a.Status = StatusOffline
+	}
+	switch a.Role {
+	case "":
+		a.Role = RoleProject
+	case RoleProject, RoleMaster:
+	default:
+		return fmt.Errorf("%w: unknown role %q", ErrInvalidInput, a.Role)
 	}
 	return nil
 }

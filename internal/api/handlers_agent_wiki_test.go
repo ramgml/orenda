@@ -30,6 +30,7 @@ import (
 	"github.com/ramgml/orenda/internal/api"
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
+	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/user"
 	"github.com/ramgml/orenda/internal/domain/wiki"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
@@ -70,7 +71,7 @@ func newAgentWikiFixture(t *testing.T) *agentWikiFixture {
 	tokens := sqlite.NewAPITokenRepository(db)
 	agents := sqlite.NewAgentRepository(db)
 	agentSvc := agentservice.New(agents, users, &agentFixtureTMinter{tokens: tokens}, hub, nil)
-	reg, err := agentSvc.Register(context.Background(), "wiki-agent", []string{"qwen"}, "test", nil)
+	reg, err := agentSvc.Register(context.Background(), "wiki-agent", []string{"qwen"}, "test", nil, agent.RoleProject)
 	require.NoError(t, err)
 
 	deps := api.Dependencies{

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	"github.com/ramgml/orenda/internal/domain/user"
@@ -282,7 +283,7 @@ func registerAgentForFixture(t *testing.T, fx *agentFixture, label string) *seco
 		&agentFixtureTMinter{tokens: sqlite.NewAPITokenRepository(fx.db)},
 		nil, nil,
 	)
-	got, err := svc.Register(context.Background(), label, []string{"test"}, "test", nil)
+	got, err := svc.Register(context.Background(), label, []string{"test"}, "test", nil, agent.RoleProject)
 	require.NoError(t, err)
 	return &secondAgent{ID: got.Agent.ID, PlainToken: got.PlainToken}
 }
