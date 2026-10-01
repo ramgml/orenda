@@ -30,11 +30,23 @@ const (
 	// PATCH writes the same row too — both surfaces are read by the
 	// same audit feed and the diff is symmetric.
 	ActivityWikiSlugChanged ActivityKind = "wiki_slug_changed"
+
+	// master-agent-role plan (step 4): the user-namespace mutations
+	// (POST /projects, PATCH /projects/{id}) write the same audit feed
+	// the agent namespace does, so a master agent creating or patching
+	// a project lands here with actor_type=agent (RecordProjectAuto
+	// resolves the actor from the request identity).
+	ActivityCreated         ActivityKind = "created"
+	ActivityNameChanged     ActivityKind = "name_changed"
+	ActivityColorChanged    ActivityKind = "color_changed"
+	ActivityArchivedChanged ActivityKind = "archived_changed"
 )
 
 // IsValid reports whether k belongs to the closed set above.
 func (k ActivityKind) IsValid() bool {
-	return k == ActivityDescriptionChanged || k == ActivityWikiSlugChanged
+	return k == ActivityDescriptionChanged || k == ActivityWikiSlugChanged ||
+		k == ActivityCreated || k == ActivityNameChanged ||
+		k == ActivityColorChanged || k == ActivityArchivedChanged
 }
 
 // ActorType enumerates who caused an activity row. Same shape as
