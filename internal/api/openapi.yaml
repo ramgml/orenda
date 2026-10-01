@@ -455,6 +455,16 @@ components:
           type: array
           items: { type: string }
         description: { type: string }
+        role:
+          type: string
+          enum: [project, master]
+          description: |
+            Authority scope, fixed at creation. `project` (default) is
+            the classic agent: agent-namespace work inside granted
+            projects. `master` is the owner-equivalent: its bearer
+            token is accepted on the user namespace
+            (`/api/v1/*`), and every action it performs is attributed
+            to the agent (`actor_type=agent`), never to the owner.
         token_id: { type: string }
         last_seen_at: { type: string, format: date-time }
         status:
@@ -473,6 +483,14 @@ components:
           items: { type: string }
           description: Free-form labels (e.g. ["qwen","installer"]). Empty array is valid.
         description: { type: string }
+        role:
+          type: string
+          enum: [project, master]
+          default: project
+          description: |
+            Authority scope, immutable after creation. `master` makes
+            the agent owner-equivalent on the user namespace.
+            Unknown values get 400 `{"error":"invalid_role"}`.
         scopes:
           type: array
           items: { type: string }
