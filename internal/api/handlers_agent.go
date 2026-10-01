@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -377,9 +378,13 @@ func checkTimeLogged(ctx context.Context, deps *Dependencies, taskID, agentID st
 // must be >= 0; 0 is valid and is the documented bypass for trivial
 // tasks that must still pass the submit gate.
 func agentAddManualTimeHandler(deps *Dependencies) http.HandlerFunc {
-	type req struct {
-		Minutes float64 `json:"minutes"`
-	}
+	// T400: the contract is exactly {"minutes": N} (Task 87 bypass;
+	// the CLI sends nothing else). Unknown keys are a caller bug —
+	// reject loudly instead of silently decoding an empty struct into
+	// a 0-second entry that formally passes the submit gate. The
+	// user-side surface (POST /api/v1/tasks/{id}/time) deliberately
+	// stays the RFC3339-range one; the two are not interchangeable.
+	allowed := map[string]bool{"minutes": true}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if deps.TimeService == nil {
 			http.Error(w, "time service not wired", http.StatusServiceUnavailable)
@@ -390,10 +395,35 @@ func agentAddManualTimeHandler(deps *Dependencies) http.HandlerFunc {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		var in req
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		var raw map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
+		}
+		// Deterministic complaint: report unknown keys alphabetically.
+		keys := make([]string, 0, len(raw))
+		for k := range raw {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if !allowed[k] {
+				writeJSON(w, http.StatusBadRequest, map[string]any{
+					"error":   "unknown_field",
+					"field":   k,
+					"allowed": []string{"minutes"},
+				})
+				return
+			}
+		}
+		var in struct {
+			Minutes float64
+		}
+		if m, ok := raw["minutes"]; ok {
+			if err := json.Unmarshal(m, &in.Minutes); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_minutes"})
+				return
+			}
 		}
 		if in.Minutes < 0 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "minutes_must_be_non_negative"})
