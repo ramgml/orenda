@@ -17,6 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [0.27.0] — 2026-10-02
+
+### Added
+- **Task 399 (PR #289):** master agent role — глобальное управление Orenda агентом с атрибуцией «сделал агент, а не я». Домен: колонка `role` в `agents` (sqlite-миграция 052 / postgres 004), домен `agent.Role` (`project` по умолчанию, `master`, `invalid_role` на прочее), роль нормализуется и валидируется в `Register`, неизменяема после создания. Гейт: `Identity.IsMaster`, master bearer-токен проходит `RequireUser` (dual identity: агент + владелец), project-токены по-прежнему 401. Видимость: master-агент обходит Task-140 фильтры агентов (`GET /api/v1/agent/projects` видит закрытые проекты; grant-поверхность `PATCH /api/v1/agent/projects/{id}` остаётся owner-only и для мастера). MCP: `orenda_project_create/update/delete/agents` в user-namespace — master-only, 401 без маскировки для project-токенов; `orenda_project_create` выдаёт одноразовый `agent_token` (role project, T330). Атрибуция: все user-namespace write-пути (проекты, задачи, комментарии, wiki) штампуют актора из identity — агент-первый (`project_activity`, `task_activity`, `created_by_type`, `author_type` = `agent|<имя>` вместо `user|<owner>`); `project_activity` строки для create/name/color/description/wiki_slug/archived через общий `recordProjectActivity`. UI: чекбокс «Master (global)» в форме создания агента, chip «master» в таблице агентов, роль в API-типах. OpenAPI: `role` на `Agent`/`CreateAgentRequest`, embedded-копия синхронизирована.
+
+### Fixed
+- **Task 400 (PR #290):** agent time-эндпоинт (`POST /api/v1/agent/tasks/{id}/time`) больше не молча игнорирует неизвестные поля — `{"start_at":…,"end_at":…}` теперь `400 unknown_field` с `field` и `allowed:["minutes"]` (детерминированно по алфавиту), вместо 201 с молчаливой 0-секундной записью. Контракт `{"minutes":N}` не изменён: `{}` по-прежнему 201/0-сек, `-5` по-прежнему `minutes_must_be_non_negative`; 400-ответ задокументирован в `docs/openapi.yaml` + embedded-копии.
+
+### Docs
+- **Task 397 (PR #287):** конвенция milestone-гейтинга в `docs/context/DOGFOOD.md` — milestone/эпик-карточка, разбитая на подзадачи, ставится в `todo` только вместе с `blocked_by`-edges на каждую открытую подзадачу (родитель без edges — smell); механика: `ready=false` и claim 422 по незакрытым блокерам, авто-возврат родителя при закрытии последнего (`restoreIfLastBlocker`, `internal/service/task/blocks.go`). Применение конвенции к живым доскам — owner-side.
+
+- **Release engineering:** v0.27.0 — `release-v0.27.0` off dev @ 11815e3: VERSION 0.26.0 → 0.27.0, данная секция CHANGELOG (формат заголовка `## [0.27.0]` сверен с CI changelog-extraction); PR в `main` (merge + tag `v0.27.0` + обязательный back-merge `main`→`dev` — акты владельца per GITFLOW/RELEASE.md).
+
 ## [0.26.0] — 2026-09-30
 
 ### Added
