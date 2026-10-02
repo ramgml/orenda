@@ -96,7 +96,7 @@ func setupAgentSvcWithDB(t *testing.T) (*agentsvc.Service, *sql.DB) {
 func TestService_Register(t *testing.T) {
 	svc, hub := setupAgentSvc(t)
 
-	got, err := svc.Register(context.Background(), "qwen-alpha", []string{"qwen"}, "test", []string{"tasks:read"})
+	got, err := svc.Register(context.Background(), "qwen-alpha", []string{"qwen"}, "test", []string{"tasks:read"}, agent.RoleProject)
 	require.NoError(t, err)
 	assert.NotEmpty(t, got.Agent.ID)
 	assert.NotEmpty(t, got.PlainToken)
@@ -106,25 +106,53 @@ func TestService_Register(t *testing.T) {
 	assert.Equal(t, "agents", hub.events[0].topic)
 }
 
+// master-agent-role plan: Register fixes the agent's role at creation —
+// empty normalises to project, master round-trips, anything else is
+// rejected by Validate before the row is written.
+func TestService_Register_Role(t *testing.T) {
+	svc, _ := setupAgentSvc(t)
+	ctx := context.Background()
+
+	def, err := svc.Register(ctx, "role-default", []string{"qwen"}, "", nil, "")
+	require.NoError(t, err)
+	assert.Equal(t, agent.RoleProject, def.Agent.Role, "empty role normalises to project")
+
+	master, err := svc.Register(ctx, "role-master", []string{"qwen"}, "", nil, agent.RoleMaster)
+	require.NoError(t, err)
+	assert.Equal(t, agent.RoleMaster, master.Agent.Role)
+
+	// The persisted row (not just the in-memory struct) carries the role.
+	got, err := svc.Agents.GetByID(ctx, master.Agent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, agent.RoleMaster, got.Role)
+}
+
+func TestService_Register_InvalidRole(t *testing.T) {
+	svc, _ := setupAgentSvc(t)
+	_, err := svc.Register(context.Background(), "role-bogus", []string{"qwen"}, "", nil, agent.Role("root"))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, agent.ErrInvalidInput)
+}
+
 func TestService_Register_DuplicateName(t *testing.T) {
 	svc, _ := setupAgentSvc(t)
 
-	_, err := svc.Register(context.Background(), "dup", []string{"qwen"}, "", nil)
+	_, err := svc.Register(context.Background(), "dup", []string{"qwen"}, "", nil, agent.RoleProject)
 	require.NoError(t, err)
-	_, err = svc.Register(context.Background(), "dup", []string{"claude"}, "", nil)
+	_, err = svc.Register(context.Background(), "dup", []string{"claude"}, "", nil, agent.RoleProject)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, agentsvc.ErrNameTaken)
 }
 
 func TestService_Register_EmptyName(t *testing.T) {
 	svc, _ := setupAgentSvc(t)
-	_, err := svc.Register(context.Background(), "   ", []string{"custom"}, "", nil)
+	_, err := svc.Register(context.Background(), "   ", []string{"custom"}, "", nil, agent.RoleProject)
 	require.Error(t, err)
 }
 
 func TestService_Heartbeat(t *testing.T) {
 	svc, _ := setupAgentSvc(t)
-	got, err := svc.Register(context.Background(), "hb", []string{"qwen"}, "", nil)
+	got, err := svc.Register(context.Background(), "hb", []string{"qwen"}, "", nil, agent.RoleProject)
 	require.NoError(t, err)
 
 	hb, err := svc.Heartbeat(context.Background(), got.Agent.ID)
@@ -138,7 +166,7 @@ func TestService_Heartbeat(t *testing.T) {
 
 func TestService_SweepOffline(t *testing.T) {
 	svc, _ := setupAgentSvc(t)
-	got, err := svc.Register(context.Background(), "sweep", []string{"qwen"}, "", nil)
+	got, err := svc.Register(context.Background(), "sweep", []string{"qwen"}, "", nil, agent.RoleProject)
 	require.NoError(t, err)
 
 	_, err = svc.Heartbeat(context.Background(), got.Agent.ID)
@@ -162,7 +190,7 @@ func tokenRowByTokenID(t *testing.T, db *sql.DB, tokenID string) sqlite.StoredTo
 func TestService_RotateToken(t *testing.T) {
 	svc, _ := setupAgentSvc(t)
 	ctx := context.Background()
-	reg, err := svc.Register(ctx, "rot", []string{"qwen"}, "", []string{"tasks:read"})
+	reg, err := svc.Register(ctx, "rot", []string{"qwen"}, "", []string{"tasks:read"}, agent.RoleProject)
 	require.NoError(t, err)
 
 	db := svc.Tokens.(*sqliteTokenMinter).db
@@ -201,7 +229,7 @@ func TestService_RotateToken(t *testing.T) {
 
 func TestService_RotateToken_PublishesEvent(t *testing.T) {
 	svc, hub := setupAgentSvc(t)
-	reg, err := svc.Register(context.Background(), "rot-ev", []string{"qwen"}, "", nil)
+	reg, err := svc.Register(context.Background(), "rot-ev", []string{"qwen"}, "", nil, agent.RoleProject)
 	require.NoError(t, err)
 
 	_, err = svc.RotateToken(context.Background(), reg.Agent.ID)
@@ -227,7 +255,7 @@ func TestService_RotateToken_RefreshesExpiresAt(t *testing.T) {
 	svc, db := setupAgentSvcWithDB(t)
 	svc.TokenTTL = time.Hour
 
-	reg, err := svc.Register(ctx, "rot-exp", []string{"qwen"}, "", nil)
+	reg, err := svc.Register(ctx, "rot-exp", []string{"qwen"}, "", nil, agent.RoleProject)
 	require.NoError(t, err)
 
 	// Simulate a token minted long ago: expires_at two hours in the past.
@@ -263,7 +291,7 @@ func TestService_RotateToken_ClearsExpiresAtWhenTTLZero(t *testing.T) {
 	svc, db := setupAgentSvcWithDB(t)
 	require.Zero(t, svc.TokenTTL, "New default must be the no-expiry policy")
 
-	reg, err := svc.Register(ctx, "rot-clear", []string{"qwen"}, "", nil)
+	reg, err := svc.Register(ctx, "rot-clear", []string{"qwen"}, "", nil, agent.RoleProject)
 	require.NoError(t, err)
 
 	// Pre-set a FUTURE deadline so clearing is observable (bound from
@@ -305,7 +333,7 @@ func TestService_Register_ExpiresAtPolicy(t *testing.T) {
 		svc, db := setupAgentSvcWithDB(t)
 
 		svc.TokenTTL = tt.ttl
-		reg, err := svc.Register(ctx, "reg-exp", []string{"qwen"}, "", nil)
+		reg, err := svc.Register(ctx, "reg-exp", []string{"qwen"}, "", nil, agent.RoleProject)
 		require.NoError(t, err)
 
 		row := tokenRowByTokenID(t, db, reg.Agent.TokenID)
@@ -331,7 +359,7 @@ func TestService_RotateToken_UpdateHashErrorLeavesOldHash(t *testing.T) {
 	svc := agentsvc.New(agentsRepo, users, &failingMinter{db: db}, nil, nil)
 	svc.HashCostOverride = 4
 
-	reg, err := svc.Register(ctx, "rot-fail", []string{"qwen"}, "", nil)
+	reg, err := svc.Register(ctx, "rot-fail", []string{"qwen"}, "", nil, agent.RoleProject)
 	require.NoError(t, err)
 
 	before := tokenRowByTokenID(t, db, reg.Agent.TokenID)
@@ -371,7 +399,7 @@ func TestService_Register_SyntheticOwnerIsSystemRole(t *testing.T) {
 	svc, db := setupAgentSvcWithDB(t)
 	ctx := context.Background()
 
-	_, err := svc.Register(ctx, "role-probe", []string{"qwen"}, "", nil)
+	_, err := svc.Register(ctx, "role-probe", []string{"qwen"}, "", nil, agent.RoleProject)
 	require.NoError(t, err, "Register must create the synthetic owner on a fresh DB")
 
 	var role string
@@ -389,9 +417,9 @@ func TestService_EnsureOwner_RoleStableOnLookup(t *testing.T) {
 	svc, db := setupAgentSvcWithDB(t)
 	ctx := context.Background()
 
-	_, err := svc.Register(ctx, "first", []string{"qwen"}, "", nil)
+	_, err := svc.Register(ctx, "first", []string{"qwen"}, "", nil, agent.RoleProject)
 	require.NoError(t, err)
-	_, err = svc.Register(ctx, "second", []string{"qwen"}, "", nil)
+	_, err = svc.Register(ctx, "second", []string{"qwen"}, "", nil, agent.RoleProject)
 	require.NoError(t, err, "second Register must reuse, not recreate, the synthetic owner")
 
 	var n int

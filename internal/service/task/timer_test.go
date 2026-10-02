@@ -179,7 +179,7 @@ func TestAutoTimer_RejectReopens_ApproveCloses(t *testing.T) {
 	_, err = svc.Submit(context.Background(), tr.ID, agentID, "")
 	require.NoError(t, err)
 
-	_, err = svc.Review(context.Background(), tr.ID, "owner-x", taskservice.ReviewReject, "needs work")
+	_, err = svc.Review(context.Background(), tr.ID, "", "owner-x", taskservice.ReviewReject, "needs work")
 	require.NoError(t, err)
 
 	entries = listEntries(t, db, tr.ID)
@@ -194,7 +194,7 @@ func TestAutoTimer_RejectReopens_ApproveCloses(t *testing.T) {
 	assert.Equal(t, 1, open, "exactly one open entry after reject-reopen")
 	assert.Positive(t, timeSpent(t, db, tr.ID), "first interval already accrued")
 
-	_, err = svc.Review(context.Background(), tr.ID, "owner-x", taskservice.ReviewApprove, "ok")
+	_, err = svc.Review(context.Background(), tr.ID, "", "owner-x", taskservice.ReviewApprove, "ok")
 	require.NoError(t, err)
 
 	entries = listEntries(t, db, tr.ID)

@@ -56,6 +56,133 @@ func RegisterOrendaTools(s *Server, cfg ServerConfig) {
 	registerWikiTools(s, httpc, cfg)
 	registerSearchTool(s, httpc, cfg)
 	registerStudyTools(s, httpc, cfg)
+	registerProjectAdminTools(s, httpc, cfg)
+}
+
+// registerProjectAdminTools registers the master-agent project
+// management tools (master-agent-role plan, step 7). They proxy the
+// USER namespace (/api/v1/projects/*) with the same bearer token as
+// the other tools — which only works for role=master agents; a
+// project agent's token gets a 401 that readBody surfaces verbatim.
+// Everything else a master may need (users, backups, settings,
+// maintenance) stays plain REST — mirroring the whole user surface
+// in MCP is out of scope.
+func registerProjectAdminTools(s *Server, httpc *http.Client, cfg ServerConfig) {
+	s.Register(Tool{
+		Name:        "orenda_project_create",
+		Description: "Create a project (master agents only). Returns the project row plus the one-time `agent_token` of its auto-provisioned dedicated agent — show it to the owner once, like the UI does.",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"name"},
+			"properties": map[string]any{
+				"name":        map[string]any{"type": "string"},
+				"color":       map[string]any{"type": "string", "description": "Hex color; omit for the default"},
+				"description": map[string]any{"type": "string"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			name := stringParam(params, "name")
+			if name == "" {
+				return nil, fmt.Errorf("name is required")
+			}
+			body := map[string]any{"name": name}
+			if c := stringParam(params, "color"); c != "" {
+				body["color"] = c
+			}
+			if d := stringParam(params, "description"); d != "" {
+				body["description"] = d
+			}
+			return agentPost(ctx, httpc, cfg, "/api/v1/projects", body)
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_project_update",
+		Description: "Update project fields (master agents only): name, color, description, wiki_slug, archived. Omitted fields stay untouched.",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"project"},
+			"properties": map[string]any{
+				"project":     map[string]any{"type": "string", "description": "Project ref: number ('7'), 'P7', or UUID"},
+				"name":        map[string]any{"type": "string"},
+				"color":       map[string]any{"type": "string"},
+				"description": map[string]any{"type": "string"},
+				"wiki_slug":   map[string]any{"type": "string", "description": "'' unlinks the wiki page"},
+				"archived":    map[string]any{"type": "boolean"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			projectRef := stringParam(params, "project")
+			if projectRef == "" {
+				return nil, fmt.Errorf("project is required")
+			}
+			body := map[string]any{}
+			for _, k := range []string{"name", "color", "description", "wiki_slug"} {
+				if v, ok := params[k].(string); ok {
+					body[k] = v
+				}
+			}
+			if v, ok := params["archived"].(bool); ok {
+				body["archived"] = v
+			}
+			if len(body) == 0 {
+				return nil, fmt.Errorf("at least one field to update is required")
+			}
+			return agentPatch(ctx, httpc, cfg,
+				"/api/v1/projects/"+url.PathEscape(projectRef), body)
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_project_delete",
+		Description: "Delete a project permanently (master agents only). Its boards, tasks and audit rows go with it (FK cascade).",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"project"},
+			"properties": map[string]any{
+				"project": map[string]any{"type": "string", "description": "Project ref: number ('7'), 'P7', or UUID"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			projectRef := stringParam(params, "project")
+			if projectRef == "" {
+				return nil, fmt.Errorf("project is required")
+			}
+			return agentDelete(ctx, httpc, cfg,
+				"/api/v1/projects/"+url.PathEscape(projectRef))
+		},
+	})
+
+	s.Register(Tool{
+		Name:        "orenda_project_agents",
+		Description: "Read or replace the project's agent grant list (master agents only). Without agent_ids: read the current grants. With agent_ids: replace them (replace semantics, [] closes the project).",
+		InputSchema: map[string]any{
+			"type":     "object",
+			"required": []string{"project"},
+			"properties": map[string]any{
+				"project":   map[string]any{"type": "string", "description": "Project ref: number ('7'), 'P7', or UUID"},
+				"agent_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Omit to read; provide to replace the grant list"},
+			},
+		},
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
+			projectRef := stringParam(params, "project")
+			if projectRef == "" {
+				return nil, fmt.Errorf("project is required")
+			}
+			path := "/api/v1/projects/" + url.PathEscape(projectRef) + "/agents"
+			raw, ok := params["agent_ids"].([]any)
+			if !ok {
+				return agentGet(ctx, httpc, cfg, path)
+			}
+			ids := make([]string, 0, len(raw))
+			for _, v := range raw {
+				if id, _ := v.(string); id != "" {
+					ids = append(ids, id)
+				}
+			}
+			return agentPut(ctx, httpc, cfg, path, map[string]any{"agent_ids": ids})
+		},
+	})
 }
 
 // registerCoreTaskTools registers the identity, task-listing and

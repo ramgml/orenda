@@ -20,6 +20,7 @@ import (
 type fakeUserRepo struct {
 	users  map[string]*user.User
 	emails map[string]string // email -> id
+	order  []string          // insertion order for deterministic FirstNonSystem
 }
 
 func newFakeUserRepo() *fakeUserRepo {
@@ -35,6 +36,7 @@ func (r *fakeUserRepo) Create(_ context.Context, u *user.User) error {
 	}
 	r.users[u.ID] = u
 	r.emails[u.Email] = u.ID
+	r.order = append(r.order, u.ID)
 	return nil
 }
 
@@ -67,9 +69,15 @@ func (r *fakeUserRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-// List returns every user in the fake. Added when the user.Repository
-// gained a List method (Phase-utility: `orenda user list`).
+// FirstNonSystem returns the first inserted user whose role isn't
+// "system" — mirrors the storage repo's contract the master fallback
+// (RequireUser → masterIdentity) depends on.
 func (r *fakeUserRepo) FirstNonSystem(_ context.Context) (*user.User, error) {
+	for _, id := range r.order {
+		if u := r.users[id]; u != nil && u.Role != "system" {
+			return u, nil
+		}
+	}
 	return nil, user.ErrNotFound
 }
 

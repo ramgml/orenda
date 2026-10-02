@@ -55,10 +55,10 @@ func headVersion(t *testing.T, dbPath string) string {
 // `-- orenda:irreversible` marker, so the down step 016 → 015 is the
 // last one the CLI can perform on the real migration set. T369 adds
 // 050_orphan_board_cleanup on top, also irreversible; T376 adds
-// 051_rejected_column as the new head — its down WORKS, so the walk
-// starts 051 → 050 and stops there, and the repeated-down walk is
-// exercised from the newest walkable head (049) via the unbook050
-// fixture below.
+// 051_rejected_column, master-agent-role adds 052_agent_role — both
+// with a WORKING down, so the walk starts 052 → 051 → 050 and stops
+// there, and the repeated-down walk is exercised from the newest
+// walkable head (049) via the unbook050 fixture below.
 func TestMigrateDownRepeatedMovesHead(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "orenda.db")
@@ -74,14 +74,18 @@ func TestMigrateDownRepeatedMovesHead(t *testing.T) {
 
 	head := headVersion(t, dbPath)
 	// The head of the set moves with the newest applied migration
-	// (T369: 050; T376: 051 on top).
-	require.Equal(t, "051_rejected_column", head, "fresh up should end at the latest applied migration")
+	// (T369: 050; T376: 051; master-agent-role: 052 on top).
+	require.Equal(t, "052_agent_role", head, "fresh up should end at the latest applied migration")
 
-	// The 051 down is a plain DELETE: the first down succeeds and the
-	// head moves to 050.
+	// The 052 down is a plain DROP COLUMN: the first down succeeds and
+	// the head moves to 051; the 051 down (plain DELETE) then moves the
+	// head to 050.
+	require.NoError(t, runMigrateCLI(t, cfgPath, "down"))
+	require.Equal(t, "051_rejected_column", headVersion(t, dbPath),
+		"first down must move the head 052 -> 051")
 	require.NoError(t, runMigrateCLI(t, cfgPath, "down"))
 	require.Equal(t, "050_orphan_board_cleanup", headVersion(t, dbPath),
-		"first down must move the head 051 -> 050")
+		"second down must move the head 051 -> 050")
 
 	// The head migration's down is guarded (irreversible marker): the
 	// CLI refuses without moving the head.
@@ -113,8 +117,9 @@ func TestMigrateDownRepeatedMovesHead(t *testing.T) {
 // TestMigrateDownStopsAtIrreversible pins the guard: a `down` that
 // lands on an irreversible migration is refused and the head stays put.
 // T369 (050_orphan_board_cleanup) carries the marker; T376's
-// 051_rejected_column sits on top with a working down, so the walk
-// first steps 051 → 050 and is refused there; below it, the walk still
+// 051_rejected_column and master-agent-role's 052_agent_role sit on
+// top with a working down, so the walk first steps 052 → 051 → 050 and
+// is refused there; below it, the walk still
 // ends on 015_inbox_no_project's marker.
 func TestMigrateDownStopsAtIrreversible(t *testing.T) {
 	dir := t.TempDir()
@@ -126,9 +131,12 @@ func TestMigrateDownStopsAtIrreversible(t *testing.T) {
 	cfg.Storage.DBPath = dbPath
 	writeConfig(t, cfgPath, cfg)
 
-	// Fresh up: head 051 (plain down) steps back to 050; the next down
-	// lands on 050's marker and must be refused without moving the head.
+	// Fresh up: head 052 (plain down) steps back to 051, whose plain
+	// down steps to 050; the next down lands on 050's marker and must
+	// be refused without moving the head.
 	require.NoError(t, runMigrateCLI(t, cfgPath, "up"))
+	require.Equal(t, "052_agent_role", headVersion(t, dbPath))
+	require.NoError(t, runMigrateCLI(t, cfgPath, "down"))
 	require.Equal(t, "051_rejected_column", headVersion(t, dbPath))
 	require.NoError(t, runMigrateCLI(t, cfgPath, "down"))
 	require.Equal(t, "050_orphan_board_cleanup", headVersion(t, dbPath))

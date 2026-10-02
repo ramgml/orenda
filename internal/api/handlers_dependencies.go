@@ -182,16 +182,23 @@ func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 
 		// Task 140: access set once per request — the visibility
 		// filter and the project-scoped lookup share it.
-		accessSet, err := deps.Projects.AgentAccessibleProjectIDs(r.Context(), id.AgentID)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		if scopedProject != nil && !accessSet[scopedProject.ID] {
-			// An inaccessible project looks empty — do not leak its
-			// existence or task count.
-			writeJSON(w, http.StatusOK, map[string]any{"tasks": []any{}, "count": 0})
-			return
+		// master-agent-role plan (step 5): a master agent is global,
+		// so the Task 140 access filter does not apply — every
+		// project (and every task in it) is visible to it.
+		accessSet := map[string]bool{}
+		if !id.IsMaster {
+			as, aerr := deps.Projects.AgentAccessibleProjectIDs(r.Context(), id.AgentID)
+			if aerr != nil {
+				writeError(w, aerr)
+				return
+			}
+			accessSet = as
+			if scopedProject != nil && !accessSet[scopedProject.ID] {
+				// An inaccessible project looks empty — do not leak its
+				// existence or task count.
+				writeJSON(w, http.StatusOK, map[string]any{"tasks": []any{}, "count": 0})
+				return
+			}
 		}
 
 		tasks, err := listAgentTaskCandidates(r.Context(), deps, scopedProject)

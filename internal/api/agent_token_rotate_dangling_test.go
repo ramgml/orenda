@@ -26,6 +26,7 @@ import (
 	"github.com/ramgml/orenda/internal/api"
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
+	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/user"
 	agentservice "github.com/ramgml/orenda/internal/service/agent"
 	"github.com/ramgml/orenda/internal/storage/sqlite"
@@ -67,7 +68,7 @@ func newTokenRotateFixture(t *testing.T) *tokenRotateFixture {
 	tokens := sqlite.NewAPITokenRepository(db)
 	agents := sqlite.NewAgentRepository(db)
 	agentSvc := agentservice.New(agents, users, &agentFixtureTMinter{tokens: tokens}, hub, nil)
-	reg, err := agentSvc.Register(ctx, "rotate-agent-"+randLite()[:8], []string{"test"}, "test", []string{"global"})
+	reg, err := agentSvc.Register(ctx, "rotate-agent-"+randLite()[:8], []string{"test"}, "test", []string{"global"}, agent.RoleProject)
 	require.NoError(t, err)
 
 	deps := api.Dependencies{

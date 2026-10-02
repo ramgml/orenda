@@ -136,7 +136,9 @@ func commentAdderFor(svc *commentservice.Service) taskservice.CommentAdder {
 type reviewDeciderAdapter struct{ svc *taskservice.Service }
 
 func (a reviewDeciderAdapter) Review(ctx context.Context, taskID, userID, decision, comment string) error {
-	_, err := a.svc.Review(ctx, taskID, userID, taskservice.ReviewDecision(decision), comment)
+	// The bot decides as the owner (bot callbacks run owner-side);
+	// empty actor type keeps Review's user default.
+	_, err := a.svc.Review(ctx, taskID, "", userID, taskservice.ReviewDecision(decision), comment)
 	return err
 }
 

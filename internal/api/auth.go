@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ramgml/orenda/internal/auth"
+	"github.com/ramgml/orenda/internal/domain/activity"
 	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/user"
 )
@@ -22,14 +23,46 @@ const (
 
 // Identity is what auth middleware attaches to the request context.
 //
-// Exactly one of UserID or AgentID is set — UserID for cookie/JWT sessions,
-// AgentID for Bearer API tokens. Scopes are parsed from the JWT or the
-// api_tokens row and exposed to RequireScope().
+// Normally exactly one of UserID or AgentID is set — UserID for
+// cookie/JWT sessions, AgentID for Bearer API tokens. A master agent
+// (role=master) is the one exception: its bearer token carries BOTH —
+// AgentID (who acts; audit writes use it) and UserID (the owner it
+// stands in for; data visibility mirrors an owner session). Scopes are
+// parsed from the JWT or the api_tokens row and exposed to
+// RequireScope().
 type Identity struct {
-	UserID  string
-	AgentID string
-	Email   string
-	Scopes  []string
+	UserID   string
+	AgentID  string
+	Email    string
+	Scopes   []string
+	IsMaster bool
+}
+
+// actorOf resolves the acting party for audit writes (activity rows,
+// comments, creator stamps): a bearer-agent request is attributed to
+// the agent, never to the owner user. The returned strings map onto the
+// activity/comment/task enums ("user" | "agent") — convert at the call
+// site with activity.ActorType / comment.AuthorType / task.CreatorType.
+// An empty Identity (legacy service callers) yields empty strings; the
+// service layer defaults those to the user actor.
+func actorOf(id *Identity) (actorType, actorID string) {
+	if id == nil {
+		return "", ""
+	}
+	if id.AgentID != "" {
+		return "agent", id.AgentID
+	}
+	return "user", id.UserID
+}
+
+// apiActor is the request-level form of actorOf for user-namespace
+// handlers: the typed actor for activity/comment/creator stamps plus
+// the id. No identity (unauthenticated code path) yields empty strings
+// — the service layer then applies its historical user default.
+func apiActor(r *http.Request) (actorType activity.ActorType, actorID string) {
+	id, _ := IdentityFrom(r.Context())
+	t, actorID := actorOf(id)
+	return activity.ActorType(t), actorID
 }
 
 // HasScope reports whether the identity carries the requested scope.
@@ -94,7 +127,13 @@ func parseScopesJSON(s string) []string {
 // RequireUser middleware accepts either:
 //
 //   - Cookie "orenda_session" containing a valid JWT, OR
-//   - Authorization: Bearer <jwt>
+//   - Authorization: Bearer <jwt>, OR
+//   - Authorization: Bearer <api-token> whose agent row has
+//     role=master — the owner-equivalent master agent. The identity
+//     carries AgentID (audit attribution goes to the agent) plus the
+//     owner's UserID/Email/Scopes (visibility mirrors an owner
+//     session). Non-master agent tokens still 401 here: agent tokens
+//     are rejected on user routes — except master.
 //
 // On success, the user is loaded from the repository and attached to the
 // request context. On failure, 401 is returned with no body.
@@ -115,6 +154,18 @@ func RequireUser(cfg AuthConfig) func(http.Handler) http.Handler {
 			}
 			claims, err := cfg.Signer.Verify(raw)
 			if err != nil {
+				// Not a valid JWT. API tokens are opaque base64url
+				// without dots, while every JWT carries at least two —
+				// so a dotless token that failed Verify gets the
+				// master-agent fallback below. The fallback itself
+				// re-verifies against api_tokens, so a malformed
+				// bearer still lands on 401.
+				if !strings.Contains(raw, ".") {
+					if id, master := masterIdentity(r, cfg, raw); master {
+						next.ServeHTTP(w, r.WithContext(withIdentity(r.Context(), id)))
+						return
+					}
+				}
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
@@ -133,6 +184,39 @@ func RequireUser(cfg AuthConfig) func(http.Handler) http.Handler {
 	}
 }
 
+// masterIdentity resolves a dotless bearer token through api_tokens and
+// returns an owner-equivalent identity iff the token belongs to an
+// agent with role=master. Any other outcome — unknown/expired token,
+// project-scoped agent, missing Agents/Tokens wiring, no owner user to
+// act for (FirstNonSystem empty) — reports not-master and the caller
+// answers 401.
+func masterIdentity(r *http.Request, cfg AuthConfig, raw string) (*Identity, bool) {
+	if cfg.Tokens == nil || cfg.Agents == nil {
+		return nil, false
+	}
+	tok, err := verifyAPIToken(r.Context(), cfg.Tokens, auth.NormalizeAPIToken(raw))
+	if err != nil {
+		return nil, false
+	}
+	a, err := cfg.Agents.GetByTokenID(r.Context(), tok.ID)
+	if err != nil || a == nil || a.Role != agent.RoleMaster {
+		return nil, false
+	}
+	// The master acts for the owner: without a human user row there is
+	// nobody to stand in for, so the request stays unauthorized.
+	u, err := cfg.Users.FirstNonSystem(r.Context())
+	if err != nil {
+		return nil, false
+	}
+	return &Identity{
+		UserID:   u.ID,
+		Email:    u.Email,
+		Scopes:   scopesForRole(u.Role),
+		AgentID:  a.ID,
+		IsMaster: true,
+	}, true
+}
+
 // extractUserToken pulls the JWT from cookie or Authorization header.
 func extractUserToken(r *http.Request, cookieName string) (string, bool) {
 	if c, err := r.Cookie(cookieName); err == nil && c.Value != "" {
@@ -149,8 +233,10 @@ func extractUserToken(r *http.Request, cookieName string) (string, bool) {
 // resolves it through the api_tokens repository.
 //
 // On success the identity's AgentID is set to the agent row that owns
-// the token (looked up via token_id). Scopes come from the token's stored
-// scopes_json. On failure 401 is returned.
+// the token (looked up via token_id). Scopes come from the token's
+// stored scopes_json. IsMaster mirrors the agent row's role: a master
+// agent keeps its master powers on agent-namespace routes too (it is
+// global — access filters skip it). On failure 401 is returned.
 func RequireAgent(cfg AuthConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -188,6 +274,7 @@ func RequireAgent(cfg AuthConfig) func(http.Handler) http.Handler {
 			if cfg.Agents != nil {
 				if a, err := cfg.Agents.GetByTokenID(r.Context(), tok.ID); err == nil && a != nil {
 					id.AgentID = a.ID
+					id.IsMaster = a.Role == agent.RoleMaster
 				} else {
 					_ = err
 					http.Error(w, "unauthorized", http.StatusUnauthorized)

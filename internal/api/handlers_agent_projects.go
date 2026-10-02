@@ -22,7 +22,10 @@
 //     actor_type=agent and a before/after diff payload.
 //   - Namespace split is symmetric: cookie sessions 401 on agent
 //     routes (RequireAgent only accepts bearer API tokens), agent
-//     tokens 401 on user routes (RequireUser only accepts JWTs).
+//     tokens 401 on user routes (RequireUser only accepts JWTs) —
+//     except a role=master agent, whose bearer token is the
+//     owner-equivalent on user routes (identity carries both AgentID
+//     for attribution and the owner's UserID for visibility).
 //   - name / color / archived stay user-only — see the wiki
 //     постановка for the rationale.
 //   - Task 140 (agent-project-scope): the project access surface —
@@ -32,7 +35,9 @@
 //     access would defeat the scope model; grants travel only
 //     through PUT /api/v1/projects/{id}/agents (user namespace).
 //     The agent-facing LIST is also filtered to accessible
-//     projects, so a closed ungranted project is fully invisible.
+//     projects, so a closed ungranted project is fully invisible —
+//     except for a role=master agent, which is global by design and
+//     skips the filter (master-agent-role plan, step 5).
 package api
 
 import (
@@ -41,7 +46,6 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"go.uber.org/zap"
 
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/domain/project"
@@ -77,9 +81,10 @@ func agentGetProjectHandler(deps *Dependencies) http.HandlerFunc {
 // Task 140 (agent-project-scope): the list carries only projects
 // open to all agents (agents_allowed = 1) or explicitly granted to
 // the caller — a closed, ungranted project is invisible, so an
-// agent can never discover a project it must not touch. Unlike the
-// user route this lives under RequireAgent, so a cookie session
-// 401s.
+// agent can never discover a project it must not touch. A role=master
+// agent skips the filter entirely (it is global; master-agent-role
+// plan, step 5). Unlike the user route this lives under RequireAgent,
+// so a cookie session 401s.
 func agentListProjectsHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
@@ -92,19 +97,25 @@ func agentListProjectsHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
-		// Task 140: keep open projects + explicitly granted ones.
-		accessSet, aerr := deps.Projects.AgentAccessibleProjectIDs(r.Context(), id.AgentID)
-		if aerr != nil {
-			writeError(w, aerr)
-			return
-		}
-		visible := make([]*project.Project, 0, len(projects))
-		for _, p := range projects {
-			if accessSet[p.ID] {
-				visible = append(visible, p)
+		// master-agent-role plan (step 5): a master agent is global —
+		// the Task 140 access filter is meaningless for it, so it sees
+		// every project (closed ones included). Project agents keep
+		// the filtered list.
+		if !id.IsMaster {
+			accessSet, aerr := deps.Projects.AgentAccessibleProjectIDs(r.Context(), id.AgentID)
+			if aerr != nil {
+				writeError(w, aerr)
+				return
 			}
+			visible := make([]*project.Project, 0, len(projects))
+			for _, p := range projects {
+				if accessSet[p.ID] {
+					visible = append(visible, p)
+				}
+			}
+			projects = visible
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"projects": visible})
+		writeJSON(w, http.StatusOK, map[string]any{"projects": projects})
 	}
 }
 
@@ -141,7 +152,9 @@ type agentPatchProjectRequest struct {
 // PATCH carrying those keys is rejected with 422 owner_only_field
 // (granting itself access would defeat the whole scope model). The
 // raw body is inspected for those keys because the typed struct
-// would silently ignore them.
+// would silently ignore them. Master agents are NOT exempt: they
+// manage access through the user namespace
+// (PUT /api/v1/projects/{id}/agents), never through this surface.
 func agentPatchProjectHandler(deps *Dependencies) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, ok := IdentityFrom(r.Context())
@@ -249,44 +262,17 @@ func applyAgentProjectPatch(w http.ResponseWriter, r *http.Request, deps *Depend
 }
 
 // recordAgentProjectPatchActivity writes one audit row per changed
-// field (Task 140 agent namespace variant). Log-and-continue on
-// recorder failure — an audit gap must not fail the user-visible
-// mutation (same convention as ActivityRecorder callers).
+// field (Task 140 agent namespace variant) — a thin translation onto
+// the shared recordProjectActivity helper (same recorder, same
+// log-and-continue contract; no duplicate write path).
 func recordAgentProjectPatchActivity(r *http.Request, deps *Dependencies, p *project.Project, beforeDesc, beforeSlug string, descChanged, slugChanged bool) {
-	if deps.ProjectActivityRecorder == nil {
-		return
-	}
 	if descChanged {
-		payload, _ := json.Marshal(map[string]string{
-			"before": beforeDesc,
-			"after":  p.Description,
-		})
-		if rerr := deps.ProjectActivityRecorder.RecordProjectAuto(
-			r.Context(), p.ID,
-			project.ActivityDescriptionChanged, string(payload),
-		); rerr != nil && deps.Logger != nil {
-			deps.Logger.Warn("project activity record failed",
-				zap.String("project_id", p.ID),
-				zap.String("kind", "description_changed"),
-				zap.Error(rerr),
-			)
-		}
+		recordProjectActivity(r.Context(), deps, p.ID, project.ActivityDescriptionChanged,
+			map[string]string{"before": beforeDesc, "after": p.Description})
 	}
 	if slugChanged {
-		payload, _ := json.Marshal(map[string]string{
-			"before": beforeSlug,
-			"after":  p.WikiSlug,
-		})
-		if rerr := deps.ProjectActivityRecorder.RecordProjectAuto(
-			r.Context(), p.ID,
-			project.ActivityWikiSlugChanged, string(payload),
-		); rerr != nil && deps.Logger != nil {
-			deps.Logger.Warn("project activity record failed",
-				zap.String("project_id", p.ID),
-				zap.String("kind", "wiki_slug_changed"),
-				zap.Error(rerr),
-			)
-		}
+		recordProjectActivity(r.Context(), deps, p.ID, project.ActivityWikiSlugChanged,
+			map[string]string{"before": beforeSlug, "after": p.WikiSlug})
 	}
 }
 

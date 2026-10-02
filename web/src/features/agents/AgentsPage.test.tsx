@@ -202,6 +202,7 @@ describe('AgentsPage', () => {
         name: 'fresh-agent',
         type: ['qwen'],
         description: undefined,
+        role: 'project',
       });
     });
     // Token reveal banner.
@@ -269,6 +270,68 @@ describe('AgentsPage', () => {
 
     expect(stubHttp.delete).not.toHaveBeenCalled();
     expect(screen.getByText('kept')).toBeTruthy();
+  });
+});
+
+describe('AgentsPage — master-agent-role', () => {
+  it('master checkbox flips the create payload role to "master"', async () => {
+    stubHttp.post.mockResolvedValueOnce({
+      data: {
+        agent: makeAgent({ id: 'a-master', name: 'maestro' }),
+        plain_token: 'ort_master_token',
+      },
+    });
+
+    mount();
+    await screen.findByText(/No agents yet\./);
+    fireEvent.click(screen.getByRole('button', { name: /new agent/i }));
+    fireEvent.change(screen.getByPlaceholderText('Agent name (unique)'), {
+      target: { value: 'maestro' },
+    });
+    fireEvent.click(screen.getByTestId('master-checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => {
+      expect(stubHttp.post).toHaveBeenCalledWith('/api/v1/agents', {
+        name: 'maestro',
+        type: [],
+        description: undefined,
+        role: 'master',
+      });
+    });
+  });
+
+  it('renders the master chip for role=master and none for project agents', async () => {
+    stubHttp.get.mockImplementation((url: string) => {
+      if (url === '/api/v1/me') {
+        return Promise.resolve({
+          data: { user_id: 'u-1', email: 'me@x.com', display_name: 'Me', role: 'owner' },
+        });
+      }
+      if (url === '/api/v1/agents') {
+        return Promise.resolve({
+          data: {
+            agents: [
+              { ...makeAgent({ id: 'a-m', name: 'maestro' }), role: 'master' },
+              { ...makeAgent({ id: 'a-p', name: 'worker' }), role: 'project' },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <AgentsPage />
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('maestro');
+    expect(screen.getByTestId('master-chip')).toBeTruthy();
+    // Exactly one chip — the project agent row has none.
+    expect(screen.getAllByTestId('master-chip')).toHaveLength(1);
   });
 });
 describe('AgentsPage — Task 165 token banner copy', () => {

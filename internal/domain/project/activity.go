@@ -32,9 +32,26 @@ const (
 	ActivityWikiSlugChanged ActivityKind = "wiki_slug_changed"
 )
 
+// The user-namespace mutation kinds (master-agent-role plan, step 4):
+// POST /api/v1/projects and PATCH /api/v1/projects/{id} write the same
+// audit feed the agent namespace does — ActivityCreated is the first
+// row (payload {"name": ...}); ActivityNameChanged,
+// ActivityColorChanged, ActivityArchivedChanged land per changed
+// field, so a master agent's project edits appear with
+// actor_type=agent (RecordProjectAuto resolves the actor from the
+// request identity).
+const (
+	ActivityCreated         ActivityKind = "created"
+	ActivityNameChanged     ActivityKind = "name_changed"
+	ActivityColorChanged    ActivityKind = "color_changed"
+	ActivityArchivedChanged ActivityKind = "archived_changed"
+)
+
 // IsValid reports whether k belongs to the closed set above.
 func (k ActivityKind) IsValid() bool {
-	return k == ActivityDescriptionChanged || k == ActivityWikiSlugChanged
+	return k == ActivityDescriptionChanged || k == ActivityWikiSlugChanged ||
+		k == ActivityCreated || k == ActivityNameChanged ||
+		k == ActivityColorChanged || k == ActivityArchivedChanged
 }
 
 // ActorType enumerates who caused an activity row. Same shape as

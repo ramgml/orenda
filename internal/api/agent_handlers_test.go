@@ -16,6 +16,7 @@ import (
 	"github.com/ramgml/orenda/internal/api"
 	"github.com/ramgml/orenda/internal/api/ws"
 	"github.com/ramgml/orenda/internal/auth"
+	"github.com/ramgml/orenda/internal/domain/agent"
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/task"
 	timeentry "github.com/ramgml/orenda/internal/domain/timeentry"
@@ -73,7 +74,7 @@ func newAgentFixture(t *testing.T) *agentFixture {
 	// Adapter for agentservice.TokenMinter.
 	tm := &agentFixtureTMinter{tokens: tokens}
 	agentSvc := agentservice.New(agents, users, tm, hub, nil)
-	got, err := agentSvc.Register(context.Background(), "qwen-test", []string{"qwen"}, "test", nil)
+	got, err := agentSvc.Register(context.Background(), "qwen-test", []string{"qwen"}, "test", nil, agent.RoleProject)
 	require.NoError(t, err)
 
 	deps := api.Dependencies{
@@ -379,6 +380,45 @@ func TestAgent_AddManualTimeRejectsNegative(t *testing.T) {
 	fx.router.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 	assert.JSONEq(t, `{"error":"minutes_must_be_non_negative"}`, rr.Body.String())
+}
+
+// T400: unknown keys are rejected loudly (400 unknown_field) instead
+// of silently decoding into a 0-second entry that passes the submit
+// gate. The user-side range fields are NOT part of this contract.
+func TestAgent_AddManualTimeRejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+	fx := newAgentFixture(t)
+
+	post := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost,
+			"/api/v1/agent/tasks/whatever/time", bytes.NewReader([]byte(body)))
+		req.Header.Set("Authorization", "Bearer "+fx.token)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		fx.router.ServeHTTP(rr, req)
+		return rr
+	}
+
+	// The exact misuse from the field report: user-side range fields.
+	rr := post(`{"start_at":"2026-10-01T08:20:00Z","end_at":"2026-10-01T10:10:00Z"}`)
+	require.Equal(t, http.StatusBadRequest, rr.Code, "body=%s", rr.Body.String())
+	var out struct {
+		Error   string   `json:"error"`
+		Field   string   `json:"field"`
+		Allowed []string `json:"allowed"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+	assert.Equal(t, "unknown_field", out.Error)
+	assert.Equal(t, "end_at", out.Field, "unknown keys are reported alphabetically")
+	assert.Equal(t, []string{"minutes"}, out.Allowed)
+
+	// Mixed payload: minutes alone would be valid, the extra key still
+	// fails the whole request (no half-applied writes).
+	rr = post(`{"minutes":5,"agent_id":"a-1"}`)
+	require.Equal(t, http.StatusBadRequest, rr.Code)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+	assert.Equal(t, "unknown_field", out.Error)
+	assert.Equal(t, "agent_id", out.Field)
 }
 
 // Phase 27.11: agent-side comment endpoint writes the comment as

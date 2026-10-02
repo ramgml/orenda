@@ -2,13 +2,16 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 
 	"github.com/ramgml/orenda/internal/domain/project"
 	"github.com/ramgml/orenda/internal/domain/wiki"
@@ -73,7 +76,31 @@ func createProjectHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		// master-agent-role plan (step 4): the creation itself is the
+		// first audit row — payload {"name": ...}, no before value.
+		recordProjectActivity(r.Context(), deps, created.ID, project.ActivityCreated,
+			map[string]string{"name": created.Name})
 		writeProjectAgentToken(w, r, deps, created, id.UserID)
+	}
+}
+
+// recordProjectActivity writes one project_activity row through the
+// shared auto recorder — the actor (user vs master agent) resolves
+// from the request identity inside RecordProjectAuto, so a master
+// agent's mutation is never attributed to the owner. Log-and-continue
+// on failure: an audit gap must not fail the user-visible mutation
+// (same convention as the agent-namespace recorder).
+func recordProjectActivity(ctx context.Context, deps *Dependencies, projectID string, kind project.ActivityKind, fields map[string]string) {
+	if deps.ProjectActivityRecorder == nil {
+		return
+	}
+	payload, _ := json.Marshal(fields)
+	if err := deps.ProjectActivityRecorder.RecordProjectAuto(ctx, projectID, kind, string(payload)); err != nil && deps.Logger != nil {
+		deps.Logger.Warn("project activity record failed",
+			zap.String("project_id", projectID),
+			zap.String("kind", string(kind)),
+			zap.Error(err),
+		)
 	}
 }
 
@@ -167,6 +194,11 @@ func patchProjectHandler(deps *Dependencies) http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 			return
 		}
+		// master-agent-role plan (step 4): capture the pre-patch values
+		// so each changed field gets its own before/after audit row.
+		beforeName, beforeColor := p.Name, p.Color
+		beforeDesc, beforeSlug := p.Description, p.WikiSlug
+		beforeArchived := p.Archived
 		if !applyProjectPatchFields(w, r, deps, p, &in) {
 			return
 		}
@@ -174,7 +206,38 @@ func patchProjectHandler(deps *Dependencies) http.HandlerFunc {
 			writeError(w, err)
 			return
 		}
+		recordProjectPatchActivity(r.Context(), deps, p, beforeName, beforeColor,
+			beforeDesc, beforeSlug, beforeArchived)
 		writeJSON(w, http.StatusOK, p)
+	}
+}
+
+// recordProjectPatchActivity writes one audit row per changed field
+// (name / color / description / wiki_slug / archived). Board-column
+// activity and DELETE are deliberately out of scope: columns have no
+// activity surface for anyone, and project_activity rows cascade away
+// with the project row (schema FK), so a deleted project's `created`
+// row is its last trace.
+func recordProjectPatchActivity(ctx context.Context, deps *Dependencies, p *project.Project, beforeName, beforeColor, beforeDesc, beforeSlug string, beforeArchived bool) {
+	if beforeName != p.Name {
+		recordProjectActivity(ctx, deps, p.ID, project.ActivityNameChanged,
+			map[string]string{"before": beforeName, "after": p.Name})
+	}
+	if beforeColor != p.Color {
+		recordProjectActivity(ctx, deps, p.ID, project.ActivityColorChanged,
+			map[string]string{"before": beforeColor, "after": p.Color})
+	}
+	if beforeDesc != p.Description {
+		recordProjectActivity(ctx, deps, p.ID, project.ActivityDescriptionChanged,
+			map[string]string{"before": beforeDesc, "after": p.Description})
+	}
+	if beforeSlug != p.WikiSlug {
+		recordProjectActivity(ctx, deps, p.ID, project.ActivityWikiSlugChanged,
+			map[string]string{"before": beforeSlug, "after": p.WikiSlug})
+	}
+	if beforeArchived != p.Archived {
+		recordProjectActivity(ctx, deps, p.ID, project.ActivityArchivedChanged,
+			map[string]string{"before": strconv.FormatBool(beforeArchived), "after": strconv.FormatBool(p.Archived)})
 	}
 }
 
