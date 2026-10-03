@@ -310,6 +310,11 @@ type ProposalPatchParams struct {
 	Priority    *Priority
 	DueAt       *time.Time
 	ParentID    *string
+	// Task 416: planned effort in seconds. nil = untouched; non-nil
+	// follows the T120 sentinel — 0 stores NULL (clear), any other
+	// value stores the seconds. Same pointer+sentinel shape the
+	// user-side PATCH handler applies to its wire input.
+	TimeEstimateS *int
 }
 
 // ProposalGate carries the (created_by_type='agent' AND

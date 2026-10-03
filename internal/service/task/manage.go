@@ -28,6 +28,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"go.uber.org/zap"
@@ -54,6 +55,12 @@ var (
 	// caller bug (or an empty body); we surface 400 to make it
 	// obvious rather than silently 200 with no-op.
 	ErrNoPatchFields = errors.New("task service: no patch fields supplied")
+	// Task 416: the holder path received a proposal-gated field
+	// (time_estimate_s). UpdateHeldFields writes only title/
+	// description/notes, so without this guard the field would be
+	// silently dropped while the returned diff claimed a change —
+	// the exact Task 115 F2 class. Mapped to 400 by the handler.
+	ErrProposalGatedField = errors.New("task service: patch carries a proposal-gated field through the holder gate")
 	// ErrConcurrentTriage: a TOCTOU race — the row's status left
 	// backlog (or another gate) between the gate-check read and the
 	// gated update. Mapped to HTTP 409 Conflict by the handler.
@@ -86,6 +93,11 @@ type EditProposalPatch struct {
 	// The api handler sets this after buildEditProposalPatch; the
 	// proposal gate rejects any proposal-path patch that carries it.
 	Notes *string
+	// Task 416: planned effort in seconds, proposal-gated like
+	// priority/due_at — planning data is owner-scoped once the
+	// proposal is triaged. nil = untouched; non-nil follows the
+	// T120 sentinel (0 = clear, stored as NULL).
+	TimeEstimateS *int
 }
 
 // Change describes one field-level edit on a proposal. Returned in
@@ -237,13 +249,14 @@ func (s *Service) EditProposal(ctx context.Context, taskID, agentID string, patc
 	// something to write.
 	if len(changes) > 0 {
 		params := task.ProposalPatchParams{
-			TaskID:      tr.ID,
-			Gate:        task.ProposalGate{CreatedByID: agentID},
-			Title:       patch.Title,
-			Description: patch.Description,
-			Priority:    patch.Priority,
-			DueAt:       patch.DueAt,
-			ParentID:    patch.ParentTaskID,
+			TaskID:        tr.ID,
+			Gate:          task.ProposalGate{CreatedByID: agentID},
+			Title:         patch.Title,
+			Description:   patch.Description,
+			Priority:      patch.Priority,
+			DueAt:         patch.DueAt,
+			ParentID:      patch.ParentTaskID,
+			TimeEstimateS: patch.TimeEstimateS,
 		}
 		if err := s.Tasks.UpdateProposalFields(ctx, params); err != nil {
 			if errors.Is(err, task.ErrNotFound) {
@@ -463,6 +476,14 @@ func (s *Service) EditHeld(ctx context.Context, taskID, agentID string, patch Ed
 	if patch.isEmpty() {
 		return nil, ErrNoPatchFields
 	}
+	// Task 416: time_estimate_s is proposal-gated (owner-scoped
+	// planning data). UpdateHeldFields writes only title/description/
+	// notes, so without this guard a holder PATCH carrying it would
+	// be silently dropped while the returned diff claimed a change —
+	// the exact Task 115 F2 class. The API surface 400s instead.
+	if patch.TimeEstimateS != nil {
+		return nil, ErrProposalGatedField
+	}
 	tr, err := s.Tasks.GetByID(ctx, taskID)
 	if err != nil {
 		return nil, err
@@ -565,6 +586,30 @@ func applyEditProposalPatch(tr *task.Task, patch EditProposalPatch) []Change {
 		changes = append(changes, Change{Field: "parent_task_id", From: tr.ParentTaskID, To: *patch.ParentTaskID})
 		tr.ParentTaskID = *patch.ParentTaskID
 	}
+	// time_estimate_s: pointer-to-int distinguishes "leave alone"
+	// (nil) from "explicitly clear" (&0 — the T120 sentinel, a
+	// zero-second estimate is meaningless). from/to are rendered as
+	// decimal seconds, "" for the unset (NULL) state, mirroring the
+	// due_at string convention.
+	if patch.TimeEstimateS != nil {
+		fromStr := ""
+		if tr.TimeEstimateS != nil {
+			fromStr = strconv.Itoa(*tr.TimeEstimateS)
+		}
+		toStr := ""
+		if *patch.TimeEstimateS != 0 {
+			toStr = strconv.Itoa(*patch.TimeEstimateS)
+		}
+		if fromStr != toStr {
+			changes = append(changes, Change{Field: "time_estimate_s", From: fromStr, To: toStr})
+			if *patch.TimeEstimateS == 0 {
+				tr.TimeEstimateS = nil
+			} else {
+				v := *patch.TimeEstimateS
+				tr.TimeEstimateS = &v
+			}
+		}
+	}
 	return changes
 }
 
@@ -574,7 +619,7 @@ func applyEditProposalPatch(tr *task.Task, patch EditProposalPatch) []Change {
 func (p EditProposalPatch) isEmpty() bool {
 	return p.Title == nil && p.Description == nil && p.Priority == nil &&
 		p.DueAt == nil && p.ParentTaskID == nil && p.BlockedBy == nil &&
-		p.Notes == nil
+		p.Notes == nil && p.TimeEstimateS == nil
 }
 
 // recordUpdated writes a task.updated activity row summarising the

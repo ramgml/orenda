@@ -235,12 +235,13 @@ func registerCoreTaskTools(s *Server, httpc *http.Client, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"project_id", "title", "description_md"},
 			"properties": map[string]any{
-				"project_id":     map[string]any{"type": "string"},
-				"title":          map[string]any{"type": "string"},
-				"description_md": map[string]any{"type": "string", "description": "Markdown body — the task must be self-sufficient (CONTEXT.md)"},
-				"priority":       map[string]any{"type": "string", "description": "low|medium|high|urgent (default medium)"},
-				"blocked_by":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Blocker task ids"},
-				"parent_task_id": map[string]any{"type": "string", "description": "Parent task id (creates a subtask)"},
+				"project_id":      map[string]any{"type": "string"},
+				"title":           map[string]any{"type": "string"},
+				"description_md":  map[string]any{"type": "string", "description": "Markdown body — the task must be self-sufficient (CONTEXT.md)"},
+				"priority":        map[string]any{"type": "string", "description": "low|medium|high|urgent (default medium)"},
+				"time_estimate_s": map[string]any{"type": "integer", "description": "Task 416: planned effort in seconds. Optional; 0 is stored as unset (a zero-second estimate is meaningless — the T120 sentinel)."},
+				"blocked_by":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Blocker task ids"},
+				"parent_task_id":  map[string]any{"type": "string", "description": "Parent task id (creates a subtask)"},
 			},
 		},
 		Handler: func(ctx context.Context, params map[string]any) (any, error) {
@@ -259,13 +260,14 @@ func registerCoreTaskTools(s *Server, httpc *http.Client, cfg ServerConfig) {
 			"type":     "object",
 			"required": []string{"task_id"},
 			"properties": map[string]any{
-				"task_id":        map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
-				"title":          map[string]any{"type": "string", "description": "New title. Proposal-gated on your own backlog proposal; otherwise holder-gated (you must hold the claim)."},
-				"description_md": map[string]any{"type": "string", "description": "New markdown description. Proposal-gated on your own backlog proposal; otherwise holder-gated (you must hold the claim)."},
-				"priority":       map[string]any{"type": "string", "description": "low|medium|high|urgent"},
-				"due_at":         map[string]any{"type": "string", "description": "RFC3339 or null to clear"},
-				"parent_task_id": map[string]any{"type": "string"},
-				"agent_notes":    map[string]any{"type": "string"},
+				"task_id":         map[string]any{"type": "string", "description": "Task UUID or T-prefixed number ('T42')"},
+				"title":           map[string]any{"type": "string", "description": "New title. Proposal-gated on your own backlog proposal; otherwise holder-gated (you must hold the claim)."},
+				"description_md":  map[string]any{"type": "string", "description": "New markdown description. Proposal-gated on your own backlog proposal; otherwise holder-gated (you must hold the claim)."},
+				"priority":        map[string]any{"type": "string", "description": "low|medium|high|urgent"},
+				"time_estimate_s": map[string]any{"type": "integer", "description": "Task 416: planned effort in seconds. Proposal-gated like priority (own un-triaged proposal only; 400 proposal_gated_field on the holder path). 0 clears (T120 sentinel); omit to leave untouched."},
+				"due_at":          map[string]any{"type": "string", "description": "RFC3339 or null to clear"},
+				"parent_task_id":  map[string]any{"type": "string"},
+				"agent_notes":     map[string]any{"type": "string"},
 				"blocked_by": map[string]any{
 					"type": "array", "items": map[string]any{"type": "string"},
 					"description": "Full replacement blocker list (Task 115). Items are task UUIDs or T-refs ('T42'); [] clears all blockers; omit the field to leave them untouched. Self-blocks and cycles are rejected (422). Adding a blocker auto-flips the task to status=blocked until every blocker is done or removed.",
@@ -939,6 +941,11 @@ func taskProposeBody(params map[string]any) (map[string]any, error) {
 	if p := stringParam(params, "priority"); p != "" {
 		body["priority"] = p
 	}
+	// Task 416: forward an explicit estimate (absent → not sent).
+	// 0 is normalized to unset by the server (T120 sentinel).
+	if v, ok := params["time_estimate_s"].(float64); ok {
+		body["time_estimate_s"] = int(v)
+	}
 	if p := stringParam(params, "parent_task_id"); p != "" {
 		body["parent_task_id"] = p
 	}
@@ -968,6 +975,12 @@ func taskUpdateArgs(params map[string]any) (taskID string, body map[string]any, 
 		if v, _ := params[k].(string); v != "" {
 			body[k] = v
 		}
+	}
+	// Task 416: time_estimate_s distinguishes absent (untouched)
+	// from an explicit 0 (the T120 clear sentinel) — forward it
+	// whenever supplied, never fold it into the string set above.
+	if v, ok := params["time_estimate_s"].(float64); ok {
+		body["time_estimate_s"] = int(v)
 	}
 	// Task 115: blocked_by distinguishes absent (untouched)
 	// from [] (clear all) — forward the raw array whenever

@@ -55,6 +55,12 @@ type agentTaskPatchInput struct {
 	// pointer keeps "absent" and "[]" (clear all) apart on the wire.
 	BlockedBy  *[]string `json:"blocked_by"`
 	AgentNotes string    `json:"agent_notes"`
+	// Task 416: planned effort in seconds. Pointer keeps "absent"
+	// (nil → untouched) apart from "explicitly 0" (clear, the T120
+	// sentinel). Proposal-gated like priority/due_at/parent — never
+	// holder-writable (planning data is owner-scoped once the task
+	// leaves the agent's backlog).
+	TimeEstimateS *int `json:"time_estimate_s"`
 }
 
 // agentGetTaskHandler returns a single task to the bearer agent
@@ -144,7 +150,7 @@ func agentPatchTaskHandler(deps *Dependencies) http.HandlerFunc {
 		// fields, never holder-writable).
 		holderOnly := in.AgentNotes != "" &&
 			in.Priority == "" && in.DueAt == nil && in.ParentTaskID == "" &&
-			in.BlockedBy == nil
+			in.BlockedBy == nil && in.TimeEstimateS == nil
 		if holderOnly && in.Title == "" && in.DescriptionMD == "" {
 			tr, err := deps.TaskService.UpdateAgentNotes(r.Context(), taskID, id.AgentID, in.AgentNotes)
 			if err != nil {
@@ -261,14 +267,22 @@ func buildEditProposalPatch(in agentTaskPatchInput) (taskservice.EditProposalPat
 	if in.BlockedBy != nil {
 		out.BlockedBy = in.BlockedBy
 	}
+	// Task 416: nil = untouched; &0 travels through as the clear
+	// sentinel (the service normalizes to NULL, same as due_at's
+	// zero-time convention).
+	if in.TimeEstimateS != nil {
+		v := *in.TimeEstimateS
+		out.TimeEstimateS = &v
+	}
 	if in.AgentNotes != "" {
 		// agent_notes is holder-only: it may ride a PATCH only alone
 		// (UpdateAgentNotes) or with title/description_md (Task 241:
 		// EditHeld lands the whole patch in one gated UPDATE). Mixed
 		// with any owner-scoped field (priority/due_at/parent/
-		// blocked_by) it stays a caller bug → 400; the caller sees
-		// a clear 400 instead of a service-level permission error.
-		if in.Priority != "" || in.DueAt != nil || in.ParentTaskID != "" || in.BlockedBy != nil {
+		// blocked_by/time_estimate_s) it stays a caller bug → 400;
+		// the caller sees a clear 400 instead of a service-level
+		// permission error.
+		if in.Priority != "" || in.DueAt != nil || in.ParentTaskID != "" || in.BlockedBy != nil || in.TimeEstimateS != nil {
 			return out, fmt.Errorf("agent_notes_requires_holder_only")
 		}
 	}
@@ -312,6 +326,12 @@ func translateManageError(w http.ResponseWriter, err error, op string) {
 	case errors.Is(err, taskservice.ErrNoPatchFields):
 		writeJSON(w, http.StatusBadRequest,
 			map[string]string{"error": "no_patch_fields"})
+	case errors.Is(err, taskservice.ErrProposalGatedField):
+		// Task 416: the holder gate received time_estimate_s — a
+		// proposal-gated field it can never write. 400, not 403: the
+		// patch shape is a caller bug, not a permission failure.
+		writeJSON(w, http.StatusBadRequest,
+			map[string]string{"error": "proposal_gated_field"})
 	case errors.Is(err, taskservice.ErrSelfDependency),
 		errors.Is(err, taskservice.ErrDependencyCycle):
 		// Task 115: blocked_by validation — same code as PUT

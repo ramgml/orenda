@@ -736,3 +736,66 @@ func TestOrendaTools_ServerErrorBodyTruncated(t *testing.T) {
 	assert.Contains(t, msg, "(truncated)")
 	assert.Less(t, len(msg), 700, "message must be capped, got %d chars", len(msg))
 }
+
+// ------------------------------------------------------------------
+// Task 416: time_estimate_s rides the MCP propose/update tools.
+
+// The propose tool forwards an explicit estimate into the POST body.
+func TestOrendaTools_TaskProposeForwardsEstimate(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_task_propose", map[string]any{
+		"project_id":      "P7",
+		"title":           "t",
+		"description_md":  "body",
+		"time_estimate_s": float64(1800),
+	})
+	assert.Equal(t, http.MethodPost, rec.method)
+	assert.Equal(t, float64(1800), rec.body["time_estimate_s"],
+		"estimate must reach the POST body")
+}
+
+// Absent estimate is not forwarded (server default = unset).
+func TestOrendaTools_TaskProposeWithoutEstimateOmitsField(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_task_propose", map[string]any{
+		"project_id":     "P7",
+		"title":          "t",
+		"description_md": "body",
+	})
+	_, ok := rec.body["time_estimate_s"]
+	assert.False(t, ok, "absent estimate must stay absent")
+}
+
+// The update tool forwards the estimate verbatim — including an
+// explicit 0, which is the T120 clear sentinel and must NOT be folded
+// into the "empty string means absent" logic of the string fields.
+func TestOrendaTools_TaskUpdateForwardsEstimate(t *testing.T) {
+	srv, rec := newToolServer(t, nil)
+	callTool(t, srv, "orenda_task_update", map[string]any{
+		"task_id":         "T42",
+		"time_estimate_s": float64(0),
+	})
+	assert.Equal(t, http.MethodPatch, rec.method)
+	assert.Equal(t, "/api/v1/agent/tasks/T42", rec.escapedPath)
+	require.Contains(t, rec.body, "time_estimate_s",
+		"explicit 0 is the clear sentinel and must be forwarded")
+	assert.Equal(t, float64(0), rec.body["time_estimate_s"])
+}
+
+// The tool schemas expose time_estimate_s so MCP clients can
+// discover the field.
+func TestOrendaTools_TaskSchemasExposeEstimate(t *testing.T) {
+	srv, _ := newToolServer(t, nil)
+	resp := call(t, srv, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	tools := resp["result"].(map[string]any)["tools"].([]any)
+	for _, raw := range tools {
+		tool := raw.(map[string]any)
+		name := tool["name"].(string)
+		if name != "orenda_task_propose" && name != "orenda_task_update" {
+			continue
+		}
+		schema := tool["inputSchema"].(map[string]any)
+		props := schema["properties"].(map[string]any)
+		assert.Contains(t, props, "time_estimate_s", "%s schema must declare time_estimate_s", name)
+	}
+}
