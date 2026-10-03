@@ -590,6 +590,17 @@ func (r *taskRepo) UpdateProposalFields(ctx context.Context, p task.ProposalPatc
 			args = append(args, p.DueAt.Format("2006-01-02 15:04:05"))
 		}
 	}
+	// Task 416: T120 sentinel — 0 stores NULL (clear); any other
+	// value stores the seconds. Same pointer+sentinel shape as
+	// due_at above.
+	if p.TimeEstimateS != nil {
+		sets = append(sets, "time_estimate_s = ?")
+		if *p.TimeEstimateS == 0 {
+			args = append(args, nil)
+		} else {
+			args = append(args, *p.TimeEstimateS)
+		}
+	}
 	if p.ParentID != nil {
 		sets = append(sets, "parent_task_id = ?")
 		args = append(args, nullString(*p.ParentID))

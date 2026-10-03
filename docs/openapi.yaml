@@ -2639,6 +2639,12 @@ paths:
                 title: { type: string }
                 description_md: { type: string }
                 priority: { type: string, enum: [low, medium, high, urgent] }
+                time_estimate_s:
+                  type: integer
+                  description: |
+                    Task 416: planned effort in seconds. Optional; an
+                    explicit 0 is stored as unset (a zero-second estimate
+                    is meaningless — the T120 sentinel).
                 blocked_by: { type: array, items: { type: string } }
                 parent_task_id: { type: string }
       responses:
@@ -2772,6 +2778,15 @@ paths:
                   type: string
                   description: Same gating as title.
                 priority: { type: string, enum: [low, medium, high, urgent] }
+                time_estimate_s:
+                  type: integer
+                  description: |
+                    Task 416: planned effort in seconds. Proposal-gated
+                    like priority — only the agent's own un-triaged
+                    proposal accepts it (403 not_your_proposal otherwise;
+                    the holder gate answers 400 proposal_gated_field).
+                    Explicit 0 clears the stored value (the T120
+                    sentinel); absent field leaves it untouched.
                 due_at: { type: string, format: date-time, nullable: true }
                 parent_task_id: { type: string }
                 blocked_by:
@@ -2790,11 +2805,12 @@ paths:
                   description: |
                     Holder-only. Alone → notes update; with title/
                     description_md (Task 241) → one atomic gated write.
-                    Mixing notes with priority/due_at/parent/blocked_by
-                    is a 400 agent_notes_requires_holder_only.
+                    Mixing notes with priority/due_at/parent/blocked_by/
+                    time_estimate_s is a 400
+                    agent_notes_requires_holder_only.
       responses:
         '200': { description: ok }
-        '400': { description: invalid_json / no_patch_fields }
+        '400': { description: 'invalid_json / no_patch_fields / agent_notes_requires_holder_only / proposal_gated_field (Task 416)' }
         '403': { description: not_your_proposal / not_lock_holder }
         '404': { description: not_found }
     delete:
