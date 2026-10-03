@@ -47,6 +47,12 @@ type agentProposeTaskRequest struct {
 	BlockedBy     []string `json:"blocked_by"`
 	ParentTaskID  string   `json:"parent_task_id"`
 
+	// Task 416: planned effort in seconds, optional. Absent = unset;
+	// an explicit 0 is also stored as unset (a zero-second estimate
+	// is meaningless — the T120 sentinel), so the wire value only
+	// ever lands as a positive number of seconds.
+	TimeEstimateS *int `json:"time_estimate_s"`
+
 	// prio is not decoded from JSON; validateAgentProposeTask fills
 	// it in from the validated Priority string.
 	prio task.Priority `json:"-"`
@@ -92,6 +98,13 @@ func agentCreateTaskHandler(deps *Dependencies) http.HandlerFunc {
 			Priority:      in.prio,
 			CreatedByType: task.CreatorAgent,
 			CreatedByID:   id.AgentID,
+		}
+		// Task 416: carry an explicit estimate through propose. 0 is
+		// normalized to unset here (same sentinel as the user-side
+		// create handler), so the column only ever stores NULL or a
+		// positive number of seconds.
+		if in.TimeEstimateS != nil && *in.TimeEstimateS != 0 {
+			tr.TimeEstimateS = in.TimeEstimateS
 		}
 		// Land on the board's backlog column so the card is visible in
 		// the kanban for triage. A project without a backlog-status
