@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [0.28.0] — 2026-10-03
+
+### Added
+- **Task 416 (PR #293):** `time_estimate_s` на агентской write-поверхности задач — T120-оценка (int секунды) была доступна только user-side с 2026-09-01, агенты не могли её проставить ни на одном сурфейсе (REST/MCP/CLI; классический тихий разрыв — spec-списки полей молчали). Теперь: propose (`POST /api/v1/agent/tasks`) принимает опциональный `time_estimate_s` (absent/explicit 0 → NULL — на свежем пропозале «unset» единственный осмысленный ноль); PATCH (`PATCH /api/v1/agent/tasks/{id}`) — proposal-gated как priority/due_at/parent (свой нетриаженный пропозал; после триажа планировка — собственность владельца), pointer различает absent (нетронуто) и explicit 0 (sentinel-очистка → NULL, конвенция T120); estimate-only PATCH больше не отвечает `400 no_patch_fields` — сама жалоба #416; `agent_notes` микс с estimate по-прежнему `400 agent_notes_requires_holder_only`; foreign PATCH — по-прежнему `403 not_your_proposal`. Holder-путь охранён новым сентинелом: `PATCH {title, time_estimate_s}` держателем лока → `400 proposal_gated_field` (UpdateHeldFields пишет только title/description/notes — без гвардии поле было бы молча потеряно при диффе, заявляющем изменение; класс Task 115 F2). MCP: `orenda_task_propose`/`orenda_task_update` декларируют поле в схемах и форвардят его в REST (включая explicit 0 — не схлопывается в строковую логику absent). openapi: docs + embedded-копия синхронизированы (`make openapi-sync`), agent propose/patch-секции и список 400-кодов дополнены. Wiki «Agent API: управление задачами» в dogfood-инстансе дополнена полем и пометкой о proposal-gate — тот документ, чьё молчание сделало разрыв тихим. Тесты: 6 API-кейсов (round-trip echo+DB, sentinel, no_patch_fields ушёл, holder 400, notes-микс 400, foreign 403; sqlite+postgres матрица) + 4 MCP-кейса (форвардинг, включая explicit 0, и экспозиция схем).
+
 ## [0.27.0] — 2026-10-02
 
 ### Added
