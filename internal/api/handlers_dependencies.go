@@ -184,8 +184,11 @@ func listAgentTasksHandler(deps *Dependencies) http.HandlerFunc {
 		// filter and the project-scoped lookup share it.
 		// master-agent-role plan (step 5): a master agent is global,
 		// so the Task 140 access filter does not apply — every
-		// project (and every task in it) is visible to it.
-		accessSet := map[string]bool{}
+		// project (and every task in it) is visible to it. For a
+		// master the set stays nil, and buildAgentTaskRows treats a
+		// nil set as "no filter" (Task 418: the old empty map cut
+		// every project task from the master listing).
+		var accessSet map[string]bool
 		if !id.IsMaster {
 			as, aerr := deps.Projects.AgentAccessibleProjectIDs(r.Context(), id.AgentID)
 			if aerr != nil {
@@ -387,7 +390,9 @@ func listAgentTaskCandidates(ctx context.Context, deps *Dependencies, scopedProj
 // (Task 115: both signals are checked so the ready list never
 // lies), and not assigned — to another agent (Phase 15) nor to the
 // calling agent itself (in-flight work is noise in the ready list).
-// Tasks of inaccessible projects are invisible (Task 140); inbox
+// Tasks of inaccessible projects are invisible (Task 140); a nil
+// accessSet disables the filter — a master agent is global, so the
+// set is never built for it (master-agent-role plan step 5). Inbox
 // tasks are always shown. With readyOnly set, rows that are not
 // ready are skipped.
 func buildAgentTaskRows(ctx context.Context, deps *Dependencies, tasks []*task.Task, accessSet map[string]bool, agentID string, readyOnly bool) ([]taskRow, error) {
@@ -401,7 +406,7 @@ func buildAgentTaskRows(ctx context.Context, deps *Dependencies, tasks []*task.T
 	}
 	out := make([]taskRow, 0, len(tasks))
 	for _, tr := range tasks {
-		if tr.ProjectID != "" && !accessSet[tr.ProjectID] {
+		if tr.ProjectID != "" && accessSet != nil && !accessSet[tr.ProjectID] {
 			continue
 		}
 		var blockedBy []string
