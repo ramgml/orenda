@@ -118,7 +118,9 @@ func agentClaimTaskHandler(deps *Dependencies) http.HandlerFunc {
 // writeAgentScopeCheck implements the Task 140 (agent-project-scope)
 // gate: claiming is refused before the lock is taken when the task's
 // project is closed to this agent (agents_allowed = 0 and no grant
-// row). Inbox tasks (no project) are exempt — callers skip this for
+// row). Task 419 extends the same gate to propose (POST /agent/tasks)
+// — a project closed to the agent is invisible AND unwritable.
+// Inbox tasks (no project) are exempt — callers skip this for
 // them. Writes the 422 not_in_scope response and returns false when
 // the agent is out of scope; transport errors are surfaced via
 // writeError.
