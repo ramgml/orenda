@@ -23,7 +23,13 @@ COPY web/ ./
 RUN npm run build
 
 # ---- Stage 2: build the Go binary with the SPA embedded ---------------------
+# Build args feed the same -ldflags injection `make build` uses; without
+# them (.git is not in the build context) the binary would report the
+# main.go default `0.1.0-dev`.
 FROM golang:1.26-alpine AS build
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -33,7 +39,7 @@ COPY internal/ ./internal/
 # embed drop. Docker's COPY merges into the existing directory, so the
 # .gitkeep copied with internal/ above survives and the embed compiles.
 COPY --from=web /src/web/dist/ ./internal/embed/web/dist/
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /orenda ./cmd/orenda
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" -o /orenda ./cmd/orenda
 
 # ---- Stage 3: runtime --------------------------------------------------------
 FROM alpine:3.22

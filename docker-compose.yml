@@ -1,6 +1,14 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      # Passed through to the Dockerfile's ARGs — set VERSION/COMMIT/
+      # BUILD_DATE in the environment to stamp the image (see README
+      # "Run in Docker").
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-unknown}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
     image: orenda:local
     ports:
       - "${ORENDA_PORT:-2137}:2137"
