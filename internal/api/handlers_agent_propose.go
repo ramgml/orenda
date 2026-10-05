@@ -83,6 +83,18 @@ func agentCreateTaskHandler(deps *Dependencies) http.HandlerFunc {
 		if !validateAgentProposeTask(w, r, deps, &in) {
 			return
 		}
+		// Task 140 (extended to propose by Task 419): a project closed
+		// to this agent (agents_allowed = 0, no grant) is invisible AND
+		// unwritable — proposing into it must fail with 422 not_in_scope,
+		// same gate claim applies. in.ProjectID is already the resolved
+		// UUID at this point (validateAgentProposeTask resolved any
+		// P-ref), so the check looks at the same row claim would. The
+		// empty-project guard mirrors the claim handler; project_id is
+		// mandatory here, so the guard only keeps the inbox shape
+		// symmetric.
+		if in.ProjectID != "" && !writeAgentScopeCheck(w, r, deps, in.ProjectID, id.AgentID) {
+			return
+		}
 
 		// Phase 33.3: await=none by default — the owner's triage surface
 		// for a proposed task is the kanban backlog, not the review

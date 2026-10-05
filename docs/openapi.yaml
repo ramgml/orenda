@@ -2652,7 +2652,7 @@ paths:
         '400': { description: invalid_json / invalid_input (missing project_id, title or description_md) }
         '401': { description: missing or invalid agent token }
         '404': { description: not_found (unknown project / parent_task_id / blocked_by id) }
-        '422': { description: invalid_dependency (self/cycle/duplicate in blocked_by) }
+        '422': { description: 'invalid_dependency (self/cycle/duplicate in blocked_by) — or not_in_scope (task 140, propose included since task 419): project_id resolves to a project closed to this agent (agents_allowed = 0 and no grant row)' }
 
   /api/v1/agent/tasks/{id}/claim:
     post:
