@@ -17,6 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-1.0:** version is `0.MINOR.PATCH`. Anything may change between minors.
 - **Source of truth:** `VERSION` file at repo root. `Makefile` reads it via `git describe`.
 
+## [0.29.0] — 2026-10-05
+
+### Added
+- **Task 419 (PR #298):** скоуп-гейт на propose — `POST /api/v1/agent/tasks` при непустом `project_id` проходит ту же проверку `writeAgentScopeCheck`, что и claim (Task 140): закрытый проект (`agents_allowed=0`) без грант-строки → `422 not_in_scope`; P-ссылка резолвится до гейта; без master-байпаса (master видит всё — PR #297 — но действует только там, где пущен, симметрично клейму). Инбокс-поверхности у propose нет: `project_id` обязателен (пустой → `400 invalid_input`, регрессионный тест). Контракт задокументирован в `docs/openapi.yaml` + embedded-копии (`make openapi-sync`, гейт дрейфа зелёный). До этого любой аутентифицированный агент мог подкладывать карточки в чужие закрытые проекты — работоспособных (claim отрезался), но мусорных (демо: T417/T418 пропозалены без гранта).
+
+### Fixed
+- **Task 418 (PR #297):** master-агент снова видит ready-очередь всех проектов — `listAgentTasksHandler` оставлял `accessSet` пустой картой для master (комментарий «master-agent-role plan (step 5)» обещал глобальную видимость), а фильтр в `buildAgentTaskRows` отбрасывал все проектные задачи: `?ready=true`, `next --peek`, `--group-by project --tree` под master возвращали пустоту при живых todo-карточках. Фикc — nil-сентинел (`nil` = фильтр не применяется); грантовая видимость не-master агентов не изменилась (11 тестов Task 140 зелёные без правок). Клейм-скоуп не задет — у него свой гейт (`writeAgentScopeCheck`).
+
+- **Task 417 (PR #296):** Docker-сборка инжектит метаданные версии — стадия `build` получает `ARG VERSION/COMMIT/BUILD_DATE` и расширенные ldflags (`-X main.version/commit/buildDate`); до этого любой `docker build` давал бинарь с дефолтной меткой `0.1.0-dev` (`cmd/orenda/main.go:551`), ломая документированную проверку инстанса `/api/v1/info` и стартовые zap-логи. `docker-compose.yml` прокидывает `build.args` (env-переопределяемо), README дополнен проверенными командами. Makefile-канал (`make build`, git-describe) не изменён.
+
+- **Release engineering:** v0.29.0 — `release-v0.29.0` off dev @ 3abb29a: VERSION 0.28.0 → 0.29.0, данная секция CHANGELOG (формат `## [0.29.0]` сверен с CI changelog-extraction); PR в `main` (merge + tag `v0.29.0` + обязательный back-merge `main`→`dev` — акты владельца per GITFLOW, делегированы оркестратору 2026-10-05).
+
 ## [0.28.0] — 2026-10-03
 
 ### Added
