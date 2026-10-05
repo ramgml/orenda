@@ -306,10 +306,17 @@ Docker is an additional delivery channel; the canonical path is systemd
 # Build the image (multi-stage: node SPA → Go binary with the SPA embedded → alpine runtime)
 docker build -t orenda:local .
 
+# Stamp the binary's `orenda version` metadata via build args (defaults: dev/unknown/unknown):
+docker build --build-arg VERSION=$(git describe --tags --always) \
+    --build-arg COMMIT=$(git rev-parse --short HEAD) --build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+    -t orenda:local .
+
 # Run: the host port is set via ORENDA_PORT; the secret is required (compose
 # refuses to start without it — the error message says so; the variable is
-# needed for `docker compose exec`/`logs` too)
-ORENDA_PORT=8080 ORENDA_AUTH__JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build
+# needed for `docker compose exec`/`logs` too). compose forwards the
+# VERSION/COMMIT/BUILD_DATE env vars as build args:
+VERSION=$(git describe --tags --always) ORENDA_PORT=8080 \
+    ORENDA_AUTH__JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build
 # → http://127.0.0.1:8080
 ```
 
